@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '@astryxdesign/core/Button'
+import { Icon } from '@astryxdesign/core/Icon'
 import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl'
 import { demoScenarios } from '../../modules/marketing/demo-scenarios.generated'
 import { currentCueIndex } from '../../modules/marketing/demo-cue'
@@ -111,7 +112,7 @@ export function SparraDemo(): React.JSX.Element {
       <aside className="sparra-receipt" aria-labelledby="sparra-receipt-title">
         <h3 id="sparra-receipt-title">Ce que vous recevez</h3>
         <p className="sparra-example-label">Fiche illustrative — aucune demande réelle envoyée.</p>
-        <p className="sparra-status">{scenario.receipt.status}</p>
+        <p className="sparra-status"><Icon icon="clock" size="sm" aria-hidden="true" focusable="false" /> {scenario.receipt.status}</p>
         <dl>
           <div><dt>Contact</dt><dd>{scenario.receipt.contact}</dd></div>
           <div><dt>Téléphone</dt><dd>{scenario.receipt.phone}</dd></div>

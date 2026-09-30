@@ -4,6 +4,8 @@ Date : 30 septembre 2026. Périmètre : page publique Sparra, deux MP3 illustrat
 
 ## Commandes et preuves observées
 
+Les résultats techniques ci-dessous ont été observés au commit `950a9f63e9c6bf05355baf5bc254352464bb633c`. La revue indépendante conserve ses constats historiques et ses limites à ce même commit ; le complément natif ultérieur ne transforme pas ses exigences encore ouvertes en résultats passés.
+
 Environnement : Windows, Node 24.14.0, pnpm 10.32.1, TypeScript 7.0.2, Playwright 1.62.1 / Chromium headless. Intégrations ciblées avec un worker, PostgreSQL/PgBouncer/Redis jetables sur Docker Desktop `desktop-linux` Linux amd64 et images SHA-pinnées de la fixture existante. Secrets de fixture générés à chaque lancement ; aucun `.env` lu. Seuil avant exécution : au moins 2 GiB physiques et 6 GiB virtuels libres. Le nettoyage vérifie la propriété des ressources et l'inventaire étranger inchangé.
 
 | Contrôle | Résultat local |
@@ -30,9 +32,17 @@ Le navigateur observe les styles locaux, le nonce des scripts correspondant à l
 
 640/320 px représentent seulement une approximation de reflow pour une fenêtre de 1280 px à 200 %/400 %. Elles ne prouvent pas le zoom natif du navigateur.
 
+## Complément natif du contrôleur — 30 septembre 2026
+
+Le contrôleur a observé Microsoft Edge **154.0.4258.37**, dans une fenêtre dédiée maximisée de **1920 × 1032 px**, sur la preview publique compilée au commit `950a9f63e9c6bf05355baf5bc254352464bb633c`. Les valeurs du menu natif **200 % et 400 %** ont été constatées directement. Cette preview loopback utilisait les pairs wire PostgreSQL/Redis contrôlés R1, avec authentification désactivée ; elle ne qualifie aucun utilisateur privé ni service fournisseur.
+
+À 200 %, les commandes et les deux colonnes de la démonstration étaient visibles, la progression native avançait et Entrée mettait la lecture en pause avec focus visible ; transcription et fiche restaient lisibles par défilement vertical. À 400 %, les commandes/textes se repliaient, la fiche passait sous la transcription et Tab/Entrée sur Recommencer remettait la progression à zéro en restant en pause. Le focus était visible et aucun défilement horizontal imposé n'a été observé dans les zones inspectées : hero, démonstration, transcription et fiche. Le zoom a été restauré à 100 %. La capture locale ignorée `.output/test-evidence/native/edge-400-receipt.png` appartient à cette observation du contrôleur.
+
+**Zoom natif observé, dans ce périmètre uniquement** : ce résultat concerne cette fenêtre et ces sections au commit cité, pas toute page, résolution, combinaison de navigateur ou la correction d'icône ultérieure. Il complète les approximations de viewport ci-dessus sans les confondre avec le zoom natif.
+
 ## Recettes humaines encore non vérifiées
 
-Lecteur d'écran : **non vérifié**. Aucun résultat axe ou arbre d'accessibilité n'est présenté comme un test de lecteur d'écran. Sur la preview compilée, relever navigateur/version, lecteur/version et observations pour chaque point :
+Lecteur d'écran : **non vérifié**. Le contrôleur a lancé Narrateur Windows **10.0.26100.8972**, mais son interface possède une intégrité supérieure à celle de l'outil de contrôle ; l'accès au récapitulatif vocal et au focus n'a pas permis d'observer fiablement les commandes, annonces et erreurs. Le Narrateur lancé pour cette recette a été fermé, sans installation ni changement de privilèges/réglages. Aucune sortie vocale partielle ne constitue une recette complète. Aucun résultat axe ou arbre d'accessibilité n'est présenté comme un test de lecteur d'écran. Sur la preview compilée, relever navigateur/version, lecteur/version et observations pour chaque point :
 
 1. Le groupe « Métier de l'exemple » expose le métier sélectionné ; changer de métier reste compréhensible et le focus suit le contrôle.
 2. Les commandes annoncent « Écouter l'exemple », « Pause » et « Recommencer » au moment approprié.
@@ -40,8 +50,8 @@ Lecteur d'écran : **non vérifié**. Aucun résultat axe ou arbre d'accessibili
 4. Bloquer le média puis lancer la lecture : l'erreur est annoncée sans déplacement du focus. La transcription et la fiche restent consultables.
 5. Parcourir la transcription puis « Ce que vous recevez » ; comprendre leur caractère fictif, la demande et l'action restant à confirmer.
 
-Zoom natif à 200 % et 400 % : **non vérifié**. Relever navigateur/version et vérifier lecture, commandes accessibles, textes/fiche consultables, focus visible et absence de perte d'information ou de défilement horizontal imposé.
+Écoute humaine intégrale des deux MP3 Windows actuels, intelligibilité, qualité des voix et concordance audio/texte : **reportée explicitement par l'utilisateur, non vérifiée**. Leurs assets, catalogue et provenance Windows restent inchangés. Les tests de métadonnées, cues et currentTime ne remplacent pas l'écoute.
 
-Écoute humaine intégrale des deux MP3, intelligibilité, qualité des voix et concordance audio/texte : **reportée explicitement par l'utilisateur, non vérifiée**. Les tests de métadonnées, cues et currentTime ne remplacent pas l'écoute.
+La demande ultérieure de remplacements français proches d'une voix humaine ouvre une expérimentation A/B distincte, préparée hors de ces assets techniques. Elle ne valide ni la qualité des voix Windows actuelles, ni celle de remplacements encore à comparer, et ne vaut pas acceptation d'écoute ou publication.
 
 Revue indépendante et Oracle du jalon : pilotées par le contrôleur, pas attestées par ce document d'implémentation. Publication, CI distante, hébergement France, conformité et traitement IA externe : aucune nouvelle preuve dans ce lot local.
