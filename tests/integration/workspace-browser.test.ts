@@ -12,7 +12,7 @@ let origin: string, upstreamPort: number, appEnv: Record<string,string>
 beforeAll(async () => {
   await mkdir('.output/test-evidence/google-browser', { recursive: true })
   stores = await startDisposableStores(); await stores.migrate()
-  await stores.administrator.query('GRANT USAGE ON SCHEMA public TO runtime; GRANT SELECT,INSERT,UPDATE,DELETE ON "user",account,session,verification TO runtime')
+  await stores.administrator.query('GRANT USAGE ON SCHEMA public TO runtime; GRANT SELECT,INSERT,UPDATE,DELETE ON "user",account,session,verification TO runtime; GRANT SELECT ON public.passkey TO runtime')
   const port = await unusedLoopbackPort(); origin = `http://localhost:${port}`
   appEnv = { NODE_ENV:'test',APP_ORIGIN:origin,DATABASE_URL:stores.runtimeUrl,REDIS_URL:stores.redisUrl,RATE_LIMIT_HMAC_SECRET:stores.hmac,RATE_LIMIT_KEY_ID:'workspace-browser',TRUSTED_PROXY_IPS:'127.0.0.2',AUTH_SECRET:randomBytes(48).toString('hex'),GOOGLE_CLIENT_ID:'fixture.apps.googleusercontent.com',GOOGLE_CLIENT_SECRET:'fixture-only',FIXTURE_GOOGLE_PROTOCOL:'yes',REQUEST_TIMEOUT_MS:'10000' }
   app = startWeb(appEnv); upstreamPort = (await bounded(app.ready)).port
@@ -59,6 +59,8 @@ test('real Astryx create/read/rename persists through reload and process restart
   let release = () => {}
   const held = new Promise<void>(resolve => { release=resolve })
   await page.route('**'+ensurePath,async route => { await held; await route.continue() })
+  // The SSR control is disabled until its actual hydrated consumer can accept input.
+  await expect.poll(() => page.getByRole('button',{name:'Create my workspace'}).isEnabled(), {timeout:7000}).toBe(true)
   await page.getByRole('button',{name:'Create my workspace'}).focus(); await page.keyboard.press('Enter')
   await page.getByText('Saving…',{exact:true}).waitFor()
   expect(await page.getByRole('button',{name:'Create my workspace'}).getAttribute('aria-busy')).toBe('true')
@@ -113,7 +115,8 @@ test('real Astryx create/read/rename persists through reload and process restart
   await stores.administrator.query('DELETE FROM session WHERE id=$1',[privateSession.id])
   const refused=await context.request.get(workspaceReadUrl,{headers:{'sec-fetch-site':'same-origin','x-tsr-serverFn':'true'}})
   expect(refused.status()).toBe(401)
-  await page.reload(); await page.waitForURL(origin+'/login?lang=fr')
+  await page.reload(); await page.waitForURL(origin+'/login')
+  expect(await page.locator('html').getAttribute('lang')).toBe('fr')
   await page.getByRole('button',{name:'Continuer avec Google'}).waitFor()
   expect((await page.content()).includes('Mon espace privé')).toBe(false)
   expect((await page.content()).includes(privateSession.user_id)).toBe(false)

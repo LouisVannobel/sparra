@@ -3,6 +3,7 @@ import { createServer, request as httpRequest } from 'node:http'
 import { randomBytes } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { chromium, type Browser, type Page } from 'playwright'
+import AxeBuilder from '@axe-core/playwright'
 import { startDisposableStores } from '../fixtures/db/disposable-stores'
 import { startWeb, bounded, unusedLoopbackPort } from '../helpers/web-process'
 
@@ -33,7 +34,8 @@ afterAll(async () => {
   if (failures.length) throw new AggregateError(failures, 'Marketing browser cleanup failed')
 })
 async function openPage() {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } })
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
+  const page = await context.newPage()
   page.setDefaultTimeout(6000)
   await page.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort())
   return page
@@ -76,7 +78,7 @@ test('no autoplay; real play, pause, restart and arrows keep audio, transcript a
     await page.setViewportSize({ width: 320, height: 800 })
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await page.screenshot({ path: '.output/test-evidence/marketing/demo-mobile.png', fullPage: true })
-  } finally { await page.close() }
+  } finally { await page.context().close() }
 }, 30000)
 
 test('a real audio failure is announced and leaves text and receipt available', async () => {
@@ -84,12 +86,14 @@ test('a real audio failure is announced and leaves text and receipt available', 
   try {
     await page.route('**/demos/*.mp3', route => route.fulfill({ status: 404, body: 'Missing audio' }))
     await page.goto(origin)
-    await page.getByRole('button', { name: 'Écouter l’exemple', exact: true }).click()
+    const play = page.getByRole('button', { name: 'Écouter l’exemple', exact: true })
+    await play.focus(); await page.keyboard.press('Enter')
     await page.locator('#demo [role="alert"]').waitFor()
+    expect(await play.evaluate(element => element === document.activeElement)).toBe(true)
     expect(await page.locator('#demo .sparra-transcript').textContent()).toContain('révision')
     expect(await page.locator('#demo .sparra-receipt').textContent()).toContain('révision')
     expect((await media(page)).paused).toBe(true)
-  } finally { await page.close() }
+  } finally { await page.context().close() }
 })
 
 test('advertised retry refetches a failed resource and plays it when it becomes available', async () => {
@@ -117,7 +121,7 @@ test('advertised retry refetches a failed resource and plays it when it becomes 
     expect(await page.getByRole('button', { name: 'Pause', exact: true }).count()).toBe(1)
     expect(await page.locator('#demo .sparra-transcript').textContent()).toContain('révision')
     expect(await page.locator('#demo .sparra-receipt').textContent()).toContain('révision')
-  } finally { await page.close() }
+  } finally { await page.context().close() }
 })
 
 test('late canceled play cannot affect the next sector', async () => {
@@ -135,7 +139,7 @@ test('late canceled play cannot affect the next sector', async () => {
     expect((await media(page)).src).toContain('controle-technique.mp3')
     expect(await page.locator('#demo [role="alert"]').count()).toBe(0)
     expect(await page.getByRole('button', { name: 'Écouter l’exemple', exact: true }).count()).toBe(1)
-  } finally { release(); await page.close() }
+  } finally { release(); await page.context().close() }
 })
 
 test.each(['Pause', 'Recommencer'])('canceling pending playback with %s stays paused without a false error', async action => {
@@ -152,7 +156,7 @@ test.each(['Pause', 'Recommencer'])('canceling pending playback with %s stays pa
     expect(await media(page)).toMatchObject({ paused: true, time: 0 })
     expect(await page.locator('#demo [role="alert"]').count()).toBe(0)
     expect(await page.getByRole('button', { name: 'Écouter l’exemple', exact: true }).count()).toBe(1)
-  } finally { release(); await page.close() }
+  } finally { release(); await page.context().close() }
 })
 
 test('an uncanceled native AbortError from the current media is announced', async () => {
@@ -168,7 +172,7 @@ test('an uncanceled native AbortError from the current media is announced', asyn
     await page.locator('#demo [role="alert"]').waitFor()
     expect(await page.locator('#demo .sparra-transcript').textContent()).toContain('révision')
     expect((await media(page)).paused).toBe(true)
-  } finally { release(); await page.close() }
+  } finally { release(); await page.context().close() }
 })
 
 test('leaving the demo stops its media', async () => {
@@ -186,7 +190,81 @@ test('leaving the demo stops its media', async () => {
     await page.waitForURL(origin + '/login')
     await page.getByRole('heading', { name: 'Connexion', exact: true }).waitFor()
     expect(await page.locator('#demo audio').count()).toBe(0)
-    expect(await previous!.evaluate(audio => (audio as HTMLAudioElement).paused)).toBe(true)
+    expect(await previous!.evaluate((audio: HTMLAudioElement) => audio.paused)).toBe(true)
     await previous?.dispose()
-  } finally { await page.close() }
+  } finally { await page.context().close() }
+})
+
+test('compiled page keeps styles, CSP nonce, keyboard focus, accessible names and zero external requests', async () => {
+  const page = await openPage()
+  const external: string[] = [], errors: string[] = [], cspViolations: string[] = []
+  page.on('request', request => { if (new URL(request.url()).origin !== origin) external.push(request.url()) })
+  page.on('pageerror', error => errors.push(error.message))
+  page.on('console', message => { if (message.text().startsWith('CSP_VIOLATION')) cspViolations.push(message.text()) })
+  await page.addInitScript(() => document.addEventListener('securitypolicyviolation', event => console.log('CSP_VIOLATION', event.violatedDirective)))
+  try {
+    const response = await page.goto(origin)
+    await page.getByRole('button', { name: 'Écouter l’exemple', exact: true }).waitFor()
+    const csp = response!.headers()['content-security-policy']!
+    const nonce = /'nonce-([^']+)'/.exec(csp)![1]
+    expect(csp).toContain("media-src 'self'")
+    expect(await page.locator('script').evaluateAll(scripts => scripts.every(script => script.nonce !== '' && script.nonce === scripts[0]?.nonce))).toBe(true)
+    expect(await page.locator('script').first().evaluate(script => script.nonce)).toBe(nonce)
+    expect(await page.locator('link[rel="stylesheet"]').count()).toBeGreaterThan(0)
+    expect(await page.locator('.sparra').evaluate(element => getComputedStyle(element).fontFamily)).toContain('system-ui')
+    expect(await page.getByRole('radiogroup', { name: 'Métier de l’exemple' }).count()).toBe(1)
+    const garage = page.getByRole('radio', { name: 'Garage', exact: true })
+    await garage.focus(); await page.keyboard.press('ArrowRight')
+    const selected = page.getByRole('radio', { name: 'Contrôle technique', exact: true })
+    expect(await selected.getAttribute('aria-checked')).toBe('true')
+    expect(await selected.evaluate(element => element === document.activeElement)).toBe(true)
+    expect(await selected.evaluate(element => getComputedStyle(element).outlineStyle)).not.toBe('none')
+    await page.keyboard.press('Tab')
+    const play = page.getByRole('button', { name: 'Écouter l’exemple', exact: true })
+    expect(await play.evaluate(element => element === document.activeElement)).toBe(true)
+    await page.keyboard.press('Enter')
+    await page.waitForFunction(() => document.querySelector<HTMLAudioElement>('#demo audio')!.currentTime > .2)
+    expect(await page.getByRole('button', { name: 'Pause', exact: true }).evaluate(element => element === document.activeElement)).toBe(true)
+    const progress = page.getByRole('progressbar', { name: 'Progression de l’exemple' })
+    expect(Number(await progress.getAttribute('value'))).toBeGreaterThan(0)
+    expect(Number(await progress.getAttribute('max'))).toBeGreaterThan(0)
+    // Astryx buttons have empty loading-status regions; neither changing content is live.
+    expect(await page.locator('#demo .sparra-transcript, #demo .sparra-progress').evaluateAll(elements => elements.every(element => element.closest('[aria-live]') === null && element.querySelector('[aria-live]') === null))).toBe(true)
+    expect(await page.locator('#demo [aria-live]').evaluateAll(elements => elements.every(element => element.textContent === ''))).toBe(true)
+    await page.keyboard.press('Enter')
+    expect((await media(page)).paused).toBe(true)
+    await page.keyboard.press('Tab'); await page.keyboard.press('Enter')
+    expect(await media(page)).toMatchObject({ paused: true, time: 0 })
+    expect(await page.getByRole('list', { name: 'Transcription — Contrôle technique' }).count()).toBe(1)
+    expect(await page.getByRole('complementary', { name: 'Ce que vous recevez' }).count()).toBe(1)
+    expect(external).toEqual([]); expect(errors).toEqual([]); expect(cspViolations).toEqual([])
+  } finally { await page.context().close() }
+})
+
+test.each([1280, 640, 320])('axe and reflow on the compiled page at %ipx (viewport approximation, not manual zoom)', async width => {
+  const page = await openPage()
+  try {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto(origin); await page.getByRole('button', { name: 'Écouter l’exemple', exact: true }).waitFor()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()).violations).toEqual([])
+    await mkdir('.output/test-evidence/marketing', { recursive: true })
+    await page.screenshot({ path: `.output/test-evidence/marketing/compiled-${width}.png`, fullPage: true })
+  } finally { await page.context().close() }
+}, 30000)
+
+test('changing source during real playback pauses the old media and resets the selected pair', async () => {
+  const page = await openPage()
+  try {
+    await page.goto(origin); await page.getByRole('button', { name: 'Écouter l’exemple', exact: true }).click()
+    await page.waitForFunction(() => document.querySelector<HTMLAudioElement>('#demo audio')!.currentTime > .2)
+    const previous = await page.locator('#demo audio').elementHandle()
+    await page.getByRole('radio', { name: 'Contrôle technique', exact: true }).click()
+    expect(await previous!.evaluate((audio: HTMLAudioElement) => audio.paused)).toBe(true)
+    expect(await media(page)).toMatchObject({ paused: true, time: 0 })
+    expect((await media(page)).src).toContain('/demos/controle-technique.mp3')
+    expect(await page.locator('#demo .sparra-transcript').textContent()).toContain('visite de contrôle technique')
+    expect(await page.locator('#demo .sparra-receipt').textContent()).toContain('visite de contrôle technique')
+    await previous?.dispose()
+  } finally { await page.context().close() }
 })

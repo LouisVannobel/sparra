@@ -7,7 +7,7 @@ import { messages, resolveLocale, type Locale } from '../ui/auth/messages'
 import stylesheet from '../ui/auth/auth.css?url'
 
 export const Route = createRootRoute({
-  validateSearch: (search: Record<string, unknown>) => ({ lang: resolveLocale(search.lang) }),
+  validateSearch: (search: { lang?: unknown }) => ({ lang: resolveLocale(search.lang) }),
   search: { middlewares: [stripSearchParams<{ lang: Locale }>({ lang: 'fr' })] },
   head: () => ({ meta: [{ charSet: 'utf-8' }, { name: 'viewport', content: 'width=device-width, initial-scale=1' }], links: [{ rel: 'stylesheet', href: stylesheet }] }),
   component: () => <Outlet />,
