@@ -1,0 +1,50 @@
+{
+  "formatVersion": 1,
+  "createdAt": "2026-09-30T09:18:55.4457642Z",
+  "deliveryId": "boilerplate-r1-20260930",
+  "commit": "f932b25356c82d9a5c89d0849409f043b05f95cb2206b1d7870878c00cc4e4c6",
+  "tree": "0ba542714c7ff693dfdfe82e63dd91b627548a14917f22aec77f7def4cb97070",
+  "ref": "refs/heads/z/handoff/boilerplate-r1-20260930",
+  "gitObjectFormat": "sha256",
+  "qualifiedCodeCommit": "4919660f4703817a4e3c4b543bf50076f2f0239cdf3d4fd2dbf467d17fddae14",
+  "changedFromQualifiedCode": [
+    "README.md",
+    "docs/handoff/BOILERPLATE_FOR_SPARRA.md",
+    "docs/handoff/boilerplate-r1-verification.json",
+    "docs/superpowers/plans/2026-09-10-functional-auth.md",
+    "docs/superpowers/plans/2026-09-30-recovery-preparation.md"
+  ],
+  "changesAreDocumentationOnly": true,
+  "sourceArchivePrefix": "boilerplate-r1/",
+  "artifacts": [
+    {
+      "name": "boilerplate-r1-source.zip",
+      "bytes": 1014492,
+      "sha256": "58F5F513D99EDCAD628E5FC214E7B989349E1BA4133AA0E91CB4F5E5B58B010A"
+    },
+    {
+      "name": "boilerplate-r1.bundle",
+      "bytes": 1097911,
+      "sha256": "E1387DC908B7CEA46FB485B008933F83CD5014C65BF6610FF83684C6A95FA636"
+    }
+  ],
+  "verification": {
+    "archiveFileCount": 262,
+    "everyArchiveBlobMatchesGit": true,
+    "bundleVerify": true,
+    "independentBareCloneMatches": true,
+    "independentBareCloneFsck": true,
+    "realProducerHeadAndIndexUnchanged": true,
+    "applicationTestsRerunForPackaging": false
+  },
+  "scope": {
+    "productionReady": false,
+    "publicRecoveryImplemented": false,
+    "sparraImplemented": false,
+    "remotePush": false,
+    "providerOrServerChanges": false,
+    "automaticSynchronization": false
+  },
+  "entrypointInsideArchive": "docs/handoff/BOILERPLATE_FOR_SPARRA.md",
+  "provenanceInsideArchive": "docs/handoff/boilerplate-r1-verification.json"
+}
