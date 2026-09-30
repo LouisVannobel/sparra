@@ -48,6 +48,10 @@ export function SparraDemo(): React.JSX.Element {
     const media = audio.current
     if (!media) return
     const requested = ++attempt.current
+    if (media.error !== null) {
+      media.load()
+      setSeconds(0)
+    }
     setError(false)
     setPlaying(true)
     void media.play().then(() => {
@@ -77,7 +81,7 @@ export function SparraDemo(): React.JSX.Element {
     </SegmentedControl>
     <div className="sparra-demo-pair">
       <div className="sparra-conversation">
-        <h3>La conversation</h3>
+        <h3>Ce que votre client entend</h3>
         <audio key={scenario.id} ref={audio} src={scenario.audioSrc} preload="metadata"
           onTimeUpdate={event => { if (event.currentTarget === audio.current) setSeconds(event.currentTarget.currentTime) }}
           onPause={event => { if (event.currentTarget === audio.current) setPlaying(false) }}
@@ -105,7 +109,7 @@ export function SparraDemo(): React.JSX.Element {
         </ol>
       </div>
       <aside className="sparra-receipt" aria-labelledby="sparra-receipt-title">
-        <h3 id="sparra-receipt-title">La fiche à traiter</h3>
+        <h3 id="sparra-receipt-title">Ce que vous recevez</h3>
         <p className="sparra-example-label">Fiche illustrative — aucune demande réelle envoyée.</p>
         <p className="sparra-status">{scenario.receipt.status}</p>
         <dl>

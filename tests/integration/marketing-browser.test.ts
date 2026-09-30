@@ -54,6 +54,13 @@ test('no autoplay; real play, pause, restart and arrows keep audio, transcript a
     await page.getByRole('button', { name: 'Pause', exact: true }).click()
     expect((await media(page)).paused).toBe(true)
     expect((await media(page)).time).toBeGreaterThan(.2)
+    await page.locator('#demo audio').evaluate((audio: HTMLAudioElement) => { audio.currentTime = 4 })
+    const pausedTime = (await media(page)).time
+    await page.getByRole('button', { name: 'Écouter l’exemple', exact: true }).click()
+    expect((await media(page)).time).toBeGreaterThanOrEqual(pausedTime)
+    await page.waitForFunction(time => document.querySelector<HTMLAudioElement>('#demo audio')!.currentTime > time, pausedTime)
+    expect((await media(page)).time).toBeGreaterThan(pausedTime)
+    await page.getByRole('button', { name: 'Pause', exact: true }).click()
     await page.getByRole('button', { name: 'Recommencer', exact: true }).click()
     expect(await media(page)).toMatchObject({ paused: true, time: 0 })
     await page.getByRole('radio', { name: 'Garage', exact: true }).focus()
@@ -82,6 +89,34 @@ test('a real audio failure is announced and leaves text and receipt available', 
     expect(await page.locator('#demo .sparra-transcript').textContent()).toContain('révision')
     expect(await page.locator('#demo .sparra-receipt').textContent()).toContain('révision')
     expect((await media(page)).paused).toBe(true)
+  } finally { await page.close() }
+})
+
+test('advertised retry refetches a failed resource and plays it when it becomes available', async () => {
+  const page = await openPage()
+  let available = false, requests = 0
+  try {
+    await page.route('**/demos/garage-revision.mp3', route => {
+      requests++
+      return available ? route.continue() : route.fulfill({ status: 404, body: 'Missing audio' })
+    })
+    await page.goto(origin)
+    await page.getByRole('button', { name: 'Écouter l’exemple', exact: true }).click()
+    await page.locator('#demo [role="alert"]').waitFor()
+    const failedRequests = requests
+    expect(failedRequests).toBeGreaterThan(0)
+    available = true
+    await page.getByRole('button', { name: 'Écouter l’exemple', exact: true }).click()
+    await expect.poll(() => requests, { timeout: 6000 }).toBeGreaterThan(failedRequests)
+    await page.waitForFunction(() => {
+      const audio = document.querySelector<HTMLAudioElement>('#demo audio')!
+      return !audio.paused && audio.currentTime > .2 && audio.error === null
+    }, undefined, { timeout: 6000 })
+    expect(requests).toBeGreaterThan(failedRequests)
+    expect(await page.locator('#demo [role="alert"]').count()).toBe(0)
+    expect(await page.getByRole('button', { name: 'Pause', exact: true }).count()).toBe(1)
+    expect(await page.locator('#demo .sparra-transcript').textContent()).toContain('révision')
+    expect(await page.locator('#demo .sparra-receipt').textContent()).toContain('révision')
   } finally { await page.close() }
 })
 
