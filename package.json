@@ -18,7 +18,7 @@
     "test": "vitest run --maxWorkers=1",
     "test:integration": "vitest run --config vitest.integration.config.ts --maxWorkers=1",
     "typecheck": "tsc --noEmit",
-    "lint": "oxlint --threads=1 src/modules/marketing src/ui/marketing src/routes/index.tsx src/routes/__root.tsx src/server.ts tests/marketing tests/integration/marketing-browser.test.ts tests/quality-policy.test.ts",
+    "lint": "oxlint --threads=1 src/modules/marketing src/modules/sparra src/ui/marketing src/routes/index.tsx src/routes/__root.tsx src/server.ts tests/marketing tests/integration/marketing-browser.test.ts tests/quality-policy.test.ts",
     "test:a11y": "vitest run --config vitest.integration.config.ts tests/integration/marketing-browser.test.ts --maxWorkers=1"
   },
   "dependencies": {

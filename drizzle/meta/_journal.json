@@ -99,6 +99,13 @@
       "when": 1790808609920,
       "tag": "0013_clumsy_loa",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1790810399780,
+      "tag": "0014_chemical_lifeguard",
+      "breakpoints": true
     }
   ]
 }

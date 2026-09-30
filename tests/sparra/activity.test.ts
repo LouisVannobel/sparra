@@ -1,5 +1,7 @@
 import { expect, test } from 'vitest'
+import { getTableConfig, PgDialect } from 'drizzle-orm/pg-core'
 import { InvalidActivityInput, parseSaveActivityInput } from '../../src/modules/sparra/activity.server'
+import { sparraKnowledgeRevision } from '../../src/modules/sparra/schema.server'
 
 const input = () => ({ expectedRevision: 0, businessName: ' Garage Dupont ', sector: 'garage', knowledge: { openingHours: '', services: '', prices: '', faq: '', instructions: '' }, transferDestination: null })
 test('strict editable input trims the greeting and normalizes line endings', () => {
@@ -21,4 +23,18 @@ test('accepts exact UTF16 section bounds and valid supplementary scalars', () =>
   expect(parseSaveActivityInput({ ...input(), knowledge }).knowledge).toEqual(knowledge)
   expect(parseSaveActivityInput({ ...input(), businessName: '😀'.repeat(40) }).businessName.length).toBe(80)
   expect(parseSaveActivityInput({ ...input(), knowledge: { ...input().knowledge, faq: '😀\t\r\n' } }).knowledge.faq).toBe('😀\t\n')
+})
+
+test.each(['select','insert'])('native %s policy requires the matching active Workspace', operation => {
+  const policy = getTableConfig(sparraKnowledgeRevision).policies.find(candidate => candidate.for === operation)
+  expect(policy?.to).toBe('runtime')
+  const predicate = operation === 'select' ? policy?.using : policy?.withCheck
+  expect(predicate).toBeDefined()
+  if (!predicate) throw new Error('Missing policy')
+  const emitted = new PgDialect().sqlToQuery(predicate).sql
+  expect(emitted).toContain('exists')
+  expect(emitted).toContain('public.workspace')
+  expect(emitted).toContain("lifecycle = 'active'")
+  expect(emitted).toContain('sparra_knowledge_revision"."workspace_id"')
+  expect(emitted).toContain("current_setting('app.tenant_id',true)")
 })

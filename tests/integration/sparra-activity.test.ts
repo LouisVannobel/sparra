@@ -41,6 +41,35 @@ beforeAll(async () => {
       INSERT INTO workspace_audit(action,actor_user_id,workspace_id,correlation_id) VALUES ('personal-created','preexisting-user','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')`)
     const before = (await stores.administrator.query(`SELECT (SELECT to_jsonb(u) FROM "user" u WHERE id='preexisting-user') AS u,(SELECT to_jsonb(s) FROM session s WHERE id='preexisting-session') AS s,(SELECT to_jsonb(w) FROM workspace w WHERE owner_user_id='preexisting-user') AS w,(SELECT to_jsonb(a) FROM workspace_audit a WHERE actor_user_id='preexisting-user') AS a`)).rows
     const hashes = await Promise.all(entries.map(async e => createHash('sha256').update(await readFile('drizzle/'+e.tag+'.sql')).digest('hex')))
+    // The function collision is late in 0013, after its table/policies/grants.
+    // A sequence is intentionally nontransactional: it proves DDL was reached
+    // even though every transactional DDL/data/journal change must roll back.
+    await stores.administrator.query(`
+      CREATE FUNCTION app_private.sparra_revision_immutable() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$;
+      CREATE SEQUENCE public.fixture_forward_ddl_marker;
+      CREATE FUNCTION app_private.fixture_forward_ddl_seen() RETURNS event_trigger LANGUAGE plpgsql AS $$
+      DECLARE command record;
+      BEGIN
+        FOR command IN SELECT * FROM pg_event_trigger_ddl_commands() LOOP
+          IF command.command_tag='CREATE POLICY' AND command.object_identity LIKE '%sparra_knowledge_revision%' THEN
+            PERFORM nextval('public.fixture_forward_ddl_marker');
+          END IF;
+        END LOOP;
+      END $$;
+      CREATE EVENT TRIGGER fixture_forward_ddl_seen ON ddl_command_end WHEN TAG IN ('CREATE POLICY') EXECUTE FUNCTION app_private.fixture_forward_ddl_seen();
+    `)
+    const schemaDump = async () => (await stores.command(stores.pg,['pg_dump','--schema-only','--no-comments','--username=migrator','auth']))
+      .split('\n').filter(line => !line.startsWith('\\restrict ') && !line.startsWith('\\unrestrict ')).join('\n')
+    const ddlBefore = await schemaDump()
+    const journalBefore = (await stores.administrator.query('SELECT id,hash,created_at::text FROM drizzle.__drizzle_migrations ORDER BY id')).rows
+    await expect(stores.migrate()).rejects.toThrow('Disposable migration command failed')
+    expect((await stores.administrator.query('SELECT last_value::int,is_called FROM fixture_forward_ddl_marker')).rows).toEqual([{last_value:2,is_called:true}])
+    expect((await stores.administrator.query("SELECT to_regclass('public.sparra_knowledge_revision') IS NULL AS absent")).rows).toEqual([{absent:true}])
+    expect((await stores.administrator.query("SELECT count(*)::int AS n FROM pg_policies WHERE tablename='sparra_knowledge_revision'")).rows[0].n).toBe(0)
+    expect(await schemaDump()).toBe(ddlBefore)
+    expect((await stores.administrator.query('SELECT id,hash,created_at::text FROM drizzle.__drizzle_migrations ORDER BY id')).rows).toEqual(journalBefore)
+    expect((await stores.administrator.query(`SELECT (SELECT to_jsonb(u) FROM "user" u WHERE id='preexisting-user') AS u,(SELECT to_jsonb(s) FROM session s WHERE id='preexisting-session') AS s,(SELECT to_jsonb(w) FROM workspace w WHERE owner_user_id='preexisting-user') AS w,(SELECT to_jsonb(a) FROM workspace_audit a WHERE actor_user_id='preexisting-user') AS a`)).rows).toEqual(before)
+    await stores.administrator.query('DROP EVENT TRIGGER fixture_forward_ddl_seen; DROP FUNCTION app_private.fixture_forward_ddl_seen(); DROP SEQUENCE fixture_forward_ddl_marker; DROP FUNCTION app_private.sparra_revision_immutable()')
     await stores.migrate()
     expect((await stores.administrator.query(`SELECT (SELECT to_jsonb(u) FROM "user" u WHERE id='preexisting-user') AS u,(SELECT to_jsonb(s) FROM session s WHERE id='preexisting-session') AS s,(SELECT to_jsonb(w) FROM workspace w WHERE owner_user_id='preexisting-user') AS w,(SELECT to_jsonb(a) FROM workspace_audit a WHERE actor_user_id='preexisting-user') AS a`)).rows).toEqual(before)
     expect(await Promise.all(entries.map(async e => createHash('sha256').update(await readFile('drizzle/'+e.tag+'.sql')).digest('hex')))).toEqual(hashes)
@@ -95,6 +124,21 @@ test.each(['revoked','deleting'])('native %s state denies reads and saves',async
   expect(await activity.save(principal,input(1))).toBeNull()
   expect(await revisions(workspace!.id)).toHaveLength(1)
 })
+
+test.each(['deleting','provisioning'])('direct runtime SQL denies the matching tenant after Workspace becomes %s',async lifecycle=>{
+  const {principal}=await ceremony(),workspace=await personal.ensurePersonalWorkspace(principal)
+  await activity.save(principal,input())
+  await stores.administrator.query('UPDATE workspace SET lifecycle=$1 WHERE id=$2',[lifecycle,workspace!.id])
+  const client=new Client({connectionString:stores.directRuntimeUrl});await client.connect()
+  try{
+    await client.query('BEGIN')
+    await client.query("SELECT set_config('app.tenant_id',$1,true)",[workspace!.id])
+    expect((await client.query('SELECT id FROM workspace WHERE id=$1',[workspace!.id])).rows).toEqual([])
+    expect((await client.query('SELECT revision FROM sparra_knowledge_revision WHERE workspace_id=$1',[workspace!.id])).rows).toEqual([])
+    await expect(client.query(`INSERT INTO sparra_knowledge_revision(workspace_id,revision,business_name,sector,opening_hours,services,prices,faq,instructions) VALUES ($1,2,'Forbidden','garage','','','','','')`,[workspace!.id])).rejects.toMatchObject({code:'42501'})
+  }finally{await client.query('ROLLBACK');await client.end()}
+  expect(await revisions(workspace!.id)).toHaveLength(1)
+})
 test('RLS denies absent/zero/invalid/foreign tenants and guessed IDs, runtime has SELECT/INSERT only',async()=>{
   const a=await ceremony(),b=await ceremony(),workspace=await personal.ensurePersonalWorkspace(a.principal)
   await activity.save(a.principal,input())
@@ -114,6 +158,15 @@ test('RLS denies absent/zero/invalid/foreign tenants and guessed IDs, runtime ha
   expect((await stores.administrator.query("SELECT r.rolname AS owner,c.relrowsecurity,c.relforcerowsecurity FROM pg_class c JOIN pg_roles r ON r.oid=c.relowner WHERE c.oid='sparra_knowledge_revision'::regclass")).rows).toEqual([{owner:'workspace_owner',relrowsecurity:true,relforcerowsecurity:true}])
   expect((await stores.administrator.query("SELECT has_table_privilege('runtime','sparra_knowledge_revision','SELECT') AS read,has_table_privilege('runtime','sparra_knowledge_revision','INSERT') AS insert,has_table_privilege('runtime','sparra_knowledge_revision','UPDATE,DELETE') AS mutate,has_table_privilege('workspace_bootstrap','sparra_knowledge_revision','SELECT,INSERT') AS bootstrap")).rows).toEqual([{read:true,insert:true,mutate:false,bootstrap:false}])
   expect((await stores.administrator.query("SELECT count(*)::int AS n FROM pg_class c, LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a WHERE c.oid='sparra_knowledge_revision'::regclass AND a.grantee=0")).rows[0].n).toBe(0)
+  const policies=(await stores.administrator.query("SELECT policyname,cmd,roles::text[] AS roles,qual,with_check FROM pg_policies WHERE schemaname='public' AND tablename='sparra_knowledge_revision' ORDER BY cmd")).rows
+  expect(policies).toHaveLength(2)
+  for(const policy of policies){
+    expect(policy.roles).toEqual(['runtime'])
+    const predicate:string=policy.qual ?? policy.with_check
+    expect(predicate).toContain('EXISTS')
+    expect(predicate).toContain("lifecycle = 'active'")
+    expect(predicate).toContain('workspace.id = sparra_knowledge_revision.workspace_id')
+  }
 })
 
 test('SQL independently bounds revision, sector, UTF16 text, typed destination and finite timestamp',async()=>{
@@ -144,6 +197,29 @@ test('failed insertion and caller cancellation produce no committed saved feedba
     controller.abort();await expect(pending).rejects.toMatchObject({name:'PgTransactionError'})
     await blocker.query('ROLLBACK');expect(await revisions(workspace!.id)).toEqual([])
   }finally{await blocker.end()}
+})
+
+test('cancellation after recorded native COMMIT rejects saved completion and fresh native read reconciles it',async()=>{
+  const {principal}=await ceremony(),workspace=await personal.ensurePersonalWorkspace(principal)
+  const controller=new AbortController(),observed:string[]=[]
+  const observedPool=new Pool({connectionString:stores.directRuntimeUrl,max:1})
+  observedPool.on('connect',client=>client.connection.on('commandComplete',(message:unknown)=>{
+    if(typeof message==='object' && message!==null && 'text' in message && message.text==='COMMIT'){
+      observed.push('COMMIT');controller.abort();observed.push('cancel')
+    }
+  }))
+  try{
+    const observedOwner=createTransactions(observedPool,{maxStatementTimeoutMs:1000,maxCleanupTimeoutMs:1000})
+    const save=createActivityOperations(observedOwner).save(principal,input(),controller.signal)
+    await expect(save).rejects.toMatchObject({name:'PgTransactionError',phase:'finalize',outcome:'committed'})
+    observed.push('rejected')
+    expect(observed).toEqual(['COMMIT','cancel','rejected'])
+    const state=await activity.read(principal)
+    expect(state.workspace).toEqual(workspace)
+    expect(state.configuration).toMatchObject({workspaceId:workspace!.id,revision:1,businessName:'Garage Dupont'})
+    expect(await revisions(workspace!.id)).toEqual([{revision:1,business_name:'Garage Dupont'}])
+    expect(observed).toHaveLength(3)
+  }finally{await observedPool.end()}
 })
 test('built native RPC validates input, authentication, CSRF, conflict and private errors',async()=>{
   const {principal,cookie}=await ceremony()
