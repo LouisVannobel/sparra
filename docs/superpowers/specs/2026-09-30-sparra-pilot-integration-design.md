@@ -102,3 +102,9 @@ Auto-revue effectuée : objectifs métier conservés, sources/versions exactes, 
 **Prochaine action après adoption de cette spécification écrite : écrire et faire revoir le plan concret, avec sous-agents par tâche selon le choix utilisateur déjà acquis.** Découpage recommandé : module métier natif, bridge SQL/Python et rétention, modifications Voice, puis pilote français contrôlé. Ces lots sont une progression vers le produit complet, pas une redéfinition de son achèvement.
 
 Avis brut : C:/Users/louis/.codex/artifacts/sparra/2026-09-30/ORACLE_PILOT_INTEGRATION_DESIGN.md. Observations : C:/Users/louis/.codex/artifacts/sparra/2026-09-30/PILOT_READINESS_OBSERVATIONS.md. Aucun secret, ID de document privé ou numéro complet dans ce document.
+
+## Observation complémentaire — PgBouncer, 1er octobre 2026
+
+Audit SSH read-only de la configuration montée sur ops02 : pool_mode transaction, auth_type scram-sha-256 ; routes `*` et `hatchet` sans paramètre `user=` imposant un backend commun. Source : `/opt/studio/ops02-data/config/pgbouncer.ini`, seuls alias/mode/type/utilisateur forcé extraits, aucun userlist/password/secret lu. Première tentative de transport du script a terminé sur une erreur de délimiteur CRLF après lecture ; seconde invocation du même audit en lecture seule a terminé exit0 et produit l'observation conservée.
+
+Cette configuration ne prouve pas la future connexion Voice, un reload effectif ou la résidence France. Le test Python→PgBouncer→PostgreSQL doit toujours constater `session_user` avec le login limité réellement provisionné avant activation. Aucun rôle/base/stack/secret ou réglage partagé n'a été changé. Évidence : `C:/Users/louis/.codex/artifacts/sparra/2026-09-30/PGBOUNCER_ROLE_ROUTE_OBSERVATION.json`.
