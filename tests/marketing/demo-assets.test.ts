@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { demoScenarios } from '../../src/modules/marketing/demo-scenarios.generated'
 
@@ -102,6 +102,43 @@ test('an uncertain synthesis attempt blocks preview until recover-only assessmen
     if (marker) rmSync(marker)
     rmSync(directory, { recursive: true })
   }
+}, 30000)
+
+test('lost successful requests remain fenced after current provenance changes model and then returns', () => {
+  const paths = ['src/modules/marketing/demo-scenarios.generated.ts', 'docs/demos/audio-provenance.json', 'public/demos/garage-revision.mp3', 'public/demos/controle-technique.mp3']
+  const before = paths.map(path => readFileSync(path))
+  const delivered = JSON.parse(before[1]!.toString('utf8'))
+  const recordsDirectory = resolve('.demo-audio-cache/known-successes')
+  const prior = existsSync(recordsDirectory) ? readdirSync(recordsDirectory).map(name => [name, readFileSync(resolve(recordsDirectory, name))] as const) : []
+  try {
+    let seedOutput = ''
+    try { seedOutput = execFileSync('pwsh', ['-NoProfile', '-File', 'scripts/generate-demo-audio.ps1', '-RecordKnownSuccesses'], { encoding: 'utf8', stdio: 'pipe' }) } catch { /* Observe the missing guarded seeding behavior before implementing it. */ }
+    expect(seedOutput).toContain('"recordOnly": true')
+    for (const segment of delivered.segments) {
+      const record = JSON.parse(readFileSync(resolve(recordsDirectory, `${segment.requestSha256}.json`), 'utf8'))
+      expect(record).toEqual({ state: 'recovery-required', model: delivered.model, requestSha256: segment.requestSha256 })
+    }
+    expect(paths.map(path => readFileSync(path))).toEqual(before)
+    // This owned replacement describes no generation or success; no synthetic completed receipt is created.
+    writeFileSync(paths[1]!, JSON.stringify({ model: 'offline-test/replacement', segments: [], fixture: 'No provider calls or audio generation' }))
+    const archiveBefore = readdirSync(recordsDirectory).map(name => [name, readFileSync(resolve(recordsDirectory, name))])
+    const preview = JSON.parse(execFileSync('pwsh', ['-NoProfile', '-File', 'scripts/generate-demo-audio.ps1', '-DryRun'], { encoding: 'utf8' }))
+    expect(preview.recoveryRequired).toBe(10)
+    expect(preview.uncachedCalls).toBe(0)
+    expect(readdirSync(recordsDirectory).map(name => [name, readFileSync(resolve(recordsDirectory, name))])).toEqual(archiveBefore)
+    let rejection = ''
+    try { execFileSync('pwsh', ['-NoProfile', '-File', 'scripts/generate-demo-audio.ps1'], { stdio: 'pipe' }) } catch (error) {
+      if (error && typeof error === 'object' && 'stderr' in error) rejection = String(error.stderr)
+    }
+    expect(rejection).toMatch(/recover-only assessment required;\s*(?:\|\s*)?no request sent/)
+    expect(rejection).not.toContain('process variable is required')
+    expect(paths.filter(path => path !== paths[1]).map(path => readFileSync(path))).toEqual(before.filter((_, index) => index !== 1))
+    for (const [name, content] of prior) expect(readFileSync(resolve(recordsDirectory, name))).toEqual(content)
+  } finally {
+    // Restore only the owned current-provenance fixture; the actual-success records intentionally persist.
+    if (!readFileSync(paths[1]!).equals(before[1]!)) writeFileSync(paths[1]!, before[1]!)
+  }
+  expect(paths.map(path => readFileSync(path))).toEqual(before)
 }, 30000)
 
 test.each(['unknown', 'duplicate', 'escape', 'case'])('generator rejects %s before changing any output', kind => {

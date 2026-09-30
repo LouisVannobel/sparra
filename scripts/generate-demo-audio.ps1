@@ -1,5 +1,5 @@
 #requires -Version 7
-param([string]$SourcePath = 'docs/demos/scenarios.fr.json', [switch]$DryRun)
+param([string]$SourcePath = 'docs/demos/scenarios.fr.json', [switch]$DryRun, [switch]$RecordKnownSuccesses)
 $ErrorActionPreference = 'Stop'
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $utf8 = New-Object Text.UTF8Encoding($false)
@@ -38,6 +38,7 @@ foreach ($scenario in $scenarios) {
 $ownedRoot = Assert-Contained (Join-Path $repo '.output/demo-generation') (Join-Path $repo '.output')
 $durableRoot = Assert-Contained (Join-Path $repo '.demo-audio-cache') $repo
 $cache = Assert-Contained (Join-Path $durableRoot 'segments') $durableRoot
+$successRoot = Assert-Contained (Join-Path $durableRoot 'known-successes') $durableRoot
 $temp = Assert-Contained (Join-Path $ownedRoot ('work-' + [guid]::NewGuid().ToString('N'))) $ownedRoot
 $lockPath = Assert-Contained (Join-Path $durableRoot 'generation.lock') $durableRoot
 $module = Assert-Contained (Join-Path $repo 'src/modules/marketing/demo-scenarios.generated.ts') (Join-Path $repo 'src/modules/marketing')
@@ -47,15 +48,42 @@ foreach ($scenario in $scenarios) { $audioTargets[$scenario.id] = Assert-Contain
 $model = 'x-ai/grok-voice-tts-1.0'
 $endpoint = 'https://openrouter.ai/api/v1/audio/speech'
 $voices = @{ sparra = 'ara'; client = 'sal' }
+function Read-KnownSuccessRecords {
+  if (-not (Test-Path -LiteralPath $successRoot)) { return }
+  foreach ($file in Get-ChildItem -LiteralPath $successRoot -File -Filter '*.json') {
+    $path = Assert-Contained $file.FullName $successRoot
+    if ($file.Length -gt 1024) { throw 'Invalid known-success record; recover-only assessment required' }
+    try { $record = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json } catch { throw 'Invalid known-success record; recover-only assessment required' }
+    if ($record.state -cne 'recovery-required' -or $record.requestSha256 -cnotmatch '\A[0-9a-f]{64}\z' -or $file.BaseName -cne $record.requestSha256 -or $record.model -isnot [string] -or $record.model.Length -lt 1 -or $record.model.Length -gt 128) { throw 'Invalid known-success record; recover-only assessment required' }
+    $record
+  }
+}
+function Save-KnownSuccess([string]$RequestHash, [string]$SuccessModel) {
+  $path = Assert-Contained (Join-Path $successRoot "$RequestHash.json") $successRoot
+  # An immutable fence is evidence of a past success, not a fabricated completed segment.
+  if (Test-Path -LiteralPath $path) { return }
+  [IO.Directory]::CreateDirectory($successRoot) | Out-Null
+  $record = [ordered]@{ state = 'recovery-required'; model = $SuccessModel; requestSha256 = $RequestHash }
+  $file = [IO.File]::Open($path, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+  try {
+    $bytes = $utf8.GetBytes(($record | ConvertTo-Json -Compress) + "`n")
+    $file.Write($bytes, 0, $bytes.Length); $file.Flush($true)
+  } finally { $file.Dispose() }
+}
 # A delivered success remains billable history even if its raw cache was lost.
 # Never silently synthesize that same request identity again.
 $knownSuccesses = @{}
+foreach ($record in Read-KnownSuccessRecords) { $knownSuccesses[$record.requestSha256] = $record.model }
+$provenanceSuccesses = @{}
 if (Test-Path -LiteralPath $provenancePath) {
   if ((Get-Item -LiteralPath $provenancePath).Length -gt 65536) { throw 'Previous provenance exceeds its bound; recover-only assessment required' }
   try { $previousProof = Get-Content -LiteralPath $provenancePath -Raw -Encoding UTF8 | ConvertFrom-Json } catch { throw 'Cannot assess previous provenance; no request sent' }
-  if ($previousProof.model -ceq $model) {
+  if ($previousProof.model -is [string] -and $previousProof.model.Length -ge 1 -and $previousProof.model.Length -le 128) {
     foreach ($segmentProof in $previousProof.segments) {
-      if ($segmentProof.requestSha256 -cmatch '\A[0-9a-f]{64}\z') { $knownSuccesses[$segmentProof.requestSha256] = $true }
+      if ($segmentProof.requestSha256 -cmatch '\A[0-9a-f]{64}\z' -and $segmentProof.sha256 -cmatch '\A[0-9a-f]{64}\z' -and $segmentProof.generatedUtc) {
+        $provenanceSuccesses[$segmentProof.requestSha256] = $previousProof.model
+        $knownSuccesses[$segmentProof.requestSha256] = $previousProof.model
+      }
     }
   }
 }
@@ -113,7 +141,6 @@ if ($DryRun) {
   } | ConvertTo-Json -Depth 10
   exit 0
 }
-if ($recovery.Count -gt 0) { throw 'Completed raw segment cache missing for a known successful request. Explicit recover-only assessment required; no request sent' }
 function Run-FFmpeg([string[]]$Arguments) {
   & ffmpeg -hide_banner -loglevel error @Arguments
   if ($LASTEXITCODE -ne 0) { throw 'Audio encoding failed' }
@@ -165,6 +192,7 @@ function Synthesize($Request, [Net.Http.HttpClient]$Client) {
     $entry.bytes = $count; $entry.durationSeconds = $duration
     $entry.sha256 = (Get-FileHash -LiteralPath $Request.raw -Algorithm SHA256).Hash.ToLowerInvariant()
     Write-Manifest $Request $entry
+    Save-KnownSuccess $Request.requestSha256 $model
     return [pscustomobject]$entry
   } catch {
     # Do not expose exceptions, response bodies, headers or credential-bearing request objects.
@@ -177,13 +205,23 @@ function Synthesize($Request, [Net.Http.HttpClient]$Client) {
 Get-Command ffmpeg, ffprobe -ErrorAction Stop | Out-Null
 $client = $null; $handler = $null; $generationLock = $null
 try {
-  [IO.Directory]::CreateDirectory($ownedRoot) | Out-Null
   [IO.Directory]::CreateDirectory($durableRoot) | Out-Null
   try { $generationLock = [IO.File]::Open($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None) } catch { throw 'Another audio generation owns the lock; no request sent' }
+  # Archive actual known successes before another billable request or provenance replacement.
+  foreach ($record in Read-KnownSuccessRecords) { $knownSuccesses[$record.requestSha256] = $record.model }
+  foreach ($identity in $provenanceSuccesses.Keys) { Save-KnownSuccess $identity $provenanceSuccesses[$identity] }
   # Recheck after locking; another producer may have completed a turn during preview.
   foreach ($request in $requests) {
     $request.completed = Read-CompletedCache $request
+    if ($null -ne $request.completed) {
+      Save-KnownSuccess $request.requestSha256 $model
+      $knownSuccesses[$request.requestSha256] = $model
+    }
     $request.recoveryRequired = $null -eq $request.completed -and $knownSuccesses.ContainsKey($request.requestSha256)
+  }
+  if ($RecordKnownSuccesses) {
+    [ordered]@{ recordOnly = $true; knownSuccesses = @($knownSuccesses.Keys).Count; networkCalls = 0 } | ConvertTo-Json
+    exit 0
   }
   if (@($requests | Where-Object { $_.recoveryRequired }).Count -gt 0) { throw 'Completed raw segment cache missing for a known successful request. Explicit recover-only assessment required; no request sent' }
   $pending = @($requests | Where-Object { $null -eq $_.completed })
@@ -197,6 +235,7 @@ try {
     $client.DefaultRequestHeaders.Accept.ParseAdd('audio/mpeg')
   }
   [IO.Directory]::CreateDirectory($cache) | Out-Null
+  [IO.Directory]::CreateDirectory($ownedRoot) | Out-Null
   [IO.Directory]::CreateDirectory($temp) | Out-Null
   foreach ($request in $requests) {
     if ($null -eq $request.completed) { $request.completed = Synthesize $request $client }
