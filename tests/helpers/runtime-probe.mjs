@@ -26,6 +26,12 @@ startInstance.getOptions = async () => {
   const options = await originalOptions()
   return { ...options, requestMiddleware: [...(options.requestMiddleware ?? []), createMiddleware().server(async ({ request, next }) => {
     const path = new URL(request.url).pathname
+    if (path === '/' && process.env.FIXTURE_ROOT_RESPONSE) {
+      if (process.env.FIXTURE_ROOT_RESPONSE === 'error') return new Response('<h1>Controlled error</h1>', { status: 500, headers: { 'content-type': 'text/html' } })
+      if (process.env.FIXTURE_ROOT_RESPONSE === 'json') return Response.json({ fixture: true })
+      if (process.env.FIXTURE_ROOT_RESPONSE === 'redirect') return new Response(null, { status: 302, headers: { location: '/login', 'content-type': 'text/html' } })
+      throw new Error('Unknown root response fixture')
+    }
     if (path !== '/__fixture_resources' && path !== '/__fixture_auth') return next()
     const resources = request.context?.appResources
     if (!resources) return new Response('Missing request carrier', { status: 500 })

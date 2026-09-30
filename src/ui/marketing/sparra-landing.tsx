@@ -1,0 +1,56 @@
+import { Button } from '@astryxdesign/core/Button'
+
+export function SparraLanding(): React.JSX.Element {
+  return <div className="sparra">
+    <a className="sparra-skip" href="#contenu">Aller au contenu</a>
+    <header className="sparra-header sparra-width">
+      <a className="sparra-wordmark" href="/" aria-label="Sparra, accueil">sparra<span aria-hidden="true">.</span></a>
+      <nav aria-label="Navigation principale">
+        <a href="#fonctionnement">Comment ça fonctionne</a>
+        <a href="#controle">Vous gardez la main</a>
+        <a href="#offre">L’offre</a>
+      </nav>
+      <Button className="sparra-contact" href="mailto:contact@sparra.fr" label="Parlons de votre activité" variant="primary" size="lg" />
+    </header>
+    <main id="contenu">
+      <section className="sparra-hero sparra-width" aria-labelledby="sparra-title">
+        <div>
+          <h1 id="sparra-title">Votre assistant téléphonique.<br />Pendant que vous faites votre métier.</h1>
+          <p className="sparra-intro">Un client appelle. Vous êtes à l’atelier, avec un client ou déjà en ligne. Sparra est conçu pour accueillir sa demande et vous transmettre l’essentiel.</p>
+          <Button className="sparra-contact" href="mailto:contact@sparra.fr" label="Préparer un pilote ensemble" variant="primary" size="lg" />
+          <p className="sparra-pilot">Le service est en préparation. Le raccordement de la ligne et le relais humain seront vérifiés lors du pilote.</p>
+        </div>
+        <aside className="sparra-call-note" aria-label="Exemple de demande, fictif">
+          <span className="sparra-call-symbol" aria-hidden="true">↗</span>
+          <p>« Je voudrais faire réviser ma voiture. Vous pouvez me rappeler demain ? »</p>
+          <div><span className="sparra-status">Demande à traiter</span><p>Une demande de rappel, pas un rendez-vous confirmé.</p></div>
+          <small>Exemple fictif de demande au Garage Horizon.</small>
+        </aside>
+      </section>
+      <div className="sparra-reassurance sparra-width" aria-label="Conditions du parcours prévu">
+        <p>Votre numéro, si le renvoi est compatible</p><p>Aucun matériel spécifique au parcours retenu</p><p>Configuration accompagnée</p><p>Vos règles, votre contrôle</p>
+      </div>
+      <section id="fonctionnement" className="sparra-section sparra-width" aria-labelledby="sparra-how">
+        <div className="sparra-section-heading"><h2 id="sparra-how">De votre activité à une demande claire.</h2><p>Le fonctionnement prévu du service, à qualifier ensemble dans le pilote.</p></div>
+        <ol className="sparra-steps">
+          <li><h3>Vous nous expliquez votre activité</h3><p>Horaires, prestations, tarifs, questions fréquentes, consignes.</p></li>
+          <li><h3>Vous connectez votre ligne</h3><p>Vous gardez votre numéro existant lorsque le renvoi de votre ligne le permet. Sparra peut intervenir selon vos règles.</p></li>
+          <li><h3>Sparra répond</h3><p>Il comprend la demande, renseigne le client, qualifie une demande de rendez-vous ou recueille un message pour l’équipe. Le relais humain est prévu selon vos consignes ; il sera qualifié dans le pilote. Aucun rendez-vous confirmé sans agenda relié.</p></li>
+          <li><h3>Vous récupérez l'essentiel</h3><p>Résumé, coordonnées, transcription et action à effectuer.</p></li>
+        </ol>
+      </section>
+      <section id="controle" className="sparra-section sparra-width sparra-knowledge" aria-labelledby="sparra-control">
+        <div><h2 id="sparra-control">Il connaît votre activité. Vous fixez les limites.</h2><p>Les réponses prévues s’appuient sur les informations que vous confiez à Sparra. Vous définissez ce qu’il peut expliquer et quand votre équipe doit reprendre la conversation.</p><p>Une question sans réponse, une demande particulière ou un appelant qui veut parler à une personne : le relais suit vos consignes. Sa disponibilité et le repli si personne ne répond restent à vérifier dans le pilote.</p></div>
+        <aside className="sparra-knowledge-note" aria-labelledby="sparra-example">
+          <h3 id="sparra-example">Garage Horizon</h3><p className="sparra-example-label">Exemple fictif de connaissances. Lecture seule.</p>
+          <dl><div><dt>Horaires</dt><dd>Du lundi au vendredi, de 8 h à 18 h.</dd></div><div><dt>Prestations</dt><dd>Révision et entretien courant.</dd></div><div><dt>Tarifs</dt><dd>À confirmer avec l’équipe selon le véhicule.</dd></div><div><dt>Consigne</dt><dd>Recueillir la demande et une préférence de rappel. Tout rendez-vous reste à confirmer.</dd></div></dl>
+        </aside>
+      </section>
+      <section id="offre" className="sparra-section sparra-width sparra-offer" aria-labelledby="sparra-offer-title">
+        <div><h2 id="sparra-offer-title">Une offre mensuelle.<br />Un démarrage accompagné.</h2><p>Nous partons de votre activité, de votre ligne et de vos consignes pour préparer un premier pilote. Les conditions et le tarif seront précisés avant tout engagement.</p></div>
+        <div><Button className="sparra-contact" href="mailto:contact@sparra.fr" label="Échanger sur votre besoin" variant="primary" size="lg" /><p>Ouvre un e-mail à contact@sparra.fr.</p></div>
+      </section>
+    </main>
+    <footer className="sparra-footer sparra-width"><a className="sparra-wordmark" href="/">sparra<span aria-hidden="true">.</span></a><p>Assistant téléphonique IA pour les professionnels locaux.</p><a href="mailto:contact@sparra.fr">contact@sparra.fr</a></footer>
+  </div>
+}

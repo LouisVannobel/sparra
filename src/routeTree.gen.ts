@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as IndexRouteImport } from './routes/index'
 import { Route as AccountRouteImport } from './routes/account'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as WorkspaceRouteImport } from './routes/workspace'
@@ -21,6 +22,11 @@ import { Route as ApiAuthCallbackGoogleRouteImport } from './routes/api.auth.cal
 import { Route as ApiAuthAccountGoogleCallbackRouteImport } from './routes/api.auth.account.google.callback'
 import { Route as ApiAuthFirstPasskeyGoogleCallbackRouteImport } from './routes/api.auth.first-passkey.google.callback'
 
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AccountRoute = AccountRouteImport.update({
   id: '/account',
   path: '/account',
@@ -80,6 +86,7 @@ const ApiAuthFirstPasskeyGoogleCallbackRoute =
   } as any)
 
 export interface FileRoutesByFullPath {
+  '/': typeof IndexRoute
   '/account': typeof AccountRoute
   '/login': typeof LoginRoute
   '/workspace': typeof WorkspaceRoute
@@ -93,6 +100,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/first-passkey/google/callback': typeof ApiAuthFirstPasskeyGoogleCallbackRoute
 }
 export interface FileRoutesByTo {
+  '/': typeof IndexRoute
   '/account': typeof AccountRoute
   '/login': typeof LoginRoute
   '/workspace': typeof WorkspaceRoute
@@ -107,6 +115,7 @@ export interface FileRoutesByTo {
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
+  '/': typeof IndexRoute
   '/account': typeof AccountRoute
   '/login': typeof LoginRoute
   '/workspace': typeof WorkspaceRoute
@@ -122,6 +131,7 @@ export interface FileRoutesById {
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
+    | '/'
     | '/account'
     | '/login'
     | '/workspace'
@@ -135,6 +145,7 @@ export interface FileRouteTypes {
     | '/api/auth/first-passkey/google/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/'
     | '/account'
     | '/login'
     | '/workspace'
@@ -148,6 +159,7 @@ export interface FileRouteTypes {
     | '/api/auth/first-passkey/google/callback'
   id:
     | '__root__'
+    | '/'
     | '/account'
     | '/login'
     | '/workspace'
@@ -162,6 +174,7 @@ export interface FileRouteTypes {
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
+  IndexRoute: typeof IndexRoute
   AccountRoute: typeof AccountRoute
   LoginRoute: typeof LoginRoute
   WorkspaceRoute: typeof WorkspaceRoute
@@ -177,6 +190,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/account': {
       id: '/account'
       path: '/account'
@@ -258,6 +278,7 @@ declare module '@tanstack/react-router' {
 }
 
 const rootRouteChildren: RootRouteChildren = {
+  IndexRoute: IndexRoute,
   AccountRoute: AccountRoute,
   LoginRoute: LoginRoute,
   WorkspaceRoute: WorkspaceRoute,
