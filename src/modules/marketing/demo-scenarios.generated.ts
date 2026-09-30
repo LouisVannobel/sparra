@@ -13,37 +13,37 @@ export const demoScenarios: DemoScenario[] =[
     "id": "garage",
     "label": "Garage",
     "audioSrc": "/demos/garage-revision.mp3",
-    "durationSeconds": 36.356917,
+    "durationSeconds": 30.344,
     "cues": [
       {
         "speaker": "sparra",
         "text": "Bonjour, vous êtes au Garage Horizon. Je suis Sparra, un agent IA. Quelle est votre demande ?",
         "startSeconds": 0.0,
-        "endSeconds": 7.522625
+        "endSeconds": 5.88
       },
       {
         "speaker": "client",
         "text": "Bonjour, je voudrais faire une révision de ma voiture.",
-        "startSeconds": 7.872625,
-        "endSeconds": 11.650333
+        "startSeconds": 6.23,
+        "endSeconds": 9.47
       },
       {
         "speaker": "sparra",
         "text": "Je peux recueillir votre demande pour l'équipe. Quand préférez-vous être rappelé ?",
-        "startSeconds": 12.000333,
-        "endSeconds": 17.467791
+        "startSeconds": 9.82,
+        "endSeconds": 14.356
       },
       {
         "speaker": "client",
         "text": "Demain matin, si possible. Je m'appelle Camille. Pour cet exemple, mon numéro est fictif.",
-        "startSeconds": 17.817791,
-        "endSeconds": 25.385041
+        "startSeconds": 14.706,
+        "endSeconds": 21.066
       },
       {
         "speaker": "sparra",
         "text": "D'accord, votre préférence est un rappel demain matin pour une révision. L'équipe devra confirmer le rappel et les modalités. Aucun rendez-vous n'est confirmé.",
-        "startSeconds": 25.735041,
-        "endSeconds": 36.356916
+        "startSeconds": 21.416,
+        "endSeconds": 30.344
       }
     ],
     "receipt": {
@@ -58,37 +58,37 @@ export const demoScenarios: DemoScenario[] =[
     "id": "controle-technique",
     "label": "Contrôle technique",
     "audioSrc": "/demos/controle-technique.mp3",
-    "durationSeconds": 39.798458,
+    "durationSeconds": 33.224,
     "cues": [
       {
         "speaker": "sparra",
         "text": "Bonjour, vous êtes au Centre Clair. Je suis Sparra, un agent IA. Quelle est votre demande ?",
         "startSeconds": 0.0,
-        "endSeconds": 7.51775
+        "endSeconds": 5.4
       },
       {
         "speaker": "client",
         "text": "Bonjour, je souhaite une visite de contrôle technique pour ma voiture.",
-        "startSeconds": 7.86775,
-        "endSeconds": 12.391083
+        "startSeconds": 5.75,
+        "endSeconds": 9.638
       },
       {
         "speaker": "sparra",
         "text": "Quelle est votre préférence pour cette visite ? L'équipe devra vérifier les disponibilités.",
-        "startSeconds": 12.741083,
-        "endSeconds": 19.043375
+        "startSeconds": 9.988,
+        "endSeconds": 15.388
       },
       {
         "speaker": "client",
         "text": "Plutôt vendredi après-midi. Je m'appelle Alex. Pour cet exemple, mon numéro est fictif.",
-        "startSeconds": 19.393375,
-        "endSeconds": 26.674375
+        "startSeconds": 15.738,
+        "endSeconds": 21.618
       },
       {
         "speaker": "sparra",
         "text": "Je retiens une demande de contrôle technique, avec une préférence pour vendredi après-midi. La date, le tarif et les modalités restent à confirmer avec l'équipe. Aucun rendez-vous n'est réservé.",
-        "startSeconds": 27.024375,
-        "endSeconds": 39.798458
+        "startSeconds": 21.968,
+        "endSeconds": 33.224
       }
     ],
     "receipt": {

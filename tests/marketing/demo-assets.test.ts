@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { demoScenarios } from '../../src/modules/marketing/demo-scenarios.generated'
 
@@ -39,6 +39,69 @@ test('both real MP3 illustrations decode and match their cues, text, receipt and
     expect(proof.durationSeconds).toBe(scenario.durationSeconds)
   }
   expect(provenance.scenarioSha256).toBe(createHash('sha256').update(readFileSync('docs/demos/scenarios.fr.json')).digest('hex'))
+}, 30000)
+
+test('offline generation preview preserves deliverables and lists exactly ten verbatim French turns', () => {
+  const paths = ['src/modules/marketing/demo-scenarios.generated.ts', 'docs/demos/audio-provenance.json', 'public/demos/garage-revision.mp3', 'public/demos/controle-technique.mp3']
+  const before = paths.map(path => readFileSync(path))
+  const preview = JSON.parse(execFileSync('pwsh', ['-NoProfile', '-File', 'scripts/generate-demo-audio.ps1', '-DryRun'], { encoding: 'utf8' }))
+  const source = JSON.parse(readFileSync('docs/demos/scenarios.fr.json', 'utf8'))
+  expect(preview.model).toBe('x-ai/grok-voice-tts-1.0')
+  expect(preview.requestCount).toBe(10)
+  // Delivered request identities must remain non-billable even when build erased old raw caches.
+  expect(preview.cachedTurns + preview.recoveryRequired).toBe(10)
+  expect(preview.uncachedCalls).toBe(0)
+  expect(preview.requests.map((turn: { scenario: string; voice: string; characters: number }) => [turn.scenario, turn.voice, turn.characters])).toEqual(
+    source.flatMap((scenario: { id: string; turns: { speaker: string; text: string }[] }) => scenario.turns.map(turn => [scenario.id, turn.speaker === 'sparra' ? 'ara' : 'sal', turn.text.length])),
+  )
+  expect(paths.map(path => readFileSync(path))).toEqual(before)
+}, 30000)
+
+test('generation refuses oversized text before changing deliverables', () => {
+  const source = JSON.parse(readFileSync('docs/demos/scenarios.fr.json', 'utf8'))
+  source[0].turns[1].text = 'Bonjour '.repeat(100)
+  const paths = ['src/modules/marketing/demo-scenarios.generated.ts', 'docs/demos/audio-provenance.json', 'public/demos/garage-revision.mp3', 'public/demos/controle-technique.mp3']
+  const before = paths.map(path => readFileSync(path))
+  const directory = mkdtempSync(resolve('.output/demo-invalid-'))
+  try {
+    const sourcePath = resolve(directory, 'oversized.json')
+    writeFileSync(sourcePath, JSON.stringify(source))
+    let rejection = ''
+    try {
+      execFileSync('pwsh', ['-NoProfile', '-File', 'scripts/generate-demo-audio.ps1', '-SourcePath', sourcePath, '-DryRun'], { stdio: 'pipe' })
+    } catch (error) {
+      if (error && typeof error === 'object' && 'stderr' in error) rejection = String(error.stderr)
+    }
+    expect(rejection).toContain('Dialogue text exceeds')
+    expect(paths.map(path => readFileSync(path))).toEqual(before)
+  } finally { rmSync(directory, { recursive: true }) }
+}, 30000)
+
+test('an uncertain synthesis attempt blocks preview until recover-only assessment', () => {
+  const source = JSON.parse(readFileSync('docs/demos/scenarios.fr.json', 'utf8'))
+  source[0].turns[0].text += ' Cet exemple reste fictif.'
+  const directory = mkdtempSync(resolve('.output/demo-invalid-'))
+  let marker: string | undefined
+  try {
+    const sourcePath = resolve(directory, 'uncertain.json')
+    writeFileSync(sourcePath, JSON.stringify(source))
+    const args = ['-NoProfile', '-File', 'scripts/generate-demo-audio.ps1', '-SourcePath', sourcePath, '-DryRun']
+    const preview = JSON.parse(execFileSync('pwsh', args, { encoding: 'utf8' }))
+    const turn = preview.requests[0]
+    mkdirSync('.demo-audio-cache/segments', { recursive: true })
+    const candidate = resolve(`.demo-audio-cache/segments/${turn.scenario}-${turn.index}-${turn.requestSha256}.json`)
+    expect(existsSync(candidate)).toBe(false)
+    writeFileSync(candidate, JSON.stringify({ state: 'attempted' }), { flag: 'wx' }); marker = candidate
+    let rejection = ''
+    try { execFileSync('pwsh', args, { stdio: 'pipe' }) } catch (error) {
+      if (error && typeof error === 'object' && 'stderr' in error) rejection = String(error.stderr)
+    }
+    expect(rejection).toContain('recover-only assessment')
+    expect(JSON.parse(readFileSync(marker, 'utf8'))).toEqual({ state: 'attempted' })
+  } finally {
+    if (marker) rmSync(marker)
+    rmSync(directory, { recursive: true })
+  }
 }, 30000)
 
 test.each(['unknown', 'duplicate', 'escape', 'case'])('generator rejects %s before changing any output', kind => {

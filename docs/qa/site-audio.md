@@ -50,8 +50,31 @@ Lecteur d'écran : **non vérifié**. Le contrôleur a lancé Narrateur Windows 
 4. Bloquer le média puis lancer la lecture : l'erreur est annoncée sans déplacement du focus. La transcription et la fiche restent consultables.
 5. Parcourir la transcription puis « Ce que vous recevez » ; comprendre leur caractère fictif, la demande et l'action restant à confirmer.
 
-Écoute humaine intégrale des deux MP3 Windows actuels, intelligibilité, qualité des voix et concordance audio/texte : **reportée explicitement par l'utilisateur, non vérifiée**. Leurs assets, catalogue et provenance Windows restent inchangés. Les tests de métadonnées, cues et currentTime ne remplacent pas l'écoute.
+Écoute humaine intégrale des deux MP3 actuels Grok ara/sal, intelligibilité, qualité des voix et concordance audio/texte : **reportée explicitement par l'utilisateur, non vérifiée**. Les assets Windows du jalon précédent restent dans l'historique Git. Les tests de métadonnées, cues et currentTime ne remplacent pas l'écoute.
 
-La demande ultérieure de remplacements français proches d'une voix humaine ouvre une expérimentation A/B distincte, préparée hors de ces assets techniques. Elle ne valide ni la qualité des voix Windows actuelles, ni celle de remplacements encore à comparer, et ne vaut pas acceptation d'écoute ou publication.
+Les comparaisons initiales A/B restent hors dépôt. Le choix Grok est provisoire ; la génération des deux illustrations ci-dessous ne vaut pas acceptation de leur qualité par écoute humaine ou publication.
 
-Revue indépendante et Oracle du jalon : pilotées par le contrôleur, pas attestées par ce document d'implémentation. Publication, CI distante, hébergement France, conformité et traitement IA externe : aucune nouvelle preuve dans ce lot local.
+Revue indépendante et Oracle du jalon : pilotées par le contrôleur, pas attestées par ce document d'implémentation. Publication, CI distante, hébergement France et conformité : aucune nouvelle preuve dans ce lot local. Le traitement IA externe observé pour la révision suivante se limite à la synthèse de dix textes fictifs ; il ne qualifie aucun appel réel.
+
+## Révision des voix enregistrées — 30 septembre 2026
+
+Base de la révision : `f3d0a0142b6a7ab756b92613ccc79e8a65567063`. Le contrôleur a exécuté une fois le producteur PowerShell hors ligne avec une clé de processus transitoire, puis l'a effacée. Les dix répliques françaises existantes ont été synthétisées par `x-ai/grok-voice-tts-1.0` via OpenRouter, voix `ara` pour Sparra et `sal` pour le client, format MP3 et vitesse fournisseur par défaut. Aucun texte, fiche, export TypeScript, lecteur, pin ou frontière privée ne change.
+
+Chaque segment reçu a été validé et décodé avant mise en cache. ffmpeg le convertit en PCM mono 24 kHz, insère les pauses mesurées de 0,35 s et encode les deux actifs en MP3 mono 24 kHz / 64 kbit/s sans métadonnées. Les cues proviennent des durées réellement mesurées des segments normalisés. [La provenance actuelle](../demos/audio-provenance.json) conserve dates, modèle, voix et empreintes des segments et actifs, et indique explicitement les qualifications humaines et téléphoniques non vérifiées.
+
+| Contrôle de cette révision | Résultat local observé |
+| --- | --- |
+| Aperçu `generate-demo-audio.ps1 -DryRun` final | 10 succès déjà livrés nécessitent une reprise manuelle car leur cache brut a été perdu ; zéro nouvel appel prévu et aucun appel de régénération exécuté |
+| Tests actifs/cues, HTTP compilé et canaris après correction du cache | 28 tests / 4 fichiers passés : décodage réel, empreintes, texte/fiche, pauses, refus d'entrée, blocage d'une tentative incertaine et absence de nouvelle facturation prévue |
+| `pnpm lint`, `pnpm typecheck` | Passés séquentiellement |
+| `pnpm build` | Web et worker compilés ; avertissement de chunk client de 538,59 kB conservé |
+| HTTP public compilé et canaris qualité | 8 tests / 2 fichiers passés |
+| `pnpm test:a11y` | 13 cas passés sur les nouveaux MP3 : commandes natives, pairing, erreurs/reprise, clavier, CSP, axe, aucun appel externe |
+
+Pour cette recette navigateur, Docker Desktop `desktop-linux` 29.6.1/Linux amd64 ; ressources libres avant lancement : 5,74 GiB physiques et 15,10 GiB virtuels. Les fixtures jetables existantes ont terminé sans erreur de nettoyage. Les régressions auth/Workspace et la suite historique de 707 tests ne sont pas rejouées dans ce périmètre sans modification privée.
+
+Le premier cache était placé sous `.output` : la préparation du build Nitro efface ce répertoire. Ce défaut a fait perdre les dix segments bruts et leurs identifiants de génération après leur livraison réussie. Le cache durable et son verrou sont désormais dans `.demo-audio-cache/`, ignoré par Git et extérieur aux sorties de build et médias publics. Une trace de vérification possédée a survécu inchangée au build normal et aux tests ciblés, puis a été retirée seule. Le producteur refuse les demandes connues de la provenance quand leur cache brut manque, avant accès à la clé ou appel réseau. Les identifiants perdus ne sont pas reconstruits ; le coût exact de ces dix appels reste **non vérifié**.
+
+Garage : **30,344 s**, SHA256 `5f4bae1632493c8aaf9cffbc4a16de8ca9cf9a780d2cb506a28f1ab8555c1366`. Contrôle technique : **33,224 s**, SHA256 `2c63695364859f5d633800cce7031dc280b548ff47cf331628605bb2f2e4f150`. La source éditoriale conserve SHA256 `26c28bb683e29591704954ed7869fe965361e9ef7b3c213adc1628e112c136eb`.
+
+Ces résultats attestent le producteur d'illustrations et leur lecteur local. Ils ne prouvent pas une qualité proche de l'humain, un test de lecteur d'écran, ni une qualification de téléphone PCMU 8 kHz, de latence, d'interruption ou de politique fournisseur.
