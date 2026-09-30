@@ -1,0 +1,35 @@
+{
+  "purpose": "Local preview illustrations of fictional scenarios. Not qualified runtime calls.",
+  "publication": "Pending applicable voice rights review or replacement with qualified runtime captures.",
+  "subjectiveListening": "NOT VERIFIED: full human listening is required before qualification.",
+  "generator": "System.Speech.Synthesis.SpeechSynthesizer on PowerShell 7 (installed Windows voices); ffmpeg",
+  "voices": {
+    "client": "Microsoft Paul (fr-FR)",
+    "sparra": "Microsoft Julie (fr-FR)"
+  },
+  "rate": 0,
+  "encoding": {
+    "sampleRate": 24000,
+    "bitrate": 64000,
+    "channels": 1,
+    "pauseSeconds": 0.35,
+    "codec": "mp3"
+  },
+  "ffmpeg": "ffmpeg version 9.0-full_build-www.gyan.dev",
+  "scenarioSource": "docs/demos/scenarios.fr.json",
+  "scenarioSha256": "26c28bb683e29591704954ed7869fe965361e9ef7b3c213adc1628e112c136eb",
+  "assets": [
+    {
+      "id": "garage",
+      "audioSrc": "/demos/garage-revision.mp3",
+      "durationSeconds": 36.356917,
+      "sha256": "37c31351356ce15298c5df14ed3e0998bc6ad4a1f09b64c13871fda8ea1880ac"
+    },
+    {
+      "id": "controle-technique",
+      "audioSrc": "/demos/controle-technique.mp3",
+      "durationSeconds": 39.798458,
+      "sha256": "1121600f1bc1b56d7e32154ca2b6257d45a2dbe1885cdb02bd6a9e9787ea4a27"
+    }
+  ]
+}

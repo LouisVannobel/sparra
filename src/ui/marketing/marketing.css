@@ -17,19 +17,37 @@
 .sparra a:focus-visible, .sparra button:focus-visible { outline: 3px solid #000; outline-offset: 5px; }
 .sparra .sparra-skip { position: absolute; top: .5rem; left: 1rem; padding: .8rem 1rem; background: #edfc47; z-index: 2; transform: translateY(-200%); }
 .sparra .sparra-skip:focus { transform: translateY(0); }
-.sparra .sparra-hero { padding-block: clamp(3rem, 7vw, 7rem); display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); gap: clamp(2rem, 5vw, 5rem); align-items: center; }
+.sparra .sparra-hero { padding-block: clamp(3rem, 7vw, 7rem) 1rem; max-width: 66rem; margin-left: max(1.5rem, calc((100% - 80rem) / 2)); }
 .sparra .sparra-intro { font-size: 1.2rem; max-width: 48ch; margin-bottom: 2rem; }
 .sparra .sparra-pilot { font-size: .9rem; max-width: 55ch; margin-top: 1.1rem; color: #444; }
-.sparra .sparra-call-note { padding: clamp(1.5rem, 3vw, 3rem); background: #fff; border: 1px solid #dedcda; border-radius: 1.25rem; transform: rotate(2deg); }
-.sparra .sparra-call-symbol { display: flex; align-items: center; justify-content: center; width: 3.5rem; height: 3.5rem; border-radius: 50%; background: #edfc47; font-size: 2rem; margin-bottom: 2rem; }
-.sparra .sparra-call-note > p { font-size: clamp(1.5rem, 2.5vw, 2rem); line-height: 1.3; letter-spacing: -.025em; }
-.sparra .sparra-call-note > div { margin-top: 2rem; border-top: 1px solid #dedcda; padding-top: 1.5rem; }
+.sparra .sparra-hero-actions { display: flex; gap: 1.5rem; align-items: center; flex-wrap: wrap; }
 .sparra .sparra-status { display: inline-block; background: #edfc47; padding: .25rem .6rem; border-radius: .25rem; margin-bottom: .75rem; font-weight: 500; }
 .sparra small, .sparra .sparra-example-label { color: #444; font-size: .9rem; }
 .sparra .sparra-reassurance { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2rem; padding-block: 1.7rem; border-block: 1px solid #c7c5c2; }
 .sparra .sparra-reassurance p { margin: 0; font-size: .95rem; }
 .sparra .sparra-section { padding-block: clamp(3.5rem, 6vw, 6rem); scroll-margin-top: 1rem; }
 .sparra .sparra-section-heading { max-width: 42rem; margin-bottom: 3rem; }
+.sparra .sparra-demo .sparra-section-heading { margin-bottom: 2rem; }
+.sparra .sparra-sectors { max-width: 36rem; margin-bottom: 2rem; }
+.sparra .sparra-sectors [role="radio"] { min-height: 3rem; height: auto; white-space: normal; }
+.sparra .sparra-demo-pair { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: clamp(1.5rem, 4vw, 4rem); align-items: start; }
+.sparra .sparra-conversation { min-width: 0; }
+.sparra .sparra-player-actions { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.sparra .sparra-player-actions button { min-height: 3rem; height: auto; white-space: normal; }
+.sparra .sparra-progress { display: flex; align-items: center; gap: 1rem; margin-block: 1.25rem 2rem; }
+.sparra .sparra-progress progress { width: 100%; height: .5rem; accent-color: #000; }
+.sparra .sparra-progress span { flex-shrink: 0; font-variant-numeric: tabular-nums; font-size: .9rem; }
+.sparra .sparra-transcript { list-style: none; padding: 0; margin: 0; }
+.sparra .sparra-transcript li { padding: .85rem 1rem; border-left: 3px solid transparent; }
+.sparra .sparra-transcript li[aria-current="true"] { border-color: #000; background: #edfc47; }
+.sparra .sparra-transcript p { margin: .35rem 0 0; }
+.sparra .sparra-speaker { font-weight: 500; font-size: .9rem; }
+.sparra .sparra-receipt { background: #fff; border: 1px solid #dedcda; border-radius: .75rem; padding: clamp(1.25rem, 3vw, 2.5rem); }
+.sparra .sparra-receipt dl { margin: 0; }
+.sparra .sparra-receipt dl > div { padding-block: 1rem; border-top: 1px solid #dedcda; }
+.sparra .sparra-receipt dt { font-weight: 500; margin-bottom: .4rem; }
+.sparra .sparra-receipt dd { margin: 0; color: #444; }
+.sparra .sparra-audio-error { border-left: 3px solid #000; padding-left: 1rem; }
 .sparra .sparra-steps { list-style: none; counter-reset: steps; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2.5rem; margin: 0; padding: 0; }
 .sparra .sparra-steps li { counter-increment: steps; }
 .sparra .sparra-steps li::before { content: counter(steps); display: flex; align-items: center; justify-content: center; width: 2.5rem; height: 2.5rem; border: 1px solid #000; border-radius: 50%; font-size: 1.1rem; margin-bottom: 1.5rem; }
@@ -54,8 +72,8 @@
   .sparra .sparra-width { width: min(100% - 2rem, 80rem); }
   .sparra .sparra-header > .sparra-contact { font-size: .9rem; max-width: 65%; }
   .sparra .sparra-header nav { gap: .5rem 1rem; font-size: .9rem; }
-  .sparra .sparra-hero, .sparra .sparra-knowledge, .sparra .sparra-offer { grid-template-columns: minmax(0, 1fr); gap: 2rem; }
-  .sparra .sparra-call-note { transform: none; }
+  .sparra .sparra-hero { margin-left: 1rem; }
+  .sparra .sparra-demo-pair, .sparra .sparra-knowledge, .sparra .sparra-offer { grid-template-columns: minmax(0, 1fr); gap: 2rem; }
   .sparra .sparra-reassurance { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; }
   .sparra .sparra-steps { grid-template-columns: minmax(0, 1fr); gap: 2rem; }
   .sparra .sparra-knowledge-note { padding: 1.25rem; }

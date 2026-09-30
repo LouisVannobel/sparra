@@ -1,4 +1,5 @@
 import { Button } from '@astryxdesign/core/Button'
+import { SparraDemo } from './sparra-demo'
 
 export function SparraLanding(): React.JSX.Element {
   return <div className="sparra">
@@ -6,6 +7,7 @@ export function SparraLanding(): React.JSX.Element {
     <header className="sparra-header sparra-width">
       <a className="sparra-wordmark" href="/" aria-label="Sparra, accueil">sparra<span aria-hidden="true">.</span></a>
       <nav aria-label="Navigation principale">
+        <a href="#demo">Écouter un exemple</a>
         <a href="#fonctionnement">Comment ça fonctionne</a>
         <a href="#controle">Vous gardez la main</a>
         <a href="#offre">L’offre</a>
@@ -17,16 +19,14 @@ export function SparraLanding(): React.JSX.Element {
         <div>
           <h1 id="sparra-title">Votre assistant téléphonique.<br />Pendant que vous faites votre métier.</h1>
           <p className="sparra-intro">Un client appelle. Vous êtes à l’atelier, avec un client ou déjà en ligne. Sparra est conçu pour accueillir sa demande et vous transmettre l’essentiel.</p>
-          <Button className="sparra-contact" href="mailto:contact@sparra.fr" label="Préparer un pilote ensemble" variant="primary" size="lg" />
+          <div className="sparra-hero-actions">
+            <Button className="sparra-contact" href="#demo" label="Écouter un exemple" variant="primary" size="lg" />
+            <a href="mailto:contact@sparra.fr">Préparer un pilote ensemble</a>
+          </div>
           <p className="sparra-pilot">Le service est en préparation. Le raccordement de la ligne et le relais humain seront vérifiés lors du pilote.</p>
         </div>
-        <aside className="sparra-call-note" aria-label="Exemple de demande, fictif">
-          <span className="sparra-call-symbol" aria-hidden="true">↗</span>
-          <p>« Je voudrais faire réviser ma voiture. Vous pouvez me rappeler demain ? »</p>
-          <div><span className="sparra-status">Demande à traiter</span><p>Une demande de rappel, pas un rendez-vous confirmé.</p></div>
-          <small>Exemple fictif de demande au Garage Horizon.</small>
-        </aside>
       </section>
+      <SparraDemo />
       <div className="sparra-reassurance sparra-width" aria-label="Conditions du parcours prévu">
         <p>Votre numéro, si le renvoi est compatible</p><p>Aucun matériel spécifique au parcours retenu</p><p>Configuration accompagnée</p><p>Vos règles, votre contrôle</p>
       </div>
