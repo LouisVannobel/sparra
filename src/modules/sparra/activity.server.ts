@@ -39,7 +39,7 @@ export function parseSaveActivityInput(input: unknown) {
     return { ...value, transferDestination: value.transferDestination ?? null }
   } catch { throw new InvalidActivityInput() }
 }
-function configuration(row: typeof sparraKnowledgeRevision.$inferSelect): ActivityConfigurationDto {
+export function configuration(row: typeof sparraKnowledgeRevision.$inferSelect): ActivityConfigurationDto {
   return { workspaceId:row.workspaceId,revision:row.revision,savedAt:row.savedAt.toISOString(),businessName:row.businessName,sector:row.sector,knowledge:{openingHours:row.openingHours,services:row.services,prices:row.prices,faq:row.faq,instructions:row.instructions},transferDestination:row.transferDestination }
 }
 export function createActivityOperations(owner: AuthTransactions) {
