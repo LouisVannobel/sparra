@@ -1,3 +1,4 @@
+import './modules/sparra/sparra.functions'
 import { createServerEntry } from '@tanstack/react-start/server-entry'
 import { createStartHandler, defaultStreamHandler } from '@tanstack/react-start/server'
 import { readWebConfig } from './platform/config.server'
