@@ -1,6 +1,6 @@
 # Sparra — pilote relié : entreprise, appel et inbox
 
-30 septembre 2026. Complément technique proposé à la spécification de première livraison déjà adoptée. **Statut : écrit pour revue, pas encore adopté pour implémentation.** Il préserve le but complet Sparra et précise les frontières qui étaient encore à spécifier avant un appel réel. Le choix de sous-agents par tâche reste acquis ; aucune nouvelle auth, pile, facturation ou infrastructure n'est proposée.
+30 septembre 2026. Complément technique proposé à la spécification de première livraison déjà adoptée. **Statut : adopté explicitement le 1er octobre 2026.** Il préserve le but complet Sparra et précise les frontières qui étaient encore à spécifier avant un appel réel. Le choix de sous-agents par tâche reste acquis ; aucune nouvelle auth, pile, facturation ou infrastructure n'est proposée.
 
 ## Résultat et chemin retenu
 
@@ -116,3 +116,9 @@ Audit read-only des scripts installés `/opt/studio/backup/` sur ops02, confirm�
 **Conséquence avant activation : ne pas hériter silencieusement de cette sauvegarde pour Sparra.** Ajouter une base Sparra au PG16 partagé l'inclurait dans le dump global et le backup physique à conservation longue ; une suppression en base ne retirerait pas automatiquement les copies historiques. La frontière de stockage/sauvegarde Sparra doit donc être isolée, avec destination française prouvée, politique30jours/effacement/restauration validée et vérifiée. Un backup physique partagé ne s'exclut pas par simple filtre de tables. Une instance PG16/Sparra isolée sur les serveurs existants est une option concrète à préparer avant toute donnée réelle ; aucune instance/configuration/secret/destination/retention partagée n'a été créée ou changée par cet audit. Ne pas réaffecter le PG18 Formbricks ni modifier sa politique pour simplifier Sparra.
 
 Évidence : `C:/Users/louis/.codex/artifacts/sparra/2026-09-30/BACKUP_SCOPE_RETENTION_OBSERVATION.json`. La revue Oracle initiale précède cette observation ; aucune approbation de ce déploiement supplémentaire n'est revendiquée. Le plan local natif et les fixtures n'activent aucune de ces ressources partagées.
+
+
+## Instruction d’autonomie — 1er octobre 2026
+
+L’utilisateur adopte ce contrat et demande explicitement de poursuivre jusqu’au but complet sans attendre d’approbation humaine supplémentaire. Cette instruction prévaut sur les gates de confirmation des skills et des documents historiques. Plans, sous-agents par tâche, revues indépendantes, Oracle et preuves restent nécessaires ; aucune approval loop ne bloque désormais leur exécution. Le plafond Telnyx5USD, la conservation30jours, l’isolation/résidence requises, l’absence de secrets persistés et la préservation des ressources étrangères restent applicables. Une donnée légale, un justificatif ou une preuve humaine manquants ne sont pas inventés.
+
