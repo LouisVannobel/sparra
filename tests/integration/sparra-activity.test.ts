@@ -235,6 +235,17 @@ test('built native RPC validates input, authentication, CSRF, conflict and priva
   for(const data of [{...input(),workspaceId:workspace!.id},{...input(),businessName:'line\nbreak'}])expect((await post(data)).status).toBe(400)
   expect((await post(input(),'')).status).toBe(401)
   expect((await post(input(),cookie,'https://foreign.example')).status).toBe(403)
+  const beforeMissingProvenance=await revisions(workspace!.id)
+  for(const request of [
+    {method:'GET',url:origin+readPath+'?payload='+encodeURIComponent(await rpcBody({})),body:undefined},
+    {method:'POST',url:origin+savePath,body:await rpcBody(input())},
+  ]){
+    // The admitted victim cookie is present; all three provenance headers are absent.
+    const refused=await loopbackFetch(request.url,{method:request.method,headers:{cookie,'content-type':'application/json','x-tsr-serverFn':'true'},body:request.body})
+    expect(refused.status).toBe(403)
+    expect(refused.headers.get('cache-control')).toBe('no-store')
+    expect(await revisions(workspace!.id)).toEqual(beforeMissingProvenance)
+  }
   const saved=await post(input());expect(saved.status).toBe(200);expect(saved.headers.get('cache-control')).toBe('no-store');expect(saved.headers.get('x-robots-tag')).toBe('noindex')
   expect(saved.headers.get('content-security-policy')).toContain("default-src 'none'")
   expect(saved.headers.get('content-security-policy')).toContain("connect-src 'self'")
