@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.output/
+.tanstack/
+.superpowers/
+test-results/
+playwright-report/
+coverage/
+.env
+.env.*
+!.env.example
+*.tsbuildinfo

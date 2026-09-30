@@ -1,0 +1,97 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1789006616374,
+      "tag": "0000_auth_storage",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789069194724,
+      "tag": "0001_cheerful_sharon_carter",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789095650993,
+      "tag": "0002_worthless_newton_destine",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789122890621,
+      "tag": "0003_auth_mail_polling_candidates",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789127960166,
+      "tag": "0004_wealthy_impossible_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789160503204,
+      "tag": "0005_account_provider_key",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789277053246,
+      "tag": "0006_magic_verifier",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789290249902,
+      "tag": "0007_initial_passkey",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789341409596,
+      "tag": "0008_additional_passkey",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789362082920,
+      "tag": "0009_first_google_passkey",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790009606875,
+      "tag": "0010_google_account",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790073549985,
+      "tag": "0011_session_management",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790671702717,
+      "tag": "0012_recovery_admission",
+      "breakpoints": true
+    }
+  ]
+}

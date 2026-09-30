@@ -1,0 +1,2 @@
+CREATE INDEX "auth_email_outbox_admission_candidates_idx" ON "auth_email_outbox" USING btree ("id") WHERE "auth_email_outbox"."admission_state" = 'pending' OR "auth_email_outbox"."admission_state" = 'admitting';--> statement-breakpoint
+CREATE INDEX "email_delivery_material_candidates_idx" ON "email_delivery" USING btree ("command_id") WHERE "email_delivery"."ciphertext" IS NOT NULL OR "email_delivery"."verifier_hash" IS NOT NULL;

@@ -1,0 +1,1208 @@
+{
+  "id": "21558841-6916-4b13-9bb9-076d31f5d510",
+  "prevId": "e3514fd8-1693-4917-9c29-081547d2f061",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.account": {
+      "name": "account",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "account_id": {
+          "name": "account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_id": {
+          "name": "provider_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "access_token": {
+          "name": "access_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "refresh_token": {
+          "name": "refresh_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "id_token": {
+          "name": "id_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "access_token_expires_at": {
+          "name": "access_token_expires_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "refresh_token_expires_at": {
+          "name": "refresh_token_expires_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "password": {
+          "name": "password",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "account_user_id_idx": {
+          "name": "account_user_id_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "account_user_id_user_id_fk": {
+          "name": "account_user_id_user_id_fk",
+          "tableFrom": "account",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "account_provider_account_id_unique": {
+          "name": "account_provider_account_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "provider_id",
+            "account_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "account_provider_google": {
+          "name": "account_provider_google",
+          "value": "\"account\".\"provider_id\" = 'google'"
+        },
+        "account_password_disabled": {
+          "name": "account_password_disabled",
+          "value": "\"account\".\"password\" is null"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.auth_email_command": {
+      "name": "auth_email_command",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "generation": {
+          "name": "generation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "purpose": {
+          "name": "purpose",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recipient": {
+          "name": "recipient",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "locale": {
+          "name": "locale",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "recovery_generation": {
+          "name": "recovery_generation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "auth_email_command_request_id_auth_email_request_id_fk": {
+          "name": "auth_email_command_request_id_auth_email_request_id_fk",
+          "tableFrom": "auth_email_command",
+          "tableTo": "auth_email_request",
+          "columnsFrom": [
+            "request_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "auth_email_command_user_id_user_id_fk": {
+          "name": "auth_email_command_user_id_user_id_fk",
+          "tableFrom": "auth_email_command",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "auth_email_command_request_generation_unique": {
+          "name": "auth_email_command_request_generation_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "request_id",
+            "generation"
+          ]
+        }
+      },
+      "policies": {
+        "auth_email_command_scope": {
+          "name": "auth_email_command_scope",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "public"
+          ],
+          "using": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'",
+          "withCheck": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'"
+        }
+      },
+      "checkConstraints": {
+        "auth_email_command_generation_positive": {
+          "name": "auth_email_command_generation_positive",
+          "value": "\"auth_email_command\".\"generation\" > 0"
+        },
+        "auth_email_command_purpose": {
+          "name": "auth_email_command_purpose",
+          "value": "\"auth_email_command\".\"purpose\" = 'magic-link'"
+        },
+        "auth_email_command_locale": {
+          "name": "auth_email_command_locale",
+          "value": "\"auth_email_command\".\"locale\" in ('fr','en')"
+        },
+        "auth_email_command_expiry": {
+          "name": "auth_email_command_expiry",
+          "value": "\"auth_email_command\".\"expires_at\" > \"auth_email_command\".\"created_at\" and \"auth_email_command\".\"expires_at\" <= \"auth_email_command\".\"created_at\" + interval '10 minutes'"
+        },
+        "auth_email_command_user_binding": {
+          "name": "auth_email_command_user_binding",
+          "value": "(\"auth_email_command\".\"user_id\" is null and \"auth_email_command\".\"recovery_generation\" is null) or (\"auth_email_command\".\"user_id\" is not null and \"auth_email_command\".\"recovery_generation\" is not null and \"auth_email_command\".\"recovery_generation\" >= 0)"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.auth_email_outbox": {
+      "name": "auth_email_outbox",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "delivery_id": {
+          "name": "delivery_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "admission_state": {
+          "name": "admission_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "admission_fence": {
+          "name": "admission_fence",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "admission_lease_until": {
+          "name": "admission_lease_until",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "auth_email_outbox_admission_candidates_idx": {
+          "name": "auth_email_outbox_admission_candidates_idx",
+          "columns": [
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"auth_email_outbox\".\"admission_state\" = 'pending' OR \"auth_email_outbox\".\"admission_state\" = 'admitting'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "auth_email_outbox_delivery_id_email_delivery_id_fk": {
+          "name": "auth_email_outbox_delivery_id_email_delivery_id_fk",
+          "tableFrom": "auth_email_outbox",
+          "tableTo": "email_delivery",
+          "columnsFrom": [
+            "delivery_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "auth_email_outbox_delivery_id_unique": {
+          "name": "auth_email_outbox_delivery_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "delivery_id"
+          ]
+        }
+      },
+      "policies": {
+        "auth_email_outbox_scope": {
+          "name": "auth_email_outbox_scope",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "public"
+          ],
+          "using": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'",
+          "withCheck": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'"
+        }
+      },
+      "checkConstraints": {
+        "auth_email_outbox_admission": {
+          "name": "auth_email_outbox_admission",
+          "value": "\"auth_email_outbox\".\"admission_state\" in ('pending','admitting','admitted','admission_unknown') and \"auth_email_outbox\".\"admission_fence\" >= 0"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.auth_email_request": {
+      "name": "auth_email_request",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "purpose": {
+          "name": "purpose",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "generation": {
+          "name": "generation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "auth_email_request_user_id_user_id_fk": {
+          "name": "auth_email_request_user_id_user_id_fk",
+          "tableFrom": "auth_email_request",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "auth_email_request_email_purpose_unique": {
+          "name": "auth_email_request_email_purpose_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "email",
+            "purpose"
+          ]
+        }
+      },
+      "policies": {
+        "auth_email_request_scope": {
+          "name": "auth_email_request_scope",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "public"
+          ],
+          "using": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'",
+          "withCheck": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'"
+        }
+      },
+      "checkConstraints": {
+        "auth_email_request_generation_positive": {
+          "name": "auth_email_request_generation_positive",
+          "value": "\"auth_email_request\".\"generation\" > 0"
+        },
+        "auth_email_request_purpose": {
+          "name": "auth_email_request_purpose",
+          "value": "\"auth_email_request\".\"purpose\" = 'magic-link'"
+        },
+        "auth_email_request_normalized": {
+          "name": "auth_email_request_normalized",
+          "value": "\"auth_email_request\".\"email\" = lower(btrim(\"auth_email_request\".\"email\"))"
+        },
+        "auth_email_request_state": {
+          "name": "auth_email_request_state",
+          "value": "\"auth_email_request\".\"state\" in ('active','consumed','terminal')"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.email_delivery": {
+      "name": "email_delivery",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "command_id": {
+          "name": "command_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "verifier_hash": {
+          "name": "verifier_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "key_id": {
+          "name": "key_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ciphertext": {
+          "name": "ciphertext",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "nonce": {
+          "name": "nonce",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tag": {
+          "name": "tag",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "snapshot_format": {
+          "name": "snapshot_format",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "snapshot_hash": {
+          "name": "snapshot_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "replay_window_seconds": {
+          "name": "replay_window_seconds",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "provider_state": {
+          "name": "provider_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'unattempted'"
+        },
+        "provider_fence": {
+          "name": "provider_fence",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "provider_lease_until": {
+          "name": "provider_lease_until",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "first_attempt_at": {
+          "name": "first_attempt_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "replay_not_after": {
+          "name": "replay_not_after",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "queued_evidence": {
+          "name": "queued_evidence",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "plunk_email_id": {
+          "name": "plunk_email_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "email_delivery_material_candidates_idx": {
+          "name": "email_delivery_material_candidates_idx",
+          "columns": [
+            {
+              "expression": "command_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"email_delivery\".\"ciphertext\" IS NOT NULL OR \"email_delivery\".\"verifier_hash\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "email_delivery_command_id_auth_email_command_id_fk": {
+          "name": "email_delivery_command_id_auth_email_command_id_fk",
+          "tableFrom": "email_delivery",
+          "tableTo": "auth_email_command",
+          "columnsFrom": [
+            "command_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "email_delivery_command_id_unique": {
+          "name": "email_delivery_command_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "command_id"
+          ]
+        }
+      },
+      "policies": {
+        "email_delivery_scope": {
+          "name": "email_delivery_scope",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "public"
+          ],
+          "using": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'",
+          "withCheck": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'"
+        }
+      },
+      "checkConstraints": {
+        "email_delivery_snapshot": {
+          "name": "email_delivery_snapshot",
+          "value": "(\"email_delivery\".\"snapshot_format\" is null and \"email_delivery\".\"snapshot_hash\" is null and \"email_delivery\".\"replay_window_seconds\" is null) or (\"email_delivery\".\"snapshot_format\" = 'auth-plunk-v1' and \"email_delivery\".\"snapshot_hash\" ~ '^[0-9a-f]{64}$' and (\"email_delivery\".\"replay_window_seconds\" is null or \"email_delivery\".\"replay_window_seconds\" between 1 and 600))"
+        },
+        "email_delivery_provider_state": {
+          "name": "email_delivery_provider_state",
+          "value": "\"email_delivery\".\"provider_state\" in ('unattempted','attempting','effect_unknown','plunk_queued','held') and \"email_delivery\".\"provider_fence\" >= 0"
+        },
+        "email_delivery_state": {
+          "name": "email_delivery_state",
+          "value": "\"email_delivery\".\"state\" in ('active','consumed','terminal','superseded','expired')"
+        },
+        "email_delivery_envelope": {
+          "name": "email_delivery_envelope",
+          "value": "(\"email_delivery\".\"ciphertext\" is null and \"email_delivery\".\"nonce\" is null and \"email_delivery\".\"tag\" is null) or (\"email_delivery\".\"ciphertext\" is not null and \"email_delivery\".\"nonce\" is not null and \"email_delivery\".\"tag\" is not null and \"email_delivery\".\"nonce\" ~ '^[0-9a-f]{24}$' and \"email_delivery\".\"tag\" ~ '^[0-9a-f]{32}$')"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.session": {
+      "name": "session",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token": {
+          "name": "token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "ip_address": {
+          "name": "ip_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "user_agent": {
+          "name": "user_agent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "auth_state": {
+          "name": "auth_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "auth_method": {
+          "name": "auth_method",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "authenticated_at": {
+          "name": "authenticated_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_identity": {
+          "name": "provider_identity",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "recovery_generation": {
+          "name": "recovery_generation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_activity_at": {
+          "name": "last_activity_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "session_user_id_idx": {
+          "name": "session_user_id_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "session_user_id_user_id_fk": {
+          "name": "session_user_id_user_id_fk",
+          "tableFrom": "session",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "session_token_unique": {
+          "name": "session_token_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "token"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "session_auth_state_allowed": {
+          "name": "session_auth_state_allowed",
+          "value": "\"session\".\"auth_state\" in ('ACTIVE', 'MFA_PENDING', 'RECOVERY_RESTRICTED')"
+        },
+        "session_auth_method_allowed": {
+          "name": "session_auth_method_allowed",
+          "value": "\"session\".\"auth_method\" in ('google', 'magic-link', 'passkey', 'totp', 'recovery')"
+        },
+        "session_recovery_generation_nonnegative": {
+          "name": "session_recovery_generation_nonnegative",
+          "value": "\"session\".\"recovery_generation\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.user": {
+      "name": "user",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email_verified": {
+          "name": "email_verified",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "image": {
+          "name": "image",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "recovering": {
+          "name": "recovering",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "recovery_generation": {
+          "name": "recovery_generation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "hold_until": {
+          "name": "hold_until",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "user_email_unique": {
+          "name": "user_email_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "email"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "user_recovery_generation_nonnegative": {
+          "name": "user_recovery_generation_nonnegative",
+          "value": "\"user\".\"recovery_generation\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.verification": {
+      "name": "verification",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "identifier": {
+          "name": "identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "verification_identifier_idx": {
+          "name": "verification_identifier_idx",
+          "columns": [
+            {
+              "expression": "identifier",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.workspace": {
+      "name": "workspace",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'personal'"
+        },
+        "lifecycle": {
+          "name": "lifecycle",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "auth_organization_id": {
+          "name": "auth_organization_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'Workspace'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "workspace_owner_user_id_user_id_fk": {
+          "name": "workspace_owner_user_id_user_id_fk",
+          "tableFrom": "workspace",
+          "tableTo": "user",
+          "columnsFrom": [
+            "owner_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "workspace_owner_user_id_unique": {
+          "name": "workspace_owner_user_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "owner_user_id"
+          ]
+        }
+      },
+      "policies": {
+        "workspace_tenant": {
+          "name": "workspace_tenant",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "runtime"
+          ],
+          "using": "\"workspace\".\"id\"::text = current_setting('app.tenant_id', true) and \"workspace\".\"lifecycle\" = 'active'",
+          "withCheck": "\"workspace\".\"id\"::text = current_setting('app.tenant_id', true) and \"workspace\".\"lifecycle\" = 'active'"
+        },
+        "workspace_bootstrap": {
+          "name": "workspace_bootstrap",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "workspace_bootstrap"
+          ],
+          "using": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'",
+          "withCheck": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'"
+        }
+      },
+      "checkConstraints": {
+        "workspace_personal": {
+          "name": "workspace_personal",
+          "value": "\"workspace\".\"kind\" = 'personal' and \"workspace\".\"auth_organization_id\" is null"
+        },
+        "workspace_lifecycle": {
+          "name": "workspace_lifecycle",
+          "value": "\"workspace\".\"lifecycle\" in ('provisioning','active','deleting')"
+        },
+        "workspace_nonzero_id": {
+          "name": "workspace_nonzero_id",
+          "value": "\"workspace\".\"id\" <> '00000000-0000-0000-0000-000000000000'::uuid"
+        },
+        "workspace_display_name": {
+          "name": "workspace_display_name",
+          "value": "length(\"workspace\".\"display_name\") between 1 and 80 and length(btrim(\"workspace\".\"display_name\")) > 0 and \"workspace\".\"display_name\" !~ '[[:cntrl:]]' and position(chr(8232) in \"workspace\".\"display_name\") = 0 and position(chr(8233) in \"workspace\".\"display_name\") = 0"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.workspace_audit": {
+      "name": "workspace_audit",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "correlation_id": {
+          "name": "correlation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "clock_timestamp()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "workspace_audit_tenant_insert": {
+          "name": "workspace_audit_tenant_insert",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": [
+            "runtime"
+          ],
+          "withCheck": "\"workspace_audit\".\"workspace_id\"::text = current_setting('app.tenant_id', true) and \"workspace_audit\".\"action\" = 'display-name-changed'"
+        },
+        "workspace_audit_bootstrap_insert": {
+          "name": "workspace_audit_bootstrap_insert",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": [
+            "workspace_bootstrap"
+          ],
+          "withCheck": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000' and \"workspace_audit\".\"action\" = 'personal-created'"
+        }
+      },
+      "checkConstraints": {
+        "workspace_audit_action": {
+          "name": "workspace_audit_action",
+          "value": "\"workspace_audit\".\"action\" in ('personal-created','display-name-changed')"
+        }
+      },
+      "isRLSEnabled": true
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

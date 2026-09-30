@@ -1,0 +1,317 @@
+{
+  "qualifiedCodeCommit": "4919660f4703817a4e3c4b543bf50076f2f0239cdf3d4fd2dbf467d17fddae14",
+  "sourceResults": [
+    {
+      "mode": "default-source",
+      "candidate": "4919660f4703817a4e3c4b543bf50076f2f0239cdf3d4fd2dbf467d17fddae14",
+      "startedAt": "2026-09-30T08:32:17.7922849Z",
+      "exitCode": 0,
+      "timedOut": false,
+      "durationMs": 71419
+    },
+    {
+      "mode": "typecheck",
+      "candidate": "4919660f4703817a4e3c4b543bf50076f2f0239cdf3d4fd2dbf467d17fddae14",
+      "startedAt": "2026-09-30T08:33:29.9956444Z",
+      "exitCode": 0,
+      "timedOut": false,
+      "durationMs": 1605
+    }
+  ],
+  "sourceReceiptSha256": "D10C501C8FAADB3CB17AB520BEFA8A61694D0191C18E9121F9505E48E58D32E9",
+  "selectedNativeResults": [
+    {
+      "selection": "oracle-fixes",
+      "passed": 7,
+      "candidate": "83e97e8995bdcbe3bb5d99a8a074ef02bffdcc4cedc37ca7f2485ceb506a6859",
+      "startedAt": "2026-09-29T21:34:23.2841487Z",
+      "exitCode": 0,
+      "durationMs": 71475,
+      "timedOut": false,
+      "arguments": [
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--config",
+        "vitest.integration.config.ts",
+        "--maxWorkers=1",
+        "--bail=1",
+        "tests/integration/recovery-admission.test.ts",
+        "-t",
+        "^R1 (?:F1 expiry after native state row lock wait refuses before native lookup|F2 rejects a native state create-before expiry rewrite|F2 rejects a native state return-only identifier rewrite|F2 rejects a native state return-only value rewrite|F3 signed rotation replaces seven or zero bound codes and refuses nine|real recovery code issuer to linked Google proof|ordinary callback refuses an expired recovery attempt before native state lookup)$"
+      ],
+      "resultReceiptSha256": "827DEA7A691F8461CC3BB944024B3FBE07FF1D78D5DCAEB84F7877D77768AFE1",
+      "cleanupReceiptSha256": "CA034F039BCB593615C58F0A9EA9BC7DA47FCFDC79077DB3586837821BC6EF00",
+      "cleanupComparison": {
+        "containers": true,
+        "networks": true,
+        "volumes": true,
+        "fixtureDirectories": true,
+        "markerDirectories": true,
+        "peerDirectories": true,
+        "realHead": true,
+        "realIndexSha256": true,
+        "manifest": true
+      },
+      "ownedPidAndDirectChildrenAbsent": true,
+      "manifestCount": 189
+    },
+    {
+      "selection": "cross-owner-mixed",
+      "passed": 1,
+      "candidate": "36178a5301f74bc9084d03be69f78f2278cbeb896d034d1dfa03fcb1976eaa9f",
+      "startedAt": "2026-09-29T21:52:51.1814175Z",
+      "exitCode": 0,
+      "durationMs": 11762,
+      "timedOut": false,
+      "arguments": [
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--config",
+        "vitest.integration.config.ts",
+        "--maxWorkers=1",
+        "--bail=1",
+        "tests/integration/recovery-admission.test.ts",
+        "-t",
+        "^R1 independent owners serialize null and current batches on the User row$"
+      ],
+      "resultReceiptSha256": "B5039807F1672BD690FA84FCC9361A00B8DC316FB3FF419D92D2C5F94011EC8E",
+      "cleanupReceiptSha256": "29AB7B1945AA97A60E8D617A0CE9733A0A588B7B668CAA492DAFD2642EACBA21",
+      "cleanupComparison": {
+        "containers": true,
+        "networks": true,
+        "volumes": true,
+        "fixtureDirectories": true,
+        "markerDirectories": true,
+        "peerDirectories": true,
+        "realHead": true,
+        "realIndexSha256": true,
+        "manifest": true
+      },
+      "ownedPidAndDirectChildrenAbsent": true,
+      "manifestCount": 189
+    },
+    {
+      "selection": "google-bindings-stable",
+      "passed": 14,
+      "candidate": "9e1d7b721fb38eca1142adf26465c0faef46bc9de3bd8265270a59d1a48ed887",
+      "startedAt": "2026-09-29T22:08:50.1931605Z",
+      "exitCode": 0,
+      "durationMs": 132807,
+      "timedOut": false,
+      "arguments": [
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--config",
+        "vitest.integration.config.ts",
+        "--maxWorkers=1",
+        "--bail=1",
+        "tests/integration/recovery-admission.test.ts",
+        "-t",
+        "^R1 (?:Google (?:generation|batch|spent-code|removed-code|unlinked-account|replaced-account) invalidation (?:before claim|paused EXCHANGING) refuses immutable proof|confirmed EXCHANGING claim exclusively owns the token exchange|future hold still permits anonymous Google proof collection)$"
+      ],
+      "resultReceiptSha256": "4EBD36EBA8BDA6E28716EB97A35D44D73CE2ECA882FE3737FC768987F7718C4A",
+      "cleanupReceiptSha256": "201425884E7872DE274C9A9E83C2FE3140A92DB657E99C25CEBA52E660F02278",
+      "cleanupComparison": {
+        "containers": true,
+        "networks": true,
+        "volumes": true,
+        "fixtureDirectories": true,
+        "markerDirectories": true,
+        "peerDirectories": true,
+        "realHead": true,
+        "realIndexSha256": true,
+        "manifest": true
+      },
+      "ownedPidAndDirectChildrenAbsent": true,
+      "manifestCount": 189
+    },
+    {
+      "selection": "direct-adapter-cover",
+      "passed": 4,
+      "candidate": "6c5242a0b8ff630f3dc83b6e2581ed2a7f92ac185cebedc78701a69d75073ffb",
+      "startedAt": "2026-09-30T07:29:11.8072943Z",
+      "exitCode": 0,
+      "durationMs": 73500,
+      "timedOut": false,
+      "arguments": [
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--config",
+        "vitest.integration.config.ts",
+        "--maxWorkers=1",
+        "--bail=1",
+        "tests/integration/recovery-admission.test.ts",
+        "-t",
+        "^R1 (?:rotation late direct adapter Session write is denied after legitimate committed fact|Google late direct adapter (?:google-user|google-transaction) write is denied after legitimate PROVED commit|real recovery code issuer to linked Google proof)$"
+      ],
+      "resultReceiptSha256": "B3B87AAB695458EB3FD8EEC8AF3D9C563C40643249930D85CE55365FDFD44ADB",
+      "cleanupReceiptSha256": "9D9FD217EABB88F8C77D9398B856C04AD647B41BC5D9014790A4C315BF29D176",
+      "cleanupComparison": {
+        "containers": true,
+        "networks": true,
+        "volumes": true,
+        "fixtureDirectories": true,
+        "markerDirectories": true,
+        "peerDirectories": true,
+        "realHead": true,
+        "realIndexSha256": true,
+        "manifest": true
+      },
+      "ownedPidAndDirectChildrenAbsent": true,
+      "manifestCount": 189
+    },
+    {
+      "selection": "group-a-resume",
+      "passed": 6,
+      "candidate": "c274e908b48dc2362a7f67f054bea01d13b88d7f65538e2a8730b7164de94650",
+      "startedAt": "2026-09-30T08:01:41.3031794Z",
+      "exitCode": 0,
+      "durationMs": 65073,
+      "timedOut": false,
+      "arguments": [
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--config",
+        "vitest.integration.config.ts",
+        "--maxWorkers=1",
+        "--bail=1",
+        "tests/integration/recovery-admission.test.ts",
+        "-t",
+        "^R1 (?:Google (?:missing nonce|wrong nonce|raw subject mismatch) after confirmed claim leaves no proof|ordinary callback fences retained recovery state after (?:batch rotation|account unlink|attempt removal))$"
+      ],
+      "resultReceiptSha256": "B761C5DB81C6E79B807CDFE02B65323A94A7503070B536D5D8B23490E4115215",
+      "cleanupReceiptSha256": "FC92740D9D4FAB7DFC5A609F2B9FB0CCDF004B52CBA833C46357E1AD60266EBE",
+      "cleanupComparison": {
+        "containers": true,
+        "networks": true,
+        "volumes": true,
+        "fixtureDirectories": true,
+        "markerDirectories": true,
+        "peerDirectories": true,
+        "realHead": true,
+        "realIndexSha256": true,
+        "manifest": true
+      },
+      "ownedPidAndDirectChildrenAbsent": true,
+      "manifestCount": 189
+    },
+    {
+      "selection": "group-b-resume",
+      "passed": 4,
+      "candidate": "4919660f4703817a4e3c4b543bf50076f2f0239cdf3d4fd2dbf467d17fddae14",
+      "startedAt": "2026-09-30T08:20:37.6714932Z",
+      "exitCode": 0,
+      "durationMs": 60776,
+      "timedOut": false,
+      "arguments": [
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--config",
+        "vitest.integration.config.ts",
+        "--maxWorkers=1",
+        "--bail=1",
+        "tests/integration/recovery-admission.test.ts",
+        "-t",
+        "^R1 (?:signed Finish rolls back nonzero counter after reached native challenge consumption crosses cap|signed Finish refuses cap crossed inside reached awaited fact INSERT trigger|signed Finish refuses fresh expiry after reached User-lock wait|reached audit INSERT privilege failure rolls back signed rotation and withholds codes)$"
+      ],
+      "resultReceiptSha256": "87FF3369CC1F65C94189B83D742CDDD7ED9393AE4ED34394D9305A0574A246E7",
+      "cleanupReceiptSha256": "E0691694CBB939F65BA0A85F8633C53CA6D9AEF86BD963D2BFD4CC5A5589BFF3",
+      "cleanupComparison": {
+        "containers": true,
+        "networks": true,
+        "volumes": true,
+        "fixtureDirectories": true,
+        "markerDirectories": true,
+        "peerDirectories": true,
+        "realHead": true,
+        "realIndexSha256": true,
+        "manifest": true
+      },
+      "ownedPidAndDirectChildrenAbsent": true,
+      "manifestCount": 189
+    },
+    {
+      "selection": "group-cd",
+      "passed": 10,
+      "candidate": "4919660f4703817a4e3c4b543bf50076f2f0239cdf3d4fd2dbf467d17fddae14",
+      "startedAt": "2026-09-30T08:26:03.4426204Z",
+      "exitCode": 0,
+      "durationMs": 107359,
+      "timedOut": false,
+      "arguments": [
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--config",
+        "vitest.integration.config.ts",
+        "--maxWorkers=1",
+        "--bail=1",
+        "tests/integration/recovery-admission.test.ts",
+        "-t",
+        "^R1 (?:rotation Begin cleanup inspects only first 25 physical rows and preserves unsafe groups|Google Begin cleanup keeps its 25-attempt boundary and unsafe native bindings|Google Begin cleanup removes at most 75 rows from 25 safe attempt proof state triples|Google cleanup (?:different-delete|create|direct-transaction) hook cannot escape owner or partially commit Begin|runtime audit UPDATE and DELETE stay denied and fact survives code batch User cleanup|SIMULATED (?:claim unknown acknowledgement|proof unknown acknowledgement|proof committed cancellation) withholds Google outcome at real owner settlement)$"
+      ],
+      "resultReceiptSha256": "057B505B7580219BB58498ECF731A675F7ADDEBD1FC13EF822346CF6AE643A15",
+      "cleanupReceiptSha256": "513A00C8541A3987D69AA7C415C90AAFD8532C6EE57315183D0F4E91031FD94D",
+      "cleanupComparison": {
+        "containers": true,
+        "networks": true,
+        "volumes": true,
+        "fixtureDirectories": true,
+        "markerDirectories": true,
+        "peerDirectories": true,
+        "realHead": true,
+        "realIndexSha256": true,
+        "manifest": true
+      },
+      "ownedPidAndDirectChildrenAbsent": true,
+      "manifestCount": 189
+    }
+  ],
+  "qualifiedSourceHashes": {
+    "src/modules/auth/admission.server.ts": "6D1F7742E03D8DF4E6268DD50845BE4E54E87211FDB407F4BE0060F0E0D2F566",
+    "docs/superpowers/plans/2026-09-10-functional-auth.md": "F4B32C6D9142780CC4694C2B97E1E05FF52FCE5CC6CA7E3CEFF28AECE535A36C",
+    "src/modules/auth/auth.server.ts": "59F2DF62B4BB28312464727A857F3082DC8CC8FEFEB0E319D21BA98DC6D70638",
+    "README.md": "5003E018F9D5476BF5BB5153B8378E854368905C9F81264C5AC921DD3B474EB5",
+    "tests/auth/schema.contract.test.ts": "C115ECFC7A3139360C7C8F84DAAB56ACE8AB1E5C6FBEBF72911A27F4BF36021B",
+    "drizzle/meta/0012_snapshot.json": "5A498F50225D2F4F4791487F7EAC4E70CC4A33F21AF4EFB0063AE069B86BA10F",
+    "tests/auth/recovery.test.ts": "05E6278B19AB6BFC19D15437C1269159F1EE7ACDF6A1841B9F0FA99E8FAB27CF",
+    "src/modules/auth/schema.server.ts": "024EE4D8186820AD0354F03D7C2B78A0591D6533E28F96F9F43F4269ACB9A17A",
+    "src/modules/auth/recovery-native.server.ts": "16AFDB8D14724852534D1292193AD94309CF7133D9BEA1C6D2133D84C4D05DD8",
+    "src/modules/auth/recovery.server.ts": "214079131EA06471012E2A15A200F4FC58E2E1A06CA65885B7EEF7E02F4ABE57",
+    "drizzle/meta/_journal.json": "D66AAE46EFAEBBC3FB4ED09DB3BA892B341617643D730EBB7481582B2BAC8BE9",
+    "drizzle/0012_recovery_admission.sql": "C8F8307556B86C2835E51382320CACAE9644CAF3B8CA8FA10C654725B85BD167",
+    "src/modules/auth/rate-limit.server.ts": "329C0A1ADE49D4A5C10844E00A1BE70DF5EEEEA3CC60CD0425AF9FD9BA639F5F",
+    "tests/fixtures/db/disposable-stores.ts": "768CA8DC8E7D5224E727994E273938EE85F37F3972E3F61F18335356026E8561",
+    "src/modules/auth/http-boundary.server.ts": "0D18DF584C5A9C1FF0311B4203086276B0607F1B8530B5A1BF5E598DD9834B4A",
+    "tests/integration/recovery-admission.test.ts": "FD8067F523112633AD3BB3A3FFCEE78DA2B3E1491810E610987CCAF3009DCC78"
+  },
+  "handoffDate": "2026-09-30",
+  "evidenceReexecutedForHandoff": false,
+  "sourceSuite": {
+    "files": 53,
+    "tests": 682,
+    "integrationIncluded": false,
+    "warnings": "Two unchanged FR/EN ui.test.tsx RouterProvider warnings; retained for Task11."
+  },
+  "historicalPartialResults": [
+    {
+      "selection": "group-a",
+      "exitCode": 1,
+      "passedBeforeFailure": 1,
+      "failedCaseBusinessOutcome": "unknown; fixture cleanup failed and repaired later"
+    },
+    {
+      "selection": "group-b",
+      "exitCode": 1,
+      "passedBeforeFailure": 5,
+      "failedCaseBusinessOutcome": "wrong observation layer; corrected observer covered by group-b-resume"
+    }
+  ],
+  "nonClaims": [
+    "No final-candidate monolithic 56-case native run",
+    "Cross-owner is mixed pooled/direct",
+    "Settlement ambiguity/cancellation cases are simulations",
+    "No new production build or fresh dependency installation during handoff",
+    "No real Google/mail/physical authenticator/production/Sparra qualification",
+    "No public recovery, PREPARED or activation consumer in this snapshot"
+  ]
+}

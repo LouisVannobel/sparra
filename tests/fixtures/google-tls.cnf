@@ -1,0 +1,22 @@
+[req]
+distinguished_name = name
+prompt = no
+
+[name]
+CN = Disposable Google protocol fixture
+
+[ca]
+basicConstraints = critical,CA:true
+keyUsage = critical,keyCertSign,cRLSign
+
+[google]
+basicConstraints = critical,CA:false
+keyUsage = critical,digitalSignature,keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = DNS:oauth2.googleapis.com
+
+[wrong]
+basicConstraints = critical,CA:false
+keyUsage = critical,digitalSignature,keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = DNS:wrong.example.test

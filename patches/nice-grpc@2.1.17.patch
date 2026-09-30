@@ -1,0 +1,66 @@
+diff --git a/lib/client/createServerStreamingMethod.js b/lib/client/createServerStreamingMethod.js
+index 0ded7c245fa1a598512cffb1a5ef7709fdb9a4a8a98b413d207ae51b8d4e69ce..01f587323cc701cf5a0ae104e4b307c1cb9deaa81b2cc8d79d9e8a4959e2af7e 100644
+--- a/lib/client/createServerStreamingMethod.js
++++ b/lib/client/createServerStreamingMethod.js
+@@ -23,6 +23,7 @@ function createServerStreamingMethod(definition, client, middleware, defaultOpti
+         }
+         const { metadata = (0, nice_grpc_common_1.Metadata)(), onHeader, onTrailer } = options;
+         const signal = options.signal ?? new AbortController().signal;
++        (0, abort_controller_x_1.throwIfAborted)(signal);
+         const call = client.makeServerStreamRequest(grpcMethodDefinition.path, grpcMethodDefinition.requestSerialize, grpcMethodDefinition.responseDeserialize, request, (0, convertMetadata_1.convertMetadataToGrpcJs)(metadata));
+         call.on('metadata', metadata => {
+             onHeader?.((0, convertMetadata_1.convertMetadataFromGrpcJs)(metadata));
+@@ -35,6 +36,8 @@ function createServerStreamingMethod(definition, client, middleware, defaultOpti
+         };
+         signal.addEventListener('abort', abortListener);
+         try {
++            // Abort may have happened while the call was being created.
++            if (signal.aborted) call.cancel();
+             yield* (0, readableToAsyncIterable_1.readableToAsyncIterable)(call);
+         }
+         catch (err) {
+@@ -42,8 +45,8 @@ function createServerStreamingMethod(definition, client, middleware, defaultOpti
+         }
+         finally {
+             signal.removeEventListener('abort', abortListener);
+-            (0, abort_controller_x_1.throwIfAborted)(signal);
+             call.cancel();
++            (0, abort_controller_x_1.throwIfAborted)(signal);
+         }
+     }
+     const method = middleware == null
+@@ -82,4 +85,3 @@ function createServerStreamingMethod(definition, client, middleware, defaultOpti
+         };
+     };
+ }
+-//# sourceMappingURL=createServerStreamingMethod.js.map
+\ No newline at end of file
+diff --git a/src/client/createServerStreamingMethod.ts b/src/client/createServerStreamingMethod.ts
+index 9bf9e33aae7619dfb2549cf96a947879c5583f0f3f794f8682affecb85638f3d..fe74b360597d4bfea935e0a26f66e321ee6314b2472687f897a5c21242740ff2 100644
+--- a/src/client/createServerStreamingMethod.ts
++++ b/src/client/createServerStreamingMethod.ts
+@@ -48,6 +48,7 @@ export function createServerStreamingMethod<Request, Response>(
+     const {metadata = Metadata(), onHeader, onTrailer} = options;
+ 
+     const signal = options.signal ?? new AbortController().signal;
++    throwIfAborted(signal);
+ 
+     const call = client.makeServerStreamRequest(
+       grpcMethodDefinition.path,
+@@ -71,13 +72,15 @@ export function createServerStreamingMethod<Request, Response>(
+     signal.addEventListener('abort', abortListener);
+ 
+     try {
++      // Abort may have happened while the call was being created.
++      if (signal.aborted) call.cancel();
+       yield* readableToAsyncIterable(call);
+     } catch (err) {
+       throw wrapClientError(err, definition.path);
+     } finally {
+       signal.removeEventListener('abort', abortListener);
+-      throwIfAborted(signal);
+       call.cancel();
++      throwIfAborted(signal);
+     }
+   }
+ 

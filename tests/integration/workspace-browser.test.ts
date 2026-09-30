@@ -1,0 +1,124 @@
+import { afterAll, beforeAll, expect, test } from 'vitest'
+import { createServer, request as httpRequest } from 'node:http'
+import { randomBytes, randomUUID } from 'node:crypto'
+import { mkdir } from 'node:fs/promises'
+import { chromium, type Browser } from 'playwright'
+import { startDisposableStores } from '../fixtures/db/disposable-stores'
+import { startWeb, bounded, unusedLoopbackPort } from '../helpers/web-process'
+import { authRpcPath, rpcBody } from '../helpers/auth-rpc'
+
+let stores: Awaited<ReturnType<typeof startDisposableStores>>, app: ReturnType<typeof startWeb>, proxy: ReturnType<typeof createServer>, browser: Browser
+let origin: string, upstreamPort: number, appEnv: Record<string,string>
+beforeAll(async () => {
+  await mkdir('.output/test-evidence/google-browser', { recursive: true })
+  stores = await startDisposableStores(); await stores.migrate()
+  await stores.administrator.query('GRANT USAGE ON SCHEMA public TO runtime; GRANT SELECT,INSERT,UPDATE,DELETE ON "user",account,session,verification TO runtime')
+  const port = await unusedLoopbackPort(); origin = `http://localhost:${port}`
+  appEnv = { NODE_ENV:'test',APP_ORIGIN:origin,DATABASE_URL:stores.runtimeUrl,REDIS_URL:stores.redisUrl,RATE_LIMIT_HMAC_SECRET:stores.hmac,RATE_LIMIT_KEY_ID:'workspace-browser',TRUSTED_PROXY_IPS:'127.0.0.2',AUTH_SECRET:randomBytes(48).toString('hex'),GOOGLE_CLIENT_ID:'fixture.apps.googleusercontent.com',GOOGLE_CLIENT_SECRET:'fixture-only',FIXTURE_GOOGLE_PROTOCOL:'yes',REQUEST_TIMEOUT_MS:'10000' }
+  app = startWeb(appEnv); upstreamPort = (await bounded(app.ready)).port
+  proxy = createServer((incoming,outgoing) => {
+    const call = httpRequest({ hostname:'127.0.0.1',port:upstreamPort,method:incoming.method,path:incoming.url,localAddress:'127.0.0.2',headers:{ ...incoming.headers,'x-real-ip':incoming.socket.remoteAddress } }, response => { outgoing.writeHead(response.statusCode!,response.headers); response.pipe(outgoing) })
+    call.on('error',() => { outgoing.writeHead(502); outgoing.end() }); incoming.pipe(call)
+  })
+  await new Promise<void>(done => proxy.listen(port,'127.0.0.1',done)); browser = await chromium.launch({headless:true})
+})
+afterAll(async () => {
+  const failures: unknown[] = []
+  for (const close of [() => browser?.close(), () => proxy && new Promise(done => proxy.close(done)), () => app?.cleanup(), () => stores?.cleanup()]) {
+    try { await close() } catch (error) { failures.push(error) }
+  }
+  if (failures.length) throw new AggregateError(failures, 'Workspace browser cleanup failed')
+})
+
+test('real Astryx create/read/rename persists through reload and process restart; FR/EN, 320px, keyboard and private-state refusal', async () => {
+  const context = await browser.newContext({viewport:{width:320,height:720}}), page = await context.newPage()
+  await context.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort())
+  page.setDefaultTimeout(7000); page.setDefaultNavigationTimeout(7000)
+  const errors: string[] = [], bodies: string[] = []
+  let workspaceReadUrl = ''
+  page.on('pageerror',error => errors.push(error.message))
+  page.on('request',request => { if (request.url().includes('/_serverFn/') && request.method()==='POST') bodies.push(request.postData() ?? '') })
+  const readPath = await authRpcPath('getWorkspace'), ensurePath = await authRpcPath('ensurePersonalWorkspace'), renamePath = await authRpcPath('renameWorkspace')
+  page.on('request',request => { if (request.url().includes(readPath)) workspaceReadUrl=request.url() })
+  await page.route('https://accounts.google.com/o/oauth2/v2/auth*',async route => {
+    const target = new URL(route.request().url())
+    const code = await app.registerGoogle(target.href, 'fixture-task6-browser')
+    return route.fulfill({status:302,headers:{location:origin+`/api/auth/callback/google?code=${code}&state=`+target.searchParams.get('state')}})
+  })
+  await page.goto(origin+'/login?lang=en'); await page.getByRole('button',{name:'Continue with Google'}).click()
+  await page.waitForURL(origin+'/account?lang=en')
+  const accountResponse = await context.request.get(origin+await authRpcPath('getAccount'),{headers:{'sec-fetch-site':'same-origin','x-tsr-serverFn':'true'}})
+  expect(accountResponse.status()).toBe(200)
+  const privateSession = (await stores.administrator.query('SELECT id,token,user_id FROM session')).rows[0]
+  const accountBody = await accountResponse.text()
+  expect(accountBody.includes(privateSession.id)).toBe(false); expect(accountBody.includes(privateSession.token)).toBe(false)
+  expect(/sessionId|authState|recoveryGeneration|providerIdentity/.test(accountBody)).toBe(false)
+  await page.getByRole('link',{name:'My personal workspace'}).click()
+  await page.getByRole('button',{name:'Create my workspace'}).waitFor()
+  expect((await stores.administrator.query('SELECT count(*)::int AS n FROM workspace')).rows[0].n).toBe(0)
+  let release = () => {}
+  const held = new Promise<void>(resolve => { release=resolve })
+  await page.route('**'+ensurePath,async route => { await held; await route.continue() })
+  await page.getByRole('button',{name:'Create my workspace'}).focus(); await page.keyboard.press('Enter')
+  await page.getByText('Saving…',{exact:true}).waitFor()
+  expect(await page.getByRole('button',{name:'Create my workspace'}).getAttribute('aria-busy')).toBe('true')
+  release()
+  await page.getByRole('textbox',{name:'Display name'}).waitFor()
+  expect(await page.locator('[data-workspace-name]').textContent()).toBe('Workspace')
+  await page.getByRole('textbox',{name:'Display name'}).fill('  My persisted space  ')
+  await page.keyboard.press('Tab')
+  expect(await page.evaluate(() => document.activeElement?.tagName)).toBe('BUTTON')
+  await page.keyboard.press('Enter'); await page.getByText('Name saved.',{exact:true}).waitFor()
+  expect(await page.locator('[data-workspace-name]').textContent()).toBe('My persisted space')
+  expect(await page.getByRole('textbox',{name:'Display name'}).inputValue()).toBe('My persisted space')
+  await page.reload(); await page.getByRole('textbox',{name:'Display name'}).waitFor()
+  expect(await page.locator('[data-workspace-name]').textContent()).toBe('My persisted space')
+  await page.getByRole('link',{name:'Français'}).click(); await page.getByRole('textbox',{name:'Nom affiché'}).waitFor()
+  await page.getByRole('textbox',{name:'Nom affiché'}).fill('Mon espace privé')
+  await page.getByRole('button',{name:'Enregistrer le nom'}).click(); await page.getByText('Nom enregistré.',{exact:true}).waitFor()
+  expect(await page.locator('html').getAttribute('lang')).toBe('fr')
+  const view = await page.evaluate(() => ({ fits:document.documentElement.scrollWidth<=innerWidth,font:getComputedStyle(document.querySelector('h1')!).fontFamily }))
+  expect(view.fits).toBe(true); expect(view.font).toContain('system-ui')
+  await page.screenshot({path:'.output/test-evidence/google-browser/task-6-workspace-fr-320.png',fullPage:true})
+  await app.shutdown(); expect(await bounded(app.exit)).toBe(0)
+  await app.cleanup()
+  app = startWeb(appEnv); upstreamPort=(await bounded(app.ready)).port
+  await page.reload(); await page.getByRole('textbox',{name:'Nom affiché'}).waitFor()
+  expect(await page.getByRole('textbox',{name:'Nom affiché'}).inputValue()).toBe('Mon espace privé')
+  const stored = (await stores.administrator.query('SELECT id,display_name FROM workspace WHERE owner_user_id=$1',[privateSession.user_id])).rows[0]
+  expect(stored.display_name).toBe('Mon espace privé')
+  for (const {data,status} of [{data:{workspaceId:stored.id,displayName:'line\nbreak'},status:400},{data:{workspaceId:randomUUID(),displayName:'Forbidden'},status:404},{data:{workspaceId:stored.id,displayName:'Forbidden',userId:randomUUID()},status:400}]) {
+    const result=await context.request.post(origin+renamePath,{headers:{origin,'content-type':'application/json','x-tsr-serverFn':'true'},data:await rpcBody(data)})
+    expect(result.status()).toBe(status)
+    expect((await result.text()).includes(privateSession.id)).toBe(false)
+  }
+  await stores.administrator.query("CREATE FUNCTION fixture_browser_audit_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'private-workspace-fault-marker'; END $$; CREATE TRIGGER fixture_browser_audit_fail BEFORE INSERT ON workspace_audit FOR EACH ROW EXECUTE FUNCTION fixture_browser_audit_fail()")
+  try {
+    const result=await context.request.post(origin+renamePath,{headers:{origin,'content-type':'application/json','x-tsr-serverFn':'true'},data:await rpcBody({workspaceId:stored.id,displayName:'Rolled back'})})
+    expect(result.status()).toBe(500); expect(await result.text()).toBe('Workspace unavailable')
+    expect((await stores.administrator.query('SELECT display_name FROM workspace WHERE id=$1',[stored.id])).rows[0].display_name).toBe('Mon espace privé')
+    expect(app.output().includes('private-workspace-fault-marker')).toBe(false)
+  } finally { await stores.administrator.query('DROP TRIGGER fixture_browser_audit_fail ON workspace_audit; DROP FUNCTION fixture_browser_audit_fail()') }
+  await page.getByRole('textbox',{name:'Nom affiché'}).fill(' ')
+  await page.getByRole('button',{name:'Enregistrer le nom'}).click(); await page.getByRole('alert').waitFor()
+  expect(await page.locator('[data-workspace-name]').textContent()).toBe('Mon espace privé')
+  expect(bodies.every(body => !body.includes(privateSession.id) && !body.includes(privateSession.token))).toBe(true)
+  expect(workspaceReadUrl).not.toBe('')
+  const anonymousRead=await fetch(workspaceReadUrl,{headers:{'sec-fetch-site':'same-origin','x-tsr-serverFn':'true'}})
+  expect(anonymousRead.status).toBe(401)
+  for (const path of [ensurePath,renamePath]) {
+    const result=await fetch(origin+path,{method:'POST',headers:{origin,'content-type':'application/json','x-tsr-serverFn':'true'},body:await rpcBody({workspaceId:stored.id,displayName:'Forbidden'})})
+    expect(result.status).toBe(401)
+  }
+  await stores.administrator.query('DELETE FROM session WHERE id=$1',[privateSession.id])
+  const refused=await context.request.get(workspaceReadUrl,{headers:{'sec-fetch-site':'same-origin','x-tsr-serverFn':'true'}})
+  expect(refused.status()).toBe(401)
+  await page.reload(); await page.waitForURL(origin+'/login?lang=fr')
+  await page.getByRole('button',{name:'Continuer avec Google'}).waitFor()
+  expect((await page.content()).includes('Mon espace privé')).toBe(false)
+  expect((await page.content()).includes(privateSession.user_id)).toBe(false)
+  expect((await page.content()).includes('fixture-task6-browser@example.test')).toBe(false)
+  expect((await stores.administrator.query('SELECT action,count(*)::int AS n FROM workspace_audit GROUP BY action ORDER BY action')).rows).toEqual([{action:'display-name-changed',n:2},{action:'personal-created',n:1}])
+  expect(errors).toEqual([])
+  await context.close()
+},60000)

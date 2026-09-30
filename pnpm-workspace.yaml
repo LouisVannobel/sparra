@@ -1,0 +1,3 @@
+packages: []
+patchedDependencies:
+  nice-grpc@2.1.17: patches/nice-grpc@2.1.17.patch
