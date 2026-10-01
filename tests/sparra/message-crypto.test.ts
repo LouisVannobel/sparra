@@ -2,6 +2,8 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { writeFile, symlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { cryptoFixture, nativeVoiceTurn } from '../helpers/sparra-crypto-fixture'
 import { readKeyring, decodeMessageContent } from '../../src/modules/sparra/message-crypto.server'
 afterEach(()=>vi.unstubAllEnvs())
@@ -11,6 +13,21 @@ test('actual native serialized Voice text and proposed result decode through con
     const turn=await nativeVoiceTurn(f),decoded=decodeMessageContent(f.callId,{[f.turnId]:turn},f.result(),await readKeyring())
     expect(decoded.transcript).toEqual([{id:f.turnId,ordinal:1,role:'user',text:'Rappelez-moi',interrupted:false,startedAt:'2026-10-01T10:00:00.000Z'}])
     expect(decoded).toMatchObject({transcriptAvailability:'available',unavailableTurnCount:0,moreTurns:false,result:f.inner})
+    // Consume the pinned native model's UTC/fractional serialization too, without
+    // altering the shared fixture or importing producer code into the application.
+    const script=String.raw`
+import sys, json
+from pathlib import Path
+sys.path.insert(0, 'C:/Users/louis/Documents/ChatGPT/.worktrees/sparra-voice-pilot/src')
+from projetv0_voice.models import TurnUpsertPayloadV1
+turn = json.loads(Path(sys.argv[1]).read_text(encoding='utf-8'))
+turn.update(started_at='2024-02-29T11:00:00.123456+01:00', ended_at='2024-02-29T09:00:00.123457-01:00')
+print(TurnUpsertPayloadV1.model_validate(turn).model_dump_json())
+`
+    const {stdout}=await promisify(execFile)('C:/Users/louis/Documents/ChatGPT/projetV0-voice/.venv/Scripts/python.exe',['-B','-c',script,join(f.directory,'native-turn.json')],{windowsHide:true,timeout:60000,env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,TEMP:process.env.TEMP,TMP:process.env.TMP,PYTHONDONTWRITEBYTECODE:'1'}})
+    const fractional=JSON.parse(stdout)
+    expect(fractional.started_at).toBe('2024-02-29T10:00:00.123456Z');expect(fractional.ended_at).toBe('2024-02-29T10:00:00.123457Z')
+    expect(decodeMessageContent(f.callId,{[f.turnId]:fractional},f.result(),await readKeyring())).toMatchObject({transcript:[{text:'Rappelez-moi',startedAt:'2024-02-29T10:00:00.123Z'}],transcriptAvailability:'available',unavailableTurnCount:0,result:f.inner})
   }finally{await f.cleanup()}
 },65000)
 test('keyless, wrong AAD, bad tag, unknown version and authenticated invalid UTF8 never expose text',async()=>{
@@ -40,5 +57,45 @@ test('missing, relative, oversized, directory, symlink, malformed and duplicate-
     for(const path of ['', 'relative.json',join(f.directory,'missing'),f.directory,link]){vi.stubEnv('SPARRA_AEAD_KEYRING_PATH',path);expect(await readKeyring()).toBeNull()}
     vi.stubEnv('SPARRA_AEAD_KEYRING_PATH',f.path)
     for(const value of ['x'.repeat(16385),'{}',JSON.stringify({...f.keyring,active_version:2}),JSON.stringify({...f.keyring,keys:[...f.keyring.keys,...f.keyring.keys]})]){await writeFile(f.path,value);expect(await readKeyring()).toBeNull()}
+  }finally{await f.cleanup()}
+})
+
+test.each(['2026-02-31T10:00:00Z','2025-02-29T10:00:00Z','1900-02-29T10:00:00Z','2026-04-31T10:00:00Z','0000-01-01T10:00:00Z','2026-10-01T24:00:00Z','2026-10-01T10:60:00Z','2026-10-01T10:00:60Z','2026-10-01T10:00:00+24:00'])('impossible native turn observation %s is unavailable',async observation=>{
+  const f=await cryptoFixture()
+  try{vi.stubEnv('SPARRA_AEAD_KEYRING_PATH',f.path)
+    const turn={...f.turn,started_at:observation,ended_at:observation}
+    expect(decodeMessageContent(f.callId,{[f.turnId]:turn},f.result(),await readKeyring())).toMatchObject({transcript:[],transcriptAvailability:'unavailable',unavailableTurnCount:1,result:null})
+  }finally{await f.cleanup()}
+})
+
+test('native turn ordering compares microseconds across valid offsets before millisecond DTO normalization',async()=>{
+  const f=await cryptoFixture()
+  try{vi.stubEnv('SPARRA_AEAD_KEYRING_PATH',f.path);const keys=await readKeyring()
+    for(const [started_at,ended_at] of [['2026-10-01T10:00:00.000002Z','2026-10-01T10:00:00.000001Z'],['2026-10-01T11:00:00.000002+01:00','2026-10-01T09:00:00.000001-01:00']]){
+      expect(decodeMessageContent(f.callId,{[f.turnId]:{...f.turn,started_at,ended_at}},f.result(),keys)).toMatchObject({transcript:[],unavailableTurnCount:1,result:null})
+    }
+    for(const [started_at,ended_at,want] of [['2024-02-29T11:00:00.123456+01:00','2024-02-29T09:00:00.123457-01:00','2024-02-29T10:00:00.123Z'],['2000-02-29T10:00:00.1Z','2000-02-29T10:00:00.100001Z','2000-02-29T10:00:00.100Z'],['2026-10-01T10:00:00.000001Z','2026-10-01T10:00:00.000002Z','2026-10-01T10:00:00.000Z']]){
+      expect(decodeMessageContent(f.callId,{[f.turnId]:{...f.turn,started_at,ended_at}},f.result(),keys)).toMatchObject({transcript:[{text:'Rappelez-moi',startedAt:want}],transcriptAvailability:'available',unavailableTurnCount:0,result:f.inner})
+    }
+  }finally{await f.cleanup()}
+})
+
+test.each(['schema_version','active_version','version','aes256_key_hex'])('duplicate key-file member %s including escaped names is unavailable',async member=>{
+  const f=await cryptoFixture()
+  try{vi.stubEnv('SPARRA_AEAD_KEYRING_PATH',f.path)
+    const raw=JSON.stringify(f.keyring),needle='"'+member+'":',escaped='"\\u'+member.charCodeAt(0).toString(16).padStart(4,'0')+member.slice(1)+'":'
+    for(const repeated of [needle,escaped]){
+      // The final member is valid; JSON.parse alone would silently select it.
+      await writeFile(f.path,raw.replace(needle,needle+'null,'+repeated))
+      expect((await readKeyring())===null).toBe(true)
+    }
+  }finally{await f.cleanup()}
+})
+
+test('valid uniquely escaped key-file names still authenticate native turn text',async()=>{
+  const f=await cryptoFixture()
+  try{vi.stubEnv('SPARRA_AEAD_KEYRING_PATH',f.path)
+    await writeFile(f.path,JSON.stringify(f.keyring).replace(/"(schema_version|active_version|keys|version|aes256_key_hex)":/g,(_,name:string)=>'"\\u'+name.charCodeAt(0).toString(16).padStart(4,'0')+name.slice(1)+'":'))
+    expect(decodeMessageContent(f.callId,{[f.turnId]:f.turn},f.result(),await readKeyring())).toMatchObject({transcript:[{text:'Rappelez-moi'}],result:f.inner})
   }finally{await f.cleanup()}
 })

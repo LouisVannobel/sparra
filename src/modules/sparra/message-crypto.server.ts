@@ -7,7 +7,19 @@ import { Schema } from 'effect'
 const positive = Schema.Int.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER))
 const uuid = Schema.String.check(Schema.isPattern(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/))
 const text = (max:number) => Schema.String.check(Schema.isMaxLength(max),Schema.isPattern(/^[^\ud800-\udfff]*$/u),Schema.isPattern(/^[^\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]*$/))
-const instant = Schema.String.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/),Schema.makeFilter(value=>Number.isFinite(Date.parse(value))))
+// Native datetime observations have Gregorian calendar validity and microsecond
+// ordering, even though the browser DTO deliberately normalizes to milliseconds.
+function instantMicros(value:string):bigint|null {
+  const parts=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(?:Z|([+-])(\d{2}):(\d{2}))$/.exec(value)
+  if(!parts)return null
+  const year=Number(parts[1]),month=Number(parts[2]),day=Number(parts[3]),hour=Number(parts[4]),minute=Number(parts[5]),second=Number(parts[6])
+  const days=[31,year%4===0&&(year%100!==0||year%400===0)?29:28,31,30,31,30,31,31,30,31,30,31]
+  if(year<1||month<1||month>12||day<1||day>days[month-1]||hour>23||minute>59||second>59||Number(parts[9]??0)>23||Number(parts[10]??0)>59)return null
+  const milliseconds=Date.parse(value)
+  if(!Number.isFinite(milliseconds)||milliseconds<Date.parse('0001-01-01T00:00:00Z')||milliseconds>Date.parse('9999-12-31T23:59:59.999Z'))return null
+  return BigInt(milliseconds)*1000n+BigInt((parts[7]??'').padEnd(6,'0').slice(3))
+}
+const instant = Schema.String.check(Schema.makeFilter(value=>instantMicros(value)!==null))
 const encrypted = {crypto_version:Schema.Literal(1),key_version:positive,nonce_b64:Schema.String.check(Schema.isMaxLength(172)),ciphertext_b64:Schema.String.check(Schema.isMaxLength(87384))}
 const turnSchema = Schema.Struct({turn_id:uuid,turn_no:positive,role:Schema.Literals(['user','assistant']),source:Schema.Literals(['stt_final','pipecat_assistant']),...encrypted,started_at:instant,ended_at:instant,interrupted:Schema.Boolean})
 const envelopeSchema = Schema.Struct({schema_version:Schema.Literal(1),...encrypted})
@@ -25,6 +37,23 @@ export type TranscriptTurn = Readonly<{id:string;ordinal:number;role:'user'|'ass
 export type MessageContent = Readonly<{result:MessageResultV1|null;transcript:TranscriptTurn[];transcriptAvailability:'available'|'unavailable'|'partial';unavailableTurnCount:number;moreTurns:boolean}>
 const strict = {onExcessProperty:'error'} as const
 
+/** JSON.parse validates syntax first; this bounded token scan only checks member
+ * uniqueness, including decoded escapes, at every object depth in the key file. */
+function rejectDuplicateMembers(raw:string):void {
+  const objects:(Set<string>|null)[]=[]
+  for(const token of raw.matchAll(/"(?:\\.|[^"\\])*"|[{}[\]]/g)){
+    const value=token[0]
+    if(value==='{')objects.push(new Set())
+    else if(value==='[')objects.push(null)
+    else if(value==='}'||value===']')objects.pop()
+    else if(/^\s*:/.test(raw.slice(token.index+value.length))){
+      const members=objects.at(-1),name:string=JSON.parse(value)
+      if(!members||members.has(name))throw new Error('Unavailable')
+      members.add(name)
+    }
+  }
+}
+
 /** No default key, discovery or empty replacement. Invalid configuration is bounded unavailability. */
 export async function readKeyring(): Promise<Keyring|null> {
   let file:Awaited<ReturnType<typeof open>>|undefined
@@ -40,7 +69,9 @@ export async function readKeyring(): Promise<Keyring|null> {
     let length=0
     while(length<buffer.length){const {bytesRead}=await file.read(buffer,length,buffer.length-length,null);if(!bytesRead)break;length+=bytesRead}
     if(length>16384)return null
-    const value=Schema.decodeUnknownSync(keyringSchema,strict)(JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(buffer.subarray(0,length))))
+    const raw=new TextDecoder('utf-8',{fatal:true}).decode(buffer.subarray(0,length)),parsed:unknown=JSON.parse(raw)
+    rejectDuplicateMembers(raw)
+    const value=Schema.decodeUnknownSync(keyringSchema,strict)(parsed)
     const keys=new Map<number,Buffer>()
     for(const key of value.keys){if(keys.has(key.version))return null;keys.set(key.version,Buffer.from(key.aes256_key_hex,'hex'))}
     return keys.has(value.active_version)?keys:null
@@ -65,7 +96,9 @@ export function decodeMessageContent(callId:string,storedTurns:unknown,storedRes
     moreTurns=entries.length>200
     for(const {id,turn} of entries.slice(0,200)){
       try{
-        if(!turn || !keys || id!==turn.turn_id || turn.source!==(turn.role==='user'?'stt_final':'pipecat_assistant') || Date.parse(turn.ended_at)<Date.parse(turn.started_at))throw new Error('Unavailable')
+        if(!turn || !keys || id!==turn.turn_id || turn.source!==(turn.role==='user'?'stt_final':'pipecat_assistant'))throw new Error('Unavailable')
+        const started=instantMicros(turn.started_at),ended=instantMicros(turn.ended_at)
+        if(started===null||ended===null||ended<started)throw new Error('Unavailable')
         const decoded=Schema.decodeUnknownSync(text(65536))(decrypt(turn,'turn:'+id,keys))
         transcript.push({id,ordinal:turn.turn_no,role:turn.role,text:decoded,interrupted:turn.interrupted,startedAt:new Date(turn.started_at).toISOString()});authenticated.set(id,turn.role)
       }catch{unavailableTurnCount++}
