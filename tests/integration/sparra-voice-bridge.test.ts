@@ -337,3 +337,48 @@ test('binding tuple cannot change and a renamed or recreated login does not inhe
   await admin('DROP OWNED BY sparra_voice_b');await admin('DROP ROLE sparra_voice_b');await admin('ALTER ROLE sparra_voice_b_old RENAME TO sparra_voice_b')
  }
 })
+
+test('same Workspace deployments retain hidden revision references without aborting either native cleanup lease',async()=>{
+ const url=stores.voiceUrlShared,deployment='fixture-shared'
+ await admin('GRANT USAGE ON SCHEMA voice TO sparra_voice_shared')
+ for(const signature of rpcSignatures)await admin(`GRANT EXECUTE ON FUNCTION ${signature} TO sparra_voice_shared`)
+ await admin(`INSERT INTO voice_private.deployment_binding(service_login,service_role_oid,deployment_id,workspace_id,connection_id,to_e164,admission_enabled) SELECT 'sparra_voice_shared',oid,$1,$2,'connection-shared','+33123456781',true FROM pg_roles WHERE rolname='sparra_voice_shared'`,[deployment,workspaceA])
+ expect(await nativeVoice({action:'identity',url})).toEqual({ok:{login:'sparra_voice_shared',role:'sparra_voice_shared'}})
+ const retained=await begin(),oldRevision=retained.snapshot.configuration_revision
+ await activity.save(principalA,{...configuration,expectedRevision:oldRevision,businessName:'New shared revision'})
+ const createShared=async()=>{
+  const id=randomUUID(),route={...routing(id),connection_id:'connection-shared',to_e164:'+33123456781'}
+  const snapshot=nativeValue(await nativeVoice({action:'begin',url,deployment,call_id:id,routing:route}))
+  expect(snapshot.configuration_revision).toBeGreaterThan(oldRevision)
+  return id
+ }
+ const due=await createShared(),recording={...recordingOp(due),deployment_id:deployment}
+ expect(await nativeVoice({action:'ingest',url,operation:recording})).toEqual({ok:{ack:true}})
+ await admin("UPDATE sparra_call SET admitted_at=admitted_at-interval '31 days',retention_until=retention_until-interval '31 days' WHERE id=$1",[due])
+ const callReply=await nativeVoice({action:'lease_call',url}),recordingReply=await nativeVoice({action:'lease_recording',url})
+ expect([callReply.error,recordingReply.error]).toEqual([undefined,undefined])
+ expect(nativeValue(callReply).some(lease=>lease.call_id===due)).toBe(true)
+ expect(nativeValue(recordingReply).some(lease=>lease.recording_id===recording.payload.recording_id)).toBe(true)
+ expect(await row(due)).toBeUndefined()
+ expect((await admin('SELECT state,lease_token FROM sparra_erasure WHERE call_id=$1',[due])).rows[0]).toMatchObject({state:'queued',lease_token:expect.any(String)})
+ expect((await admin('SELECT revision FROM sparra_knowledge_revision WHERE workspace_id=$1 AND revision=$2',[workspaceA,oldRevision])).rows).toEqual([{revision:oldRevision}])
+ expect((await row(retained.id)).configuration_revision).toBe(oldRevision)
+ await requests.erase(principalA,retained.id)
+ const afterReference=nativeValue(await nativeVoice({action:'lease_call',url}))
+ expect(afterReference.some(lease=>lease.call_id===retained.id)).toBe(false)
+ expect((await admin('SELECT revision FROM sparra_knowledge_revision WHERE workspace_id=$1 AND revision=$2',[workspaceA,oldRevision])).rows).toEqual([])
+ expect((await admin('SELECT max(revision)::int revision FROM sparra_knowledge_revision WHERE workspace_id=$1',[workspaceA])).rows[0].revision).toBe(oldRevision+1)
+
+ // A different constraint's FK violation must still abort the transaction.
+ await activity.save(principalA,{...configuration,expectedRevision:oldRevision+1,businessName:'Newest shared revision'})
+ const rollbackDue=await createShared()
+ await admin("UPDATE sparra_call SET admitted_at=admitted_at-interval '31 days',retention_until=retention_until-interval '31 days' WHERE id=$1",[rollbackDue])
+ await admin(`CREATE FUNCTION public.fixture_voice_unrelated_fk() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RAISE EXCEPTION 'owned unrelated FK' USING ERRCODE='23503',CONSTRAINT='fixture_unrelated_fk',SCHEMA='public',TABLE='sparra_call';END$$;CREATE TRIGGER fixture_voice_unrelated_fk BEFORE DELETE ON sparra_knowledge_revision FOR EACH ROW EXECUTE FUNCTION public.fixture_voice_unrelated_fk()`)
+ try{
+  expect(await nativeVoice({action:'lease_call',url})).toEqual({error:'OperationSinkCommitAmbiguousError'})
+  expect(await row(rollbackDue)).toBeDefined()
+  expect((await admin('SELECT count(*)::int n FROM sparra_erasure WHERE call_id=$1',[rollbackDue])).rows[0].n).toBe(0)
+ }finally{await admin('DROP TRIGGER fixture_voice_unrelated_fk ON sparra_knowledge_revision;DROP FUNCTION public.fixture_voice_unrelated_fk()')}
+ expect(nativeValue(await nativeVoice({action:'lease_call',url})).some(lease=>lease.call_id===rollbackDue)).toBe(true)
+ expect(await row(rollbackDue)).toBeUndefined()
+})
