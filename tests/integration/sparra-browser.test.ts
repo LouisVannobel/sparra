@@ -208,6 +208,56 @@ test('saved feedback clears after every editable business field changes',async()
   }finally{await context.close()}
 },40000)
 
+test('native committed save delivery failure retains draft and requires reconciliation while validation and read failures stay distinct',async()=>{
+  const {context,page}=await signedIn('sparra-save-delivery'),savePath=await authRpcPath('saveActivity'),readPath=await authRpcPath('getActivity')
+  let release=()=>{}
+  try{
+    await page.goto(origin+'/app/entreprise?lang=en')
+    // A failed native read transport during ensure is unavailable, not an ambiguous save.
+    await page.route('**'+readPath+'*',route=>route.abort('failed'),{times:1})
+    await page.getByRole('button',{name:'Create my workspace'}).click();await page.getByText('Configuration unavailable.',{exact:true}).waitFor()
+    expect(await page.getByText('The save outcome is unknown.',{exact:false}).count()).toBe(0)
+    expect(await page.getByRole('button',{name:'Check latest version',exact:true}).count()).toBe(0)
+    expect(await page.getByRole('button',{name:'Create my workspace'}).isDisabled()).toBe(false)
+    await page.getByRole('button',{name:'Create my workspace'}).click()
+    await page.getByRole('textbox',{name:/^Business name/}).fill('Delivery fixture');await page.getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    const workspace=(await stores.administrator.query('SELECT id FROM workspace WHERE owner_user_id=(SELECT id FROM "user" WHERE email=$1)',['sparra-save-delivery@example.test'])).rows[0]
+    const revision=async()=>(await stores.administrator.query('SELECT max(revision)::int revision FROM sparra_knowledge_revision WHERE workspace_id=$1',[workspace.id])).rows[0].revision
+    expect(await revision()).toBe(1)
+    // Native validation proves non-commit and permits correcting the same draft.
+    const invalidResponse=page.waitForResponse(response=>new URL(response.url()).pathname===savePath)
+    await page.getByRole('textbox',{name:/^Business name/}).fill('x'.repeat(81));await page.getByRole('button',{name:'Save',exact:true}).click();expect((await invalidResponse).status()).toBe(400)
+    await page.getByText('Check the configuration fields.',{exact:true}).waitFor()
+    expect(await page.getByRole('textbox',{name:/^Business name/}).inputValue()).toBe('x'.repeat(81))
+    expect(await page.getByRole('button',{name:'Save',exact:true}).isDisabled()).toBe(false)
+    expect(await page.getByRole('button',{name:'Check latest version',exact:true}).count()).toBe(0)
+    expect(await revision()).toBe(1)
+    await page.getByRole('textbox',{name:/^Business name/}).fill('Delivery fixture')
+    const held=new Promise<void>(done=>{release=done}),committed=new Promise<void>(done=>{
+      void page.route('**'+savePath,async route=>{const response=await route.fetch();expect(response.status()).toBe(200);done();await held;await route.abort('failed')},{times:1})
+    })
+    const failedDelivery=page.waitForEvent('requestfailed',{predicate:request=>new URL(request.url()).pathname===savePath})
+    await page.getByRole('textbox',{name:'Services',exact:true}).fill('Committed before lost delivery');await page.getByRole('button',{name:'Save',exact:true}).click();await bounded(committed)
+    expect(await revision()).toBe(2)
+    release() // Fail only delivery of the actual committed native response; no Cancel.
+    await failedDelivery
+    await page.getByRole('alert').filter({hasText:'The save outcome is unknown. Check the latest version before saving again.'}).waitFor()
+    expect(await page.getByRole('textbox',{name:'Services',exact:true}).inputValue()).toBe('Committed before lost delivery')
+    expect(await page.getByText('Configuration saved.',{exact:true}).count()).toBe(0)
+    expect(await page.getByRole('button',{name:'Save',exact:true}).isDisabled()).toBe(true)
+    await page.getByRole('textbox',{name:'Services',exact:true}).fill('Draft retained after delivery failure')
+    await page.getByRole('button',{name:'Check latest version',exact:true}).click();await page.getByText('Latest saved version: 2',{exact:true}).waitFor()
+    expect(await page.getByRole('textbox',{name:'Services',exact:true}).inputValue()).toBe('Draft retained after delivery failure')
+    expect(await page.getByRole('button',{name:'Save',exact:true}).isDisabled()).toBe(true)
+    expect(await revision()).toBe(2)
+    await page.getByRole('button',{name:'Replace draft with latest version',exact:true}).click()
+    expect(await page.getByRole('textbox',{name:'Services',exact:true}).inputValue()).toBe('Committed before lost delivery')
+    expect(await page.getByRole('button',{name:'Save',exact:true}).isDisabled()).toBe(false)
+    await page.getByRole('textbox',{name:'Services',exact:true}).fill('Explicit reconciled save');await page.getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    await page.reload();expect(await page.getByRole('textbox',{name:'Services',exact:true}).inputValue()).toBe('Explicit reconciled save');expect(await revision()).toBe(3)
+  }finally{release();await context.close()}
+},40000)
+
 test('inbox native cursor loads the remaining owned call shells exactly once',async()=>{
   const {context,page}=await signedIn('sparra-owner')
   try{

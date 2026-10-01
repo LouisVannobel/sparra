@@ -33,7 +33,9 @@ export function ActivityPanel({locale,state,onEnsure,onSave,onRead,onRefused}:Pr
     }catch(failure){if(live()){
       if(failure instanceof Response&&failure.status===401){setRefused(true);await onRefused();return}
       if(failure instanceof Response&&failure.status===409){setConflict(true);setError(t.conflict)}
-      else setError(failure instanceof Response&&failure.status===400?t.invalid:t.unavailable)
+      else if(failure instanceof Response&&failure.status===400)setError(t.invalid)
+      else if(mode==='save'){setUncertain(true);setLatest(null)}
+      else setError(t.unavailable)
     }}finally{if(live())setPendingMode(null)}
   }
   if(refused)return <PrivateUnavailable locale={locale}/>
