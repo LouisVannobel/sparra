@@ -77,6 +77,7 @@ export function AccountPanel({ locale, principal, pending, failed, onLogout, add
   const hydrated = useHydrated()
   return <main className="auth-content"><Heading level={1}>{t.account}</Heading><Text>{principal.name}</Text>
     <dl><dt>{t.email}</dt><dd>{principal.email}</dd></dl>
+    <a href={`/app?lang=${locale}`}>{locale === 'fr' ? 'Boîte d’appels' : 'Call inbox'}</a>
     <a href={`/workspace?lang=${locale}`}>{locale === 'fr' ? 'Mon espace personnel' : 'My personal workspace'}</a>
     {additional && <AdditionalPasskeyPanel {...additional} />}
     {firstGoogle && <FirstGooglePasskeyPanel {...firstGoogle} />}

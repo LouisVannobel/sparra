@@ -1,0 +1,34 @@
+.sparra-app { color:#000; background:#f7f6f5; min-height:100vh; font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; line-height:1.6; overflow-wrap:anywhere; }
+.sparra-app *, .sparra-app *::before, .sparra-app *::after { box-sizing:border-box; }
+.sparra-app-header,.sparra-app-nav,.sparra-app-content { width:min(100% - 2rem,68rem); margin-inline:auto; }
+.sparra-app-header { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding-block:2rem 1rem; flex-wrap:wrap; }
+.sparra-app-brand { font-size:2.25rem; font-weight:650; letter-spacing:-.07em; line-height:1; text-decoration:none; }
+.sparra-app-brand span,.sparra-app-label { background:#edfc47; }
+.sparra-app-label { display:inline-flex; gap:.5rem; align-items:center; padding:.2rem .5rem; border-radius:.25rem; font-size:.9rem; }
+.sparra-app-nav { display:flex; flex-wrap:wrap; gap:.75rem 1.5rem; padding-block:1rem; border-bottom:1px solid #c7c5c2; }
+.sparra-app a { color:inherit; text-underline-offset:.25em; }
+.sparra-app a:focus-visible,.sparra-app button:focus-visible { outline:3px solid #000; outline-offset:4px; }
+.sparra-app-skip { position:absolute; top:0; left:1rem; transform:translateY(-200%); background:#edfc47; padding:.75rem; z-index:10; }
+.sparra-app-skip:focus { transform:translateY(0); }
+.sparra-app-content { padding-block:2rem 4rem; }
+.sparra-app h1 { font-size:clamp(1.9rem,4vw,2.7rem); letter-spacing:-.035em; line-height:1.2; margin-top:0; }
+.sparra-app h2 { font-size:1.4rem; margin-block:0 1rem; }
+.sparra-app h3 { font-size:1rem; margin-block:1rem .3rem; }
+.sparra-app p { max-width:70ch; }
+.sparra-business-form { display:grid; gap:1.5rem; width:min(100%,44rem); }
+.sparra-business-form > * { min-width:0; }
+.sparra-app button { max-width:100%; white-space:normal; height:auto; min-height:2.75rem; }
+.sparra-business-form > button { justify-self:start; }
+.sparra-inbox,.sparra-call-transcript { padding:0; list-style:none; }
+.sparra-inbox li { border-bottom:1px solid #c7c5c2; padding-block:1.3rem; }
+.sparra-inbox li a { font-size:1.2rem; font-weight:500; }
+.sparra-inbox li p { margin:.4rem 0; }
+.sparra-call-transcript li { border-left:2px solid #c7c5c2; padding:.3rem 1rem; margin-block:.5rem; white-space:pre-wrap; }
+.sparra-app-content section { margin-block:2rem; }
+.sparra-request-summary { background:#fff; border:1px solid #dedcda; border-radius:.75rem; padding:1.5rem; }
+.sparra-app dl { margin:0; }
+.sparra-app dl > div { padding-block:.8rem; border-bottom:1px solid #dedcda; }
+.sparra-app dt { font-weight:500; }
+.sparra-app dd { margin:.3rem 0 0; white-space:pre-wrap; }
+.sparra-request-actions,.sparra-conflict { display:flex; flex-wrap:wrap; align-items:center; gap:1rem; }
+@media(max-width:600px) { .sparra-request-summary { padding:1rem; } .sparra-request-actions { flex-direction:column; align-items:start; } }

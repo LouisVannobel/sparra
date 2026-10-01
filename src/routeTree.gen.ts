@@ -11,10 +11,14 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AccountRouteImport } from './routes/account'
+import { Route as AppRouteImport } from './routes/app'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as WorkspaceRouteImport } from './routes/workspace'
+import { Route as AppIndexRouteImport } from './routes/app.index'
+import { Route as AppEntrepriseRouteImport } from './routes/app.entreprise'
 import { Route as HealthLiveRouteImport } from './routes/health.live'
 import { Route as HealthReadyRouteImport } from './routes/health.ready'
+import { Route as AppDemandesRequestIdRouteImport } from './routes/app.demandes.$requestId'
 import { Route as AuthMagicConfirmRouteImport } from './routes/auth.magic.confirm'
 import { Route as AuthMagicConsumeRouteImport } from './routes/auth.magic.consume'
 import { Route as AuthMagicEnrollRouteImport } from './routes/auth.magic.enroll'
@@ -32,6 +36,11 @@ const AccountRoute = AccountRouteImport.update({
   path: '/account',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppRoute = AppRouteImport.update({
+  id: '/app',
+  path: '/app',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
@@ -42,6 +51,16 @@ const WorkspaceRoute = WorkspaceRouteImport.update({
   path: '/workspace',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppIndexRoute = AppIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppEntrepriseRoute = AppEntrepriseRouteImport.update({
+  id: '/entreprise',
+  path: '/entreprise',
+  getParentRoute: () => AppRoute,
+} as any)
 const HealthLiveRoute = HealthLiveRouteImport.update({
   id: '/health/live',
   path: '/health/live',
@@ -51,6 +70,11 @@ const HealthReadyRoute = HealthReadyRouteImport.update({
   id: '/health/ready',
   path: '/health/ready',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AppDemandesRequestIdRoute = AppDemandesRequestIdRouteImport.update({
+  id: '/demandes/$requestId',
+  path: '/demandes/$requestId',
+  getParentRoute: () => AppRoute,
 } as any)
 const AuthMagicConfirmRoute = AuthMagicConfirmRouteImport.update({
   id: '/auth/magic/confirm',
@@ -88,10 +112,14 @@ const ApiAuthFirstPasskeyGoogleCallbackRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
+  '/app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
   '/workspace': typeof WorkspaceRoute
+  '/app/entreprise': typeof AppEntrepriseRoute
   '/health/live': typeof HealthLiveRoute
   '/health/ready': typeof HealthReadyRoute
+  '/app/': typeof AppIndexRoute
+  '/app/demandes/$requestId': typeof AppDemandesRequestIdRoute
   '/auth/magic/confirm': typeof AuthMagicConfirmRoute
   '/auth/magic/consume': typeof AuthMagicConsumeRoute
   '/auth/magic/enroll': typeof AuthMagicEnrollRoute
@@ -104,8 +132,11 @@ export interface FileRoutesByTo {
   '/account': typeof AccountRoute
   '/login': typeof LoginRoute
   '/workspace': typeof WorkspaceRoute
+  '/app/entreprise': typeof AppEntrepriseRoute
   '/health/live': typeof HealthLiveRoute
   '/health/ready': typeof HealthReadyRoute
+  '/app': typeof AppIndexRoute
+  '/app/demandes/$requestId': typeof AppDemandesRequestIdRoute
   '/auth/magic/confirm': typeof AuthMagicConfirmRoute
   '/auth/magic/consume': typeof AuthMagicConsumeRoute
   '/auth/magic/enroll': typeof AuthMagicEnrollRoute
@@ -117,10 +148,14 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
+  '/app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
   '/workspace': typeof WorkspaceRoute
+  '/app/entreprise': typeof AppEntrepriseRoute
   '/health/live': typeof HealthLiveRoute
   '/health/ready': typeof HealthReadyRoute
+  '/app/': typeof AppIndexRoute
+  '/app/demandes/$requestId': typeof AppDemandesRequestIdRoute
   '/auth/magic/confirm': typeof AuthMagicConfirmRoute
   '/auth/magic/consume': typeof AuthMagicConsumeRoute
   '/auth/magic/enroll': typeof AuthMagicEnrollRoute
@@ -133,10 +168,14 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/account'
+    | '/app'
     | '/login'
     | '/workspace'
+    | '/app/entreprise'
     | '/health/live'
     | '/health/ready'
+    | '/app/'
+    | '/app/demandes/$requestId'
     | '/auth/magic/confirm'
     | '/auth/magic/consume'
     | '/auth/magic/enroll'
@@ -149,8 +188,11 @@ export interface FileRouteTypes {
     | '/account'
     | '/login'
     | '/workspace'
+    | '/app/entreprise'
     | '/health/live'
     | '/health/ready'
+    | '/app'
+    | '/app/demandes/$requestId'
     | '/auth/magic/confirm'
     | '/auth/magic/consume'
     | '/auth/magic/enroll'
@@ -161,10 +203,14 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/account'
+    | '/app'
     | '/login'
     | '/workspace'
+    | '/app/entreprise'
     | '/health/live'
     | '/health/ready'
+    | '/app/'
+    | '/app/demandes/$requestId'
     | '/auth/magic/confirm'
     | '/auth/magic/consume'
     | '/auth/magic/enroll'
@@ -176,6 +222,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AccountRoute: typeof AccountRoute
+  AppRoute: typeof AppRouteWithChildren
   LoginRoute: typeof LoginRoute
   WorkspaceRoute: typeof WorkspaceRoute
   HealthLiveRoute: typeof HealthLiveRoute
@@ -204,6 +251,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AccountRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/app': {
+      id: '/app'
+      path: '/app'
+      fullPath: '/app'
+      preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -218,6 +272,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspaceRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/app/': {
+      id: '/app/'
+      path: '/'
+      fullPath: '/app/'
+      preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/entreprise': {
+      id: '/app/entreprise'
+      path: '/entreprise'
+      fullPath: '/app/entreprise'
+      preLoaderRoute: typeof AppEntrepriseRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/health/live': {
       id: '/health/live'
       path: '/health/live'
@@ -231,6 +299,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/health/ready'
       preLoaderRoute: typeof HealthReadyRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/app/demandes/$requestId': {
+      id: '/app/demandes/$requestId'
+      path: '/demandes/$requestId'
+      fullPath: '/app/demandes/$requestId'
+      preLoaderRoute: typeof AppDemandesRequestIdRouteImport
+      parentRoute: typeof AppRoute
     }
     '/auth/magic/confirm': {
       id: '/auth/magic/confirm'
@@ -277,9 +352,24 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AppRouteChildren {
+  AppEntrepriseRoute: typeof AppEntrepriseRoute
+  AppIndexRoute: typeof AppIndexRoute
+  AppDemandesRequestIdRoute: typeof AppDemandesRequestIdRoute
+}
+
+const AppRouteChildren: AppRouteChildren = {
+  AppEntrepriseRoute: AppEntrepriseRoute,
+  AppIndexRoute: AppIndexRoute,
+  AppDemandesRequestIdRoute: AppDemandesRequestIdRoute,
+}
+
+const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AccountRoute: AccountRoute,
+  AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
   WorkspaceRoute: WorkspaceRoute,
   HealthLiveRoute: HealthLiveRoute,
