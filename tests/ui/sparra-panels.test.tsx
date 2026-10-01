@@ -25,3 +25,23 @@ test('private panels render truthful empty and partial states in FR/EN without i
     expect(receipt).not.toContain('Mark as treated')
   }
 })
+
+test('detail and inbox preserve the translated native category and observed number source in both locales',async()=>{
+  const {InboxPanel}=await import('../../src/ui/sparra/inbox-panel')
+  const {RequestPanel}=await import('../../src/ui/sparra/request-panel')
+  const categories=[['callback','Demande de rappel','Callback request'],['information','Demande d’information','Information request'],['appointment_to_confirm','Rendez-vous à confirmer','Appointment to confirm'],['declared_urgent','Urgence déclarée','Declared urgent request']] as const
+  const sources=[['caller','+33123456789','Numéro déclaré par l’appelant','Number stated by the caller'],['provider','+33234567890','Numéro fourni par le fournisseur téléphonique','Number supplied by the phone provider'],['missing',null,'Aucun numéro disponible','No number available']] as const
+  for(const locale of ['fr','en'] as const)for(const [category,frCategory,enCategory] of categories)for(const [source,number,frSource,enSource] of sources){
+    const detail:RequestDetailDto={id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',admittedAt:'2026-10-01T10:00:00.000Z',endedAt:null,status:'closing',configurationRevision:null,treatedAt:null,resultAvailability:'available',resultQuality:'partial',category,summary:'Demande fictive',contact:{name:null,callback_e164:number,preference:null,callback_source:source,callback_confirmed:false},nextAction:'Vérifier la demande',configuration:null,transcript:[],transcriptAvailability:'unavailable',unavailableTurnCount:0,moreTurns:false,erasureState:null}
+    const request=renderToStaticMarkup(<RequestPanel locale={locale} loaded={{detail,receipt:null}} onTreat={unavailable} onErase={unavailable} onRefused={unavailable}/> )
+    const inbox=renderToStaticMarkup(<InboxPanel locale={locale} state={{workspace:null,configuration:null}} page={{requests:[detail],nextCursor:null}} onMore={unavailable} onRefused={unavailable}/> )
+    for(const html of [request,inbox]){
+      expect(html).toContain(locale==='fr'?frCategory:enCategory)
+      expect(html).toContain(locale==='fr'?frSource:enSource)
+      if(number)expect(html).toContain(number)
+      expect(html).toContain(locale==='fr'?'Résumé partiel':'Partial summary')
+      expect(html).toContain(locale==='fr'?'Demande et numéro non confirmés.':'Request and number are unconfirmed.')
+      expect(html).not.toContain('Appointment booked')
+    }
+  }
+})

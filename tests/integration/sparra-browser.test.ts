@@ -13,6 +13,7 @@ import { cryptoFixture, nativeVoiceTurn } from '../helpers/sparra-crypto-fixture
 let stores: Awaited<ReturnType<typeof startDisposableStores>>, app: ReturnType<typeof startWeb>, proxy: ReturnType<typeof createServer>, browser: Browser
 let origin: string, upstreamPort: number, appEnv: ReturnType<typeof environment>, crypto: Awaited<ReturnType<typeof cryptoFixture>>
 const foreignCallId=randomUUID()
+const fixtureClients=new Map<string,string>()
 function environment(){return { NODE_ENV:'test',APP_ORIGIN:origin,DATABASE_URL:stores.runtimeUrl,REDIS_URL:stores.redisUrl,RATE_LIMIT_HMAC_SECRET:stores.hmac,RATE_LIMIT_KEY_ID:'sparra-browser',TRUSTED_PROXY_IPS:'127.0.0.2',AUTH_SECRET:randomBytes(48).toString('hex'),GOOGLE_CLIENT_ID:'fixture.apps.googleusercontent.com',GOOGLE_CLIENT_SECRET:'fixture-only',FIXTURE_GOOGLE_PROTOCOL:'yes',REQUEST_TIMEOUT_MS:'10000',SPARRA_AEAD_KEYRING_PATH:crypto.path }}
 beforeAll(async () => {
   await mkdir('.output/test-evidence/sparra', { recursive: true })
@@ -22,7 +23,11 @@ beforeAll(async () => {
   appEnv = environment()
   app = startWeb(appEnv); upstreamPort = (await bounded(app.ready)).port
   proxy = createServer((incoming,outgoing) => {
-    const call = httpRequest({ hostname:'127.0.0.1',port:upstreamPort,method:incoming.method,path:incoming.url,localAddress:'127.0.0.2',headers:{ ...incoming.headers,'x-real-ip':incoming.socket.remoteAddress } }, response => { outgoing.writeHead(response.statusCode!,response.headers); response.pipe(outgoing) })
+    // Each owned browser context models its own client. Keep the native
+    // per-IP auth throttle enabled without coupling independent cases to time.
+    const {'x-fixture-client':fixtureClient,...headers}=incoming.headers
+    const clientAddress=typeof fixtureClient==='string'?fixtureClients.get(fixtureClient):undefined
+    const call = httpRequest({ hostname:'127.0.0.1',port:upstreamPort,method:incoming.method,path:incoming.url,localAddress:'127.0.0.2',headers:{ ...headers,'x-real-ip':clientAddress??incoming.socket.remoteAddress } }, response => { outgoing.writeHead(response.statusCode!,response.headers); response.pipe(outgoing) })
     incoming.on('aborted',()=>call.destroy()); outgoing.on('close',()=>{if(!outgoing.writableEnded)call.destroy()})
     call.on('error',() => { if(!outgoing.destroyed){outgoing.writeHead(502); outgoing.end()} }); incoming.pipe(call)
   })
@@ -34,7 +39,8 @@ afterAll(async () => {
   if (failures.length) throw new AggregateError(failures,'Sparra browser cleanup failed')
 })
 async function signedIn(subject:string) {
-  const context = await browser.newContext({viewport:{width:320,height:720}}), page = await context.newPage()
+  const fixtureClient=randomUUID();fixtureClients.set(fixtureClient,`127.0.1.${fixtureClients.size+1}`)
+  const context = await browser.newContext({viewport:{width:320,height:720},extraHTTPHeaders:{'x-fixture-client':fixtureClient}}), page = await context.newPage()
   await context.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort())
   page.setDefaultTimeout(8000); page.setDefaultNavigationTimeout(8000)
   await page.route('https://accounts.google.com/o/oauth2/v2/auth*',async route => {
@@ -186,3 +192,46 @@ test('inbox native cursor loads the remaining owned call shells exactly once',as
     expect(new Set(links).size).toBe(52);expect(await page.getByText('Partial summary',{exact:true}).count()).toBe(0)
   }finally{await context.close()}
 },20000)
+
+test('compiled native result DTO shows category and caller/provider/missing callback provenance without confirmation',async()=>{
+  const {context,page}=await signedIn('sparra-provenance-owner')
+  try{
+    await page.goto(origin+'/app/entreprise?lang=en');await page.getByRole('button',{name:'Create my workspace'}).click()
+    await page.getByRole('textbox',{name:/^Business name/}).fill('Provenance fixture garage');await page.getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    const workspace=(await stores.administrator.query('SELECT id FROM workspace WHERE owner_user_id=(SELECT id FROM "user" WHERE email=$1)',['sparra-provenance-owner@example.test'])).rows[0]
+    const native=await nativeVoiceTurn(crypto)
+    const cases=[{source:'caller',number:'+33123456789',category:'appointment_to_confirm',summary:'Fictional caller appointment',categoryEn:'Appointment to confirm',categoryFr:'Rendez-vous à confirmer',sourceEn:'Number stated by the caller',sourceFr:'Numéro déclaré par l’appelant'},{source:'provider',number:'+33234567890',category:'declared_urgent',summary:'Fictional provider callback',categoryEn:'Declared urgent request',categoryFr:'Urgence déclarée',sourceEn:'Number supplied by the phone provider',sourceFr:'Numéro fourni par le fournisseur téléphonique'},{source:'missing',number:null,category:'information',summary:'Fictional missing number',categoryEn:'Information request',categoryFr:'Demande d’information',sourceEn:'No number available',sourceFr:'Aucun numéro disponible'}] as const
+    const calls=[]
+    for(const fixture of cases){
+      const id=randomUUID(),inner={...crypto.inner,category:fixture.category,summary:fixture.summary,contact:{...crypto.inner.contact,callback_e164:fixture.number,callback_source:fixture.source}}
+      const result={schema_version:1,...crypto.encrypt(JSON.stringify(inner),'result:'+id)}
+      await stores.administrator.query(`INSERT INTO sparra_call(id,workspace_id,deployment_id,provider_call_control_id,admitted_at,retention_until,status,configuration_revision,encrypted_turns,encrypted_message_result) VALUES($1::uuid,$2::uuid,'fixture',$1::text,clock_timestamp(),clock_timestamp()+interval '30 days','closing',1,$3,$4)`,[id,workspace.id,{[crypto.turnId]:native},result])
+      calls.push({id,...fixture})
+    }
+    for(const locale of ['en','fr'] as const){
+      await page.goto(origin+'/app?lang='+locale)
+      expect(await page.locator('.sparra-inbox > li').count()).toBe(3)
+      for(const call of calls){
+        const row=page.locator('.sparra-inbox > li').filter({hasText:call.summary})
+        await row.getByRole('link',{name:call.summary,exact:true}).waitFor()
+        await row.getByText(locale==='en'?call.categoryEn:call.categoryFr,{exact:true}).waitFor()
+        await row.getByText(locale==='en'?call.sourceEn:call.sourceFr,{exact:true}).waitFor()
+        if(call.number)expect(await row.textContent()).toContain(call.number)
+        expect(await row.textContent()).toContain(locale==='en'?'Partial summary':'Résumé partiel')
+        expect(await row.textContent()).toContain(locale==='en'?'Request and number are unconfirmed.':'Demande et numéro non confirmés.')
+        await page.goto(origin+'/app/demandes/'+call.id+'?lang='+locale)
+        await page.getByText(locale==='en'?call.categoryEn:call.categoryFr,{exact:true}).waitFor()
+        await page.getByText(locale==='en'?call.sourceEn:call.sourceFr,{exact:true}).waitFor()
+        if(call.number)expect(await page.locator('.sparra-request-summary').textContent()).toContain(call.number)
+        await page.getByText(locale==='en'?'Request and number are unconfirmed.':'Demande et numéro non confirmés.',{exact:true}).waitFor()
+        expect(await page.getByRole('heading',{name:locale==='en'?'Partial summary':'Résumé partiel',exact:true}).count()).toBe(1)
+        expect(await page.content()).not.toContain('Appointment booked')
+        if(locale==='fr'&&call.source==='provider'){
+          expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+          await page.screenshot({path:'.output/test-evidence/sparra/provenance-provider-fr-320.png',fullPage:true})
+        }
+        await page.goto(origin+'/app?lang='+locale)
+      }
+    }
+  }finally{await context.close()}
+},40000)
