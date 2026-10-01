@@ -26,7 +26,7 @@ test('accepts exact UTF16 section bounds and valid supplementary scalars', () =>
 })
 
 test.each(['select','insert'])('native %s policy requires the matching active Workspace', operation => {
-  const policy = getTableConfig(sparraKnowledgeRevision).policies.find(candidate => candidate.for === operation)
+  const policy = getTableConfig(sparraKnowledgeRevision).policies.find(candidate => candidate.for === operation && candidate.to === 'runtime')
   expect(policy?.to).toBe('runtime')
   const predicate = operation === 'select' ? policy?.using : policy?.withCheck
   expect(predicate).toBeDefined()

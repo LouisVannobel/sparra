@@ -7,6 +7,15 @@ import { promisify } from 'node:util'
 import { cryptoFixture, nativeVoiceTurn } from '../helpers/sparra-crypto-fixture'
 import { readKeyring, decodeMessageContent } from '../../src/modules/sparra/message-crypto.server'
 afterEach(()=>vi.unstubAllEnvs())
+test('durable per-call loss is independent from decode failures and marks retained content partial',async()=>{
+  const f=await cryptoFixture()
+  try{
+    vi.stubEnv('SPARRA_AEAD_KEYRING_PATH',f.path)
+    const keys=await readKeyring()
+    expect(decodeMessageContent(f.callId,{[f.turnId]:f.turn},f.result(),keys,3)).toMatchObject({transcriptAvailability:'partial',transcriptLossCount:3,unavailableTurnCount:0,moreTurns:false,result:f.inner})
+    expect(decodeMessageContent(f.callId,{},null,keys,3)).toMatchObject({transcriptAvailability:'unavailable',transcriptLossCount:3,unavailableTurnCount:0})
+  }finally{await f.cleanup()}
+})
 test('actual native serialized Voice text and proposed result decode through configured key file',async()=>{
   const f=await cryptoFixture()
   try {vi.stubEnv('SPARRA_AEAD_KEYRING_PATH',f.path)

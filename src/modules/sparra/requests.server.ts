@@ -18,7 +18,7 @@ export function parseRequestInput(input:unknown){try{return Schema.decodeUnknown
 export type ListRequestsInput=typeof listInput.Type
 export type EraseReceipt=Readonly<{requestId:string;state:'queued'|'completed'}>
 export type RequestSummaryDto=Readonly<{id:string;admittedAt:string;endedAt:string|null;status:typeof sparraCall.$inferSelect.status;configurationRevision:number|null;treatedAt:string|null;resultAvailability:'available'|'unavailable';resultQuality:'partial'|'complete'|null;category:MessageResultV1['category']|null;summary:string|null;contact:MessageResultV1['contact']|null;nextAction:string|null}>
-export type RequestDetailDto=RequestSummaryDto & Readonly<{configuration:ActivityConfigurationDto|null;transcript:MessageContent['transcript'];transcriptAvailability:MessageContent['transcriptAvailability'];unavailableTurnCount:number;moreTurns:boolean;erasureState:'queued'|'completed'|null}>
+export type RequestDetailDto=RequestSummaryDto & Readonly<{configuration:ActivityConfigurationDto|null;transcript:MessageContent['transcript'];transcriptAvailability:MessageContent['transcriptAvailability'];unavailableTurnCount:number;moreTurns:boolean;transcriptLossCount:number;erasureState:'queued'|'completed'|null}>
 export type ListRequestsPage=Readonly<{requests:RequestSummaryDto[];nextCursor:{admittedAt:string;id:string}|null}>
 function summary(row:typeof sparraCall.$inferSelect,content:MessageContent):RequestSummaryDto {
   const result=content.result
@@ -35,7 +35,7 @@ export function createRequestOperations(owner:AuthTransactions){
       if(!lease)return {requests:[],nextCursor:null}
       const rows=await lease.db.select().from(sparraCall).where(and(eq(sparraCall.workspaceId,lease.workspaceId),eligible(),cursor?sql`(${sparraCall.admittedAt},${sparraCall.id}) < (${cursor.admittedAt}::timestamptz,${cursor.id}::uuid)`:undefined)).orderBy(desc(sparraCall.admittedAt),desc(sparraCall.id)).limit(51)
       const page=rows.slice(0,50),keys=page.some(hasContent)?await readKeyring():null,last=page.at(-1)
-      return {requests:page.map(row=>summary(row,decodeMessageContent(row.id,row.encryptedTurns,row.encryptedMessageResult,keys))),nextCursor:rows.length>50&&last?{admittedAt:last.admittedAt.toISOString(),id:last.id}:null}
+      return {requests:page.map(row=>summary(row,decodeMessageContent(row.id,row.encryptedTurns,row.encryptedMessageResult,keys,row.transcriptLossCount))),nextCursor:rows.length>50&&last?{admittedAt:last.admittedAt.toISOString(),id:last.id}:null}
     })
   }
   async function detail(principal:AdmittedPrincipal,requestId:string,signal?:AbortSignal):Promise<RequestDetailDto>{
@@ -44,9 +44,9 @@ export function createRequestOperations(owner:AuthTransactions){
       if(!lease)throw new RequestNotFound()
       const [row]=await lease.db.select().from(sparraCall).where(and(owned(lease.workspaceId,id),eligible()))
       if(!row)throw new RequestNotFound()
-      const content=decodeMessageContent(row.id,row.encryptedTurns,row.encryptedMessageResult,hasContent(row)?await readKeyring():null)
+      const content=decodeMessageContent(row.id,row.encryptedTurns,row.encryptedMessageResult,hasContent(row)?await readKeyring():null,row.transcriptLossCount)
       const [pin]=row.configurationRevision===null?[]:await lease.db.select().from(sparraKnowledgeRevision).where(and(eq(sparraKnowledgeRevision.workspaceId,lease.workspaceId),eq(sparraKnowledgeRevision.revision,row.configurationRevision)))
-      return {...summary(row,content),configuration:pin?configuration(pin):null,transcript:content.transcript,transcriptAvailability:content.transcriptAvailability,unavailableTurnCount:content.unavailableTurnCount,moreTurns:content.moreTurns,erasureState:null}
+      return {...summary(row,content),configuration:pin?configuration(pin):null,transcript:content.transcript,transcriptAvailability:content.transcriptAvailability,unavailableTurnCount:content.unavailableTurnCount,moreTurns:content.moreTurns,transcriptLossCount:content.transcriptLossCount,erasureState:null}
     })
   }
   async function treat(principal:AdmittedPrincipal,requestId:string,signal?:AbortSignal){

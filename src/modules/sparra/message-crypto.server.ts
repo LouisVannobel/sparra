@@ -34,7 +34,7 @@ const resultSchema = Schema.Struct({
 export type MessageResultV1 = typeof resultSchema.Type
 type Keyring = ReadonlyMap<number,Buffer>
 export type TranscriptTurn = Readonly<{id:string;ordinal:number;role:'user'|'assistant';text:string;interrupted:boolean;startedAt:string}>
-export type MessageContent = Readonly<{result:MessageResultV1|null;transcript:TranscriptTurn[];transcriptAvailability:'available'|'unavailable'|'partial';unavailableTurnCount:number;moreTurns:boolean}>
+export type MessageContent = Readonly<{result:MessageResultV1|null;transcript:TranscriptTurn[];transcriptAvailability:'available'|'unavailable'|'partial';unavailableTurnCount:number;moreTurns:boolean;transcriptLossCount:number}>
 const strict = {onExcessProperty:'error'} as const
 
 /** JSON.parse validates syntax first; this bounded token scan only checks member
@@ -86,7 +86,7 @@ function decrypt(value:typeof envelopeSchema.Type|typeof turnSchema.Type,aad:str
   const plaintext=Buffer.concat([decipher.update(ciphertext.subarray(0,-16)),decipher.final()])
   return new TextDecoder('utf-8',{fatal:true}).decode(plaintext)
 }
-export function decodeMessageContent(callId:string,storedTurns:unknown,storedResult:unknown,keys:Keyring|null):MessageContent {
+export function decodeMessageContent(callId:string,storedTurns:unknown,storedResult:unknown,keys:Keyring|null,transcriptLossCount=0):MessageContent {
   const transcript:TranscriptTurn[]=[],authenticated=new Map<string,'user'|'assistant'>()
   let unavailableTurnCount=0,moreTurns=false,result:MessageResultV1|null=null
   try{
@@ -113,5 +113,5 @@ export function decodeMessageContent(callId:string,storedTurns:unknown,storedRes
     if((value.contact.callback_e164===null)!==(value.contact.callback_source==='missing'))throw new Error('Unavailable')
     result=value
   }catch{result=null}
-  return {result,transcript,unavailableTurnCount,moreTurns,transcriptAvailability:transcript.length===0?'unavailable':unavailableTurnCount||moreTurns?'partial':'available'}
+  return {result,transcript,unavailableTurnCount,moreTurns,transcriptLossCount,transcriptAvailability:transcript.length===0?'unavailable':unavailableTurnCount||moreTurns||transcriptLossCount>0?'partial':'available'}
 }

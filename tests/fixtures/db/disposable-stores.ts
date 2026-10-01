@@ -224,6 +224,10 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
     await administrator.query(`CREATE ROLE runtime LOGIN PASSWORD '${runtimePassword}' NOINHERIT NOREPLICATION NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`)
     await administrator.query(`CREATE ROLE workspace_owner NOLOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
       CREATE ROLE workspace_bootstrap NOLOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;`)
+    const voicePasswordA = secret(), voicePasswordB = secret()
+    await administrator.query(`CREATE ROLE sparra_voice_definer NOLOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
+      CREATE ROLE sparra_voice_a LOGIN PASSWORD '${voicePasswordA}' NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
+      CREATE ROLE sparra_voice_b LOGIN PASSWORD '${voicePasswordB}' NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;`)
     const relayPassword = secret(), workerPassword = secret()
     await administrator.query(`CREATE ROLE auth_mail_owner NOLOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
       CREATE ROLE auth_mail_definer NOLOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
@@ -231,7 +235,7 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
       CREATE ROLE auth_mail_worker LOGIN PASSWORD '${workerPassword}' NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;`)
     await administrator.query(`CREATE ROLE pool_admin LOGIN PASSWORD '${poolPassword}' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`)
     await writeFile(join(directory, 'pgbouncer.ini'), `[databases]\nauth = host=pg port=5432 dbname=auth\n[pgbouncer]\nlisten_addr = 0.0.0.0\nlisten_port = 5432\nauth_type = scram-sha-256\nauth_file = /fixture/users.txt\nadmin_users = pool_admin\npool_mode = transaction\ndefault_pool_size = 1\nmax_client_conn = 100\nmax_prepared_statements = 0\nignore_startup_parameters = extra_float_digits\nlog_connections = 0\nlog_disconnections = 0\n`, { mode: 0o600 })
-    await writeFile(join(directory, 'users.txt'), `"runtime" "${runtimePassword}"\n"pool_admin" "${poolPassword}"\n"auth_mail_relay" "${relayPassword}"\n"auth_mail_worker" "${workerPassword}"\n`, { mode: 0o600 })
+    await writeFile(join(directory, 'users.txt'), `"runtime" "${runtimePassword}"\n"pool_admin" "${poolPassword}"\n"auth_mail_relay" "${relayPassword}"\n"auth_mail_worker" "${workerPassword}"\n"sparra_voice_a" "${voicePasswordA}"\n"sparra_voice_b" "${voicePasswordB}"\n`, { mode: 0o600 })
     const poolId = await create('pool', images.pool, ['--network-alias', 'pool', '-p', '127.0.0.1::5432', '--mount', `type=bind,source=${directory},target=/fixture,readonly`, '--entrypoint', '/usr/bin/pgbouncer'], {}, ['/fixture/pgbouncer.ini'])
     await docker(['start', poolId])
     const poolPort = await port(poolId, 5432)
@@ -304,6 +308,8 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
         await migrateDrizzle(drizzle(administrator!, { logger: false }), { migrationsFolder: prefixDirectory })
       },
       runtimeUrl: `postgresql://runtime:${runtimePassword}@127.0.0.1:${poolPort}/auth`,
+      voiceUrlA: `postgresql://sparra_voice_a:${voicePasswordA}@127.0.0.1:${poolPort}/auth`,
+      voiceUrlB: `postgresql://sparra_voice_b:${voicePasswordB}@127.0.0.1:${poolPort}/auth`,
       directRuntimeUrl: `postgresql://runtime:${runtimePassword}@127.0.0.1:${pgPort}/auth`,
       mailRelayUrl: `postgresql://auth_mail_relay:${relayPassword}@127.0.0.1:${poolPort}/auth`,
       mailWorkerUrl: `postgresql://auth_mail_worker:${workerPassword}@127.0.0.1:${poolPort}/auth`,
