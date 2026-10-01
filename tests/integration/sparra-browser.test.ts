@@ -134,7 +134,7 @@ test('unknown and foreign receipts reveal no private data; revoked native sessio
   }finally{await context.close()}
 },30000)
 
-test('native loader and mutation cancellation witness blocked Workspace and ignore an old committed completion',async()=>{
+test('native loader and mutation cancellation witness blocked Workspace and reconcile cancelled committed completion in the editor',async()=>{
   const {context,page}=await signedIn('sparra-owner'),blocker=new Client({connectionString:stores.directRuntimeUrl})
   await page.goto(origin+'/app/entreprise?lang=en')
   if(await page.getByRole('button',{name:'Create my workspace'}).count()){
@@ -159,6 +159,9 @@ test('native loader and mutation cancellation witness blocked Workspace and igno
     await expect.poll(async()=>(await blocked()).rowCount,{timeout:750,interval:10}).toBeGreaterThan(0)
     await page.getByRole('button',{name:'Cancel',exact:true}).click()
     await expect.poll(()=>cancelled.includes(savePath),{timeout:750,interval:10}).toBe(true)
+    await page.getByRole('alert').filter({hasText:'The save outcome is unknown.'}).waitFor()
+    expect(await page.getByRole('textbox',{name:'Services',exact:true}).inputValue()).toBe('Must not commit')
+    expect(await page.getByRole('button',{name:'Save',exact:true}).isDisabled()).toBe(true)
     await page.getByRole('link',{name:'Account',exact:true}).click()
     await blocker.query('ROLLBACK');await page.getByRole('heading',{name:'Your account',exact:true}).waitFor()
     expect((await stores.administrator.query('SELECT max(revision)::int revision FROM sparra_knowledge_revision WHERE workspace_id=$1',[workspace.id])).rows[0].revision).toBe(before)
@@ -168,14 +171,42 @@ test('native loader and mutation cancellation witness blocked Workspace and igno
     })
     await page.getByRole('textbox',{name:'Services',exact:true}).fill('Committed old attempt');await page.getByRole('button',{name:'Save',exact:true}).click();await bounded(committed)
     expect(await page.getByText('Configuration saved.',{exact:true}).count()).toBe(0)
-    await page.getByRole('link',{name:'Account',exact:true}).click();await page.getByRole('heading',{name:'Your account',exact:true}).waitFor()
-    expect(cancelled.filter(path=>path===savePath).length).toBeGreaterThan(0)
-    await page.goto(origin+'/app/entreprise?lang=en');expect(await page.getByRole('textbox',{name:'Services',exact:true}).inputValue()).toBe('Committed old attempt')
+    expect((await stores.administrator.query('SELECT max(revision)::int revision FROM sparra_knowledge_revision WHERE workspace_id=$1',[workspace.id])).rows[0].revision).toBe(before+1)
+    await page.getByRole('button',{name:'Cancel',exact:true}).click()
+    await page.getByRole('alert').filter({hasText:'The save outcome is unknown. Check the latest version before saving again.'}).waitFor()
+    expect(page.url()).toBe(origin+'/app/entreprise?lang=en')
+    expect(await page.getByRole('textbox',{name:'Services',exact:true}).inputValue()).toBe('Committed old attempt')
+    expect(await page.getByRole('button',{name:'Save',exact:true}).isDisabled()).toBe(true)
+    await page.getByRole('textbox',{name:'Services',exact:true}).fill('Retained reconciliation draft')
+    release()
+    await page.getByRole('button',{name:'Check latest version',exact:true}).click();await page.getByText('Latest saved version: '+(before+1),{exact:true}).waitFor()
+    expect(await page.getByText('Configuration saved.',{exact:true}).count()).toBe(0)
+    expect(await page.getByRole('textbox',{name:'Services',exact:true}).inputValue()).toBe('Retained reconciliation draft')
+    expect(await page.getByRole('button',{name:'Save',exact:true}).isDisabled()).toBe(true)
+    expect((await stores.administrator.query('SELECT max(revision)::int revision FROM sparra_knowledge_revision WHERE workspace_id=$1',[workspace.id])).rows[0].revision).toBe(before+1)
+    await page.getByRole('button',{name:'Replace draft with latest version',exact:true}).click()
+    expect(await page.getByRole('alert').count()).toBe(0)
+    expect(await page.getByRole('textbox',{name:'Services',exact:true}).inputValue()).toBe('Committed old attempt')
     await page.getByRole('textbox',{name:'Services',exact:true}).fill('Newest attempt');await page.getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
     release();await page.reload();expect(await page.getByRole('textbox',{name:'Services',exact:true}).inputValue()).toBe('Newest attempt')
     expect((await stores.administrator.query('SELECT max(revision)::int revision FROM sparra_knowledge_revision WHERE workspace_id=$1',[workspace.id])).rows[0].revision).toBe(before+2)
   }finally{release();await blocker.query('ROLLBACK').catch(()=>{});await blocker.end();await context.close()}
 },60000)
+
+test('saved feedback clears after every editable business field changes',async()=>{
+  const {context,page}=await signedIn('sparra-saved-feedback')
+  try{
+    await page.goto(origin+'/app/entreprise?lang=en');await page.getByRole('button',{name:'Create my workspace'}).click()
+    await page.getByRole('textbox',{name:/^Business name/}).fill('Saved feedback fixture')
+    const edits=[()=>page.getByRole('textbox',{name:/^Business name/}).fill('Edited feedback fixture'),()=>page.getByRole('combobox',{name:'Sector',exact:true}).click(),...['Opening hours','Services','Prices','Frequently asked questions','Instructions','Transfer number'].map(name=>()=>page.getByRole('textbox',{name,exact:true}).fill(name==='Transfer number'?'+33123456789':'Edited '+name))]
+    for(const [index,edit] of edits.entries()){
+      await page.getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+      await edit()
+      if(index===1)await page.getByRole('option',{name:'Vehicle inspection',exact:true}).click()
+      await expect.poll(()=>page.getByText('Configuration saved.',{exact:true}).count()).toBe(0)
+    }
+  }finally{await context.close()}
+},40000)
 
 test('inbox native cursor loads the remaining owned call shells exactly once',async()=>{
   const {context,page}=await signedIn('sparra-owner')
