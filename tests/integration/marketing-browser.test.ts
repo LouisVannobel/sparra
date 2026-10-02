@@ -203,6 +203,49 @@ test('no autoplay; real play, pause, restart and arrows keep audio, transcript a
   } finally { await page.context().close() }
 }, 30000)
 
+test('demo actions wait for real startup hydration before the first native play', async () => {
+  const page = await openPage()
+  let releaseScripts = () => {}, heldScripts = 0
+  const scriptsHeld = new Promise<void>(resolve => { releaseScripts = resolve })
+  let reportMedia: (() => Promise<void>) | undefined
+  try {
+    reportMedia = await observeDemoMedia(page)
+    await page.route('**/*', async route => {
+      const request = route.request()
+      if (request.resourceType() === 'script' && new URL(request.url()).origin === origin) {
+        heldScripts++
+        await scriptsHeld
+        await route.continue().catch(() => {})
+      } else await route.fallback()
+    })
+    // Observe the actual SSR controls while their real startup JS is withheld.
+    await page.goto(origin, { waitUntil: 'commit' })
+    const play = page.getByRole('button', { name: 'Écouter l’exemple', exact: true })
+    await play.waitFor()
+    await expect.poll(() => heldScripts).toBeGreaterThan(0)
+    expect(await play.isDisabled()).toBe(true)
+    expect(await page.getByRole('button', { name: 'Recommencer', exact: true }).isDisabled()).toBe(true)
+    expect(await page.getByRole('radio', { name: 'Garage', exact: true }).isDisabled()).toBe(true)
+    expect(await page.getByRole('radio', { name: 'Contrôle technique', exact: true }).isDisabled()).toBe(true)
+    expect(await media(page)).toMatchObject({ paused: true, time: 0 })
+    expect(await page.evaluate(() => window.__sparraDemoMedia?.plays.length)).toBe(0)
+    releaseScripts()
+    await expect.poll(() => play.isEnabled()).toBe(true)
+    await play.click()
+    await page.waitForFunction(() => {
+      const audio = document.querySelector<HTMLAudioElement>('#demo audio')!
+      return !audio.paused && audio.currentTime > .2
+    })
+    expect(await page.evaluate(() => window.__sparraDemoMedia?.plays.length)).toBe(1)
+    expect(await page.locator('#demo audio').getAttribute('autoplay')).toBe(null)
+    expect(await page.locator('#demo .sparra-transcript').textContent()).toContain('révision')
+    expect(await page.locator('#demo .sparra-receipt').textContent()).toContain('révision')
+  } catch (error) {
+    await reportMedia?.().catch(() => {})
+    throw error
+  } finally { releaseScripts(); await page.context().close() }
+})
+
 test('a real audio failure is announced and leaves text and receipt available', async () => {
   const page = await openPage()
   try {
