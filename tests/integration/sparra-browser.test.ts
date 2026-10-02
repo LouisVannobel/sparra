@@ -269,7 +269,7 @@ test('inbox native cursor loads the remaining owned call shells exactly once',as
     await page.getByRole('button',{name:'Show more calls',exact:true}).click()
     await expect.poll(()=>page.locator('.sparra-inbox > li').count()).toBe(52)
     expect(await page.getByRole('button',{name:'Show more calls',exact:true}).count()).toBe(0)
-    const links=await page.locator('.sparra-inbox > li > a').evaluateAll(elements=>elements.map(element=>element.getAttribute('href')))
+    const links=await page.locator('.sparra-inbox-row-heading > a').evaluateAll(elements=>elements.map(element=>element.getAttribute('href')))
     expect(new Set(links).size).toBe(52);expect(await page.getByText('Partial summary',{exact:true}).count()).toBe(0)
   }finally{await context.close()}
 },20000)
