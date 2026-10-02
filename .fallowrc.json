@@ -1,0 +1,4 @@
+{
+  "ignorePatterns": ["tools/oxlint/anti-slop/**"],
+  "ignoreDependencies": ["@oxlint/plugins"]
+}

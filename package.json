@@ -20,8 +20,9 @@
     "test:image": "vitest run --config vitest.integration.config.ts tests/integration/web-image.test.ts --maxWorkers=1",
     "test:migrator-image": "vitest run --config vitest.integration.config.ts tests/integration/migrator-image.test.ts --maxWorkers=1",
     "typecheck": "tsc --noEmit",
-    "lint": "oxlint --threads=1 src/modules/marketing src/modules/sparra src/ui/marketing src/ui/sparra src/routes/app.tsx src/routes/app.index.tsx src/routes/app.entreprise.tsx src/routes/app.demandes.$requestId.tsx src/routes/index.tsx src/routes/__root.tsx src/server.ts tests/ui tests/marketing tests/integration/sparra-browser.test.ts tests/integration/marketing-browser.test.ts tests/quality-policy.test.ts",
-    "test:a11y": "vitest run --config vitest.integration.config.ts tests/integration/marketing-browser.test.ts --maxWorkers=1"
+    "lint": "oxlint --threads=1 src/modules/marketing src/modules/sparra src/ui/marketing src/ui/sparra src/routes/app.tsx src/routes/app.index.tsx src/routes/app.entreprise.tsx src/routes/app.demandes.$requestId.tsx src/routes/index.tsx src/routes/__root.tsx src/server.ts tests/ui tests/marketing tests/integration/sparra-browser.test.ts tests/integration/marketing-browser.test.ts tests/quality-policy.test.ts src/platform/direct-serve-ingress.server.ts src/platform/startup.server.ts tests/platform/docker-endpoint.test.ts tests/fixtures/db/docker-endpoint.ts tests/runtime/release-handoff.test.ts tests/runtime/native-image-reference.test.ts tests/helpers/native-image.ts tests/integration/web-image.test.ts scripts/web-source-manifest.mjs scripts/verify-web-release.mjs",
+    "test:a11y": "pnpm run build && vitest run --config vitest.integration.config.ts tests/integration/marketing-browser.test.ts --maxWorkers=1",
+    "doctor": "react-doctor . --no-telemetry --no-dead-code --no-supply-chain --blocking none --yes --no-color"
   },
   "dependencies": {
     "@astryxdesign/core": "0.5.4",
@@ -50,10 +51,12 @@
     "@types/react-dom": "19.2.5",
     "@vitejs/plugin-react": "6.1.0",
     "drizzle-kit": "0.31.10",
+    "fallow": "3.18.0",
     "nice-grpc": "2.1.17",
     "nitro": "3.0.260903-beta",
     "oxlint": "1.78.0",
     "playwright": "1.62.1",
+    "react-doctor": "0.9.12",
     "typescript": "7.0.2",
     "undici": "7.21.0",
     "vite": "8.2.2",

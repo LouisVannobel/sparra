@@ -13,6 +13,7 @@ import { googleCeremony } from '../helpers/google-ceremony'
 import { unusedLoopbackPort } from '../helpers/web-process'
 import { fetch } from 'undici'
 import { retireWebImageCeremony } from '../helpers/web-image-retirement'
+import { webSourceManifest } from '../../scripts/web-source-manifest.mjs'
 let image: string
 let stores: Awaited<ReturnType<typeof startDisposableStores>>
 const qualifiedPorts:number[]=[]
@@ -40,6 +41,8 @@ test('complete_output_boots_without_repo', async() => {
   expect((await fetch(app.url+'/login')).status).toBe(200)
   expect((await fetch(app.url+'/demos/garage-revision.mp3')).status).toBe(200)
   const metadata=await stores.imageMetadata(app.id)
+  const packaged=JSON.parse(await stores.command(app.id,['node','-e',"process.stdout.write(require('node:fs').readFileSync('/app/web-source-manifest.json','utf8'))"]))
+  expect(packaged).toEqual(await webSourceManifest())
   expect(metadata.user).toBe('10001:10001');expect(metadata.readonly).toBe(true)
   expect(metadata.mounts.map((mount:{Destination:string})=>mount.Destination)).toEqual(['/run/secrets'])
   const closure=await stores.command(app.id,['node','-e',"const fs=require('node:fs');for(const p of ['src','tests','node_modules','probe.mjs'])if(fs.existsSync('/app/'+p))process.exit(1);for(const p of ['npm','npx','corepack','yarn','pnpm'])if(fs.existsSync('/usr/local/bin/'+p))process.exit(2);if(process.getuid()!==10001||process.getgid()!==10001)process.exit(3);for(const p of ['.output/server/index.mjs','.output/public/demos/garage-revision.mp3'])if(!fs.existsSync('/app/'+p))process.exit(4);console.log('native-closure')"])

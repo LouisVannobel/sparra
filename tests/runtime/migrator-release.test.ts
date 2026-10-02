@@ -38,6 +38,18 @@ async function invoke(directory:string) {
 }
 afterEach(async()=>{for(const directory of directories.splice(0))await rm(directory,{recursive:true})})
 test('valid_exact_three_file_artifact_is_consumable',async()=>{const {directory,receipt}=await fixture();expect(await run(directory,receipt)).toEqual({code:0,stdout:'Migrator artifact verified\n'})})
+test('candidate_phase_is_strict_and_cannot_be_consumed_as_final_release',async()=>{
+  const {directory,receipt}=await fixture();receipt.checks.archive_reload=false
+  expect((await run(directory,receipt)).code).toBe(1)
+  const previous=process.exitCode
+  const module=await import('../../scripts/verify-migrator-release.mjs')
+  process.exitCode=previous
+  expect(typeof module.verifyMigratorArtifact).toBe('function')
+  const candidate=await module.verifyMigratorArtifact(directory,'a'.repeat(40),'candidate')
+  expect(candidate.image_id).toBe(receipt.image_id)
+  receipt.checks.closure=false;await writeFile(join(directory,'migrator-receipt.json'),JSON.stringify(receipt))
+  await expect(module.verifyMigratorArtifact(directory,'a'.repeat(40),'candidate')).rejects.toThrow()
+})
 test.each(['lock_sha256','dockerfile_sha256','cli_sha256','reader_sha256','launcher_sha256','migration_source_sha256','archive_sha256','sbom_sha256'] as const)('mismatch_is_refused: %s',async key=>{const {directory,receipt}=await fixture();receipt[key]='c'.repeat(64);expect((await run(directory,receipt)).code).toBe(1)})
 test.each(['credential_ordering','closure','journal','unknown_commit','no_leakage','clean_exit','cleanup','archive_reload'] as const)('unperformed_check_is_refused: %s',async key=>{const {directory,receipt}=await fixture();receipt.checks[key]=false;expect((await run(directory,receipt)).code).toBe(1)})
 test('mutable_id_extra_file_and_extra_receipt_key_are_refused',async()=>{

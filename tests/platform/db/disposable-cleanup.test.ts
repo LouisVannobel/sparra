@@ -87,7 +87,9 @@ test.each(['ownership', 'removal', 'administrator'] as const)('existing fixture 
   const result = await fixture.cleanup().then(() => 'accepted', error => error.message)
   expect(docker.operations).toContain('remove-owned-0')
   expect(docker.operations).toContain('network-remove')
-  expect(docker.operations).toContain('temporary-remove')
+  expect(docker.operations).not.toContain('temporary-remove')
+  expect(fixture.evidence.retainedTemporaryPath).toBe(external.directory)
+  expect(fixture.evidence.consumerRetirementConfirmed).toBe(false)
   expect(docker.operations).toContain('inventory')
   if (failure === 'ownership') expect(docker.operations).not.toContain('remove-owned-1')
   expect(result).toMatch(/^Disposable fixture cleanup failed:/)
@@ -103,10 +105,16 @@ test.each(['network-ownership', 'network-removal', 'temporary-path', 'temporary-
   expect(docker.operations).toEqual(expect.arrayContaining(['remove-owned-1','remove-owned-0','network-ownership','inventory']))
   if (failure === 'network-ownership') {
     expect(docker.operations).not.toContain('network-remove')
-    expect(docker.operations).toContain('temporary-remove')
+    expect(docker.operations).not.toContain('temporary-remove')
+    expect(fixture.evidence.retainedTemporaryPath).toBe(external.directory)
+    expect(fixture.evidence.consumerRetirementConfirmed).toBe(false)
   }
   if (failure === 'temporary-path') expect(external.remove).not.toHaveBeenCalled()
-  if (failure === 'network-removal') expect(docker.operations).toContain('temporary-remove')
+  if (failure === 'network-removal') {
+    expect(docker.operations).not.toContain('temporary-remove')
+    expect(fixture.evidence.retainedTemporaryPath).toBe(external.directory)
+    expect(fixture.evidence.consumerRetirementConfirmed).toBe(false)
+  }
   if (failure === 'inventory') expect(fixture.evidence.unrelatedUnchanged).toBe(false)
   expect(fixture.evidence.cleanupFailures).toEqual(expect.arrayContaining([failure === 'temporary-removal' ? 'temporary-path' : failure]))
   expect(JSON.stringify(fixture.evidence).includes('synthetic secret')).toBe(false)

@@ -1,0 +1,233 @@
+name: Native App immutable release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Immutable release version
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  qualify-main:
+    if: github.ref == 'refs/heads/main' && github.event.repository.default_branch == 'main'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: qualify-main
+    if: github.ref == 'refs/heads/main' && github.event.repository.default_branch == 'main'
+    permissions:
+      contents: read
+      packages: write
+    uses: LouisVannobel/projetV0-pipelines/.github/workflows/reusable-oci-release.yml@97cf6d2c5348f202c232fd872c4d4592d430297b
+    with:
+      registry: ghcr.io
+      registry-username: ${{ github.actor }}
+      image: ghcr.io/louisvannobel/sparra-web
+      version: ${{ inputs.version }}
+      docker-context: .
+      dockerfile: Dockerfile
+      platforms: linux/amd64
+    secrets:
+      registry-password: ${{ secrets.GITHUB_TOKEN }}
+      registry-read-password: ${{ secrets.GITHUB_TOKEN }}
+
+  qualify-published:
+    needs: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
+    env:
+      IMAGE_REFERENCE: ${{ needs.release.outputs.image-reference }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+        with:
+          version: '10.32.1'
+          run_install: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24.14.0'
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e
+        with:
+          version: v0.36.1
+          driver-opts: image=moby/buildkit:v0.32.2@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.release.outputs.sbom-artifact }}
+          path: ${{ runner.temp }}/oci-web-sbom
+      - name: Authenticate in this fresh read-only job
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull exact promoted web object and preserve OCI platform witness
+        run: |
+          set -Eeuo pipefail
+          [[ "$IMAGE_REFERENCE" =~ ^ghcr.io/louisvannobel/sparra-web@sha256:[0-9a-f]{64}$ ]]
+          docker --host unix:///var/run/docker.sock pull --platform linux/amd64 "$IMAGE_REFERENCE"
+          docker buildx imagetools inspect "$IMAGE_REFERENCE" --raw > "$RUNNER_TEMP/web-root-index.json"
+          node --input-type=module <<'JS'
+          import {readFile,writeFile} from 'node:fs/promises';
+          const root=JSON.parse(await readFile(process.env.RUNNER_TEMP+'/web-root-index.json','utf8'));
+          const runnable=root.manifests?.filter(item=>item.annotations?.['vnd.docker.reference.type']!=='attestation-manifest');
+          if(root.schemaVersion!==2||runnable?.length!==1||runnable[0].platform.os!=='linux'||runnable[0].platform.architecture!=='amd64'||!/^sha256:[0-9a-f]{64}$/.test(runnable[0].digest))throw Error('Invalid runnable platform');
+          await writeFile(process.env.RUNNER_TEMP+'/web-platform.digest',runnable[0].digest+'\n');
+          console.log('WEB_OCI_IDENTITY '+JSON.stringify({root:process.env.IMAGE_REFERENCE,platform:runnable[0].digest}));
+          JS
+          platform_digest=$(cat "$RUNNER_TEMP/web-platform.digest")
+          [[ "$platform_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          docker buildx imagetools inspect "${IMAGE_REFERENCE%@*}@$platform_digest" --raw > "$RUNNER_TEMP/web-platform-manifest.json"
+      - name: Qualify actual pulled web digest without rebuilding
+        env:
+          SPARRA_TEST_IMAGE_REFERENCE: ${{ needs.release.outputs.image-reference }}
+        run: pnpm run test:image
+      - run: mkdir dist
+      - name: Export actual Trivy subject from the same pulled immutable web
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          version: v0.74.0
+          scan-type: image
+          image-ref: ${{ needs.release.outputs.image-reference }}
+          format: spdx-json
+          output: dist/sbom.spdx.json
+      - name: Compare packaged source and produce strict web receipt
+        run: node scripts/write-web-release.mjs --directory dist --commit "$GITHUB_SHA" --image "$IMAGE_REFERENCE" --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --root-index "$RUNNER_TEMP/web-root-index.json" --platform-manifest "$RUNNER_TEMP/web-platform-manifest.json"
+      - run: node scripts/verify-web-release.mjs --directory dist --commit "$GITHUB_SHA"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: sparra-web-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90
+      - name: Build separate same-main migrator and capture immutable ID
+        id: migrator
+        run: |
+          set -Eeuo pipefail
+          mkdir dist-migrator
+          docker buildx build --platform linux/amd64 --target migrator --load --iidfile "$RUNNER_TEMP/migrator.iid" .
+          image_id=$(cat "$RUNNER_TEMP/migrator.iid")
+          [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
+          docker --host unix:///var/run/docker.sock image save --output dist-migrator/migrator-image.tar "$image_id"
+          printf 'image-id=%s\n' "$image_id" >> "$GITHUB_OUTPUT"
+      - name: Block fixable migrator vulnerabilities and secret leakage
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          version: v0.74.0
+          scan-type: image
+          image-ref: ${{ steps.migrator.outputs.image-id }}
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+      - name: Export SPDX from this exact migrator object
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          version: v0.74.0
+          scan-type: image
+          image-ref: ${{ steps.migrator.outputs.image-id }}
+          format: spdx-json
+          output: dist-migrator/migrator-sbom.spdx.json
+      - name: Qualify this built migrator without a second image build
+        env:
+          SPARRA_TEST_MIGRATOR_IMAGE_ID: ${{ steps.migrator.outputs.image-id }}
+        run: pnpm run test:migrator-image
+      - name: Prepare only a temporary candidate receipt
+        env:
+          MIGRATOR_IMAGE_ID: ${{ steps.migrator.outputs.image-id }}
+        run: node scripts/write-migrator-candidate.mjs --directory dist-migrator --commit "$GITHUB_SHA" --image-id "$MIGRATOR_IMAGE_ID" --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: sparra-migrator-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist-migrator/*
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+          compression-level: 0
+
+  verify-migrator-reload:
+    needs: qualify-published
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+        with:
+          version: '10.32.1'
+          run_install: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24.14.0'
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Build fixture output only; never rebuild the transported migrator
+        run: pnpm run build
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: sparra-migrator-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist-migrator
+      - name: Bind exact archive bytes before actual native image reload
+        id: loaded
+        run: |
+          set -Eeuo pipefail
+          node scripts/inspect-migrator-candidate.mjs --directory dist-migrator --commit "$GITHUB_SHA" --output "$RUNNER_TEMP/migrator.iid"
+          image_id=$(cat "$RUNNER_TEMP/migrator.iid")
+          [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
+          docker --host unix:///var/run/docker.sock image load --input dist-migrator/migrator-image.tar > /dev/null
+          [[ "$(docker --host unix:///var/run/docker.sock image inspect "$image_id" --format '{{.Id}}|{{.Os}}/{{.Architecture}}')" == "$image_id|linux/amd64" ]]
+          printf 'image-id=%s\n' "$image_id" >> "$GITHUB_OUTPUT"
+      - name: Actual fresh-runner 18-case loaded native consumer and cleanup
+        env:
+          SPARRA_TEST_MIGRATOR_IMAGE_ID: ${{ steps.loaded.outputs.image-id }}
+        run: pnpm run test:migrator-image
+      - name: Archive reload is now an actual witnessed check
+        run: |
+          node --input-type=module <<'JS'
+          import {readFile,writeFile} from 'node:fs/promises';
+          const path='dist-migrator/migrator-receipt.json',receipt=JSON.parse(await readFile(path,'utf8'));
+          if(receipt.checks.archive_reload!==false)throw Error('Unexpected candidate authority');
+          receipt.checks.archive_reload=true;await writeFile(path,JSON.stringify(receipt)+'\n');
+          JS
+          node scripts/verify-migrator-release.mjs --directory dist-migrator --commit "$GITHUB_SHA"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: sparra-migrator-${{ github.sha }}
+          path: dist-migrator/*
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90
+          compression-level: 0
+
+  gate:
+    if: always()
+    needs: [qualify-main, release, qualify-published, verify-migrator-reload]
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - env:
+          QUALIFY: ${{ needs.qualify-main.result }}
+          RELEASE: ${{ needs.release.result }}
+          WEB: ${{ needs.qualify-published.result }}
+          MIGRATOR: ${{ needs.verify-migrator-reload.result }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$QUALIFY" == success && "$RELEASE" == success && "$WEB" == success && "$MIGRATOR" == success ]]

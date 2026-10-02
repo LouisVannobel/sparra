@@ -11,7 +11,7 @@ COPY public ./public
 COPY scripts ./scripts
 COPY tools ./tools
 COPY drizzle ./drizzle
-RUN pnpm run build && node scripts/migration-source-manifest.mjs --write
+RUN pnpm run build && node scripts/migration-source-manifest.mjs --write && node scripts/web-source-manifest.mjs --write
 
 FROM builder AS migration-dependencies
 RUN --network=none sha256sum pnpm-lock.yaml > /tmp/lock.sha256 && pnpm prune --prod && sha256sum -c /tmp/lock.sha256
@@ -33,6 +33,7 @@ USER 10001:10001
 ENTRYPOINT ["node","scripts/start-migrate.mjs"]
 
 FROM runtime-base AS web
+COPY --from=builder /app/web-source-manifest.json ./
 COPY --from=builder /app/.output/server ./.output/server
 COPY --from=builder /app/.output/public ./.output/public
 COPY --from=builder /app/scripts/start-web.mjs /app/scripts/web-credentials.mjs /app/scripts/fixed-credential-file.mjs ./scripts/
