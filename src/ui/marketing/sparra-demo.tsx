@@ -73,10 +73,13 @@ export function SparraDemo(): React.JSX.Element {
 
   return <section id="demo" className="sparra-demo sparra-section sparra-width" aria-labelledby="sparra-demo-title">
     <div className="sparra-section-heading">
-      <h2 id="sparra-demo-title">Écoutez la demande.<br />Retrouvez l’essentiel.</h2>
+      <h2 id="sparra-demo-title">Un appel, des deux côtés.</h2>
       <p>Exemple enregistré — scénario fictif</p>
       <p className="sparra-example-label">Illustration vocale pour cette prévisualisation. Le service et les appels du pilote restent à qualifier.</p>
     </div>
+    <div className="sparra-demo-window">
+    <div className="sparra-demo-toolbar"><span className="sparra-demo-wordmark">sparra<span aria-hidden="true">.</span></span><span className="sparra-demo-caption">Exemple enregistré · scénario fictif</span></div>
+    <div className="sparra-demo-body">
     <SegmentedControl className="sparra-sectors" label="Métier de l’exemple" value={scenario.id} onChange={select} layout="fill">
       {demoScenarios.map(item => <SegmentedControlItem key={item.id} value={item.id} label={item.label} />)}
     </SegmentedControl>
@@ -103,7 +106,7 @@ export function SparraDemo(): React.JSX.Element {
         </div>
         {error && <p role="alert" className="sparra-audio-error">L’audio ne peut pas être lu. Réessayez avec « Écouter l’exemple » ; la transcription et la fiche restent disponibles.</p>}
         <ol className="sparra-transcript" aria-label={`Transcription — ${scenario.label}`}>
-          {scenario.cues.map((turn, index) => <li key={index} aria-current={cue === index ? 'true' : undefined}>
+          {scenario.cues.map((turn, index) => <li key={index} data-speaker={turn.speaker} aria-current={cue === index ? 'true' : undefined}>
             <span className="sparra-speaker">{turn.speaker === 'sparra' ? 'Sparra · agent IA' : 'Client'}</span>
             <p>{turn.text}</p>
           </li>)}
@@ -114,12 +117,14 @@ export function SparraDemo(): React.JSX.Element {
         <p className="sparra-example-label">Fiche illustrative — aucune demande réelle envoyée.</p>
         <p className="sparra-status"><Icon icon="clock" size="sm" aria-hidden="true" focusable="false" /> {scenario.receipt.status}</p>
         <dl>
+          <div><dt>À faire</dt><dd>{scenario.receipt.nextAction}</dd></div>
           <div><dt>Contact</dt><dd>{scenario.receipt.contact}</dd></div>
           <div><dt>Téléphone</dt><dd>{scenario.receipt.phone}</dd></div>
           <div><dt>Demande</dt><dd>{scenario.receipt.summary}</dd></div>
-          <div><dt>À faire</dt><dd>{scenario.receipt.nextAction}</dd></div>
         </dl>
       </aside>
+    </div>
+    </div>
     </div>
   </section>
 }

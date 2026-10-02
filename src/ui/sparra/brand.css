@@ -1,0 +1,3 @@
+@font-face { font-family:'Sparra Display'; src:url('/fonts/dm-sans.woff2') format('woff2'); font-style:normal; font-weight:400 600; font-display:swap; }
+@font-face { font-family:'Sparra UI'; src:url('/fonts/inter.woff2') format('woff2'); font-style:normal; font-weight:400 600; font-display:swap; }
+.sparra,.sparra-app { --sp-paper:#fff; --sp-canvas:#f7f6f5; --sp-ink:#000; --sp-muted:#4d4d4d; --sp-line:#ccc; --sp-accent:#edfc47; --sp-radius:10px; --sp-display:'Sparra Display',Arial,sans-serif; --sp-ui:'Sparra UI',Arial,sans-serif; }
