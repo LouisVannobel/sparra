@@ -45,6 +45,19 @@ consumers remain authoritative.
   recording deletion and both SQL NULL acknowledgments precede the joined
   owner completion receipt. Late content returns PV301 and unrelated FIFO
   delivery continues.
+
+The combined erasure case uses a separately admitted call after the original
+overflow call's finalization and restart/replay. It captures a genuinely new
+turn with dispatch paused, reads its actual encrypted outbox row without
+writing to SQLite, and validates immutable operation bytes using the native
+decoder. Its own finalizer, recording correlation and browser erasure then
+remove that queued turn and frozen publication before ACK. The transport
+retains the before/after digest proof across later restart phases. The original
+replayed call is never re-armed to manufacture an erased queue item.
+
+Inventory volume names remain raw only inside the existing equality and
+ownership calculations. Diagnostic output derives an opaque SHA256 ID for a
+volume; it emits no raw volume name or projected values.
 - In-flight begin holders are scrubbed before ACK. Held erasure leases and a
   backlog larger than the native batch preserve unknown disposition, original
   generation and telephone capacity across restart, with no new AI or original

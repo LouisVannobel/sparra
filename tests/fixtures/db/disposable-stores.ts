@@ -43,7 +43,8 @@ export function inventoryDelta(before:Awaited<ReturnType<typeof inventory>>,afte
     return [...new Set([...old.keys(),...next.keys()])].sort().flatMap(id=>{
       const a=old.get(id),b=next.get(id)
       const changed=a&&b?names.filter((_name,index)=>a[index]!==b[index]):names
-      return changed.length?[{kind,id,ownership:ownedIds.has(id)?'owned':'foreign',change:!a?'added':!b?'removed':'changed',fields:changed}]:[]
+      const diagnosticId=kind==='volume'?'volume-sha256:'+createHash('sha256').update(id).digest('hex'):id
+      return changed.length?[{kind,id:diagnosticId,ownership:ownedIds.has(id)?'owned':'foreign',change:!a?'added':!b?'removed':'changed',fields:changed}]:[]
     })
   }
   return [...changes(before.states,after.states,fields,'container'),...changes(before.networks,after.networks,['Id','Name','Driver'],'network'),...changes(before.volumes,after.volumes,['Name','Driver'],'volume')]

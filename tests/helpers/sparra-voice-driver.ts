@@ -32,7 +32,8 @@ export function nativeVoice<A extends keyof FixtureRequests>(request:{action:A}&
 /** Test-only persistent transport; Python owns the native graph and validates facts. */
 export function startConnectedVoice(input:{url:string;keyring_path:string;evidence_path:string;state_path:string;resume_call_id?:string;recovery_case?:string}) {
   const child=spawn(voice+'/.venv/Scripts/python.exe',['-B',resolve('tests/helpers/sparra-voice-driver.py')],{windowsHide:true,env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,TEMP:process.env.TEMP,TMP:process.env.TMP,PYTHONPATH:voice+'/src',PYTHONDONTWRITEBYTECODE:'1'}})
-  type Reply={ready?:boolean;call_id?:string;call_ids?:string[];revision?:number;loss?:number;retained?:number;map_bytes?:number;compact_bytes?:number;candidate_bytes?:number;stable?:boolean;cleaned?:boolean;recording_ack?:boolean;no_hangup?:boolean;ack_before_scrub?:boolean;checks?:string[];error?:string;where?:string}
+  type QueuedTurnWitness=Readonly<{call_id:string;operation_id:string;operation_sha256:string;ciphertext_sha256:string;finalizer_operation_sha256:string;removed_before_ack:boolean}>
+  type Reply={ready?:boolean;call_id?:string;call_ids?:string[];revision?:number;loss?:number;retained?:number;map_bytes?:number;compact_bytes?:number;candidate_bytes?:number;stable?:boolean;cleaned?:boolean;recording_ack?:boolean;no_hangup?:boolean;ack_before_scrub?:boolean;queue_witness?:QueuedTurnWitness;checks?:string[];error?:string;where?:string}
   const replies:Reply[]=[]
   const waiters:Array<{resolve:(value:Reply)=>void;reject:(error:Error)=>void}>=[]
   let text='',closed=false
