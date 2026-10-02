@@ -14,7 +14,7 @@ export class AuthAttemptExceeded extends Error {
   constructor(readonly retryAfter: number) { super('Too Many Requests'); this.name = 'AuthAttemptExceeded' }
 }
 const trustedClient = Symbol('TrustedClientContext')
-export type TrustedClientContext = Readonly<{ [trustedClient]: true }>
+type TrustedClientContext = Readonly<{ [trustedClient]: true }>
 type IngressRequest = {
   headers: Headers
   runtime?: { node?: { req?: { socket: { remoteAddress?: string } } } }

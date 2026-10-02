@@ -23,7 +23,7 @@ const saveInput = Schema.Struct({
 export class InvalidActivityInput extends Error {
   constructor() { super('Invalid activity input'); this.name = 'InvalidActivityInput' }
 }
-export class ActivityRevisionConflict extends Error {
+class ActivityRevisionConflict extends Error {
   constructor() { super('Activity revision conflict'); this.name = 'ActivityRevisionConflict' }
 }
 export type SaveActivityInput = Readonly<{

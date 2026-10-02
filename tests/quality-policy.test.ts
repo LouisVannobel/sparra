@@ -60,6 +60,7 @@ function qualityFixture() {
   const root=mkdtempSync(join(tmpdir(),'sparra-quality-canary-'));qualityRoots.push(root)
   mkdirSync(join(root,'src'))
   writeFileSync(join(root,'package.json'),JSON.stringify({name:'synthetic-quality-canary',private:true,type:'module',main:'src/main.tsx',dependencies:{react:'19.2.8','react-dom':'19.2.8'},devDependencies:{vite:'8.2.2'}}))
+  writeFileSync(join(root,'.gitignore'),'node_modules/\n')
   writeFileSync(join(root,'index.html'),'<div id="root"></div><script type="module" src="/src/main.tsx"></script>')
   writeFileSync(join(root,'src/main.tsx'),"import {createRoot} from 'react-dom/client';import {App} from './App';createRoot(document.getElementById('root')!).render(<App value='synthetic' />);\n")
   writeFileSync(join(root,'src/App.tsx'),"export function App({value}:{value:string}){return <div>{value}</div>}\n")
@@ -99,6 +100,25 @@ test('maintained_fallow_audit_scans_actual_changed_canary',()=>{
   expect(result.error).toBeUndefined();expect(result.status,result.stderr||result.stdout).toBe(1)
   expect(result.stdout+result.stderr).toMatch(/src[\\/]unused\.ts/)
   expect(result.stdout+result.stderr).toMatch(/unused.?file|unused.?export|dead.?code/i)
+},40000)
+
+test('fallow_declares_only_native_subprocess_roots_and_exact_generated_import',()=>{
+  const {root,base}=qualityFixture()
+  mkdirSync(join(root,'tests/helpers'),{recursive:true});mkdirSync(join(root,'scripts'))
+  writeFileSync(join(root,'tests/helpers/generate-native-voice-envelope.ts'),"console.log('synthetic generator');\n")
+  writeFileSync(join(root,'tests/helpers/runtime-probe.mjs'),"console.log('synthetic preload');\n")
+  writeFileSync(join(root,'scripts/start-web.mjs'),"await import('../.output/server/index.mjs');\nawait import('../.output/server/genuinely-missing.mjs');\n")
+  writeFileSync(join(root,'src/main.tsx'),readFileSync(join(root,'src/main.tsx'),'utf8')+"import './genuinely-missing';\n")
+  writeFileSync(join(root,'.fallowrc.json'),readFileSync(join(repositoryRoot,'.fallowrc.json')))
+  const result=runQuality('fallow',['audit','--no-css','--base',base],root)
+  expect(result.error).toBeUndefined();expect(result.status,result.stderr||result.stdout).toBe(1)
+  const output=result.stdout+result.stderr
+  expect(output).toMatch(/src[\\/]unused\.ts/)
+  expect(output).toContain('./genuinely-missing')
+  expect(output).toContain('../.output/server/genuinely-missing.mjs')
+  expect(output).not.toContain('generate-native-voice-envelope.ts')
+  expect(output).not.toContain('runtime-probe.mjs')
+  expect(output).not.toContain('../.output/server/index.mjs')
 },40000)
 test('maintained_doctor_changed_scope_reports_actual_component_rule',()=>{
   const {root,base}=qualityFixture(),result=runQuality('react-doctor',['.','--no-telemetry','--no-dead-code','--no-supply-chain','--blocking','none','--yes','--no-color','--scope','changed','--base',base],root)

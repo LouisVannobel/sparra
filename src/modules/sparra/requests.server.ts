@@ -11,8 +11,8 @@ const idSchema=Schema.String.check(Schema.isUUID()).pipe(Schema.decode({decode:S
 const canonicalInstant=Schema.String.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),Schema.makeFilter(value=>Number.isFinite(Date.parse(value)) && new Date(value).toISOString()===value))
 const listInput=Schema.Struct({cursor:Schema.optional(Schema.Struct({admittedAt:canonicalInstant,id:idSchema}))})
 const requestInput=Schema.Struct({requestId:idSchema})
-export class InvalidRequestInput extends Error {constructor(){super('Invalid request input');this.name='InvalidRequestInput'}}
-export class RequestNotFound extends Error {constructor(){super('Request unavailable');this.name='RequestNotFound'}}
+class InvalidRequestInput extends Error {constructor(){super('Invalid request input');this.name='InvalidRequestInput'}}
+class RequestNotFound extends Error {constructor(){super('Request unavailable');this.name='RequestNotFound'}}
 export function parseListRequestsInput(input:unknown){try{return Schema.decodeUnknownSync(listInput,{onExcessProperty:'error'})(input===undefined?{}:input)}catch{throw new InvalidRequestInput()}}
 export function parseRequestInput(input:unknown){try{return Schema.decodeUnknownSync(requestInput,{onExcessProperty:'error'})(input)}catch{throw new InvalidRequestInput()}}
 export type ListRequestsInput=typeof listInput.Type

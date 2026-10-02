@@ -1,4 +1,7 @@
 {
+  "entry": ["scripts/start-web.mjs", "tests/helpers/generate-native-voice-envelope.ts"],
+  "dynamicallyLoaded": ["tests/helpers/runtime-probe.mjs"],
+  "ignoreUnresolvedImports": ["../.output/server/index.mjs"],
   "ignorePatterns": ["tools/oxlint/anti-slop/**"],
   "ignoreDependencies": ["@oxlint/plugins"]
 }

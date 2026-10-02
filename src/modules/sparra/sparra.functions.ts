@@ -5,7 +5,7 @@ import { requestResources } from '../../platform/resources.server'
 import { createActivityOperations, parseSaveActivityInput } from './activity.server'
 export type { ActivityConfigurationDto, ActivityState, SaveActivityInput } from './activity.server'
 import { createRequestOperations, parseListRequestsInput, parseRequestInput } from './requests.server'
-export type { ListRequestsInput, ListRequestsPage, RequestSummaryDto, RequestDetailDto, EraseReceipt } from './requests.server'
+export type { ListRequestsInput, ListRequestsPage, RequestDetailDto, EraseReceipt } from './requests.server'
 
 const activityErrors = createMiddleware({ type: 'function' }).server(async ({ next }) => {
   setResponseHeader('cache-control','no-store')
