@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "synthetic_public_key": true,
+  "producer_commit": "52d6502991090d55aa94ee97fb38ebba656a4139",
+  "producer_source_sha256": {
+    "src/projetv0_voice/models.py": "f929fca2e9e0a85650fd18f34ee08d05d90c28da4d705d56db16ca426705de5e",
+    "src/projetv0_voice/production_wiring.py": "2e1d1ac9055698367cc3e0a34275762fe8d5b79aa86fab3e083e657fb2da3f60",
+    "src/projetv0_voice/crypto.py": "2020b84706a2da870940e2b786a286ee823d73b8aade0752f59c868f7659499f"
+  },
+  "plaintext": "Rappelez-moi",
+  "call_id": "7cd0805f-8d93-412a-8ef8-bf623182b714",
+  "turn_id": "a83d0f89-eb36-4910-9d08-63d72b40c7ef",
+  "turn": {
+    "turn_id": "a83d0f89-eb36-4910-9d08-63d72b40c7ef",
+    "turn_no": 1,
+    "role": "user",
+    "source": "stt_final",
+    "crypto_version": 1,
+    "key_version": 1,
+    "nonce_b64": "bTxE8gczc2mIcPk8",
+    "ciphertext_b64": "jlNbGNJuKkzLhcqyz1OS6blTlW2l5d8kDGjUcg==",
+    "started_at": "2026-10-01T10:00:00Z",
+    "ended_at": "2026-10-01T10:00:00Z",
+    "interrupted": false
+  },
+  "keyring": {
+    "schema_version": 1,
+    "active_version": 1,
+    "keys": [
+      {
+        "version": 1,
+        "aes256_key_hex": "08e61e76a620ed387427b1845a5e64b601271709a6db09945bf8c17d1d2b2a9b"
+      }
+    ]
+  }
+}

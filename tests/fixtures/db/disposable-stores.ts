@@ -1,10 +1,11 @@
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { cp, mkdtemp, mkdir, readFile, writeFile, rm, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve, join, basename, dirname } from 'node:path'
 import { Client } from 'pg'
+import { fetch as imageFetch } from 'undici'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { migrate as migrateDrizzle } from 'drizzle-orm/node-postgres/migrator'
 import { unusedLoopbackPort } from '../../helpers/web-process.ts'
@@ -83,6 +84,7 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
   const prefix = `template-auth-${runId}`
   const directory = await mkdtemp(join(tmpdir(), `${prefix}-`))
   const owned: { id: string; name: string }[] = []
+  const ownedVolumes: string[] = []
   let network: string | undefined
   let administrator: Client | undefined
   const secret = () => randomBytes(32).toString('hex')
@@ -93,9 +95,9 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
     const value = JSON.parse(await docker(['inspect', id, '--format', '{{json .Config.Labels}}']))
     if (value[label] !== runId || !owned.some(item => item.id === id)) throw new Error('Refusing non-owned fixture container')
   }
-  async function create(kind: string, image: string, args: string[], env: Record<string, string> = {}, command: string[] = []) {
+  async function create(kind: string, image: string, args: string[], env: Record<string, string> = {}, command: string[] = [], networkName = network!) {
     const name = `${prefix}-${kind}`
-    const id = await docker(['create', '--name', name, '--label', `${label}=${runId}`, '--network', network!, ...args, image, ...command], env)
+    const id = await docker(['create', '--name', name, '--label', `${label}=${runId}`, '--network', networkName, ...args, image, ...command], env)
     owned.push({ id, name })
     await assertOwned(id)
     return id
@@ -129,6 +131,12 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
         catch { failures.push('network-removal') }
       }
     }
+    for (const volume of ownedVolumes) {
+      try {
+        if (JSON.parse(await docker(['volume', 'inspect', volume, '--format', '{{json .Labels}}']))[label] !== runId) throw new Error('Volume ownership')
+        await docker(['volume', 'rm', volume])
+      } catch { failures.push('volume-removal') }
+    }
     try {
       const target = await realpath(directory), parent = await realpath(tmpdir())
       if (dirname(target) !== parent || basename(target) !== basename(directory) || !basename(target).startsWith(`${prefix}-`)) throw new Error('Refusing non-owned temporary path')
@@ -138,7 +146,7 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
     evidence.unrelatedUnchanged = false
     try {
       const after = await inventory()
-      evidence.inventoryDelta=inventoryDelta(before,after,new Set([...owned.map(item=>item.id),...(network?[network]:[])]))
+      evidence.inventoryDelta=inventoryDelta(before,after,new Set([...owned.map(item=>item.id),...ownedVolumes,...(network?[network]:[])]))
       evidence.after = { fingerprint: createHash('sha256').update(JSON.stringify(after)).digest('hex'), volumeCount: after.volumes.length }
       evidence.unrelatedUnchanged = JSON.stringify(before) === JSON.stringify(after)
       if (!evidence.unrelatedUnchanged) failures.push('inventory')
@@ -281,9 +289,90 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
       const client = new Client({ connectionString: `postgresql://pool_admin:${poolPassword}@127.0.0.1:${poolPort}/pgbouncer`, connectionTimeoutMillis: 1000 })
       await client.connect(); return client
     }
+    type CredentialMutation = 'valid'|'empty-env'|'missing'|'malformed'|'oversized'|'symlink'|'mode'|'empty'|'newline'|'nul'|'whitespace'|'utf8'|'uid'|'gid'|'directory'|'parent-mode'
+    const webVolumes = new Map<string,string>()
+    async function privateInput(id:string, value:string) {
+      await assertOwned(id)
+      await new Promise<void>((accept,reject) => {
+        const child=spawn('docker',[...endpoint.args,'start','-ai',id],{env:essentials(),windowsHide:true,stdio:['pipe','pipe','pipe']})
+        const timer=setTimeout(()=>{child.kill();reject(new Error('Credential init timeout'))},10000)
+        child.stdout.resume();child.stderr.resume()
+        child.on('error',()=>{clearTimeout(timer);reject(new Error('Credential init failed'))})
+        child.on('exit',code=>{clearTimeout(timer);code===0?accept():reject(new Error('Credential init failed'))})
+        child.stdin.end(value)
+      })
+    }
+    async function provision(volume:string, values:Readonly<Record<string,string>>, mutation:CredentialMutation) {
+      if (JSON.parse(await docker(['volume','inspect',volume,'--format','{{json .Labels}}']))[label]!==runId) throw new Error('Volume ownership')
+      const script=`const fs=require('node:fs');let raw='';process.stdin.on('data',b=>raw+=b);process.stdin.on('end',()=>{const {values,mutation}=JSON.parse(raw);const root='/run/secrets';for(const name of fs.readdirSync(root))fs.rmSync(root+'/'+name,{force:true,recursive:true});fs.chownSync(root,0,10001);fs.chmodSync(root,mutation==='parent-mode'?0o755:0o750);let first=true;for(const [name,text]of Object.entries(values)){const path=root+'/'+name;let data=Buffer.from(text);if(first){if(mutation==='missing'){first=false;continue}if(mutation==='empty')data=Buffer.alloc(0);if(mutation==='malformed')data=Buffer.from('invalid-synthetic-only');if(mutation==='oversized')data=Buffer.alloc(16385,120);if(mutation==='newline')data=Buffer.from(text+'\\n');if(mutation==='nul')data=Buffer.from(text+'\\0');if(mutation==='whitespace')data=Buffer.from(' '+text);if(mutation==='utf8')data=Buffer.from([255]);if(mutation==='directory'){fs.mkdirSync(path);first=false;continue}}fs.writeFileSync(path,data,{mode:0o440});data.fill(0);fs.chownSync(path,first&&mutation==='uid'?10001:0,first&&mutation==='gid'?0:10001);if(first&&mutation==='mode')fs.chmodSync(path,0o444);if(first&&mutation==='symlink'){fs.renameSync(path,path+'.target');fs.symlinkSync(path+'.target',path)}first=false}raw='';})`
+      const id=await create('credential-init-'+owned.length,images.node,['-i','--read-only','--mount','type=volume,source='+volume+',target=/run/secrets'],{},['node','-e',script],'none')
+      await privateInput(id,JSON.stringify({values,mutation}))
+    }
+    async function credentialVolume(values:Readonly<Record<string,string>>,mutation:CredentialMutation) {
+      const volume=await docker(['volume','create','--label',label+'='+runId,prefix+'-credentials-'+ownedVolumes.length])
+      ownedVolumes.push(volume);await provision(volume,values,mutation);return volume
+    }
+    const webCredentialValues=(auth:Readonly<{secret:string;googleClientId:string;googleClientSecret:string}>)=>({
+      app_database_url:'postgresql://runtime:'+runtimePassword+'@pool:5432/auth',app_redis_url:'redis://:'+redisPassword+'@redis:6379/0',
+      app_rate_limit_hmac_secret:hmac,app_auth_secret:auth.secret,app_google_client_id:auth.googleClientId,app_google_client_secret:auth.googleClientSecret,
+    })
+    const assertImage=async(image:string)=>{
+      if(!/^sha256:[0-9a-f]{64}$/.test(image)||await docker(['image','inspect',image,'--format','{{.Id}}|{{.Os}}/{{.Architecture}}'])!==image+'|linux/amd64')throw new Error('Immutable owned test image required')
+    }
+    async function imageMetadata(id:string) {
+      await assertOwned(id)
+      const config=JSON.parse(await docker(['inspect',id,'--format','{{json .Config}}']))
+      const host=JSON.parse(await docker(['inspect',id,'--format','{{json .HostConfig}}']))
+      return { user:config.User,environment:config.Env,entrypoint:config.Entrypoint,command:config.Cmd,readonly:host.ReadonlyRootfs,
+        caps:host.CapDrop,security:host.SecurityOpt,mounts:JSON.parse(await docker(['inspect',id,'--format','{{json .Mounts}}'])) }
+    }
+    async function directImageStatus(id:string,path:'/health/ready'|'/login',wrongAuthority=false) {
+      await assertOwned(id)
+      const script="const http=require('node:http');const r=http.request({host:'127.0.0.1',port:3000,path:process.argv[1],headers:{host:'image.example','x-forwarded-host':process.argv[2]==='wrong'?'foreign.example':'image.example','x-forwarded-proto':'https','x-forwarded-for':'192.0.2.1'}},response=>{console.log(response.statusCode);response.resume()});r.setTimeout(1000,()=>r.destroy());r.on('error',()=>process.exit(1));r.end()"
+      return Number(await docker(['exec',id,'node','-e',script,path,wrongAuthority?'wrong':'valid']))
+    }
+    async function startWebImage(imageReference:string,mutation:CredentialMutation='valid',auth:Readonly<{secret:string;googleClientId:string;googleClientSecret:string}>={secret:secret(),googleClientId:'fixture.apps.googleusercontent.com',googleClientSecret:secret()},keyring?:string,directServe=false,selectedPort?:number) {
+      await assertImage(imageReference)
+      const volume=await credentialVolume({...webCredentialValues(auth),...(keyring?{'aead_keyring_v1.json':keyring}: {})},mutation)
+      const webPort=selectedPort??await unusedLoopbackPort(),url='http://localhost:'+webPort
+      if(!Number.isInteger(webPort)||webPort<1||webPort>65535)throw new Error('Owned image port invalid')
+      const gateway=JSON.parse(await docker(['network','inspect',network!,'--format','{{json .IPAM.Config}}']))[0].Gateway
+      if(typeof gateway!=='string'||!/^[0-9.]+$/.test(gateway))throw new Error('Owned network gateway missing')
+      const env={NODE_ENV:'test',APP_ORIGIN:directServe?'https://image.example':url,HOST:'0.0.0.0',PORT:'3000',SHUTDOWN_TIMEOUT_MS:'1000',REQUEST_TIMEOUT_MS:'10000',RATE_LIMIT_KEY_ID:'image',TRUSTED_PROXY_IPS:directServe?'127.0.0.1':gateway,...(directServe?{SPARRA_INGRESS_PROFILE:'direct-serve'}:{}),...(keyring?{SPARRA_AEAD_KEYRING_PATH:'/run/secrets/aead_keyring_v1.json'}:{}),...(mutation==='empty-env'?{DATABASE_URL:''}:{})}
+      const id=await create('web-image-'+owned.length,imageReference,['-p','127.0.0.1:'+webPort+':3000','--read-only','--tmpfs','/tmp','--cap-drop','ALL','--security-opt','no-new-privileges','--mount','type=volume,source='+volume+',target=/run/secrets,readonly',...Object.keys(env).flatMap(key=>['-e',key])],env)
+      webVolumes.set(id,volume);await docker(['start',id])
+      if(mutation!=='valid')return {id,url}
+      let lastStatus=0
+      const deadline=Date.now()+10000
+      while(Date.now()<deadline){
+        if(await docker(['inspect',id,'--format','{{.State.Status}}'])==='exited')throw new Error('Native image startup failed')
+        try{lastStatus=directServe?await directImageStatus(id,'/health/ready'):(await imageFetch(url+'/health/ready',{signal:AbortSignal.timeout(500)})).status;if(lastStatus===200)return {id,url}}catch{}
+        await new Promise(resolve=>setTimeout(resolve,100))
+      }
+      throw new Error('Native web image not ready: response-'+lastStatus)
+    }
+    async function runMigrationImage(imageId:string,mutation:CredentialMutation='valid',transport:'direct'|'drop-commit-ack'='direct') {
+      await assertImage(imageId)
+      let proxy:string|undefined
+      if(transport==='drop-commit-ack'){
+        proxy=await create('commit-proxy-'+owned.length,images.node,['--network-alias','commit-proxy','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges','--mount','type=bind,source='+resolve('tests/helpers/migration-commit-proxy.mjs')+',target=/proxy.mjs,readonly'],{},['node','/proxy.mjs'])
+        await docker(['start',proxy])
+        for(let attempt=0;attempt<50;attempt++){if((await docker(['logs',proxy])).includes('READY'))break;await new Promise(resolve=>setTimeout(resolve,100))}
+      }
+      const volume=await credentialVolume({migration_database_url:'postgresql://migrator:'+migrationPassword+'@'+(proxy?'commit-proxy':'pg')+':5432/auth'},mutation)
+      const id=await create('migrator-image-'+owned.length,imageId,['--read-only','--cap-drop','ALL','--security-opt','no-new-privileges','--mount','type=volume,source='+volume+',target=/run/secrets,readonly',...(mutation==='empty-env'?['-e','MIGRATION_DATABASE_URL=']:[])])
+      await docker(['start',id]);const exitCode=Number(await docker(['wait',id]))
+      const result=await exec('docker',[...endpoint.args,'logs',id],{env:essentials(),windowsHide:true,timeout:10000})
+      if(proxy){evidence.commitProxy=JSON.parse((await docker(['logs',proxy])).split('\n').find(line=>line.startsWith('{'))??'{}');await assertOwned(proxy);await docker(['stop','--time','1',proxy])}
+      return {id,exitCode,stdout:String(result.stdout),stderr:String(result.stderr)}
+    }
     return {
       kind: 'stores' as const,
       pg, pool: poolId, redis, administrator, migrate, cleanup, poolAdmin, evidence,
+      startWebImage,runMigrationImage,imageMetadata,directImageStatus,
+      async imageLogs(id:string){await assertOwned(id);const result=await exec('docker',[...endpoint.args,'logs',id],{env:essentials(),windowsHide:true,timeout:10000});return {stdout:String(result.stdout),stderr:String(result.stderr)}},
+      async replaceWebCredentials(id:string,auth:Readonly<{secret:string;googleClientId:string;googleClientSecret:string}>,keyring?:string){await assertOwned(id);const volume=webVolumes.get(id);if(!volume)throw new Error('Owned web volume missing');await provision(volume,{...webCredentialValues(auth),...(keyring?{'aead_keyring_v1.json':keyring}:{})},'valid')},
+      async restartWebImage(id:string){await assertOwned(id);if(!webVolumes.has(id))throw new Error('Owned image missing');await docker(['restart','--time','2',id])},
       async migrateRecoveryAdmissionPrefix() {
         const prefixDirectory = join(directory, 'recovery-admission-prefix')
         await mkdir(join(prefixDirectory, 'meta'), { recursive: true })

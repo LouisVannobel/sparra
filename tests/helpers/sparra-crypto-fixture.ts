@@ -25,11 +25,11 @@ export async function cryptoFixture() {
 
 // Actual pinned producer model, encryption and production keyring decoder.
 // The result envelope remains a separately proposed Node fixture above.
-export async function nativeVoiceTurn(fixture: Awaited<ReturnType<typeof cryptoFixture>>) {
+export async function nativeVoiceTurn(fixture: Awaited<ReturnType<typeof cryptoFixture>>, producer:Readonly<{pythonExecutable:string;sourceRoot:string}>={pythonExecutable:'C:/Users/louis/Documents/ChatGPT/projetV0-voice/.venv/Scripts/python.exe',sourceRoot:'C:/Users/louis/Documents/ChatGPT/.worktrees/sparra-voice-pilot/src'}) {
   const script=String.raw`
 import sys, json, base64
 from pathlib import Path
-sys.path.insert(0, 'C:/Users/louis/Documents/ChatGPT/.worktrees/sparra-voice-pilot/src')
+sys.path.insert(0, sys.argv[4])
 from projetv0_voice.models import TurnUpsertPayloadV1
 from projetv0_voice.production_wiring import _decode_keyring_value
 keyring = _decode_keyring_value(Path(sys.argv[1]).read_text())
@@ -39,6 +39,6 @@ Path(sys.argv[3]).write_text(turn.model_dump_json(), encoding='utf-8')
 `
   const output=join(fixture.directory,'native-turn.json')
   const {readFile}=await import('node:fs/promises')
-  await promisify(execFile)('C:/Users/louis/Documents/ChatGPT/projetV0-voice/.venv/Scripts/python.exe',['-B','-c',script,fixture.path,fixture.turnId,output],{windowsHide:true,timeout:60000,env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,TEMP:process.env.TEMP,TMP:process.env.TMP,PYTHONDONTWRITEBYTECODE:'1'}})
+  await promisify(execFile)(producer.pythonExecutable,['-B','-c',script,fixture.path,fixture.turnId,output,producer.sourceRoot],{windowsHide:true,timeout:60000,env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,TEMP:process.env.TEMP,TMP:process.env.TMP,PYTHONDONTWRITEBYTECODE:'1'}})
   return JSON.parse(await readFile(output,'utf8'))
 }
