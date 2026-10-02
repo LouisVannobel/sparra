@@ -11,7 +11,7 @@ function Assert-Contained([string]$Path, [string]$Directory) {
   if ($absolute.TrimEnd($separator).Equals($parent, $comparison) -or -not $absolute.StartsWith($parent + $separator, $comparison)) { throw 'Output target escapes its owned directory' }
   $cursor = $absolute
   while ($cursor -and $cursor.Length -ge $repo.Length) {
-    if ((Test-Path -LiteralPath $cursor) -and ((Get-Item -LiteralPath $cursor).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Refusing a redirected filesystem target' }
+    if ((Test-Path -LiteralPath $cursor) -and ((Get-Item -LiteralPath $cursor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Refusing a redirected filesystem target' }
     $cursor = [IO.Path]::GetDirectoryName($cursor)
   }
   return $absolute

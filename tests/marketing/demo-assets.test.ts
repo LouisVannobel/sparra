@@ -1,12 +1,15 @@
 import { expect, test } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readdirSync } from 'node:fs'
-import { resolve, sep } from 'node:path'
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readdirSync, symlinkSync } from 'node:fs'
+import { resolve, sep, dirname, basename } from 'node:path'
 import { demoScenarios } from '../../src/modules/marketing/demo-scenarios.generated'
 
 test('native generator containment admits only descendants with the host path case policy', () => {
-  const owned = resolve('.output/demo-containment')
+  const owned = mkdtempSync(resolve('.output/demo-containment-'))
+  try {
+  const hidden = resolve(owned, '.hidden'), destination = resolve(owned, 'target'), redirected = resolve(hidden, '.redirected')
+  mkdirSync(hidden); mkdirSync(destination); symlinkSync(destination, redirected, 'junction')
   const cases = [
     { name: 'descendant', path: owned + sep + 'inside.json', directory: owned, accepted: true },
     { name: 'trailing-parent', path: owned + sep + 'inside.json', directory: owned + sep, accepted: true },
@@ -15,8 +18,10 @@ test('native generator containment admits only descendants with the host path ca
     { name: 'sibling-prefix', path: owned + '-sibling' + sep + 'outside.json', directory: owned, accepted: false },
     { name: 'relative-escape', path: owned + sep + '..' + sep + 'outside.json', directory: owned, accepted: false },
     { name: 'case-policy', path: owned + sep + 'inside.json', directory: owned.toUpperCase(), accepted: process.platform === 'win32' },
+    { name: 'hidden-ancestor', path: hidden + sep + 'inside.json', directory: owned, accepted: true },
+    { name: 'redirected-hidden-ancestor', path: redirected + sep + 'inside.json', directory: owned, accepted: false },
   ]
-  // Invoke the actual function AST only: no generator body, provider call, ledger or file write.
+  // Invoke the actual function AST only; metadata fixtures stay in this owned directory.
   const script = String.raw`
 $ErrorActionPreference = 'Stop'
 $repo = [IO.Path]::GetFullPath((Get-Location).Path)
@@ -27,16 +32,29 @@ $function = $ast.Find({ param($node) $node -is [Management.Automation.Language.F
 if (-not $function) { throw 'Missing containment consumer' }
 Invoke-Expression $function.Extent.Text
 $cases = [Console]::In.ReadToEnd() | ConvertFrom-Json
+if ($IsWindows) {
+  $hidden = [IO.Path]::GetDirectoryName(($cases | Where-Object name -CEQ 'hidden-ancestor').path)
+  [IO.File]::SetAttributes($hidden, ([IO.File]::GetAttributes($hidden) -bor [IO.FileAttributes]::Hidden))
+}
 $results = foreach ($case in $cases) {
-  $accepted = $false
+  $accepted = $false; $rejection = $null
   try { $null = Assert-Contained $case.path $case.directory; $accepted = $true }
-  catch { if ($_.Exception.Message -cne 'Output target escapes its owned directory') { throw 'Unexpected containment failure' } }
-  @{ name = $case.name; accepted = $accepted }
+  catch {
+    if ($_.Exception.Message -ceq 'Output target escapes its owned directory') { $rejection = 'escape' }
+    elseif ($_.Exception.Message -ceq 'Refusing a redirected filesystem target') { $rejection = 'redirected' }
+    else { throw 'Unexpected containment failure' }
+  }
+  @{ name = $case.name; accepted = $accepted; rejection = $rejection }
 }
 ConvertTo-Json -InputObject @($results) -Compress
 `
   const result = JSON.parse(execFileSync('pwsh', ['-NoProfile', '-Command', script], { encoding: 'utf8', input: JSON.stringify(cases), timeout: 10000, maxBuffer: 16384 }))
-  expect(result).toEqual(cases.map(({ name, accepted }) => ({ name, accepted })))
+  expect(result).toEqual(cases.map(({ name, accepted }) => ({ name, accepted, rejection: accepted ? null : name === 'redirected-hidden-ancestor' ? 'redirected' : 'escape' })))
+  } finally {
+    const cleanup = resolve(owned)
+    if (dirname(cleanup) !== resolve('.output') || !basename(cleanup).startsWith('demo-containment-')) throw new Error('Non-owned containment fixture cleanup')
+    rmSync(cleanup, { recursive: true })
+  }
 })
 
 test('both real MP3 illustrations decode and match their cues, text, receipt and provenance', () => {
