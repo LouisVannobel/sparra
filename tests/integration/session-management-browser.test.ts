@@ -600,7 +600,7 @@ test.each(['clock-skew', 'cancel-race', 'en', 'fr'] as const)('compiled session-
       expect(exactEvents().some(event => event.kind === 'signal-abort' || event.kind === 'native-rejection' || event.kind === 'native-fulfilled')).toBe(false)
       const oldContextId = exactEvents().find(event => event.kind === 'get-start')?.executionContextId
       const expectedPath = navigation === 'workspace' ? '/workspace' : '/account', expectedLocale = navigation === 'workspace' ? locale : locale === 'en' ? 'fr' : 'en'
-      if (navigation === 'workspace') await page.getByRole('link', { name: locale === 'fr' ? 'Mon espace personnel' : 'My personal workspace', exact: true }).click()
+      if (navigation === 'workspace') await page.getByRole('navigation', { name: locale === 'fr' ? 'Navigation principale' : 'Main navigation' }).getByRole('link', { name: locale === 'fr' ? 'Espace' : 'Workspace', exact: true }).click()
       else await page.goto(origin + expectedPath + '?lang=' + expectedLocale)
       const replacementDocumentId = await documentId(), destination = new URL(page.url())
       expect(replacementDocumentId === pending.documentId).toBe(false)

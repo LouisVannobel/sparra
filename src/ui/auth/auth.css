@@ -1,7 +1,7 @@
 @import '@astryxdesign/core/reset.css';
 @import '@astryxdesign/core/astryx.css';
 @import '@astryxdesign/theme-neutral/theme.css';
-@import '../sparra/brand.css';
+@import '../sparra/sparra.css';
 
 html { font-family: 'Sparra UI', Arial, sans-serif; color-scheme: light; }
 body { margin: 0; background: #fff; color: #000; font-family: inherit; }
@@ -57,10 +57,7 @@ a:focus-visible, button:focus-visible { outline: 3px solid var(--color-text-prim
 .auth-account { max-width: 48rem; gap: 2rem; }
 .auth-account-summary { width: 100%; display: grid; gap: 1.5rem; }
 .auth-account-summary dt { color: #4d4d4d; font-size: .8125rem; }
-.auth-account-links { display: flex; flex-wrap: wrap; gap: .75rem; }
-.auth-account-links a { border: 1px solid #ccc; border-radius: 8px; padding: .75rem 1rem; text-decoration: none; font-weight: 500; }
-.auth-account-links a:hover { background: #f7f6f5; }
-.auth-account > section { border-top: 1px solid #e5e4e2; padding-top: 2rem; }
+.auth-account > section { margin: 0; border-top: 1px solid #e5e4e2; padding-top: 2rem; }
 .auth-account > section h2 { margin: 0; font: 500 1.375rem/1.25 'Sparra Display', Arial, sans-serif; letter-spacing: -.015em; }
 .additional-passkey ul { padding-inline-start: 1.25rem; margin: 0; line-height: 1.7; }
 .auth-session-list li { border-color: #e5e4e2; }
@@ -68,3 +65,5 @@ a:focus-visible, button:focus-visible { outline: 3px solid var(--color-text-prim
 .auth-back { font-size: .8125rem; }
 .auth-workspace [data-workspace-name] { width: 100%; border-left: 4px solid #edfc47; padding: .75rem 1rem; background: #f7f6f5; border-radius: 0 8px 8px 0; font-weight: 500; }
 @media (max-width: 600px) { .auth-language { padding: .75rem 1rem; } .auth-content { margin-block: 2rem; padding-inline: 1.25rem; } .auth-account { gap: 1.5rem; } .auth-account > section { padding-top: 1.5rem; } .auth-session-list dl > div { grid-template-columns: minmax(0, 1fr); gap: .125rem; } }
+.sparra-app-content > .auth-content { margin: 0; padding: 0; }
+.sparra-app .auth-session-list dl > div { padding: 0; border: 0; }

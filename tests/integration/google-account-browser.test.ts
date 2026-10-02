@@ -241,7 +241,7 @@ test.each(['en', 'fr'] as const)('compiled Google account consumer in %s: real c
     client++
     stage = 'native Google and first-key setup'
     await page.goto(origin + '/login?lang=en'); await activate('Continue with Google'); await page.waitForURL(url => url.pathname === '/account')
-    await page.getByRole('link', { name: 'My personal workspace', exact: true }).click(); await activate('Create my workspace')
+    await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Workspace', exact: true }).click(); await activate('Create my workspace')
     await page.getByRole('button', { name: 'Save name', exact: true }).waitFor(); await page.getByRole('link', { name: 'Back to account', exact: true }).click()
     await activate('Verify with Google'); await page.getByRole('button', { name: 'Create my first passkey', exact: true }).waitFor(); await activate('Create my first passkey')
     await page.getByText('Your first passkey was added.', { exact: true }).waitFor()
@@ -304,7 +304,7 @@ test.each(['en', 'fr'] as const)('compiled Google account consumer in %s: real c
         } finally { settled = true }
       }))
       await activate(t.link); await expect.poll(() => held).toBe(true)
-      await page.getByRole('link', { name: locale === 'fr' ? 'Mon espace personnel' : 'My personal workspace', exact: true }).click()
+      await page.getByRole('navigation', { name: locale === 'fr' ? 'Navigation principale' : 'Main navigation' }).getByRole('link', { name: locale === 'fr' ? 'Espace' : 'Workspace', exact: true }).click()
       await page.waitForURL(url => url.pathname === '/workspace'); releaseLate(); await bounded(Promise.all([...pendingRoutes]), 12000)
       expect(settled && (transport === 'fulfilled' || transport === 'aborted')).toBe(true)
       expect(googleLinks).toBe(beforeLinks); expect(new URL(page.url()).pathname).toBe('/workspace')

@@ -3,6 +3,7 @@ import { renderToString } from 'react-dom/server'
 import { LoginPanel, AccountPanel } from '../../src/ui/auth/auth-panels'
 import { AuthEmailInput } from '../../src/ui/auth/auth-email-input'
 import * as passkeyPanel from '../../src/ui/auth/passkey-login-panel'
+import { renderPrivatePanel } from '../helpers/private-panel-router'
 
 test.each(['fr', 'en'] as const)('the complete visible Google label belongs to its disabled SSR action in %s', locale => {
   const html = renderToString(<LoginPanel locale={locale} enabled pending={false} failed={false} onBegin={() => { throw new Error('SSR must not invoke login') }} />)
@@ -28,12 +29,30 @@ test('first auth controls expose truthful unavailable and translated error state
   expect(en).toContain('aria-busy="true"')
   expect(en).not.toContain('Connexion')
 })
-test('account presents only supplied current principal and real logout action', () => {
-  const html = renderToString(<AccountPanel locale="en" principal={{ name: 'Current person', email: 'current@example.test', userId: 'not-rendered-internal-id' }} pending={false} failed={false} onLogout={() => {}} />)
+test('account presents only supplied current principal and real logout action', async () => {
+  const html = await renderPrivatePanel(<AccountPanel locale="en" principal={{ name: 'Current person', email: 'current@example.test', userId: 'not-rendered-internal-id' }} pending={false} failed={false} onLogout={() => {}} />, '/account?lang=en')
   expect(html).toContain('Current person')
   expect(html).toContain('current@example.test')
   expect(html).toContain('Sign out')
   expect(html).not.toContain('not-rendered-internal-id')
+})
+
+test.each(['fr', 'en'] as const)('account retains private navigation and one main landmark without requiring a workspace in %s', async locale => {
+  const html = await renderPrivatePanel(<AccountPanel locale={locale} principal={{ name: 'Current person', email: 'current@example.test', userId: 'not-rendered-internal-id' }} pending failed onLogout={() => { throw new Error('SSR must not sign out') }} />, `/account?lang=${locale}&firstPasskey=fixture`)
+  const navigation = html.match(/<nav\b[^>]*class="sparra-app-nav"[\s\S]*?<\/nav>/)?.[0] ?? ''
+  expect(navigation).toContain(`href="/app?lang=${locale}"`)
+  expect(navigation).toContain(`href="/app/entreprise?lang=${locale}"`)
+  expect(navigation).toContain(`href="/workspace?lang=${locale}"`)
+  const active = navigation.match(/<a\b[^>]*aria-current="page"[^>]*>/g) ?? []
+  expect(active).toHaveLength(1)
+  expect(active[0]).toContain(`href="/account?lang=${locale}"`)
+  expect(navigation).not.toContain('firstPasskey')
+  expect(html.match(/<main\b/g)).toHaveLength(1)
+  expect(html).toContain('href="#app-content"')
+  expect(html).toContain('id="app-content"')
+  expect(html).toContain('role="alert"')
+  expect(html).toContain('role="status"')
+  expect(html).not.toContain(locale === 'fr' ? 'Créer mon espace' : 'Create my workspace')
 })
 
 test.each(['fr', 'en'] as const)('login exposes one explicit localized passkey action with an accessible helper state in %s', locale => {

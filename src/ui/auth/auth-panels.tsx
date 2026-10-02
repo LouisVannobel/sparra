@@ -11,6 +11,7 @@ import { FirstGooglePasskeyPanel, type FirstGooglePasskeyPanelProps } from './fi
 import { GoogleAccountPanel, type GoogleAccountPanelProps } from './google-account-panel'
 import { SessionManagementPanel, type SessionManagementPanelProps } from './session-management-panel'
 import { useHydrated } from '@tanstack/react-router'
+import { AppShell } from '../sparra/app-shell'
 
 type MagicRequestResult = { accepted: true } | Response
 
@@ -73,13 +74,9 @@ function MagicRequestForm({ locale, signup, onRequest }: { locale: Locale; signu
 export function AccountPanel({ locale, principal, pending, failed, onLogout, additional, firstGoogle, googleAccount, sessions }: { locale: Locale; principal: { userId: string; name: string; email: string }; pending: boolean; failed: boolean; onLogout(): void; additional?: AdditionalPasskeyPanelProps; firstGoogle?: FirstGooglePasskeyPanelProps; googleAccount?: GoogleAccountPanelProps; sessions?: SessionManagementPanelProps }) {
   const t = messages[locale]
   const hydrated = useHydrated()
-  return <main className="auth-content auth-account"><a className="auth-brand" href="/">sparra</a><header className="auth-heading"><Heading level={1}>{t.account}</Heading><Text>{principal.name}</Text></header>
+  return <AppShell locale={locale}><section className="auth-content auth-account"><header className="auth-heading"><Heading level={1}>{t.account}</Heading><Text>{principal.name}</Text></header>
     <div className="auth-account-summary">
     <dl><dt>{t.email}</dt><dd>{principal.email}</dd></dl>
-    <nav className="auth-account-links" aria-label={t.account}>
-      <a href={`/app?lang=${locale}`}>{locale === 'fr' ? 'Boîte d’appels' : 'Call inbox'}</a>
-      <a href={`/workspace?lang=${locale}`}>{locale === 'fr' ? 'Mon espace personnel' : 'My personal workspace'}</a>
-    </nav>
     </div>
     {additional && <AdditionalPasskeyPanel {...additional} />}
     {firstGoogle && <FirstGooglePasskeyPanel {...firstGoogle} />}
@@ -87,5 +84,5 @@ export function AccountPanel({ locale, principal, pending, failed, onLogout, add
     {sessions && <SessionManagementPanel {...sessions} />}
     <Button label={t.logout} variant="secondary" size="lg" isLoading={pending} isDisabled={!hydrated} onClick={onLogout} />
     {pending && <p role="status">{t.logoutPending}</p>}{failed && <p role="alert">{t.logoutFailed}</p>}
-  </main>
+  </section></AppShell>
 }

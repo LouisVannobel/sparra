@@ -449,7 +449,7 @@ for (const [mode, name] of [
     }
     if (mode === 'signup') {
       stage = 'first personal Workspace consumer'
-      await receivePage.getByRole('link', { name: 'My personal workspace', exact: true }).click()
+      await receivePage.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Workspace', exact: true }).click()
       await receivePage.getByRole('button', { name: 'Create my workspace', exact: true }).click()
       await receivePage.getByRole('textbox', { name: /^Display name/ }).waitFor()
       expect((await stores.administrator.query('SELECT count(*)::int AS n FROM workspace')).rows[0].n).toBe(1)

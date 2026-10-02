@@ -404,7 +404,7 @@ export async function assertCompiledAdditionalPasskey(input: {
   setStage('additional pending navigation and observable workspace change')
   await prepare()
   const beforeLeave={...counts}
-  await page.getByRole('link',{name:'My personal workspace',exact:true}).click()
+  await page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'Workspace',exact:true}).click()
   await page.getByRole('textbox',{name:/^Display name/}).waitFor();await reload()
   expect(counts).toEqual(beforeLeave);expect(await action('Add a passkey').isVisible()).toBe(true)
   await prepare()
