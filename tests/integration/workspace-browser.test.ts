@@ -63,6 +63,7 @@ test('real Astryx create/read/rename persists through reload and process restart
   expect(/sessionId|authState|recoveryGeneration|providerIdentity/.test(accountBody)).toBe(false)
   await page.getByRole('link',{name:'My personal workspace'}).click()
   await page.getByRole('button',{name:'Create my workspace'}).waitFor()
+  expect(await page.title()).toBe('Your personal workspace')
   expect((await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa']).analyze()).violations).toEqual([])
   expect((await stores.administrator.query('SELECT count(*)::int AS n FROM workspace')).rows[0].n).toBe(0)
   let release = () => {}

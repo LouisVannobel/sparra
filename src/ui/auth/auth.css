@@ -23,6 +23,7 @@ body, [data-astryx-theme] { --font-family-body: 'Sparra UI', Arial, sans-serif; 
 .auth-content [role=alert] { color: var(--color-text-primary); border-inline-start: 3px solid currentColor; padding-inline-start: .75rem; }
 a:focus-visible, button:focus-visible { outline: 3px solid var(--color-text-primary); outline-offset: 4px; }
 .workspace-form { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 1.25rem; }
+.auth-content .astryx-text-input { min-height: 44px; }
 .auth-content a { color: var(--color-text-primary); text-underline-offset: .25em; }
 .auth-form { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 1.25rem; }
 .auth-login > .auth-form { border-top: 1px solid #e5e4e2; padding-top: 1.5rem; }

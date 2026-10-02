@@ -17,6 +17,7 @@ export const Route = createFileRoute('/workspace')({
       throw new Error('Workspace unavailable')
     }
   }, component: Workspace,
+  head: ({ match }) => ({ meta: [{ title: workspaceMessages[match.search.lang].title }] }),
   pendingMs: 150, pendingMinMs: 150,
   pendingComponent: () => { const { lang } = Route.useSearch(); return <main className="auth-content"><p role="status">{workspaceMessages[lang].loading}</p></main> },
   errorComponent: () => { const { lang } = Route.useSearch(); return <main className="auth-content"><p role="alert">{workspaceMessages[lang].unavailable}</p><a href={`/login?lang=${lang}`}>{workspaceMessages[lang].login}</a></main> },
