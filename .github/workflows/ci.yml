@@ -42,10 +42,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Typecheck the installed native graph
         run: pnpm run typecheck
-      - name: Ordinary source consumers on the installed graph
-        run: pnpm test
+      - name: Audio fixture decoder prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y ffmpeg
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm run build
+      - name: Ordinary source consumers on the installed graph and build
+        run: pnpm test
       - name: Actual local Linux stores and direct ingress
         run: pnpm exec vitest run --config vitest.integration.config.ts tests/integration/disposable-stores-linux.test.ts tests/integration/direct-serve-ingress.test.ts --maxWorkers=1
       - name: Native web image and fixed credential admission
