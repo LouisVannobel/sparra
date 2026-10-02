@@ -1,0 +1,21 @@
+{
+  "state": "downloaded",
+  "model": "microsoft/mai-voice-2.1-flash",
+  "voice": "fr-FR-Marc:MAI-Voice-2.1-Flash",
+  "input": "Bonjour, je souhaite une visite de contrôle technique pour ma voiture.",
+  "inputSha256": "0b0a69bdddd88763d13f959f1fcbee7b22bdf3695b6d4711e51d240106462594",
+  "requestSha256": "73109160d0570af4750ec2154ef314ee2fae7e5f8d0f99ce4cee4d72453f481b",
+  "responseFormat": "mp3",
+  "attemptedUtc": "2026-10-02T02:31:34.8943682Z",
+  "scenario": "controle-technique",
+  "index": 1,
+  "httpStatus": 200,
+  "responseHeadersMs": 357,
+  "contentType": "audio/mpeg",
+  "generationId": "gen-tts-1790908294-lghE1t8zcTtpdMqH1tMM",
+  "generatedUtc": "2026-10-02T02:31:35.3580606Z",
+  "totalHttpMs": 462,
+  "bytes": 84480,
+  "sha256": "8335294b7c3ce2f1aca0776a8b3587d34be350d3d86e93eee791bd08aa0cd603",
+  "decoderQualification": "pending sole heavy token"
+}

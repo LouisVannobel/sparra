@@ -1,0 +1,10 @@
+{
+  "originalRawOutputFileCount": 0,
+  "sourceTransport": "Process.StandardOutput.ReadToEndAsync to string; raw output bytes not retained; streams/process disposed",
+  "recoveryPossible": false,
+  "originalReceiptRefs": [
+    "garage-content-proof.json",
+    "controle-technique-content-proof.json"
+  ],
+  "correctedWitnessesAuthorized": 2
+}

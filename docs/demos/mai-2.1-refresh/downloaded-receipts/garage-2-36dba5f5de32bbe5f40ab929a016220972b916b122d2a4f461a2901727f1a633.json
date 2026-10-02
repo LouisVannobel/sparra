@@ -1,0 +1,21 @@
+{
+  "state": "downloaded",
+  "model": "microsoft/mai-voice-2.1-flash",
+  "voice": "fr-FR-Soleil:MAI-Voice-2.1-Flash",
+  "input": "Je peux recueillir votre demande pour l'équipe. Quand préférez-vous être rappelé ?",
+  "inputSha256": "1d42611f278f65faacc8f9e93512fc7d7a187e51def7a95717d1efb2c29029a9",
+  "requestSha256": "36dba5f5de32bbe5f40ab929a016220972b916b122d2a4f461a2901727f1a633",
+  "responseFormat": "mp3",
+  "attemptedUtc": "2026-10-02T02:31:32.2450845Z",
+  "scenario": "garage",
+  "index": 2,
+  "httpStatus": 200,
+  "responseHeadersMs": 421,
+  "contentType": "audio/mpeg",
+  "generationId": "gen-tts-1790908292-lqbhd5kMLJBn21wBEbux",
+  "generatedUtc": "2026-10-02T02:31:32.8620067Z",
+  "totalHttpMs": 615,
+  "bytes": 90240,
+  "sha256": "b09e2fd1926ccaaa017a56f6289e5941121105002d816885a6be54278f136551",
+  "decoderQualification": "pending sole heavy token"
+}

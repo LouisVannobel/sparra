@@ -41,23 +41,32 @@ $ownedRoot = Assert-Contained (Join-Path $repo '.output/demo-generation') (Join-
 $durableRoot = Assert-Contained (Join-Path $repo '.demo-audio-cache') $repo
 $cache = Assert-Contained (Join-Path $durableRoot 'segments') $durableRoot
 $successRoot = Assert-Contained (Join-Path $durableRoot 'known-successes') $durableRoot
+$historicalSuccessRoot = Assert-Contained (Join-Path $repo 'docs/demos/known-successes') (Join-Path $repo 'docs/demos')
 $temp = Assert-Contained (Join-Path $ownedRoot ('work-' + [guid]::NewGuid().ToString('N'))) $ownedRoot
 $lockPath = Assert-Contained (Join-Path $durableRoot 'generation.lock') $durableRoot
 $module = Assert-Contained (Join-Path $repo 'src/modules/marketing/demo-scenarios.generated.ts') (Join-Path $repo 'src/modules/marketing')
 $provenancePath = Assert-Contained (Join-Path $repo 'docs/demos/audio-provenance.json') (Join-Path $repo 'docs/demos')
 $audioTargets = @{}
 foreach ($scenario in $scenarios) { $audioTargets[$scenario.id] = Assert-Contained (Join-Path $repo ('public' + $scenario.audioSrc)) (Join-Path $repo 'public/demos') }
-$model = 'x-ai/grok-voice-tts-1.0'
+$model = 'microsoft/mai-voice-2.1-flash'
 $endpoint = 'https://openrouter.ai/api/v1/audio/speech'
-$voices = @{ sparra = 'ara'; client = 'sal' }
+$voices = @{ sparra = 'fr-FR-Soleil:MAI-Voice-2.1-Flash'; client = 'fr-FR-Marc:MAI-Voice-2.1-Flash' }
 function Read-KnownSuccessRecords {
-  if (-not (Test-Path -LiteralPath $successRoot)) { return }
-  foreach ($file in Get-ChildItem -LiteralPath $successRoot -File -Filter '*.json') {
-    $path = Assert-Contained $file.FullName $successRoot
+  $seen = @{}
+  foreach ($directory in @($successRoot, $historicalSuccessRoot)) {
+  if (-not (Test-Path -LiteralPath $directory)) { continue }
+  foreach ($file in Get-ChildItem -LiteralPath $directory -File -Filter '*.json') {
+    $path = Assert-Contained $file.FullName $directory
     if ($file.Length -gt 1024) { throw 'Invalid known-success record; recover-only assessment required' }
     try { $record = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json } catch { throw 'Invalid known-success record; recover-only assessment required' }
     if ($record.state -cne 'recovery-required' -or $record.requestSha256 -cnotmatch '\A[0-9a-f]{64}\z' -or $file.BaseName -cne $record.requestSha256 -or $record.model -isnot [string] -or $record.model.Length -lt 1 -or $record.model.Length -gt 128) { throw 'Invalid known-success record; recover-only assessment required' }
+    if ($seen.ContainsKey($record.requestSha256)) {
+      if ($seen[$record.requestSha256] -cne $record.model) { throw 'Conflicting known-success records; recover-only assessment required' }
+      continue
+    }
+    $seen[$record.requestSha256] = $record.model
     $record
+  }
   }
 }
 function Save-KnownSuccess([string]$RequestHash, [string]$SuccessModel) {
@@ -257,7 +266,9 @@ foreach ($scenario in $scenarios) {
     if ($index -lt $scenario.turns.Count - 1) {
       $silence = Join-Path $temp "$($scenario.id)-$index-silence.wav"
       Run-FFmpeg @('-y', '-f', 'lavfi', '-i', 'anullsrc=r=24000:cl=mono', '-t', '0.35', '-c:a', 'pcm_s16le', $silence)
-      $concat += "file '$([IO.Path]::GetFileName($silence))'"; $offset += (Duration $silence)
+      $pause = Duration $silence
+      if ([Math]::Abs($pause - 0.35) -gt 0.00001) { throw 'Measured pause differs from 0.35 seconds' }
+      $concat += "file '$([IO.Path]::GetFileName($silence))'"; $offset += $pause
     }
     $index++
   }
@@ -266,6 +277,7 @@ foreach ($scenario in $scenarios) {
   $target = $audioTargets[$scenario.id]
   Run-FFmpeg @('-y', '-f', 'concat', '-safe', '1', '-i', $list, '-ac', '1', '-ar', '24000', '-b:a', '64k', '-map_metadata', '-1', $target)
   $duration = Duration $target
+  if ([Math]::Abs($duration - $offset) -gt 0.15) { throw 'Final MP3 cue-duration agreement failed' }
   $generated += [ordered]@{ id = $scenario.id; label = $scenario.label; audioSrc = $scenario.audioSrc; durationSeconds = $duration; cues = $cues; receipt = $scenario.receipt }
   $assets += [ordered]@{ id = $scenario.id; audioSrc = $scenario.audioSrc; durationSeconds = $duration; sha256 = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant() }
 }
@@ -289,13 +301,13 @@ $proof = [ordered]@{
   publication = 'Pending applicable voice rights review or replacement with qualified runtime captures.'
   subjectiveListening = 'NOT VERIFIED: full human listening is required before qualification.'
   generator = 'Offline PowerShell 7 HttpClient producer; OpenRouter speech endpoint; ffmpeg'
-  provider = 'OpenRouter / xAI'
+  provider = 'OpenRouter / Azure'
   model = $model
   endpoint = $endpoint
   generatedUtc = [DateTime]::UtcNow.ToString('o')
   voices = $voices
   speed = 'Provider default (1.0); no time stretching or speed transform applied'
-  externalProcessing = 'The ten verbatim fictional French turns were sent to OpenRouter/xAI for MP3 synthesis. ffmpeg decodes and normalizes sample format to mono 24 kHz PCM, inserts measured 0.35-second silence, then encodes mono 24 kHz MP3 at 64 kbps and removes metadata.'
+  externalProcessing = 'The ten verbatim fictional French turns were sent to OpenRouter/Azure for MP3 synthesis. ffmpeg decodes and normalizes sample format to mono 24 kHz PCM, inserts measured 0.35-second silence, then encodes mono 24 kHz MP3 at 64 kbps and removes metadata.'
   telephoneQualification = 'NOT VERIFIED: no real phone call, PCMU 8 kHz, latency, interruption or provider-policy qualification.'
   encoding = @{ codec = 'mp3'; channels = 1; sampleRate = 24000; bitrate = 64000; pauseSeconds = 0.35 }
   ffmpeg = $ffmpegVersion

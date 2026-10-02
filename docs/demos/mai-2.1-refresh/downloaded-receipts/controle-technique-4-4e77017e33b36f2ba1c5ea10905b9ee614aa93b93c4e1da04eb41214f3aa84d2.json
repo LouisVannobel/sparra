@@ -1,0 +1,21 @@
+{
+  "state": "downloaded",
+  "model": "microsoft/mai-voice-2.1-flash",
+  "voice": "fr-FR-Soleil:MAI-Voice-2.1-Flash",
+  "input": "Je retiens une demande de contrôle technique, avec une préférence pour vendredi après-midi. La date, le tarif et les modalités restent à confirmer avec l'équipe. Aucun rendez-vous n'est réservé.",
+  "inputSha256": "ef2f5797252ead10c2a254038611ad8d27877ba0820fc2cb89876b1a22be1055",
+  "requestSha256": "4e77017e33b36f2ba1c5ea10905b9ee614aa93b93c4e1da04eb41214f3aa84d2",
+  "responseFormat": "mp3",
+  "attemptedUtc": "2026-10-02T02:31:36.4397738Z",
+  "scenario": "controle-technique",
+  "index": 4,
+  "httpStatus": 200,
+  "responseHeadersMs": 368,
+  "contentType": "audio/mpeg",
+  "generationId": "gen-tts-1790908296-moKGtddPObyEtvx4wsSX",
+  "generatedUtc": "2026-10-02T02:31:37.1775471Z",
+  "totalHttpMs": 736,
+  "bytes": 280800,
+  "sha256": "fb0ae30a174a0765dfd7a737abe6ef384334d4fa1bba6f53f709099ba2a79ebb",
+  "decoderQualification": "pending sole heavy token"
+}

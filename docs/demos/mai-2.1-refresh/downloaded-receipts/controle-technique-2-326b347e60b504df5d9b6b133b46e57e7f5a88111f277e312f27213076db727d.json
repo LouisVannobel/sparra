@@ -1,0 +1,21 @@
+{
+  "state": "downloaded",
+  "model": "microsoft/mai-voice-2.1-flash",
+  "voice": "fr-FR-Soleil:MAI-Voice-2.1-Flash",
+  "input": "Quelle est votre préférence pour cette visite ? L'équipe devra vérifier les disponibilités.",
+  "inputSha256": "d5e9b2462f5c522c2f0cf09c68d5ca77c67acbd65bdedb35c655e1addcda4a62",
+  "requestSha256": "326b347e60b504df5d9b6b133b46e57e7f5a88111f277e312f27213076db727d",
+  "responseFormat": "mp3",
+  "attemptedUtc": "2026-10-02T02:31:35.3674670Z",
+  "scenario": "controle-technique",
+  "index": 2,
+  "httpStatus": 200,
+  "responseHeadersMs": 369,
+  "contentType": "audio/mpeg",
+  "generationId": "gen-tts-1790908295-JOFvdpBSk2KnypjBpn05",
+  "generatedUtc": "2026-10-02T02:31:35.9509521Z",
+  "totalHttpMs": 582,
+  "bytes": 133920,
+  "sha256": "31d37c83618817b3e3e5a093433958cb356391c5eee3853c573c24c0dc5f3722",
+  "decoderQualification": "pending sole heavy token"
+}

@@ -1,0 +1,21 @@
+{
+  "state": "downloaded",
+  "model": "microsoft/mai-voice-2.1-flash",
+  "voice": "fr-FR-Marc:MAI-Voice-2.1-Flash",
+  "input": "Plutôt vendredi après-midi. Je m'appelle Alex. Pour cet exemple, mon numéro est fictif.",
+  "inputSha256": "3349d8c74949a67ed71f84861bc4b24675e8c26821355a72c86dbf80e7299394",
+  "requestSha256": "0bdbc3c1f8b1a35c69a64c424496e13dbef6d4dbd25c0fc288955033eb460d3f",
+  "responseFormat": "mp3",
+  "attemptedUtc": "2026-10-02T02:31:35.9656764Z",
+  "scenario": "controle-technique",
+  "index": 3,
+  "httpStatus": 200,
+  "responseHeadersMs": 366,
+  "contentType": "audio/mpeg",
+  "generationId": "gen-tts-1790908295-cmAysed5gJQjviXZjpVO",
+  "generatedUtc": "2026-10-02T02:31:36.4307951Z",
+  "totalHttpMs": 463,
+  "bytes": 114240,
+  "sha256": "a2e0fa21cc3c5e299f15f4ac711bb2700cc67eaed537840123b5070e504ed988",
+  "decoderQualification": "pending sole heavy token"
+}

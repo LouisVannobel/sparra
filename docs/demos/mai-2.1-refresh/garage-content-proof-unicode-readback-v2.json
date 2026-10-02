@@ -1,0 +1,22 @@
+{
+  "status": "transcription_received",
+  "nativeServiceInvoked": true,
+  "service": "Pipecat1.7 OpenAISTTService._transcribe",
+  "model": "openai/whisper-large-v3-turbo",
+  "input": "owned full fictional garage16k mono WAV",
+  "privateCallerData": false,
+  "maxRetries": 0,
+  "rawErrorSaved": false,
+  "rawLogsSaved": false,
+  "fictionalTranscript": " Bonjour, vous êtes au Garage Horizon.  Merci.  « Je suis Spara, un agent IA »,  Quelle est votre demande ?  « Bonjour, je voudrais faire une révision de ma voiture. »  Je voudrais faire une révision de ma voiture.  Je peux recueillir votre demande pour l'équipe.  Quand préférez-vous être rappelé ?  Demain matin, si possible.  « Je m'appelle Camille. »  Pour cet exemple, mon numéro est fictif.  D'accord. Votre préférence est un rappel demain matin pour une révision.  L'équipe devra confirmer le rappel et les modalités.  Aucun rendez-vous n'est confirmé.",
+  "totalMs": 4098,
+  "processExit": 0,
+  "scenario": "garage",
+  "audioSha256": "368defe5f1c0b1ecdfee5e693c7b4a326e068a5e7d0d093bcf94bbfc6adab6df",
+  "observedUtc": "2026-10-02T02:39:10.7528553Z",
+  "witness": "unicode-readback-v2",
+  "priorSuccessfulReceipt": "garage-content-proof.json",
+  "deliberateNewRequestRationale": "The original provider request succeeded; local non-ASCII pipe decoding was lossy. Original raw bytes were not retained and cannot be recovered; intact French text evidence requires this separately identified corrected-output witness.",
+  "originalRawBytesRecoverable": false,
+  "serialization": "ASCII-escaped JSON; Unicode recovered by JSON parser"
+}
