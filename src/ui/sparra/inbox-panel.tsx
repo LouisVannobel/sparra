@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useHydrated } from '@tanstack/react-router'
 import { Heading } from '@astryxdesign/core/Heading'
 import { Button } from '@astryxdesign/core/Button'
@@ -6,18 +6,18 @@ import type { ActivityState, ListRequestsInput, ListRequestsPage } from '../../m
 import { appMessages, requestMessages } from '../../modules/sparra/messages'
 import type { Locale } from '../auth/messages'
 import { observedDate, privateResult, PrivateUnavailable } from './app-shell'
+import { useRequestAttempt } from './use-request-attempt'
 
 type Props={locale:Locale;state:ActivityState;page:ListRequestsPage;onMore(data:ListRequestsInput,signal:AbortSignal):Promise<ListRequestsPage|Response>;onRefused():Promise<void>}
 export function InboxPanel({locale,state,page,onMore,onRefused}:Props){
   const t=appMessages[locale],hydrated=useHydrated(),[current,setCurrent]=useState(page),[pending,setPending]=useState(false),[failed,setFailed]=useState(false)
-  const attempt=useRef(0),controller=useRef<AbortController|null>(null)
+  const begin=useRequestAttempt()
   const [refused,setRefused]=useState(false)
-  useEffect(()=>()=>{attempt.current++;controller.current?.abort()},[])
   async function more(){
     if(!current.nextCursor)return
-    controller.current?.abort();const owned=new AbortController(),id=++attempt.current;controller.current=owned;const live=()=>!owned.signal.aborted&&attempt.current===id
+    const {signal,live}=begin()
     setPending(true);setFailed(false)
-    try{const next=await privateResult(onMore({cursor:current.nextCursor},owned.signal));if(live())setCurrent({requests:[...current.requests,...next.requests.filter(row=>!current.requests.some(existing=>existing.id===row.id))],nextCursor:next.nextCursor})}
+    try{const next=await privateResult(onMore({cursor:current.nextCursor},signal));if(live())setCurrent({requests:[...current.requests,...next.requests.filter(row=>!current.requests.some(existing=>existing.id===row.id))],nextCursor:next.nextCursor})}
     catch(error){if(live()){if(error instanceof Response&&error.status===401){setRefused(true);await onRefused();return}setFailed(true)}}finally{if(live())setPending(false)}
   }
   if(refused)return <PrivateUnavailable locale={locale}/>

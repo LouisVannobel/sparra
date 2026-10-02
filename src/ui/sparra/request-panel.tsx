@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useHydrated } from '@tanstack/react-router'
 import { Heading } from '@astryxdesign/core/Heading'
 import { Button } from '@astryxdesign/core/Button'
@@ -6,18 +6,18 @@ import type { EraseReceipt, RequestDetailDto } from '../../modules/sparra/sparra
 import { appMessages, activityMessages, requestMessages } from '../../modules/sparra/messages'
 import type { Locale } from '../auth/messages'
 import { observedDate, privateResult, PrivateUnavailable } from './app-shell'
+import { useRequestAttempt } from './use-request-attempt'
 
 export type RequestLoaded={detail:RequestDetailDto|null;receipt:EraseReceipt|null}
 type Props={locale:Locale;loaded:RequestLoaded;onTreat(signal:AbortSignal):Promise<{requestId:string;treatedAt:string}|Response>;onErase(signal:AbortSignal):Promise<EraseReceipt|Response>;onRefused():Promise<void>}
 export function RequestPanel({locale,loaded,onTreat,onErase,onRefused}:Props){
   const t=appMessages[locale],a=activityMessages[locale],hydrated=useHydrated(),[current,setCurrent]=useState(loaded),[pending,setPending]=useState(false),[failed,setFailed]=useState(false),[confirm,setConfirm]=useState(false)
-  const attempt=useRef(0),controller=useRef<AbortController|null>(null)
+  const begin=useRequestAttempt()
   const [refused,setRefused]=useState(false)
-  useEffect(()=>()=>{attempt.current++;controller.current?.abort()},[])
   async function mutate(kind:'treat'|'erase'){
-    controller.current?.abort();const owned=new AbortController(),id=++attempt.current;controller.current=owned;const live=()=>!owned.signal.aborted&&attempt.current===id
+    const {signal,live}=begin()
     setPending(true);setFailed(false)
-    try{if(kind==='treat'){const result=await privateResult(onTreat(owned.signal));if(live())setCurrent({...current,detail:current.detail?{...current.detail,treatedAt:result.treatedAt}:null})}else{const receipt=await privateResult(onErase(owned.signal));if(live())setCurrent({detail:null,receipt})}}
+    try{if(kind==='treat'){const result=await privateResult(onTreat(signal));if(live())setCurrent({...current,detail:current.detail?{...current.detail,treatedAt:result.treatedAt}:null})}else{const receipt=await privateResult(onErase(signal));if(live())setCurrent({detail:null,receipt})}}
     catch(error){if(live()){if(error instanceof Response&&error.status===401){setRefused(true);await onRefused();return}setFailed(true)}}finally{if(live())setPending(false)}
   }
   const detail=current.detail

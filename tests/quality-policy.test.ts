@@ -120,6 +120,43 @@ test('fallow_declares_only_native_subprocess_roots_and_exact_generated_import',(
   expect(output).not.toContain('runtime-probe.mjs')
   expect(output).not.toContain('../.output/server/index.mjs')
 },40000)
+
+test('fallow_ignores_only_generated_route_tree_clones_and_keeps_handwritten_clones',()=>{
+  const {root}=qualityFixture()
+  const body=Array.from({length:18},(_,index)=>`  console.log('synthetic clone step ${index}');`).join('\n')
+  const source=`export function cloned(){\n${body}\n}\n`
+  for(const name of ['routeTree.gen.ts','handwritten-a.ts','handwritten-b.ts'])writeFileSync(join(root,'src',name),source)
+  writeFileSync(join(root,'.fallowrc.json'),readFileSync(join(repositoryRoot,'.fallowrc.json')))
+  const result=runQuality('fallow',['dupes','--format','json','--quiet'],root)
+  expect(result.error).toBeUndefined();expect([0,1]).toContain(result.status)
+  expect(result.stdout).toContain('handwritten-a.ts');expect(result.stdout).toContain('handwritten-b.ts')
+  expect(result.stdout).not.toContain('routeTree.gen.ts')
+},40000)
+
+test('reviewed_fixed_authority_clone_exemption_expires_on_predicate_or_occurrence_change',()=>{
+  const {root}=qualityFixture()
+  mkdirSync(join(root,'scripts'))
+  const web=readFileSync(join(repositoryRoot,'scripts/web-credentials.mjs'),'utf8')
+  const migration=readFileSync(join(repositoryRoot,'scripts/migration-credentials.mjs'),'utf8')
+  const webPath=join(root,'scripts/web-credentials.mjs'),migrationPath=join(root,'scripts/migration-credentials.mjs')
+  writeFileSync(webPath,web);writeFileSync(migrationPath,migration)
+  writeFileSync(join(root,'.fallowrc.json'),readFileSync(join(repositoryRoot,'.fallowrc.json')))
+  function groups(){
+    const result=runQuality('fallow',['dupes','--format','json','--quiet'],root)
+    expect(result.error).toBeUndefined();expect([0,1]).toContain(result.status)
+    const report: {clone_groups:{fingerprint:string;instances:{file:string}[]}[]} = JSON.parse(result.stdout)
+    return report.clone_groups
+  }
+  expect(groups().some(group=>group.fingerprint==='dup:2cc8a7df')).toBe(false)
+  const changedWeb=web.replace('url.pathname.length < 2','url.pathname.length < 3')
+  const changedMigration=migration.replace('url.pathname.length < 2','url.pathname.length < 3')
+  expect(changedWeb).not.toBe(web);expect(changedMigration).not.toBe(migration)
+  writeFileSync(webPath,changedWeb);writeFileSync(migrationPath,changedMigration)
+  expect(groups().some(group=>group.instances.some(instance=>instance.file.endsWith('web-credentials.mjs'))&&group.instances.some(instance=>instance.file.endsWith('migration-credentials.mjs')))).toBe(true)
+  writeFileSync(webPath,web);writeFileSync(migrationPath,migration)
+  writeFileSync(join(root,'scripts/third-credential-consumer.mjs'),web)
+  expect(groups().some(group=>group.fingerprint==='dup:2cc8a7df'&&group.instances.length===3)).toBe(true)
+},40000)
 test('maintained_doctor_changed_scope_reports_actual_component_rule',()=>{
   const {root,base}=qualityFixture(),result=runQuality('react-doctor',['.','--no-telemetry','--no-dead-code','--no-supply-chain','--blocking','none','--yes','--no-color','--scope','changed','--base',base],root)
   expect(result.error).toBeUndefined();expect(result.status,result.stderr||result.stdout).toBe(0)
