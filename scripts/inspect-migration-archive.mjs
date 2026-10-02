@@ -39,6 +39,19 @@ function decodePax(data,pax) {
   }
 }
 
+function normalizeTarEntry(entry,pax,longName,names) {
+  let {name,size,type}=entry
+  if(pax.path)name=pax.path
+  else if(longName)name=longName
+  if(pax.size){if(!/^(0|[1-9][0-9]*)$/.test(pax.size))fail();size=Number(pax.size)}
+  name=name.replace(/^\.\//,'').replace(/\/$/,'')
+  if(name==='.'&&type==='5')name=''
+  if(name.startsWith('/')||name.includes('\\')||name&&name.split('/').some(part=>!part||part==='..'||part==='.')||!name&&type!=='5')fail()
+  if(names.has(name))fail();names.add(name)
+  if(!['0','1','2','3','4','5','6'].includes(type))fail()
+  return {name,size,type}
+}
+
 /** The Docker-save OCI carrier used by this consumer. No filesystem extraction. */
 async function tar(stream,maximum,visit) {
   const iterator=stream[Symbol.asyncIterator](),hash=createHash('sha256')
@@ -53,34 +66,28 @@ async function tar(stream,maximum,visit) {
     }
   }
   async function bytes(size){if(size>8388608)fail();const parts=[];await consume(size,part=>parts.push(part));return Buffer.concat(parts)}
+  async function finishArchive() {
+    if(!(await bytes(512)).every(byte=>byte===0))fail()
+    if(buffer.some(byte=>byte!==0))fail()
+    for await(const chunk of { [Symbol.asyncIterator]:()=>iterator }){total+=chunk.length;if(total>maximum||Buffer.from(chunk).some(byte=>byte!==0))fail();hash.update(chunk)}
+    if(total%512||Object.keys(pax).length||longName)fail()
+    return {hash:hash.digest('hex'),bytes:total}
+  }
   const names=new Set()
   try{while(true){
     const header=await bytes(512)
-    if(header.every(byte=>byte===0)){
-      if(!(await bytes(512)).every(byte=>byte===0))fail()
-      if(buffer.some(byte=>byte!==0))fail()
-      for await(const chunk of { [Symbol.asyncIterator]:()=>iterator }){total+=chunk.length;if(total>maximum||Buffer.from(chunk).some(byte=>byte!==0))fail();hash.update(chunk)}
-      if(total%512||Object.keys(pax).length||longName)fail()
-      return {hash:hash.digest('hex'),bytes:total}
-    }
+    if(header.every(byte=>byte===0))return await finishArchive()
     if(++entries>100000)fail()
-    let {name,size,type}=decodeTarHeader(header)
-    if(type==='x'||type==='L'){
-      if(size>65536)fail()
-      const data=await bytes(size);await consume((512-size%512)%512)
-      if(type==='L'){longName=tarText(data);continue}
+    const entry=decodeTarHeader(header)
+    if(entry.type==='x'||entry.type==='L'){
+      if(entry.size>65536)fail()
+      const data=await bytes(entry.size);await consume((512-entry.size%512)%512)
+      if(entry.type==='L'){longName=tarText(data);continue}
       decodePax(data,pax)
       continue
     }
-    if(pax.path)name=pax.path
-    else if(longName)name=longName
-    if(pax.size){if(!/^(0|[1-9][0-9]*)$/.test(pax.size))fail();size=Number(pax.size)}
+    const {name,size,type}=normalizeTarEntry(entry,pax,longName,names)
     pax={};longName=undefined
-    name=name.replace(/^\.\//,'').replace(/\/$/,'')
-    if(name==='.'&&type==='5')name=''
-    if(name.startsWith('/')||name.includes('\\')||name&&name.split('/').some(part=>!part||part==='..'||part==='.')||!name&&type!=='5')fail()
-    if(names.has(name))fail();names.add(name)
-    if(!['0','1','2','3','4','5','6'].includes(type))fail()
     await visit({name,size,type,offset:position,read:()=>bytes(size),consume:receive=>consume(size,receive)})
     await consume((512-size%512)%512)
   }}finally{stream.destroy();await iterator.return?.()}
@@ -138,7 +145,7 @@ async function readMigrationLayers(path,blobs,image,config,expectedFiles) {
   return actualFiles
 }
 
-export async function inspectMigrationArchive(path,imageId,expectedManifest,expectedFiles,spdx) {
+async function readArchiveCarrier(path) {
   const blobs=new Map(),documents=new Map()
   await tar(createReadStream(path),1073741824,async entry=>{
     if(entry.type==='5'&&['blobs','blobs/sha256'].includes(entry.name)){await entry.consume();return}
@@ -151,7 +158,11 @@ export async function inspectMigrationArchive(path,imageId,expectedManifest,expe
     else documents.set(entry.name,data)
   })
   if(json(documents.get('oci-layout')).imageLayoutVersion!=='1.0.0')fail()
-  const carrier=json(documents.get('index.json')),id=digest(imageId)
+  return {blobs,carrier:json(documents.get('index.json'))}
+}
+
+function selectMigrationImage(blobs,carrier,imageId) {
+  const id=digest(imageId)
   if(carrier.schemaVersion!==2||carrier.mediaType!==indexType||carrier.manifests?.length!==1||digest(carrier.manifests[0].digest)!==id)fail()
   const metadata=reference=>{
     const key=digest(reference.digest),blob=blobs.get(key)
@@ -166,9 +177,16 @@ export async function inspectMigrationArchive(path,imageId,expectedManifest,expe
   }
   if(descriptor.mediaType!==manifestType||image.mediaType!==manifestType||image.schemaVersion!==2||!Array.isArray(image.layers)||image.layers.length<1||image.layers.length>64)fail()
   const config=metadata(image.config),configId='sha256:'+digest(image.config.digest)
+  assertMigrationConfig(config,image.layers.length)
+  return {image,config,configId}
+}
+
+function assertMigrationConfig(config,layerCount) {
   if(config.os!=='linux'||config.architecture!=='amd64'||config.config?.User!=='10001:10001'||config.config?.WorkingDir!=='/app'
-    ||JSON.stringify(config.config?.Entrypoint)!=='["node","scripts/start-migrate.mjs"]'||config.rootfs?.type!=='layers'||config.rootfs.diff_ids?.length!==image.layers.length)fail()
-  const actualFiles=await readMigrationLayers(path,blobs,image,config,expectedFiles)
+    ||JSON.stringify(config.config?.Entrypoint)!=='["node","scripts/start-migrate.mjs"]'||config.rootfs?.type!=='layers'||config.rootfs.diff_ids?.length!==layerCount)fail()
+}
+
+function assertMigrationFiles(actualFiles,expectedManifest,expectedFiles) {
   const manifest=json(actualFiles.get('app/migration-source-manifest.json'))
   if(JSON.stringify(Object.entries(manifest).sort())!==JSON.stringify(Object.entries(expectedManifest).sort()))fail()
   if(sha(actualFiles.get('app/pnpm-lock.yaml')??Buffer.alloc(0))!==expectedManifest.lock_sha256)fail()
@@ -177,6 +195,13 @@ export async function inspectMigrationArchive(path,imageId,expectedManifest,expe
   for(const [name,bytes]of expectedFiles){const actual=actualFiles.get('app/'+name);if(!actual||!actual.equals(bytes))fail()}
   const drizzle=[...actualFiles.keys()].filter(name=>name.startsWith('app/drizzle/'))
   if(drizzle.some(name=>!expectedFiles.has(name.slice(4))))fail()
+}
+
+export async function inspectMigrationArchive(path,imageId,expectedManifest,expectedFiles,spdx) {
+  const {blobs,carrier}=await readArchiveCarrier(path)
+  const {image,config,configId}=selectMigrationImage(blobs,carrier,imageId)
+  const actualFiles=await readMigrationLayers(path,blobs,image,config,expectedFiles)
+  assertMigrationFiles(actualFiles,expectedManifest,expectedFiles)
   const subject=spdx.packages?.find(item=>item.primaryPackagePurpose==='CONTAINER')
   if(subject?.annotations?.some(item=>typeof item.comment!=='string'))fail()
   bindWebSbom(spdx,configId,config.rootfs.diff_ids)
