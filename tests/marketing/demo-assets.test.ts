@@ -2,8 +2,42 @@ import { expect, test } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readdirSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { resolve, sep } from 'node:path'
 import { demoScenarios } from '../../src/modules/marketing/demo-scenarios.generated'
+
+test('native generator containment admits only descendants with the host path case policy', () => {
+  const owned = resolve('.output/demo-containment')
+  const cases = [
+    { name: 'descendant', path: owned + sep + 'inside.json', directory: owned, accepted: true },
+    { name: 'trailing-parent', path: owned + sep + 'inside.json', directory: owned + sep, accepted: true },
+    { name: 'root', path: owned, directory: owned, accepted: false },
+    { name: 'trailing-root', path: owned + sep, directory: owned, accepted: false },
+    { name: 'sibling-prefix', path: owned + '-sibling' + sep + 'outside.json', directory: owned, accepted: false },
+    { name: 'relative-escape', path: owned + sep + '..' + sep + 'outside.json', directory: owned, accepted: false },
+    { name: 'case-policy', path: owned + sep + 'inside.json', directory: owned.toUpperCase(), accepted: process.platform === 'win32' },
+  ]
+  // Invoke the actual function AST only: no generator body, provider call, ledger or file write.
+  const script = String.raw`
+$ErrorActionPreference = 'Stop'
+$repo = [IO.Path]::GetFullPath((Get-Location).Path)
+$tokens = $null; $parseErrors = $null
+$ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $repo 'scripts/generate-demo-audio.ps1'), [ref]$tokens, [ref]$parseErrors)
+if ($parseErrors.Count) { throw 'Generator parse failed' }
+$function = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Assert-Contained' }, $false)
+if (-not $function) { throw 'Missing containment consumer' }
+Invoke-Expression $function.Extent.Text
+$cases = [Console]::In.ReadToEnd() | ConvertFrom-Json
+$results = foreach ($case in $cases) {
+  $accepted = $false
+  try { $null = Assert-Contained $case.path $case.directory; $accepted = $true }
+  catch { if ($_.Exception.Message -cne 'Output target escapes its owned directory') { throw 'Unexpected containment failure' } }
+  @{ name = $case.name; accepted = $accepted }
+}
+ConvertTo-Json -InputObject @($results) -Compress
+`
+  const result = JSON.parse(execFileSync('pwsh', ['-NoProfile', '-Command', script], { encoding: 'utf8', input: JSON.stringify(cases), timeout: 10000, maxBuffer: 16384 }))
+  expect(result).toEqual(cases.map(({ name, accepted }) => ({ name, accepted })))
+})
 
 test('both real MP3 illustrations decode and match their cues, text, receipt and provenance', () => {
   const source = JSON.parse(readFileSync('docs/demos/scenarios.fr.json', 'utf8'))

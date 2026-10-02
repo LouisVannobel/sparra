@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { startDisposableHatchet } from '../../fixtures/db/disposable-stores'
@@ -16,6 +16,10 @@ vi.mock('node:child_process', () => ({ execFile: Object.assign(() => { throw new
 vi.mock('node:fs/promises', () => ({
   mkdtemp: async (prefix: string) => { external.directory = `${prefix}owned`; return external.directory },
   mkdir: async () => {}, writeFile: async () => {}, cp: async () => {}, readFile: async () => Buffer.from('synthetic'),
+  lstat: async (path: string) => {
+    if (path !== '/var/run/docker.sock' || process.platform !== 'linux') throw new Error('Unexpected socket metadata boundary')
+    return { isSymbolicLink: () => false, isSocket: () => true }
+  },
   rm: external.remove, realpath: external.realpath,
 }))
 vi.mock('pg', () => ({ Client: class {
@@ -30,10 +34,14 @@ function dockerDouble() {
   let networkLabel = '', network = false, cleaning = false, failure: Failure = 'none'
   const operations: string[] = []
   external.exec.mockImplementation(async (file, input) => {
-    if (file !== 'docker' || input[0] !== '--context' || input[1] !== 'desktop-linux') throw new Error('Unexpected process boundary')
+    const expected = process.platform === 'win32' ? ['--context', 'desktop-linux'] : ['--host', 'unix:///var/run/docker.sock']
+    if (file !== 'docker' || input[0] !== expected[0] || input[1] !== expected[1]) throw new Error('Unexpected process boundary')
     const args = input.slice(2), operation = args[0]
     let stdout = ''
-    if (operation === 'context') stdout = JSON.stringify([{ Endpoints: { docker: { Host: 'npipe:////./pipe/dockerDesktopLinuxEngine' } } }])
+    if (operation === 'context') {
+      if (process.platform !== 'win32') throw new Error('Unexpected context lookup on explicit Unix socket')
+      stdout = JSON.stringify([{ Endpoints: { docker: { Host: 'npipe:////./pipe/dockerDesktopLinuxEngine' } } }])
+    }
     else if (operation === 'version') stdout = JSON.stringify({ Version: 'synthetic', Os: 'linux', Arch: 'amd64' })
     else if (operation === 'ps') {
       if (cleaning) { operations.push('inventory'); if (failure === 'inventory') throw new Error('synthetic secret Docker output') }
@@ -80,6 +88,11 @@ function dockerDouble() {
 }
 beforeEach(() => { vi.spyOn(console, 'log').mockImplementation(() => {}) })
 afterEach(() => { vi.restoreAllMocks(); vi.resetAllMocks() })
+
+describe.each(['win32', 'linux'] as const)('mocked %s local transport', platform => {
+  const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  beforeEach(() => { Object.defineProperty(process, 'platform', { ...originalPlatform, value: platform }) })
+  afterEach(() => { Object.defineProperty(process, 'platform', originalPlatform) })
 
 test.each(['ownership', 'removal', 'administrator'] as const)('existing fixture retains %s failure and still attempts every remaining owned cleanup', async failure => {
   const docker = dockerDouble(), fixture = await startDisposableHatchet()
@@ -128,4 +141,5 @@ test('successful cleanup preserves the existing evidence shape and exact owned t
   expect(fixture.evidence).not.toHaveProperty('cleanupFailures')
   expect(external.remove).toHaveBeenCalledWith(external.directory, { recursive: true })
   expect(docker.operations).toEqual(['administrator','inspect-owned-1','remove-owned-1','inspect-owned-0','remove-owned-0','network-ownership','network-remove','temporary-remove','inventory'])
+})
 })
