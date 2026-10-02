@@ -29,7 +29,13 @@ async def main():
     assert sys.version_info[:3] == (3, 13, 15)
     for name, version in {"cryptography": "50.0.0", "pipecat-ai": "1.7.0", "psycopg": "3.3.4"}.items():
         assert importlib.metadata.version(name) == version
-    request = json.load(sys.stdin)
+    request = json.loads(sys.stdin.readline())
+    if request["action"] == "connected":
+        sys.path.insert(0, str(Path(__file__).parents[1]))
+        voice_tests = Path(__import__("projetv0_voice").__file__).parents[2] / "tests" / "integration"
+        sys.path.insert(0, str(voice_tests))
+        from sparra_connected_scenario import connected
+        return await connected(request)
     if request["action"] == "aggregate_size":
         return {"bytes": len(json.dumps(request["turns"], ensure_ascii=False, separators=(", ", ": "), allow_nan=False).encode("utf-8"))}
     if request["action"] == "turn":

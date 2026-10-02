@@ -28,3 +28,37 @@ export function nativeVoice<A extends keyof FixtureRequests>(request:{action:A}&
     child.stdin.end(JSON.stringify(request))
   })
 }
+
+/** Test-only persistent transport; Python owns the native graph and validates facts. */
+export function startConnectedVoice(input:{url:string;keyring_path:string;evidence_path:string;state_path:string;resume_call_id?:string;recovery_case?:string}) {
+  const child=spawn(voice+'/.venv/Scripts/python.exe',['-B',resolve('tests/helpers/sparra-voice-driver.py')],{windowsHide:true,env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,TEMP:process.env.TEMP,TMP:process.env.TMP,PYTHONPATH:voice+'/src',PYTHONDONTWRITEBYTECODE:'1'}})
+  type Reply={ready?:boolean;call_id?:string;call_ids?:string[];revision?:number;loss?:number;retained?:number;map_bytes?:number;compact_bytes?:number;candidate_bytes?:number;stable?:boolean;cleaned?:boolean;recording_ack?:boolean;no_hangup?:boolean;ack_before_scrub?:boolean;checks?:string[];error?:string;where?:string}
+  const replies:Reply[]=[]
+  const waiters:Array<{resolve:(value:Reply)=>void;reject:(error:Error)=>void}>=[]
+  let text='',closed=false
+  const fail=(label:string)=>{closed=true;for(const waiter of waiters.splice(0))waiter.reject(new Error(label))}
+  child.stdout.on('data',bytes=>{
+    text+=bytes.toString()
+    if(text.length>2097152){child.kill();fail('Connected Voice output bound');return}
+    for(let newline=text.indexOf('\n');newline>=0;newline=text.indexOf('\n')){
+      const line=text.slice(0,newline);text=text.slice(newline+1)
+      try{const value:Reply=JSON.parse(line);const waiter=waiters.shift();if(waiter)waiter.resolve(value);else replies.push(value)}catch{child.kill();fail('Connected Voice invalid fixture output')}
+    }
+  })
+  child.stderr.resume() // Native dependency notices are not provider payload artifacts.
+  child.on('error',()=>fail('Connected Voice startup failed'))
+  child.on('close',()=>fail('Connected Voice closed'))
+  function read():Promise<Reply>{
+    const buffered=replies.shift();if(buffered)return Promise.resolve(buffered)
+    if(closed)return Promise.reject(new Error('Connected Voice closed'))
+    return new Promise((resolve,reject)=>{
+      const waiter={resolve:(value:Reply)=>{clearTimeout(timer);resolve(value)},reject:(error:Error)=>{clearTimeout(timer);reject(error)}}
+      const timer=setTimeout(()=>{const at=waiters.indexOf(waiter);if(at>=0)waiters.splice(at,1);child.kill();reject(new Error('Connected Voice phase deadline'))},90000)
+      waiters.push(waiter)
+    })
+  }
+  async function checked(){const reply=await read();if(reply.error)throw new Error('Connected Voice '+reply.error+' at '+reply.where);return reply}
+  child.stdin.write(JSON.stringify({action:'connected',...input})+'\n')
+  async function exited(){await new Promise<void>(resolve=>{if(child.exitCode!==null||child.signalCode!==null)resolve();else child.once('close',()=>resolve())});return {code:child.exitCode,signal:child.signalCode}}
+  return {ready:checked(),async command(action:string){child.stdin.write(JSON.stringify({action})+'\n');return checked()},async crash(){child.kill('SIGKILL');return exited()},async cleanup(){if(!closed){child.stdin.end();child.kill()}await exited()}}
+}

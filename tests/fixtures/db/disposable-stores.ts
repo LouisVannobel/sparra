@@ -34,6 +34,21 @@ async function inventory() {
   return { states, networks: (await docker(['network', 'ls', '--no-trunc', '--format', '{{.ID}}|{{.Name}}|{{.Driver}}'])).split('\n').sort(), volumes: (await docker(['volume', 'ls', '--format', '{{.Name}}|{{.Driver}}'])).split('\n').sort() }
 }
 
+// Describe only the existing non-secret projection; the unchanged-inventory guard stays exact.
+export function inventoryDelta(before:Awaited<ReturnType<typeof inventory>>,after:Awaited<ReturnType<typeof inventory>>,ownedIds:ReadonlySet<string>) {
+  const fields=['Id','Name','Image','State.Status','State.StartedAt','State.FinishedAt','RestartCount','HostConfig.PortBindings','NetworkSettings.Networks']
+  const rows=(values:string[])=>new Map(values.map(value=>{const parts=value.split('|');return [parts[0],parts] as const}))
+  const changes=(oldRows:string[],newRows:string[],names:string[],kind:string)=>{
+    const old=rows(oldRows),next=rows(newRows)
+    return [...new Set([...old.keys(),...next.keys()])].sort().flatMap(id=>{
+      const a=old.get(id),b=next.get(id)
+      const changed=a&&b?names.filter((_name,index)=>a[index]!==b[index]):names
+      return changed.length?[{kind,id,ownership:ownedIds.has(id)?'owned':'foreign',change:!a?'added':!b?'removed':'changed',fields:changed}]:[]
+    })
+  }
+  return [...changes(before.states,after.states,fields,'container'),...changes(before.networks,after.networks,['Id','Name','Driver'],'network'),...changes(before.volumes,after.volumes,['Name','Driver'],'volume')]
+}
+
 export async function startDisposableStores(artifactDirectory = resolve('.output')) {
   const result = await startAuthFixture(artifactDirectory)
   if (result.kind !== 'stores') throw new Error('Unexpected fixture kind')
@@ -117,6 +132,7 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
     evidence.unrelatedUnchanged = false
     try {
       const after = await inventory()
+      evidence.inventoryDelta=inventoryDelta(before,after,new Set([...owned.map(item=>item.id),...(network?[network]:[])]))
       evidence.after = { fingerprint: createHash('sha256').update(JSON.stringify(after)).digest('hex'), volumeCount: after.volumes.length }
       evidence.unrelatedUnchanged = JSON.stringify(before) === JSON.stringify(after)
       if (!evidence.unrelatedUnchanged) failures.push('inventory')
