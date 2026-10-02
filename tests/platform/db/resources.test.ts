@@ -2,6 +2,7 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { Effect } from 'effect'
 import { sql } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
+import type { Socket } from 'node:net'
 import { Pool } from 'pg'
 import { createWebResources } from '../../../src/platform/runtime.server'
 import { pgWire } from '../../fixtures/db/pg-wire'
@@ -54,7 +55,7 @@ test('resources_observer_safe_wire_shape_never_emits_SQL_command_arguments_or_co
   const secret = 'synthetic-private-wire-sentinel'
   const pg = { connections: () => 2, closedConnections: () => 1,
     queries: ['BEGIN', 'select server_version_num ' + secret, 'select ' + secret, 'ROLLBACK'] }
-  const redis = { sockets: new Set(), commands: [['AUTH', secret], ['CLIENT', secret], ['EVAL', secret], [secret]] }
+  const redis = { sockets: new Set<Socket>(), commands: [['AUTH', secret], ['CLIENT', secret], ['EVAL', secret], [secret]] }
   const state = { failures: 1, failure: safeTransactionFailure(new PgTransactionError('initialize', 'not-started', secret)) }
   const value = resourceDiagnostic(pg, redis, state)
   expect(Object.keys(value)).toHaveLength(9)
