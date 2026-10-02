@@ -4,6 +4,16 @@ import { LoginPanel, AccountPanel } from '../../src/ui/auth/auth-panels'
 import { AuthEmailInput } from '../../src/ui/auth/auth-email-input'
 import * as passkeyPanel from '../../src/ui/auth/passkey-login-panel'
 
+test.each(['fr', 'en'] as const)('the complete visible Google label belongs to its disabled SSR action in %s', locale => {
+  const html = renderToString(<LoginPanel locale={locale} enabled pending={false} failed={false} onBegin={() => { throw new Error('SSR must not invoke login') }} />)
+  const label = locale === 'fr' ? 'Continuer avec Google' : 'Continue with Google'
+  const button = html.match(/<button\b[^>]*>[\s\S]*?<\/button>/)?.[0] ?? ''
+  expect(button).toContain(label)
+  expect(button).toContain('disabled')
+  expect(button).toContain('<img')
+  expect(html.split(label)).toHaveLength(2)
+})
+
 test('first auth controls expose truthful unavailable and translated error states without personal placeholders', () => {
   const fr = renderToString(<LoginPanel locale="fr" enabled={false} pending={false} failed={false} onBegin={() => {}} />)
   expect(fr).toContain('Continuer avec Google')

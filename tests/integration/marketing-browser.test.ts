@@ -333,7 +333,7 @@ test('compiled page keeps styles, CSP nonce, keyboard focus, accessible names an
     expect(await page.locator('script').evaluateAll(scripts => scripts.every(script => script.nonce !== '' && script.nonce === scripts[0]?.nonce))).toBe(true)
     expect(await page.locator('script').first().evaluate(script => script.nonce)).toBe(nonce)
     expect(await page.locator('link[rel="stylesheet"]').count()).toBeGreaterThan(0)
-    expect(await page.locator('.sparra').evaluate(element => getComputedStyle(element).fontFamily)).toContain('system-ui')
+    expect(await page.locator('.sparra').evaluate(element => getComputedStyle(element).fontFamily)).toContain('Sparra UI')
     expect(await page.getByRole('radiogroup', { name: 'Métier de l’exemple' }).count()).toBe(1)
     const garage = page.getByRole('radio', { name: 'Garage', exact: true })
     await garage.focus(); await page.keyboard.press('ArrowRight')

@@ -16,13 +16,13 @@ export function WorkspacePanel({ locale, workspace, pending, failed, saved, onEn
   const t = workspaceMessages[locale]
   const hydrated = useHydrated()
   const [name, setName] = useState(workspace?.displayName ?? '')
-  return <main className="auth-content"><a href={`/account?lang=${locale}`}>{t.back}</a>
+  return <main className="auth-content auth-workspace"><a className="auth-brand" href="/">sparra</a><a className="auth-back" href={`/account?lang=${locale}`}>{t.back}</a>
     <Heading level={1}>{t.title}</Heading>
     {workspace ? <><p data-workspace-name>{workspace.displayName}</p>
       <form className="workspace-form" aria-busy={pending} onSubmit={event => { event.preventDefault(); if (!pending) void onRename(name) }}>
         <TextInput label={t.name} description={t.help} htmlName="displayName" value={name} onChange={setName} isRequired isDisabled={pending || !hydrated} width="100%" size="lg" />
-        <Button label={t.save} type="submit" size="lg" isLoading={pending} isDisabled={!hydrated} />
-      </form></> : <><p>{t.empty}</p><Button label={t.create} size="lg" isLoading={pending} isDisabled={!hydrated} onClick={() => { if (!pending) void onEnsure() }} /></>}
+        <Button label={t.save} type="submit" variant="primary" size="lg" isLoading={pending} isDisabled={!hydrated} />
+      </form></> : <><p>{t.empty}</p><Button label={t.create} variant="primary" size="lg" isLoading={pending} isDisabled={!hydrated} onClick={() => { if (!pending) void onEnsure() }} /></>}
     {pending && <p role="status">{t.pending}</p>}{failed && <p role="alert">{t.failed}</p>}{saved && <p role="status">{t.saved}</p>}
   </main>
 }

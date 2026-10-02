@@ -150,7 +150,7 @@ test('actual login click rejects a fixture-CA-trusted wrong-host certificate bef
   }
 })
 
-test('French browser error announcement, reflow, system font and actual text contrast', async () => {
+test('French browser error announcement, reflow, brand font and actual text contrast', async () => {
   const context = await browserContext({ viewport: { width: 320, height: 720 } })
   const page = await context.newPage()
   page.setDefaultTimeout(5000)
@@ -164,13 +164,13 @@ test('French browser error announcement, reflow, system font and actual text con
     const buttonBox = button.getBoundingClientRect(), imageBox = image.getBoundingClientRect()
     return { fits: document.documentElement.scrollWidth <= innerWidth, font: getComputedStyle(title).fontFamily,
       foreground: getComputedStyle(main).color, background: getComputedStyle(document.body).backgroundColor,
-      actionText: getComputedStyle(document.querySelector('.google-sign-in-row')!).color,
+      actionText: getComputedStyle(document.querySelector('.google-sign-in')!).color,
       image: { width: imageBox.width, height: imageBox.height, naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight,
         contained: imageBox.left >= buttonBox.left && imageBox.right <= buttonBox.right && imageBox.top >= buttonBox.top && imageBox.bottom <= buttonBox.bottom },
       stylesheets: [...document.styleSheets].map(sheet => sheet.href), text: main.textContent }
   })
   expect(view.fits).toBe(true)
-  expect(view.font).toContain('system-ui')
+  expect(view.font).toContain('Sparra Display')
   expect(view.text).not.toMatch(/Sign in|Loading/)
   expect(view.stylesheets.filter(Boolean)).toHaveLength(1)
   function luminance(rgb: string) {
@@ -180,7 +180,7 @@ test('French browser error announcement, reflow, system font and actual text con
   function contrast(a: string,b: string) { const x=luminance(a), y=luminance(b); return (Math.max(x,y)+.05)/(Math.min(x,y)+.05) }
   expect(contrast(view.foreground, view.background)).toBeGreaterThanOrEqual(4.5)
   expect(contrast(view.actionText, view.background)).toBeGreaterThanOrEqual(4.5)
-  expect(view.image).toEqual({ width: 40, height: 40, naturalWidth: 160, naturalHeight: 160, contained: true })
+  expect(view.image).toEqual({ width: 28, height: 28, naturalWidth: 160, naturalHeight: 160, contained: true })
   await page.screenshot({ path: '.output/test-evidence/google-browser/task-5-login-fr-320.png', fullPage: true })
   await context.close()
 })

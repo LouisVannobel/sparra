@@ -10,6 +10,7 @@ import { observedDate, privateResult, PrivateUnavailable } from './app-shell'
 import { useRequestAttempt } from './use-request-attempt'
 
 type Props={locale:Locale;state:ActivityState;page:ListRequestsPage;onMore(data:ListRequestsInput,signal:AbortSignal):Promise<ListRequestsPage|Response>;onRefused():Promise<void>}
+const descriptions={fr:'Les demandes de vos appelants, au même endroit.',en:'Your callers’ requests, in one place.'} as const
 export function InboxPanel({locale,state,page,onMore,onRefused}:Props){
   const t=appMessages[locale],hydrated=useHydrated(),[current,setCurrent]=useState(page),[pending,setPending]=useState(false),[failed,setFailed]=useState(false)
   const begin=useRequestAttempt()
@@ -23,7 +24,7 @@ export function InboxPanel({locale,state,page,onMore,onRefused}:Props){
   }
   if(refused)return <PrivateUnavailable locale={locale}/>
   const labels=requestMessages[locale]
-  return <><div className="sparra-page-heading"><Heading level={1}>{t.inbox}</Heading><p>{locale==='fr'?'Les demandes de vos appelants, au même endroit.':'Your callers’ requests, in one place.'}</p></div>{!state.configuration&&<p className="sparra-setup-note"><a href={`/app/entreprise?lang=${locale}`}>{t.configure}</a></p>}
+  return <><div className="sparra-page-heading"><Heading level={1}>{t.inbox}</Heading><p>{descriptions[locale]}</p></div>{!state.configuration&&<p className="sparra-setup-note"><a href={`/app/entreprise?lang=${locale}`}>{t.configure}</a></p>}
     {current.requests.length===0?<div className="sparra-inbox-empty"><span className="sparra-empty-icon"><Icon icon="microphone" aria-hidden="true"/></span><p>{t.noCalls}</p></div>:<ul className="sparra-inbox">{current.requests.map(request=><li key={request.id}>
       <div className="sparra-inbox-row-heading">
       <a href={`/app/demandes/${request.id}?lang=${locale}`}>{request.summary??t.summaryUnavailable}</a>
