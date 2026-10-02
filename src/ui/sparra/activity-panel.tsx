@@ -42,7 +42,7 @@ export function ActivityPanel({locale,state,onEnsure,onSave,onRead,onRefused}:Pr
       else setError(t.unavailable)
     }}finally{if(live())setPendingMode(null)}
   }
-  if(refused)return <PrivateUnavailable locale={locale}/>
+  if(refused)return <PrivateUnavailable locale={locale} title={a.business}/>
   return <><div className="sparra-page-heading"><Heading level={1}>{a.business}</Heading><p>{presentation.description}</p></div>{current.configuration&&<p className="sparra-version-note">{a.version}: {current.configuration.revision}</p>}
     {!current.workspace?<><p>{a.createHint}</p><Button label={a.create} isDisabled={!hydrated} isLoading={pending} onClick={()=>void persist('ensure')}/></>:<form className="sparra-business-form" aria-busy={pending} onSubmit={event=>{event.preventDefault();if(!pending&&!reconcile)void persist('save')}}>
       <fieldset className="sparra-form-section"><legend>{presentation.business}</legend><div className="sparra-field-pair">

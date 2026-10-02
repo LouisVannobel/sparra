@@ -2,6 +2,16 @@ import { existsSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, test } from 'vitest'
 import type { RequestDetailDto } from '../../src/modules/sparra/sparra.functions'
+import { PrivateUnavailable } from '../../src/ui/sparra/app-shell'
+import { appMessages } from '../../src/modules/sparra/messages'
+
+test.each(['fr', 'en'] as const)('private failure retains its announcement and recovery below a localized title in %s', locale => {
+  const html = renderToStaticMarkup(<PrivateUnavailable locale={locale} />)
+  expect(html).toMatch(new RegExp(`<h1[^>]*>${appMessages[locale].inbox}</h1>`))
+  expect(html).toContain('role="alert"')
+  expect(html).toContain(appMessages[locale].unavailable)
+  expect(html).toContain(`href="/login?lang=${locale}"`)
+})
 
 const unavailable=async():Promise<never>=>{throw new Error('SSR must not mutate')}
 test('private panels render truthful empty and partial states in FR/EN without invoking mutations',async()=>{

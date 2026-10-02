@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import { Icon } from '@astryxdesign/core/Icon'
+import { Heading } from '@astryxdesign/core/Heading'
 import { appMessages } from '../../modules/sparra/messages'
 import type { Locale } from '../auth/messages'
 
@@ -15,7 +16,7 @@ export function AppShell({locale,children}:{locale:Locale;children:ReactNode}){
     <main id="app-content" className="sparra-app-content">{children}</main>
   </div>
 }
-export function PrivateUnavailable({locale}:{locale:Locale}){return <><p role="alert">{appMessages[locale].unavailable}</p><a href={`/login?lang=${locale}`}>{appMessages[locale].login}</a></>}
+export function PrivateUnavailable({locale,title=appMessages[locale].inbox}:{locale:Locale;title?:string}){return <section className="sparra-app-state"><Heading level={1}>{title}</Heading><p role="alert">{appMessages[locale].unavailable}</p><a href={`/login?lang=${locale}`}>{appMessages[locale].login}</a></section>}
 // Start throws raw Responses during SSR and fulfills them during client RPC.
 export async function privateResult<T>(operation:Promise<T|Response>):Promise<T>{
   const result=await operation

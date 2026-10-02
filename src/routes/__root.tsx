@@ -4,14 +4,15 @@ import { neutralTheme } from '@astryxdesign/theme-neutral/built'
 import { InternationalizationProvider } from '@astryxdesign/core/i18n'
 import fr from '@astryxdesign/core/locales/fr-FR.json'
 import { messages, resolveLocale, type Locale } from '../ui/auth/messages'
+import { AuthScreen } from '../ui/auth/auth-screen'
 import stylesheet from '../ui/auth/auth.css?url'
 
 export const Route = createRootRoute({
   validateSearch: (search: { lang?: unknown }) => ({ lang: resolveLocale(search.lang) }),
   search: { middlewares: [stripSearchParams<{ lang: Locale }>({ lang: 'fr' })] },
-  head: () => ({ meta: [{ charSet: 'utf-8' }, { name: 'viewport', content: 'width=device-width, initial-scale=1' }], links: [{ rel: 'stylesheet', href: stylesheet }] }),
+  head: () => ({ meta: [{ title: 'Sparra' }, { charSet: 'utf-8' }, { name: 'viewport', content: 'width=device-width, initial-scale=1' }], links: [{ rel: 'stylesheet', href: stylesheet }] }),
   component: () => <Outlet />,
-  notFoundComponent: () => { const { lang } = Route.useSearch(); return <main className="auth-content"><h1>{messages[lang].notFound}</h1><a href={`/login?lang=${lang}`}>{messages[lang].back}</a></main> },
+  notFoundComponent: function NotFound() { const { lang } = Route.useSearch(); return <AuthScreen title={messages[lang].notFound}><a href={`/login?lang=${lang}`}>{messages[lang].back}</a></AuthScreen> },
   shellComponent: Shell,
 })
 function Shell({ children }: { children: React.ReactNode }) {

@@ -3,11 +3,11 @@ import { useServerFn } from '@tanstack/react-start'
 import { useState } from 'react'
 import { beginGoogleSignIn, beginPasskeySignIn, finishPasskeySignIn, getLoginAvailability, requestMagicLink } from '../modules/auth/auth.functions'
 import { LoginPanel } from '../ui/auth/auth-panels'
+import { AuthScreen } from '../ui/auth/auth-screen'
 import { messages } from '../ui/auth/messages'
 
 export const Route = createFileRoute('/login')({
-  head: ({ match }) => ({ meta: [{ title: messages[match.search.lang].login }] }),
-  validateSearch: (search: Record<string, unknown>) => ({ error: typeof search.error === 'string' ? 'auth_failed' : undefined }),
+  validateSearch: (search: { error?: unknown }) => ({ error: typeof search.error === 'string' ? 'auth_failed' : undefined }),
   loader: async () => {
     try {
       const result = await getLoginAvailability()
@@ -16,9 +16,10 @@ export const Route = createFileRoute('/login')({
       return result
     } catch { throw new Error('Sign-in unavailable') }
   }, component: Login,
+  head: ({ match }) => ({ meta: [{ title: messages[match.search.lang].login }] }),
   pendingMs: 150, pendingMinMs: 150,
-  pendingComponent: () => { const { lang } = Route.useSearch(); return <main className="auth-content"><p role="status">{messages[lang].loading}</p></main> },
-  errorComponent: () => { const { lang } = Route.useSearch(); return <main className="auth-content"><h1>{messages[lang].login}</h1><p role="alert">{messages[lang].loginLoadFailed}</p><a href={`/login?lang=${lang}`}>{messages[lang].back}</a></main> },
+  pendingComponent: function LoginLoading() { const { lang } = Route.useSearch(); return <AuthScreen title={messages[lang].login}><p role="status">{messages[lang].loading}</p></AuthScreen> },
+  errorComponent: function LoginUnavailable() { const { lang } = Route.useSearch(); return <AuthScreen title={messages[lang].login}><p role="alert">{messages[lang].loginLoadFailed}</p><a href={`/login?lang=${lang}`}>{messages[lang].back}</a></AuthScreen> },
 })
 function Login() {
   const { lang, error } = Route.useSearch()

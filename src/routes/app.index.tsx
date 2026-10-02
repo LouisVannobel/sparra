@@ -15,7 +15,7 @@ export const Route=createFileRoute('/app/')({
   },
   head:({match})=>({meta:[{title:appMessages[match.search.lang].inbox}]}),
   component:Inbox,
-  errorComponent:()=>{const {lang}=Route.useSearch();return <PrivateUnavailable locale={lang}/>},
+  errorComponent:function InboxUnavailable(){const {lang}=Route.useSearch();return <PrivateUnavailable locale={lang}/>},
 })
 function Inbox(){const {lang}=Route.useSearch(),loaded=Route.useLoaderData(),router=useRouter(),more=useServerFn(listRequests)
   return <InboxPanel key={loaded.page.requests.map(row=>row.id).join(',')+lang} locale={lang} {...loaded} onMore={(data,signal)=>more({data,signal})} onRefused={async()=>{await router.navigate({to:'/login',search:{lang,error:undefined}})}}/>

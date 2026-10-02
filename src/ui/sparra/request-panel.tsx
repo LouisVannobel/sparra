@@ -22,7 +22,7 @@ export function RequestPanel({locale,loaded,onTreat,onErase,onRefused}:Props){
   }
   const detail=current.detail
   const labels=requestMessages[locale]
-  if(refused)return <PrivateUnavailable locale={locale}/>
+  if(refused)return <PrivateUnavailable locale={locale} title={t.details}/>
   return <><a className="sparra-back-link" href={`/app?lang=${locale}`}>{t.inbox}</a><div className="sparra-page-heading"><Heading level={1}>{t.details}</Heading></div>
     {current.receipt?<p role="status">{current.receipt.state==='queued'?t.queued:t.completed}</p>:detail&&<>
       <div className="sparra-request-meta"><p>{t.status[detail.status]}</p><p>{t.admitted}: <time dateTime={detail.admittedAt}>{observedDate(detail.admittedAt,locale)}</time></p><p>{detail.endedAt?`${t.ended}: ${observedDate(detail.endedAt,locale)}`:t.noEnd}</p></div>

@@ -4,7 +4,7 @@ import { renderToString } from 'react-dom/server'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 import { Route as LoginRoute } from '../../src/routes/login'
 import { Route as AccountRoute } from '../../src/routes/account'
-import { resolveLocale } from '../../src/ui/auth/messages'
+import { messages, resolveLocale } from '../../src/ui/auth/messages'
 
 // The RPC boundary owns request context, provider I/O and the database. Keep
 // real routes, Router, hooks and panels; replace only that external boundary.
@@ -18,7 +18,7 @@ vi.mock('../../src/modules/auth/auth.functions', () => rpc)
 afterEach(() => vi.resetAllMocks())
 
 function authRouter(path: '/login' | '/account', lang: 'fr' | 'en') {
-  const root = createRootRoute({ validateSearch: (search: Record<string, unknown>) => ({ lang: resolveLocale(search.lang) }) })
+  const root = createRootRoute({ validateSearch: (search: { lang?: unknown }) => ({ lang: resolveLocale(search.lang) }) })
   const login = createRoute({ ...LoginRoute.options, path: '/login', getParentRoute: () => root })
   const account = createRoute({ ...AccountRoute.options, path: '/account', getParentRoute: () => root })
   return createRouter({ routeTree: root.addChildren([login, account]), history: createMemoryHistory({ initialEntries: [`${path}?lang=${lang}`] }), isServer: true })
@@ -30,6 +30,7 @@ const render = (router: ReturnType<typeof authRouter>) => renderToString(createE
 // the announcement and recovery navigation for these actual route matches.
 for (const path of ['/login', '/account'] as const) {
   for (const lang of ['fr', 'en'] as const) {
+    const title = messages[lang][path === '/login' ? 'login' : 'account']
     for (const failure of ['returned Response', 'thrown Response', 'unexpected error'] as const) {
       test(`${path} ${lang}: ${failure} selects safe announced route error, never success data`, async () => {
         const call = path === '/login' ? rpc.getLoginAvailability : rpc.getAccount
@@ -44,6 +45,8 @@ for (const path of ['/login', '/account'] as const) {
         expect(match?.error).toBeInstanceOf(Error)
         expect(String(match?.error)).not.toContain('private-synthetic')
         const html = render(router)
+        expect(html).toContain('class="auth-brand" href="/"')
+        expect(html).toMatch(new RegExp(`<h1[^>]*>${title}</h1>`))
         expect(html).toContain('role="alert"')
         expect(html).toContain(lang === 'fr' ? 'Impossible de charger' : 'Unable to load')
         expect(html).toContain(`href="/login?lang=${lang}"`)

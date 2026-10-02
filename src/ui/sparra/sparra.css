@@ -76,3 +76,9 @@
 .sparra-business-form .astryx-text-input,.sparra-business-form .astryx-selector { min-height:44px; }
 .sparra-business-form .astryx-text-input,.sparra-business-form .astryx-selector,.sparra-business-form .astryx-text-area { border-color:#949494; }
 .sparra-business-form input,.sparra-business-form textarea,.sparra-business-form button[role=combobox] { font-family:var(--sp-ui); }
+.sparra-app-state { display:grid; justify-items:start; gap:24px; max-width:42rem; padding-block:24px; }
+.sparra-app-state h1 { margin:0; font:500 clamp(2rem,4vw,2.75rem)/1.15 var(--sp-display); letter-spacing:-.03em; }
+.sparra-app-state > p { margin:0; line-height:1.6; max-width:100%; }
+.sparra-app-state > [role=status] { width:100%; padding:16px; background:var(--sp-canvas); border-radius:8px; color:var(--sp-muted); }
+.sparra-app-state > [role=alert] { border-inline-start:3px solid var(--sp-ink); padding-inline-start:12px; }
+.sparra-app-state > a { color:var(--sp-ink); text-underline-offset:.25em; min-height:44px; display:inline-flex; align-items:center; }

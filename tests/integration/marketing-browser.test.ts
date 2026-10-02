@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { chromium, type Browser, type Page } from 'playwright'
 import AxeBuilder from '@axe-core/playwright'
+import { magicMessages, messages } from '../../src/ui/auth/messages'
 import { startDisposableStores } from '../fixtures/db/disposable-stores'
 import { startWeb, bounded, unusedLoopbackPort } from '../helpers/web-process'
 
@@ -160,6 +161,30 @@ async function observeDemoMedia(page: Page): Promise<() => Promise<void>> {
     console.error('MARKETING_MEDIA_DIAGNOSTIC ' + (diagnostic.length <= 32768 ? diagnostic : '{"diagnostic":"size-bound-exceeded"}'))
   }
 }
+
+test.each(['fr', 'en'] as const)('missing email proof and unknown route have translated recovery, titles and accessible layout in %s', async locale => {
+  const page = await openPage()
+  try {
+    for (const width of [320, 1280]) {
+      await page.setViewportSize({ width, height: 900 })
+      await page.goto(`${origin}/auth/magic/confirm?lang=${locale}`)
+      await page.getByRole('heading', { name: magicMessages[locale].confirm, exact: true }).waitFor()
+      await page.getByRole('alert').filter({ hasText: magicMessages[locale].missing }).waitFor()
+      expect(await page.getByRole('link', { name: 'sparra', exact: true }).getAttribute('href')).toBe('/')
+      expect(await page.getByRole('link', { name: magicMessages[locale].newLink, exact: true }).getAttribute('href')).toBe(`/login?lang=${locale}`)
+      expect(await page.title()).toBe(magicMessages[locale].confirm)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()).violations).toEqual([])
+      const response = await page.goto(`${origin}/missing-screen?lang=${locale}`)
+      expect(response?.status()).toBe(404)
+      await page.getByRole('heading', { name: messages[locale].notFound, exact: true }).waitFor()
+      expect(await page.getByRole('link', { name: 'sparra', exact: true }).getAttribute('href')).toBe('/')
+      expect(await page.title()).not.toBe('')
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()).violations).toEqual([])
+    }
+  } finally { await page.context().close() }
+}, 30000)
 
 test('no autoplay; real play, pause, restart and arrows keep audio, transcript and receipt paired', async () => {
   const page = await openPage()

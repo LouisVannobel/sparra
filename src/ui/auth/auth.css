@@ -26,6 +26,9 @@ a:focus-visible, button:focus-visible { outline: 3px solid var(--color-text-prim
 .auth-content .astryx-text-input { min-height: 44px; }
 .auth-content a { color: var(--color-text-primary); text-underline-offset: .25em; }
 .auth-form { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 1.25rem; }
+.auth-screen > [role=status] { width: 100%; padding: 1rem; border-radius: 8px; background: #f7f6f5; color: #4d4d4d; }
+.auth-screen > .auth-form { border-top: 1px solid #e5e4e2; padding-top: 1.5rem; }
+.auth-screen > .auth-form > button { width: 100%; }
 .auth-login > .auth-form { border-top: 1px solid #e5e4e2; padding-top: 1.5rem; }
 .auth-login > .auth-form > button, .auth-login .passkey-sign-in > button { width: 100%; }
 .passkey-sign-in { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 1rem; }

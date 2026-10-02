@@ -18,7 +18,7 @@ export const Route=createFileRoute('/app/demandes/$requestId')({
   },
   head:({match})=>({meta:[{title:appMessages[match.search.lang].details}]}),
   component:Request,
-  errorComponent:()=>{const {lang}=Route.useSearch();return <PrivateUnavailable locale={lang}/>},
+  errorComponent:function RequestUnavailable(){const {lang}=Route.useSearch();return <PrivateUnavailable locale={lang} title={appMessages[lang].details}/>},
 })
 function Request(){const {lang}=Route.useSearch(),{requestId}=Route.useParams(),loaded=Route.useLoaderData(),router=useRouter(),treat=useServerFn(markRequestTreated),erase=useServerFn(eraseRequest)
   return <RequestPanel key={requestId+lang+JSON.stringify(loaded)} locale={lang} loaded={loaded} onTreat={signal=>treat({data:{requestId},signal})} onErase={signal=>erase({data:{requestId},signal})} onRefused={async()=>{await router.navigate({to:'/login',search:{lang,error:undefined}})}}/>

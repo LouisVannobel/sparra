@@ -6,11 +6,11 @@ import { beginFirstGooglePasskey, readFirstGooglePasskey, prepareFirstGooglePass
 import { beginGoogleAccountLink, authorizeGoogleAccountLink, beginGoogleAccountUnlink, finishGoogleAccountUnlink, readGoogleAccountIntent, cancelGoogleAccountIntent } from '../modules/auth/auth.functions'
 import { beginSessionList, finishSessionList, beginSessionRevocation, finishSessionRevocation } from '../modules/auth/auth.functions'
 import { AccountPanel } from '../ui/auth/auth-panels'
+import { AuthScreen } from '../ui/auth/auth-screen'
 import { messages } from '../ui/auth/messages'
 
 export const Route = createFileRoute('/account')({
-  head: ({ match }) => ({ meta: [{ title: messages[match.search.lang].account }] }),
-  validateSearch: (search: Record<string, unknown>) => ({
+  validateSearch: (search: { firstPasskey?: unknown; googleAccount?: unknown }) => ({
     firstPasskey: typeof search.firstPasskey === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search.firstPasskey) ? search.firstPasskey : undefined,
     googleAccount: typeof search.googleAccount === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search.googleAccount) ? search.googleAccount : undefined,
   }),
@@ -22,12 +22,13 @@ export const Route = createFileRoute('/account')({
       return result
     } catch { throw new Error('Account unavailable') }
   }, component: Account, errorComponent: AccountUnavailable,
+  head: ({ match }) => ({ meta: [{ title: messages[match.search.lang].account }] }),
   pendingMs: 150, pendingMinMs: 150,
-  pendingComponent: () => { const { lang } = Route.useSearch(); return <main className="auth-content"><p role="status">{messages[lang].loading}</p></main> },
+  pendingComponent: function AccountLoading() { const { lang } = Route.useSearch(); return <AuthScreen title={messages[lang].account}><p role="status">{messages[lang].loading}</p></AuthScreen> },
 })
 function AccountUnavailable() {
   const { lang } = Route.useSearch()
-  return <main className="auth-content"><h1>{messages[lang].account}</h1><p role="alert">{messages[lang].accountLoadFailed}</p><a href={`/login?lang=${lang}`}>{messages[lang].back}</a></main>
+  return <AuthScreen title={messages[lang].account}><p role="alert">{messages[lang].accountLoadFailed}</p><a href={`/login?lang=${lang}`}>{messages[lang].back}</a></AuthScreen>
 }
 function Account() {
   const { lang, firstPasskey, googleAccount } = Route.useSearch()
