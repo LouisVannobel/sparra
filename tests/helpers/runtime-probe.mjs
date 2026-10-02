@@ -15,17 +15,70 @@ if (process.env.FIXTURE_GOOGLE_PROTOCOL === 'yes') {
 // Test-only consumer appended to the actual emitted Start middleware. Its
 // Request arrives through the real Nitro node socket and SSR bundle bridge.
 const directory = resolve('.output/server/_ssr')
-const { createMiddleware } = await import(pathToFileURL(resolve(directory, 'ssr.mjs')).href)
+const compiled = await import(pathToFileURL(resolve(directory, 'ssr.mjs')).href)
+const { createMiddleware } = compiled
+if (process.env.FIXTURE_INGRESS === 'yes') {
+  const entry = compiled.default ?? compiled.server_default
+  const originalFetch = entry.fetch
+  entry.fetch = async (...args) => {
+    const response = await originalFetch(...args)
+    if (new URL(args[0].url).pathname === '/__fixture_ingress_wait') {
+      process.send?.({ type: 'ingress-response', status: response.status })
+    }
+    return response
+  }
+}
 const startFile = (await readdir(directory)).find(name => /^start-.*\.mjs$/.test(name))
 const { startInstance } = await import(pathToFileURL(resolve(directory, startFile)).href)
 const originalOptions = startInstance.getOptions.bind(startInstance)
 const identities = new WeakMap()
 let effects = 0
 let nextId = 0
+const ingressSnapshots = new WeakMap()
+const ingressEvents = new WeakMap()
+let ingressEventCount = 0
 startInstance.getOptions = async () => {
   const options = await originalOptions()
   return { ...options, requestMiddleware: [...(options.requestMiddleware ?? []), createMiddleware().server(async ({ request, next }) => {
     const path = new URL(request.url).pathname
+    if (path.startsWith('/__fixture_ingress')) {
+      const node = request.runtime?.node?.req
+      const raw = ingressSnapshots.get(node)
+      const h3 = ingressEvents.get(node)
+      const expected = process.env.APP_ORIGIN + raw?.target
+      const beforeBody = !request.bodyUsed
+      if (path === '/__fixture_ingress_stream') {
+        let timer
+        const body = new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('started'))
+            timer = setTimeout(() => { controller.enqueue(new TextEncoder().encode('finished')); controller.close() }, 250)
+          },
+          cancel() { clearTimeout(timer) },
+        })
+        const headers = new Headers({ 'content-type': 'text/plain' })
+        headers.append('set-cookie', 'fixture_a=1'); headers.append('set-cookie', 'fixture_b=2')
+        return new Response(body, { headers })
+      }
+      if (path === '/__fixture_ingress_wait') {
+        await new Promise(resolve => request.signal.aborted ? resolve() : request.signal.addEventListener('abort', resolve, { once: true }))
+        process.send?.({ type: 'ingress-cancelled' })
+        return new Response('cancelled')
+      }
+      const inner = request._request
+      const text = request.method === 'POST' ? await inner.text() : ''
+      const real = node?.rawHeaders.filter((_, index) => index % 2 === 0).filter(name => name.toLowerCase() === 'x-real-ip').length
+      return Response.json({
+        carrier: h3?.request === request, socket: raw?.socket === node?.socket,
+        rawTarget: node?.url === raw?.target, urls: request.url === expected && request._url.href === expected && h3?.url === expected && inner.url === expected,
+        realIp: real === 1 && node.headers['x-real-ip'] === request.headers.get('x-real-ip') && inner.headers.get('x-real-ip') === request.headers.get('x-real-ip'),
+        clientIp: request.headers.get('x-real-ip'),
+        hintsGone: ![...request.headers.keys(), ...inner.headers.keys(), ...Object.keys(node.headers), ...node.rawHeaders.filter((_, index) => index % 2 === 0).map(name => name.toLowerCase())].some(name => /^(forwarded|client-ip|true-client-ip|cf-connecting-ip|tailscale-ingress-src|x-vercel-)/.test(name)),
+        browserMetadata: ['origin','referer','sec-fetch-site'].every(name => request.headers.get(name) === (raw?.headers[name] ?? null)),
+        beforeBody, afterBody: request.method !== 'POST' || request.bodyUsed, method: request.method, text,
+        deadline: typeof request.appAuthDeadlineAtMs === 'number', nonce: typeof request.appCspNonce === 'string',
+      })
+    }
     if (path === '/' && process.env.FIXTURE_ROOT_RESPONSE) {
       if (process.env.FIXTURE_ROOT_RESPONSE === 'error') return new Response('<h1>Controlled error</h1>', { status: 500, headers: { 'content-type': 'text/html' } })
       if (process.env.FIXTURE_ROOT_RESPONSE === 'json') return Response.json({ fixture: true })
@@ -36,7 +89,7 @@ startInstance.getOptions = async () => {
     const resources = request.context?.appResources
     if (!resources) return new Response('Missing request carrier', { status: 500 })
     if (!identities.has(resources)) identities.set(resources, ++nextId)
-    if (path === '/__fixture_resources') return Response.json({ resourceId: identities.get(resources), ready: resources.isReady(), effects })
+    if (path === '/__fixture_resources') return Response.json({ resourceId: identities.get(resources), ready: resources.isReady(), effects, ...(process.env.FIXTURE_INGRESS === 'yes' ? { ingressEventCount } : {}) })
     const client = resources.limiter.trustedClientContext(request)
     await resources.limiter.consumeAuthAttempt('beginGoogleSignIn', client)
     effects++
@@ -48,6 +101,10 @@ const originalEmit = Server.prototype.emit
 let googleCloseRegistered = false
 Server.prototype.emit = function (event, ...args) {
   if (event === 'listening') {
+    globalThis.__nitro__?.default?.hooks.hook('request', event => {
+      ingressEventCount++
+      ingressEvents.set(event.req.runtime.node.req, { request: event.req, url: event.url.href })
+    })
     if (googlePeer && this.address()?.port) googlePeer.allowPort(this.address().port)
     if (googlePeer && !googleCloseRegistered) {
       // The pinned Nitro app publishes this same instance before serve/listen.
@@ -67,6 +124,10 @@ Server.prototype.emit = function (event, ...args) {
       })
     }
     process.send?.({ type: 'listening', address: this.address() })
+  }
+  if (event === 'request' && process.env.FIXTURE_INGRESS === 'yes') {
+    const req = args[0]
+    ingressSnapshots.set(req, { target: req.url, socket: req.socket, headers: { ...req.headers }, rawHeaders: [...req.rawHeaders] })
   }
   if (event === 'request' && args[0].url === '/__fixture_stream') {
     const response = args[1]

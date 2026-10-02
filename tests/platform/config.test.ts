@@ -7,6 +7,16 @@ import {
 
 const validOrigin = 'https://template.example'
 
+test.each(['', 'DIRECT-SERVE', ' direct-serve', 'direct-serve ', 'unknown'])(
+  'profile_rejects_empty_unknown_and_non_https %j', profile => {
+    expectInvalidKeys({ APP_ORIGIN: validOrigin, SPARRA_INGRESS_PROFILE: profile }, ['SPARRA_INGRESS_PROFILE'])
+  },
+)
+test('direct Serve requires HTTPS and accepts only exact enabled profile', () => {
+  expectInvalidKeys({ APP_ORIGIN: 'http://localhost', SPARRA_INGRESS_PROFILE: 'direct-serve' }, ['APP_ORIGIN'])
+  expect(readWebConfig({ APP_ORIGIN: validOrigin, SPARRA_INGRESS_PROFILE: 'direct-serve' }).ingressProfile).toBe('direct-serve')
+})
+
 test('returns frozen bounded startup settings without mutating the supplied environment', () => {
   const env = Object.freeze({ APP_ORIGIN: validOrigin })
 
@@ -19,6 +29,7 @@ test('returns frozen bounded startup settings without mutating the supplied envi
     port: 3000,
     requestTimeoutMs: 10000,
     shutdownTimeoutMs: 5000,
+    ingressProfile: null,
   })
   expect(Object.isFrozen(config)).toBe(true)
   expect(env).toEqual({ APP_ORIGIN: validOrigin })
@@ -204,6 +215,7 @@ test('ignores unrelated keys without reading or returning them', () => {
     port: 3000,
     requestTimeoutMs: 10000,
     shutdownTimeoutMs: 5000,
+    ingressProfile: null,
   })
 })
 

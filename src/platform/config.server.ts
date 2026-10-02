@@ -7,6 +7,7 @@ export type WebConfig = Readonly<{
   port: number
   requestTimeoutMs: number
   shutdownTimeoutMs: number
+  ingressProfile: 'direct-serve' | null
 }>
 
 export class ConfigurationError extends Error {
@@ -36,6 +37,8 @@ export function readWebConfig(
   env: Readonly<Record<string, string | undefined>>,
 ): WebConfig {
   const invalidKeys: string[] = []
+  const ingressProfile = env.SPARRA_INGRESS_PROFILE === undefined ? null : env.SPARRA_INGRESS_PROFILE
+  if (ingressProfile !== null && ingressProfile !== 'direct-serve') invalidKeys.push('SPARRA_INGRESS_PROFILE')
 
   let environment: WebConfig['environment'] = 'development'
   try {
@@ -49,6 +52,7 @@ export function readWebConfig(
   let origin = ''
   try {
     origin = decodeOrigin(env.APP_ORIGIN, invalidKeys.includes('NODE_ENV') ? undefined : environment)
+    if (ingressProfile === 'direct-serve' && !origin.startsWith('https://')) throw new Error('invalid origin')
   } catch {
     invalidKeys.push('APP_ORIGIN')
   }
@@ -103,6 +107,7 @@ export function readWebConfig(
     port,
     requestTimeoutMs,
     shutdownTimeoutMs,
+    ingressProfile: ingressProfile === 'direct-serve' ? ingressProfile : null,
   })
 }
 

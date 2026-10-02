@@ -4,14 +4,18 @@ import { readWebConfig } from './platform/config.server'
 import { randomBytes } from 'node:crypto'
 import { googleAccountCallbackResponse, isGoogleAccountCallbackRequest } from './modules/auth/http-boundary.server'
 import { requestResources } from './platform/resources.server'
+import { normalizeDirectServeIngress, readDirectServeConfig } from './platform/direct-serve-ingress.server'
 
 // Nitro validates before listen. Its SSR service is a separate bundle: consume
 // the same pure validator here without importing the startup side effects twice.
 const webConfig = readWebConfig(process.env)
+const ingressConfig = readDirectServeConfig(process.env, webConfig)
 const handle = createStartHandler(defaultStreamHandler)
 
 export default createServerEntry({
   async fetch(request, options) {
+    const refusal = normalizeDirectServeIngress(request, ingressConfig)
+    if (refusal) return refusal
     const ingressNow = Date.now()
     Object.defineProperty(request, 'appAuthDeadlineAtMs', {
       value: ingressNow + Math.min(webConfig.requestTimeoutMs, 10_000),
