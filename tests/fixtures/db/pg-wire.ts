@@ -17,6 +17,7 @@ export async function pgWire(result: (sql: string) => PgWireResult = () => ({}),
   let connections = 0
   let closedConnections = 0
   const server = createServer(socket => {
+    socket.setNoDelay(true)
     const connectionNumber = ++connections
     sockets.add(socket)
     socket.on('error', () => {})
