@@ -9,6 +9,7 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import { migrate as migrateDrizzle } from 'drizzle-orm/node-postgres/migrator'
 import { unusedLoopbackPort } from '../../helpers/web-process.ts'
 import { proveHatchetStatementDeadline, readHatchetClaimExpiry, readHatchetClock, readHatchetRestartSnapshot } from './hatchet-restart-observation.ts'
+import { fixtureDockerEndpoint, fixtureDockerEnvironment, assertFixtureDockerEndpoint, fixtureDockerFileUser } from './docker-endpoint.ts'
 
 const exec = promisify(execFile)
 const label = 'projetv0.template.auth-fixture'
@@ -19,10 +20,10 @@ const images = {
   node: 'node@sha256:4bd6219054c8bebcd26a66bfd8ca0bd6e1024b4b97474c59bb7ee3bbcbef4fe8',
 }
 const hatchetImage = 'ghcr.io/hatchet-dev/hatchet/hatchet-lite@sha256:098f549448de860e95f79f93583dc353be3143a6bb2f6eba446b3d443e39e838'
-const essentials = () => ({ PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, TEMP: process.env.TEMP, TMP: process.env.TMP, USERPROFILE: process.env.USERPROFILE })
+const essentials = () => fixtureDockerEnvironment()
 async function docker(args: string[], env: Record<string, string> = {}) {
   try {
-    return (await exec('docker', ['--context', 'desktop-linux', ...args], {
+    return (await exec('docker', [...fixtureDockerEndpoint(process.platform).args, ...args], {
       env: { ...essentials(), ...env }, windowsHide: true, timeout: 120000, maxBuffer: 1024 * 1024,
     })).stdout.trim()
   } catch { throw new Error(`Disposable Docker operation failed: ${args[0]}`) }
@@ -69,8 +70,12 @@ export function createHatchetAdministrator(connectionString: string) {
 
 async function startAuthFixture(artifactDirectory: string | undefined) {
   const hatchet = artifactDirectory === undefined
-  const context = JSON.parse(await docker(['context', 'inspect', 'desktop-linux']))
-  if (context[0]?.Endpoints?.docker?.Host !== 'npipe:////./pipe/dockerDesktopLinuxEngine') throw new Error('Fixture requires the explicitly authorized local desktop-linux pipe')
+  const endpoint = fixtureDockerEndpoint(process.platform)
+  const privateFileUser = hatchet ? [] : fixtureDockerFileUser(process.platform, process.getuid?.(), process.getgid?.())
+  const actualEndpoint = process.platform === 'win32'
+    ? JSON.parse(await docker(['context', 'inspect', 'desktop-linux']))[0]?.Endpoints?.docker?.Host
+    : endpoint.endpoint
+  await assertFixtureDockerEndpoint(process.platform, actualEndpoint)
   const engine = JSON.parse(await docker(['version', '--format', '{{json .Server}}']))
   if (engine.Os !== 'linux' || engine.Arch !== 'amd64') throw new Error('Fixture requires Linux amd64 engine')
   const before = await inventory()
@@ -254,7 +259,7 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
     await administrator.query(`CREATE ROLE pool_admin LOGIN PASSWORD '${poolPassword}' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`)
     await writeFile(join(directory, 'pgbouncer.ini'), `[databases]\nauth = host=pg port=5432 dbname=auth\n[pgbouncer]\nlisten_addr = 0.0.0.0\nlisten_port = 5432\nauth_type = scram-sha-256\nauth_file = /fixture/users.txt\nadmin_users = pool_admin\npool_mode = transaction\ndefault_pool_size = 1\nmax_client_conn = 100\nmax_prepared_statements = 0\nignore_startup_parameters = extra_float_digits\nlog_connections = 0\nlog_disconnections = 0\n`, { mode: 0o600 })
     await writeFile(join(directory, 'users.txt'), `"runtime" "${runtimePassword}"\n"pool_admin" "${poolPassword}"\n"auth_mail_relay" "${relayPassword}"\n"auth_mail_worker" "${workerPassword}"\n"sparra_voice_a" "${voicePasswordA}"\n"sparra_voice_b" "${voicePasswordB}"\n"sparra_voice_shared" "${voicePasswordShared}"\n`, { mode: 0o600 })
-    const poolId = await create('pool', images.pool, ['--network-alias', 'pool', '-p', '127.0.0.1::5432', '--mount', `type=bind,source=${directory},target=/fixture,readonly`, '--entrypoint', '/usr/bin/pgbouncer'], {}, ['/fixture/pgbouncer.ini'])
+    const poolId = await create('pool', images.pool, [...privateFileUser, '--network-alias', 'pool', '-p', '127.0.0.1::5432', '--mount', `type=bind,source=${directory},target=/fixture,readonly`, '--entrypoint', '/usr/bin/pgbouncer'], {}, ['/fixture/pgbouncer.ini'])
     await docker(['start', poolId])
     const poolPort = await port(poolId, 5432)
     await writeFile(join(directory, 'redis.conf'), `bind 0.0.0.0\nport 6379\nrequirepass ${redisPassword}\nsave ""\nappendonly no\n`, { mode: 0o600 })
@@ -262,7 +267,7 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
     // Docker reallocates an unspecified host port on stop/start. Reserve a
     // checked unused loopback port and explicitly retain it for restart tests.
     const redisPublication = await unusedLoopbackPort()
-    const redis = await docker(['create', '--name', redisName, '--label', `${label}=${runId}`, '--network', network, '--network-alias', 'redis', '-p', `127.0.0.1:${redisPublication}:6379`, '--tmpfs', '/data:rw', '--mount', `type=bind,source=${directory},target=/fixture,readonly`, images.redis, 'redis-server', '/fixture/redis.conf'])
+    const redis = await docker(['create', '--name', redisName, '--label', `${label}=${runId}`, '--network', network, ...privateFileUser, '--network-alias', 'redis', '-p', `127.0.0.1:${redisPublication}:6379`, '--tmpfs', '/data:rw', '--mount', `type=bind,source=${directory},target=/fixture,readonly`, images.redis, 'redis-server', '/fixture/redis.conf'])
     owned.push({ id: redis, name: redisName }); await assertOwned(redis); await docker(['start', redis])
     const redisPort = await port(redis, 6379)
     if (redisPort !== redisPublication) throw new Error('Owned Redis publication mismatch')
