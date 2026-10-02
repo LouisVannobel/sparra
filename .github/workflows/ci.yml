@@ -40,6 +40,10 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - name: Typecheck the installed native graph
+        run: pnpm run typecheck
+      - name: Ordinary source consumers on the installed graph
+        run: pnpm test
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm run build
       - name: Actual local Linux stores and direct ingress
