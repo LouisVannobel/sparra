@@ -1,9 +1,9 @@
 import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { cp, mkdtemp, mkdir, readFile, writeFile, rm, realpath } from 'node:fs/promises'
+import { cp, mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { resolve, join, basename, dirname } from 'node:path'
+import { resolve, join } from 'node:path'
 import { Client } from 'pg'
 import { fetch as imageFetch } from 'undici'
 import { drizzle } from 'drizzle-orm/node-postgres'
@@ -11,6 +11,7 @@ import { migrate as migrateDrizzle } from 'drizzle-orm/node-postgres/migrator'
 import { unusedLoopbackPort } from '../../helpers/web-process.ts'
 import { proveHatchetStatementDeadline, readHatchetClaimExpiry, readHatchetClock, readHatchetRestartSnapshot } from './hatchet-restart-observation.ts'
 import { fixtureDockerEndpoint, fixtureDockerEnvironment, assertFixtureDockerEndpoint, fixtureDockerFileUser } from './docker-endpoint.ts'
+import { awaitCredentialInit,retireFixtureDirectory } from '../../helpers/credential-init-retirement.ts'
 
 const exec = promisify(execFile)
 const label = 'projetv0.template.auth-fixture'
@@ -22,10 +23,10 @@ const images = {
 }
 const hatchetImage = 'ghcr.io/hatchet-dev/hatchet/hatchet-lite@sha256:098f549448de860e95f79f93583dc353be3143a6bb2f6eba446b3d443e39e838'
 const essentials = () => fixtureDockerEnvironment()
-async function docker(args: string[], env: Record<string, string> = {}) {
+async function docker(args: string[], env: Record<string, string> = {},timeoutMs=120000) {
   try {
     return (await exec('docker', [...fixtureDockerEndpoint(process.platform).args, ...args], {
-      env: { ...essentials(), ...env }, windowsHide: true, timeout: 120000, maxBuffer: 1024 * 1024,
+      env: { ...essentials(), ...env }, windowsHide: true, timeout: timeoutMs, maxBuffer: 1024 * 1024,
     })).stdout.trim()
   } catch { throw new Error(`Disposable Docker operation failed: ${args[0]}`) }
 }
@@ -85,6 +86,7 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
   const directory = await mkdtemp(join(tmpdir(), `${prefix}-`))
   const owned: { id: string; name: string }[] = []
   const ownedVolumes: string[] = []
+  const pendingInitCli=new Set<ReturnType<typeof spawn>>()
   let network: string | undefined
   let administrator: Client | undefined
   const secret = () => randomBytes(32).toString('hex')
@@ -137,11 +139,12 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
         await docker(['volume', 'rm', volume])
       } catch { failures.push('volume-removal') }
     }
+    if(pendingInitCli.size)failures.push('credential-init-child-retirement')
+    evidence.consumerRetirementConfirmed=failures.length===0
     try {
-      const target = await realpath(directory), parent = await realpath(tmpdir())
-      if (dirname(target) !== parent || basename(target) !== basename(directory) || !basename(target).startsWith(`${prefix}-`)) throw new Error('Refusing non-owned temporary path')
-      await rm(target, { recursive: true })
-    } catch { failures.push('temporary-path') }
+      const removed=await retireFixtureDirectory(directory,prefix+'-',failures.length===0)
+      if(!removed)evidence.retainedTemporaryPath=directory
+    } catch { failures.push('temporary-path');evidence.retainedTemporaryPath=directory }
     evidence.before = { fingerprint: createHash('sha256').update(JSON.stringify(before)).digest('hex'), containerIds: before.states.map(row => row.split('|')[0]), networks: before.networks, volumeCount: before.volumes.length }
     evidence.unrelatedUnchanged = false
     try {
@@ -293,14 +296,16 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
     const webVolumes = new Map<string,string>()
     async function privateInput(id:string, value:string) {
       await assertOwned(id)
-      await new Promise<void>((accept,reject) => {
-        const child=spawn('docker',[...endpoint.args,'start','-ai',id],{env:essentials(),windowsHide:true,stdio:['pipe','pipe','pipe']})
-        const timer=setTimeout(()=>{child.kill();reject(new Error('Credential init timeout'))},10000)
-        child.stdout.resume();child.stderr.resume()
-        child.on('error',()=>{clearTimeout(timer);reject(new Error('Credential init failed'))})
-        child.on('exit',code=>{clearTimeout(timer);code===0?accept():reject(new Error('Credential init failed'))})
-        child.stdin.end(value)
-      })
+      const child=spawn('docker',[...endpoint.args,'start','-ai',id],{env:essentials(),windowsHide:true,stdio:['pipe','pipe','pipe']})
+      pendingInitCli.add(child);child.once('close',()=>pendingInitCli.delete(child))
+      child.stdout.resume();child.stderr.resume();child.stdin.on('error',()=>{})
+      const completion=awaitCredentialInit(child,async()=>{
+        await assertOwned(id)
+        if(await docker(['inspect',id,'--format','{{.State.Running}}'])==='true')await docker(['stop','--time','1',id],{},3000)
+        if(await docker(['inspect',id,'--format','{{.State.Running}}'])!=='false')throw Error('Init consumer still live')
+      },10000)
+      const bytes=Buffer.from(value)
+      try{child.stdin.end(bytes);await completion}finally{bytes.fill(0)}
     }
     async function provision(volume:string, values:Readonly<Record<string,string>>, mutation:CredentialMutation) {
       if (JSON.parse(await docker(['volume','inspect',volume,'--format','{{json .Labels}}']))[label]!==runId) throw new Error('Volume ownership')
@@ -363,7 +368,13 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
       const id=await create('migrator-image-'+owned.length,imageId,['--read-only','--cap-drop','ALL','--security-opt','no-new-privileges','--mount','type=volume,source='+volume+',target=/run/secrets,readonly',...(mutation==='empty-env'?['-e','MIGRATION_DATABASE_URL=']:[])])
       await docker(['start',id]);const exitCode=Number(await docker(['wait',id]))
       const result=await exec('docker',[...endpoint.args,'logs',id],{env:essentials(),windowsHide:true,timeout:10000})
-      if(proxy){evidence.commitProxy=JSON.parse((await docker(['logs',proxy])).split('\n').find(line=>line.startsWith('{'))??'{}');await assertOwned(proxy);await docker(['stop','--time','1',proxy])}
+      if(proxy){
+        await assertOwned(proxy);await docker(['stop','--time','2',proxy])
+        if(Number(await docker(['wait',proxy]))!==0)throw new Error('Proxy retirement failed')
+        const terminal=JSON.parse((await docker(['logs',proxy])).split('\n').filter(line=>line.startsWith('{')).at(-1)??'{}')
+        if(terminal.type!=='terminal'||terminal.accepting!==false||terminal.activeSockets!==0)throw new Error('Proxy terminal evidence missing')
+        evidence.commitProxy=terminal
+      }
       return {id,exitCode,stdout:String(result.stdout),stderr:String(result.stderr)}
     }
     return {

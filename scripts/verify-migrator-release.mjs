@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { lstat, readdir, readFile, realpath } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { fileHash, migrationSourceHash } from './migration-source-manifest.mjs'
+import { fileHash, migrationSourceHash,migrationSourceFiles } from './migration-source-manifest.mjs'
+import { inspectMigrationArchive } from './inspect-migration-archive.mjs'
 const fail=()=>{throw new Error('Invalid migrator artifact')}
 const exact=(object,keys)=>object!==null&&typeof object==='object'&&!Array.isArray(object)&&Object.keys(object).sort().join('|')===[...keys].sort().join('|')
 const hashes=['lock_sha256','dockerfile_sha256','cli_sha256','reader_sha256','launcher_sha256','migration_source_sha256','archive_sha256','sbom_sha256']
@@ -28,5 +29,7 @@ try {
   const spdx=JSON.parse(await readFile(join(directory,'migrator-sbom.spdx.json'),'utf8'))
   if(spdx.spdxVersion!=='SPDX-2.3'||spdx.dataLicense!=='CC0-1.0'||spdx.SPDXID!=='SPDXRef-DOCUMENT'||typeof spdx.name!=='string'||!spdx.name.trim()
     ||typeof spdx.documentNamespace!=='string'||!/^https?:\/\/\S+$/.test(spdx.documentNamespace))fail()
+  await inspectMigrationArchive(join(directory,'migrator-image.tar'),receipt.image_id,{schema_version:1,node:'24.14.0',pnpm:'10.32.1',
+    lock_sha256:wanted.lock_sha256,dockerfile_sha256:wanted.dockerfile_sha256,migration_source_sha256:wanted.migration_source_sha256},await migrationSourceFiles(),spdx)
   process.stdout.write('Migrator artifact verified\n')
 } catch {process.stderr.write('Migrator artifact verification failed\n');process.exitCode=1}

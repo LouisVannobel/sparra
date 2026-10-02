@@ -15,12 +15,17 @@ async function files(directory) {
 }
 export async function migrationSourceHash() {
   const hash = createHash('sha256')
+  for (const [path,bytes] of await migrationSourceFiles()) hash.update(path).update('\0').update(bytes).update('\0')
+  return hash.digest('hex')
+}
+export async function migrationSourceFiles() {
+  const result=new Map()
   for (const path of [...explicit, ...await files('drizzle')].sort()) {
     const stat = await lstat(path)
     if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('Source must be regular')
-    hash.update(path).update('\0').update(await readFile(path)).update('\0')
+    result.set(path,await readFile(path))
   }
-  return hash.digest('hex')
+  return result
 }
 export const fileHash = async path => createHash('sha256').update(await readFile(path)).digest('hex')
 if (process.argv[2] === '--write') await writeFile('migration-source-manifest.json', JSON.stringify({ schema_version: 1, node: '24.14.0', pnpm: '10.32.1',

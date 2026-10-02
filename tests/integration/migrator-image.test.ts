@@ -20,7 +20,7 @@ test('missing_native_role_rolls_back',async()=>{
 test('unknown_commit_never_retries_and_journal_is_really_committed',async()=>{
   const result=await stores.runMigrationImage(image,'valid','drop-commit-ack')
   expect(result).toMatchObject({exitCode:1,stdout:'',stderr:'Database migration failed; commit was not acknowledged\n'})
-  expect(stores.evidence.commitProxy).toEqual({connections:1,commits:1,acknowledged:1})
+  expect(stores.evidence.commitProxy).toEqual({type:'terminal',connections:1,commits:1,upstreamCompletions:1,accepting:false,activeSockets:0})
   expect((await stores.administrator.query('SELECT hash FROM drizzle.__drizzle_migrations ORDER BY created_at')).rows.map(row=>row.hash)).toEqual(readMigrationFiles({migrationsFolder:'drizzle'}).map(migration=>migration.hash))
 })
 test('native_cli_closure_without_checkout_and_native_journal_idempotence',async()=>{

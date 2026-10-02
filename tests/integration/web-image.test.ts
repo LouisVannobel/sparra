@@ -12,11 +12,25 @@ import { startGoogleProtocolPeer } from '../helpers/google-protocol-peer.mjs'
 import { googleCeremony } from '../helpers/google-ceremony'
 import { unusedLoopbackPort } from '../helpers/web-process'
 import { fetch } from 'undici'
+import { retireWebImageCeremony } from '../helpers/web-image-retirement'
 let image: string
 let stores: Awaited<ReturnType<typeof startDisposableStores>>
 const qualifiedPorts:number[]=[]
 beforeAll(async () => { image = await nativeImage('web'); stores=await startDisposableStores(); await stores.migrate() }, 600000)
 afterAll(async()=>{if(stores){await stores.cleanup();expect(stores.evidence.unrelatedUnchanged).toBe(true);expect(stores.evidence.inventoryDelta).toEqual([])}})
+test('failed_limiter_setup_after_actual_peer_acquisition_retires_all_handles',async()=>{
+  let pool:Pool|undefined,peer:Awaited<ReturnType<typeof startGoogleProtocolPeer>>|undefined,limiter:ReturnType<typeof createAuthRateLimiter>|undefined
+  const port=await unusedLoopbackPort()
+  await expect((async()=>{
+    try{
+      pool=new Pool({connectionString:stores.directRuntimeUrl})
+      peer=await startGoogleProtocolPeer({ports:[port]})
+      limiter=createAuthRateLimiter(readRateLimitConfig({REDIS_URL:'redis://:synthetic@127.0.0.1:'+port,RATE_LIMIT_HMAC_SECRET:stores.hmac,RATE_LIMIT_KEY_ID:'failed-image-setup',TRUSTED_PROXY_IPS:'127.0.0.1',NODE_ENV:'test',REDIS_CONNECT_TIMEOUT_MS:'100',REDIS_CLEANUP_TIMEOUT_MS:'100'}))
+      await limiter.connect()
+    }finally{await retireWebImageCeremony({limiter:limiter?()=>limiter!.close():undefined,pool:pool?()=>pool!.end():undefined,peer:peer?()=>peer!.close():undefined})}
+  })()).rejects.toThrow()
+  expect(pool?.ended).toBe(true);expect(limiter?.isReady()).toBe(false);expect(peer?.evidence().activeSockets).toBe(0)
+})
 test('complete_output_boots_without_repo', async() => {
   const app=await stores.startWebImage(image)
   qualifiedPorts.push(Number(new URL(app.url).port))
@@ -52,15 +66,18 @@ test('native_voice_envelope_decrypts_in_image_and_restart_rereads_credentials',a
   expect(fixture.producer_commit).toBe('52d6502991090d55aa94ee97fb38ebba656a4139')
   const secret=randomBytes(48).toString('hex'),authInput={secret,googleClientId:'fixture.apps.googleusercontent.com',googleClientSecret:'fixture-only'}
   await stores.administrator.query('GRANT USAGE ON SCHEMA public TO runtime; GRANT SELECT,INSERT,UPDATE,DELETE ON "user",account,session,verification TO runtime')
-  const pool=new Pool({connectionString:stores.directRuntimeUrl,max:4}),owner=createTransactions(pool,{maxStatementTimeoutMs:1000,maxCleanupTimeoutMs:1000})
   const imagePort=await unusedLoopbackPort(),ports=[...qualifiedPorts,imagePort,...[stores.directRuntimeUrl,stores.runtimeUrl,stores.redisUrl].map(url=>Number(new URL(url).port))]
-  const peer=await startGoogleProtocolPeer({ports}),limiter=createAuthRateLimiter(readRateLimitConfig({REDIS_URL:stores.redisUrl,RATE_LIMIT_HMAC_SECRET:stores.hmac,RATE_LIMIT_KEY_ID:'image-ceremony',TRUSTED_PROXY_IPS:'127.0.0.1',NODE_ENV:'test'}))
   const {createApplicationAuth,readAuthConfig}=await import('../../src/modules/auth/auth.server')
-  await limiter.connect()
-  const auth=createApplicationAuth(owner,readAuthConfig({APP_ORIGIN:'http://localhost:3000',NODE_ENV:'test',AUTH_SECRET:secret,GOOGLE_CLIENT_ID:authInput.googleClientId,GOOGLE_CLIENT_SECRET:authInput.googleClientSecret})!,limiter)
+  let pool:Pool|undefined,peer:Awaited<ReturnType<typeof startGoogleProtocolPeer>>|undefined,limiter:ReturnType<typeof createAuthRateLimiter>|undefined,auth:ReturnType<typeof createApplicationAuth>|undefined
   let rotatedAuth:ReturnType<typeof createApplicationAuth>|undefined
   let app:Awaited<ReturnType<typeof stores.startWebImage>>|undefined
   try{
+    pool=new Pool({connectionString:stores.directRuntimeUrl,max:4})
+    const owner=createTransactions(pool,{maxStatementTimeoutMs:1000,maxCleanupTimeoutMs:1000})
+    peer=await startGoogleProtocolPeer({ports})
+    limiter=createAuthRateLimiter(readRateLimitConfig({REDIS_URL:stores.redisUrl,RATE_LIMIT_HMAC_SECRET:stores.hmac,RATE_LIMIT_KEY_ID:'image-ceremony',TRUSTED_PROXY_IPS:'127.0.0.1',NODE_ENV:'test'}))
+    await limiter.connect()
+    auth=createApplicationAuth(owner,readAuthConfig({APP_ORIGIN:'http://localhost:3000',NODE_ENV:'test',AUTH_SECRET:secret,GOOGLE_CLIENT_ID:authInput.googleClientId,GOOGLE_CLIENT_SECRET:authInput.googleClientSecret})!,limiter)
     const account=await googleCeremony(auth,owner,peer)(),personal=createPersonalWorkspaces(owner),workspace=await personal.ensurePersonalWorkspace(account.principal)
     expect(workspace).not.toBeNull()
     await stores.administrator.query("INSERT INTO sparra_call(id,workspace_id,deployment_id,provider_call_control_id,admitted_at,retention_until,status,encrypted_turns) VALUES($1::uuid,$2,'synthetic',$1::text,clock_timestamp(),clock_timestamp()+interval '30 days','pending',$3)",[fixture.call_id,workspace!.id,{[fixture.turn_id]:fixture.turn}])
@@ -88,7 +105,10 @@ test('native_voice_envelope_decrypts_in_image_and_restart_rereads_credentials',a
     expect((await fetch(app.url+'/app',{headers:{cookie:current.cookie},redirect:'manual'})).status).toBe(200)
     expect(JSON.stringify(await stores.imageLogs(app.id))).not.toContain(secret)
   }finally{
-    if(app){await stores.signalWeb(app.id,'SIGTERM');expect(await stores.waitWeb(app.id)).toBe(0)}
-    await rotatedAuth?.close();await auth.close();await limiter.close();await pool.end();await peer.close()
+    await retireWebImageCeremony({
+      image:app?async()=>{await stores.signalWeb(app!.id,'SIGTERM');if(await stores.waitWeb(app!.id)!==0)throw Error('Image shutdown failed')}:undefined,
+      rotatedAuth:rotatedAuth?()=>rotatedAuth!.close():undefined,auth:auth?()=>auth!.close():undefined,
+      limiter:limiter?()=>limiter!.close():undefined,pool:pool?()=>pool!.end():undefined,peer:peer?()=>peer!.close():undefined,
+    })
   }
 },45000)
