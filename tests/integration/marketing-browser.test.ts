@@ -44,9 +44,128 @@ async function media(page: Page) {
   return page.locator('#demo audio').evaluate((audio: HTMLAudioElement) => ({ paused: audio.paused, time: audio.currentTime, src: audio.currentSrc || audio.src }))
 }
 
+type MediaState = {
+  ms: number; paused: boolean; time: number | null; duration: number | null
+  readyState: number; networkState: number; errorCode: number | null
+  src: string; currentSrc: string; connected: boolean; active: boolean; activated: boolean
+}
+type MediaPlay = {
+  outcome: 'pending' | 'resolved' | 'rejected' | 'threw'
+  errorName: 'AbortError' | 'NotAllowedError' | 'NotSupportedError' | 'InvalidStateError' | 'SecurityError' | 'other' | null
+}
+type MediaRequest = {
+  path: string; range: string | null; status: number | null; completion: 'pending' | 'finished' | 'failed'
+  contentType?: string | null; contentLength?: string | null; contentRange?: string | null
+  acceptRanges?: string | null; contentEncoding?: string | null; failure?: string | null
+}
+declare global {
+  interface Window {
+    __sparraDemoMedia?: {
+      events: (MediaState & { event: string })[]; plays: MediaPlay[]; droppedEvents: number; droppedPlays: number
+      snapshot: () => MediaState | null
+    }
+  }
+}
+
+// Observe the original first playback attempt without prefetching or changing its promise.
+async function observeDemoMedia(page: Page): Promise<() => Promise<void>> {
+  await page.addInitScript(() => {
+    const paths = new Set(['/demos/garage-revision.mp3', '/demos/controle-technique.mp3'])
+    const path = (value: string) => {
+      if (!value) return ''
+      try { const url = new URL(value, location.href); return url.origin === location.origin && paths.has(url.pathname) && !url.search && !url.hash ? url.pathname : 'other' }
+      catch { return 'other' }
+    }
+    const started = performance.now()
+    const finite = (value: number) => Number.isFinite(value) ? value : null
+    const state = (audio: HTMLMediaElement) => ({
+      ms: Math.round(performance.now() - started), paused: audio.paused, time: finite(audio.currentTime), duration: finite(audio.duration),
+      readyState: audio.readyState, networkState: audio.networkState, errorCode: audio.error?.code ?? null,
+      src: path(audio.getAttribute('src') ?? ''), currentSrc: path(audio.currentSrc), connected: audio.isConnected,
+      active: navigator.userActivation.isActive, activated: navigator.userActivation.hasBeenActive,
+    })
+    const evidence: NonNullable<Window['__sparraDemoMedia']> = {
+      events: [], plays: [], droppedEvents: 0, droppedPlays: 0,
+      snapshot: () => { const audio = document.querySelector<HTMLAudioElement>('#demo audio'); return audio ? state(audio) : null },
+    }
+    window.__sparraDemoMedia = evidence
+    const record = (event: string, audio: HTMLMediaElement) => {
+      if (evidence.events.length < 64) evidence.events.push({ event, ...state(audio) })
+      else evidence.droppedEvents++
+    }
+    for (const event of ['loadstart', 'loadedmetadata', 'loadeddata', 'canplay', 'playing', 'waiting', 'stalled', 'suspend', 'pause', 'abort', 'emptied', 'error', 'ended']) {
+      document.addEventListener(event, event => {
+        if (event.target instanceof HTMLMediaElement && event.target.matches('#demo audio')) record(event.type, event.target)
+      }, true)
+    }
+    document.addEventListener('click', event => {
+      if (!(event.target instanceof Element) || !event.target.closest('#demo .sparra-player-actions button')) return
+      const audio = document.querySelector<HTMLAudioElement>('#demo audio')
+      if (audio) record(event.isTrusted ? 'trusted-control-click' : 'control-click', audio)
+    }, true)
+    const errorName = (error: unknown) => {
+      const name = error instanceof Error || error instanceof DOMException ? error.name : ''
+      return (['AbortError', 'NotAllowedError', 'NotSupportedError', 'InvalidStateError', 'SecurityError'] as const).find(value => value === name) ?? 'other'
+    }
+    const nativePlay = HTMLMediaElement.prototype.play
+    HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
+      if (!this.matches('#demo audio')) return nativePlay.call(this)
+      record('play-called', this)
+      const attempt: MediaPlay = { outcome: 'pending', errorName: null }
+      if (evidence.plays.length < 16) evidence.plays.push(attempt)
+      else evidence.droppedPlays++
+      try {
+        const promise = nativePlay.call(this)
+        void promise.then(() => { attempt.outcome = 'resolved' }, error => { attempt.outcome = 'rejected'; attempt.errorName = errorName(error) })
+        return promise
+      } catch (error) {
+        attempt.outcome = 'threw'; attempt.errorName = errorName(error)
+        throw error
+      }
+    }
+  })
+  const requests = new Map<import('playwright').Request, MediaRequest>()
+  let droppedRequests = 0
+  const safe = (value: string | undefined, pattern: RegExp) => value === undefined ? null : value.length <= 96 && pattern.test(value) ? value : 'other'
+  page.on('request', request => {
+    const url = new URL(request.url())
+    if (url.origin !== origin || !['/demos/garage-revision.mp3', '/demos/controle-technique.mp3'].includes(url.pathname) || url.search || url.hash) return
+    if (requests.size >= 16) { droppedRequests++; return }
+    requests.set(request, { path: url.pathname, range: safe(request.headers().range, /^bytes=\d*-\d*$/), status: null, completion: 'pending' })
+  })
+  page.on('response', response => {
+    const row = requests.get(response.request())
+    if (!row) return
+    const headers = response.headers()
+    Object.assign(row, {
+      status: response.status(), contentType: safe(headers['content-type'], /^(?:audio\/(?:mpeg|mp3)|application\/octet-stream)$/i),
+      contentLength: safe(headers['content-length'], /^\d+$/), contentRange: safe(headers['content-range'], /^bytes (?:\d+-\d+|\*)\/(?:\d+|\*)$/),
+      acceptRanges: safe(headers['accept-ranges'], /^(?:bytes|none)$/), contentEncoding: safe(headers['content-encoding'], /^(?:identity|gzip|br|deflate)$/),
+    })
+  })
+  page.on('requestfinished', request => { const row = requests.get(request); if (row) row.completion = 'finished' })
+  page.on('requestfailed', request => {
+    const row = requests.get(request)
+    if (!row) return
+    row.completion = 'failed'
+    row.failure = safe(request.failure()?.errorText, /^net::ERR_(?:ABORTED|FAILED|CONNECTION_RESET|CONNECTION_CLOSED|CONNECTION_REFUSED|CONTENT_LENGTH_MISMATCH|EMPTY_RESPONSE|TIMED_OUT)$/)
+  })
+  return async () => {
+    const media = await page.evaluate(() => {
+      const evidence = window.__sparraDemoMedia
+      return evidence ? { events: evidence.events, plays: evidence.plays, droppedEvents: evidence.droppedEvents, droppedPlays: evidence.droppedPlays,
+        final: evidence.snapshot(), alert: document.querySelector('#demo [role="alert"]') !== null } : null
+    })
+    const diagnostic = JSON.stringify({ media, requests: [...requests.values()], droppedRequests })
+    console.error('MARKETING_MEDIA_DIAGNOSTIC ' + (diagnostic.length <= 32768 ? diagnostic : '{"diagnostic":"size-bound-exceeded"}'))
+  }
+}
+
 test('no autoplay; real play, pause, restart and arrows keep audio, transcript and receipt paired', async () => {
   const page = await openPage()
+  let reportMedia: (() => Promise<void>) | undefined
   try {
+    reportMedia = await observeDemoMedia(page)
     await page.goto(origin); await page.getByRole('button', { name: 'Écouter l’exemple', exact: true }).waitFor()
     expect(await media(page)).toMatchObject({ paused: true, time: 0 })
     expect(await page.locator('#demo audio').getAttribute('autoplay')).toBe(null)
@@ -78,6 +197,9 @@ test('no autoplay; real play, pause, restart and arrows keep audio, transcript a
     await page.setViewportSize({ width: 320, height: 800 })
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await page.screenshot({ path: '.output/test-evidence/marketing/demo-mobile.png', fullPage: true })
+  } catch (error) {
+    try { await reportMedia?.() } catch { console.error('MARKETING_MEDIA_DIAGNOSTIC {"diagnostic":"unavailable"}') }
+    throw error
   } finally { await page.context().close() }
 }, 30000)
 
