@@ -57,8 +57,12 @@ test.each(['utf8','wrong-byte-length','duplicate-key','unsupported-key'] as cons
 })
 test.each(['unsupported','malformed-gzip','visitor-refusal','source-error'] as const)('archive_stream_owners_settle_before_refusal: %s',async scenario=>{
   const {directory,receipt}=await fixture(scenario==='unsupported'?{unsupportedLayer:true}:scenario==='malformed-gzip'?{malformedGzip:true}:scenario==='visitor-refusal'?{gzip:true,blockedParent:true}:{gzip:true})
-  const {inspectMigrationArchive}=await import('../../scripts/inspect-migration-archive.mjs')
-  const {migrationSourceFiles}=await import('../../scripts/migration-source-manifest.mjs')
+  const archivePath='../../scripts/inspect-migration-archive.mjs',sourcePath='../../scripts/migration-source-manifest.mjs'
+  const archive:unknown=await import(archivePath),source:unknown=await import(sourcePath)
+  if(typeof archive!=='object'||archive===null||!('inspectMigrationArchive' in archive)||typeof archive.inspectMigrationArchive!=='function')throw new Error('Missing actual archive inspector')
+  if(typeof source!=='object'||source===null||!('migrationSourceFiles' in source)||typeof source.migrationSourceFiles!=='function')throw new Error('Missing actual source reader')
+  const expectedFiles:unknown=await source.migrationSourceFiles()
+  if(!(expectedFiles instanceof Map)||[...expectedFiles].some(([path,bytes])=>typeof path!=='string'||!Buffer.isBuffer(bytes)))throw new Error('Invalid actual source file view')
   const sources:fs.ReadStream[]=[],inflaters:zlib.Gunzip[]=[],originalRead=fs.createReadStream,originalGunzip=zlib.createGunzip
   const fault=Object.assign(new Error('owned source EIO'),{code:'EIO'});let consumerErrorListeners=0
   mock.method(fs,'createReadStream',(...args:Parameters<typeof fs.createReadStream>)=>{
@@ -74,13 +78,13 @@ test.each(['unsupported','malformed-gzip','visitor-refusal','source-error'] as c
   syncBuiltinESMExports()
   try{
     const expected={schema_version:1,node:'24.14.0',pnpm:'10.32.1',lock_sha256:receipt.lock_sha256,dockerfile_sha256:receipt.dockerfile_sha256,migration_source_sha256:receipt.migration_source_sha256}
-    const operation=inspectMigrationArchive(join(directory,'migrator-image.tar'),receipt.image_id,expected,await migrationSourceFiles(),JSON.parse(await readFile(join(directory,'migrator-sbom.spdx.json'),'utf8')))
+    const operation=archive.inspectMigrationArchive(join(directory,'migrator-image.tar'),receipt.image_id,expected,expectedFiles,JSON.parse(await readFile(join(directory,'migrator-sbom.spdx.json'),'utf8')))
     if(scenario==='source-error')await expect(operation).rejects.toBe(fault)
     else await expect(operation).rejects.toThrow()
     await new Promise(resolve=>setImmediate(resolve))
     if(scenario==='unsupported')expect(sources).toHaveLength(1)
     if(scenario==='source-error')expect(consumerErrorListeners).toBeGreaterThan(0)
-    expect(sources.every(source=>source.closed&&source.destroyed&&source.fd===null)).toBe(true)
+    expect(sources.every(source=>source.closed&&source.destroyed&&'fd' in source&&source.fd===null)).toBe(true)
     expect(inflaters.every(inflater=>inflater.closed&&inflater.destroyed)).toBe(true)
   }finally{
     sources.forEach(source=>source.destroy());inflaters.forEach(inflater=>inflater.destroy())
