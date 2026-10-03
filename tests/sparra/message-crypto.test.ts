@@ -1,10 +1,14 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { writeFile, symlink } from 'node:fs/promises'
+import { open, writeFile, symlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { cryptoFixture } from '../helpers/sparra-crypto-fixture'
 import { readKeyring, decodeMessageContent } from '../../src/modules/sparra/message-crypto.server'
-afterEach(()=>vi.unstubAllEnvs())
+vi.mock('node:fs/promises',async original=>{
+  const filesystem=await original<typeof import('node:fs/promises')>()
+  return {...filesystem,open:vi.fn(filesystem.open)}
+})
+afterEach(()=>{vi.unstubAllEnvs();vi.restoreAllMocks();vi.mocked(open).mockReset()})
 test('durable per-call loss is independent from decode failures and marks retained content partial',async()=>{
   const f=await cryptoFixture()
   try{
@@ -34,13 +38,62 @@ test('strict authenticated result, evidence, pilot quality and independent mixed
     expect(decodeMessageContent(f.callId,Object.fromEntries(Array.from({length:201},()=>[randomUUID(),{}])),null,keys)).toMatchObject({moreTurns:true,unavailableTurnCount:200})
   }finally{await f.cleanup()}
 })
-test('missing, relative, oversized, directory, symlink, malformed and duplicate-version key files are unavailable',async()=>{
+test('authenticated ordinal and id order selects 200 turns and excludes evidence from the 201st valid turn',async()=>{
+  const f=await cryptoFixture()
+  try{
+    vi.stubEnv('SPARRA_AEAD_KEYRING_PATH',f.path)
+    const keys=await readKeyring(),ids=Array.from({length:201},(_,index)=>'00000000-0000-0000-0000-'+(index+1).toString(16).padStart(12,'0'))
+    const turns=Object.fromEntries(ids.map((id,index)=>[id,{...f.turn,turn_id:id,turn_no:index===1?1:index+1,role:index===1?'assistant':'user',source:index===1?'pipecat_assistant':'stt_final',...f.encrypt('Tour '+(index+1),'turn:'+id)}]).reverse())
+    const selected={...f.inner,evidence:[{turn_id:ids[0],role:'user'},{turn_id:ids[1],role:'assistant'}]}
+    const content=decodeMessageContent(f.callId,turns,f.result(selected),keys)
+    expect(content.transcript.map(turn=>turn.id)).toEqual(ids.slice(0,200))
+    expect(content.transcript.slice(0,3).map(turn=>({ordinal:turn.ordinal,role:turn.role,text:turn.text}))).toEqual([{ordinal:1,role:'user',text:'Tour 1'},{ordinal:1,role:'assistant',text:'Tour 2'},{ordinal:3,role:'user',text:'Tour 3'}])
+    expect(content).toMatchObject({result:selected,transcriptAvailability:'partial',unavailableTurnCount:0,moreTurns:true,transcriptLossCount:0})
+    expect(decodeMessageContent(f.callId,turns,f.result({...f.inner,evidence:[{turn_id:ids[200],role:'user'}]}),keys).result).toBeNull()
+  }finally{await f.cleanup()}
+})
+
+test.each(['ino','dev'] as const)('opened key-file %s mismatch is unavailable and closes its owned descriptor',async field=>{
+  const f=await cryptoFixture(),filesystem=await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+  let file:Awaited<ReturnType<typeof open>>|undefined
+  try{
+    vi.stubEnv('SPARRA_AEAD_KEYRING_PATH',f.path)
+    vi.mocked(open).mockImplementationOnce(async(...args)=>{
+      file=await filesystem.open(...args)
+      const opened=await file.stat()
+      opened[field]++
+      vi.spyOn(file,'stat').mockResolvedValueOnce(opened)
+      return file
+    })
+    expect(await readKeyring()).toBeNull()
+    if(!file)throw new Error('Key file was not opened')
+    expect(file.fd).toBe(-1)
+  }finally{await file?.close().catch(()=>{});await f.cleanup()}
+})
+
+test.each(['stat','read'] as const)('opened key-file %s failure is unavailable and closes its owned descriptor',async operation=>{
+  const f=await cryptoFixture(),filesystem=await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+  let file:Awaited<ReturnType<typeof open>>|undefined
+  try{
+    vi.stubEnv('SPARRA_AEAD_KEYRING_PATH',f.path)
+    vi.mocked(open).mockImplementationOnce(async(...args)=>{
+      file=await filesystem.open(...args)
+      vi.spyOn(file,operation).mockRejectedValueOnce(new Error('Owned key file unavailable'))
+      return file
+    })
+    expect(await readKeyring()).toBeNull()
+    if(!file)throw new Error('Key file was not opened')
+    expect(file.fd).toBe(-1)
+  }finally{await file?.close().catch(()=>{});await f.cleanup()}
+})
+
+test('missing, relative, oversized, directory, symlink, malformed, invalid UTF8 and duplicate-version key files are unavailable',async()=>{
   const f=await cryptoFixture()
   try{
     const link=join(f.directory,'link');await symlink(f.directory,link,'junction')
     for(const path of ['', 'relative.json',join(f.directory,'missing'),f.directory,link]){vi.stubEnv('SPARRA_AEAD_KEYRING_PATH',path);expect(await readKeyring()).toBeNull()}
     vi.stubEnv('SPARRA_AEAD_KEYRING_PATH',f.path)
-    for(const value of ['x'.repeat(16385),'{}',JSON.stringify({...f.keyring,active_version:2}),JSON.stringify({...f.keyring,keys:[...f.keyring.keys,...f.keyring.keys]})]){await writeFile(f.path,value);expect(await readKeyring()).toBeNull()}
+    for(const value of ['x'.repeat(16385),'{}',Buffer.from([0xff]),JSON.stringify({...f.keyring,active_version:2}),JSON.stringify({...f.keyring,keys:[...f.keyring.keys,...f.keyring.keys]})]){await writeFile(f.path,value);expect(await readKeyring()).toBeNull()}
   }finally{await f.cleanup()}
 })
 
