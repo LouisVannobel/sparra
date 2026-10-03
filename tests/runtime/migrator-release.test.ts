@@ -40,6 +40,12 @@ async function invoke(directory:string) {
   try {const result=await exec(process.execPath,['scripts/verify-migrator-release.mjs','--directory',directory,'--commit','a'.repeat(40)],{windowsHide:true});return {code:0,stdout:String(result.stdout)}}
   catch{return {code:1,stdout:''}}
 }
+async function verifyFixture(directory:string,receipt:Awaited<ReturnType<typeof fixture>>['receipt']) {
+  await writeFile(join(directory,'migrator-receipt.json'),JSON.stringify(receipt))
+  const verifierPath='../../scripts/verify-migrator-release.mjs',verifier:unknown=await import(verifierPath)
+  if(typeof verifier!=='object'||verifier===null||!('verifyMigratorArtifact' in verifier)||typeof verifier.verifyMigratorArtifact!=='function')throw new Error('Missing actual migrator artifact verifier')
+  return verifier.verifyMigratorArtifact(directory,receipt.commit)
+}
 afterEach(async()=>{for(const directory of directories.splice(0)){
   const target=resolve(directory)
   if(dirname(target)!==resolve(tmpdir())||!basename(target).startsWith('sparra-migrator-receipt-'))throw new Error('Non-owned archive fixture cleanup')
@@ -47,17 +53,14 @@ afterEach(async()=>{for(const directory of directories.splice(0)){
 }})
 test('valid_exact_three_file_artifact_is_consumable',async()=>{const {directory,receipt}=await fixture();expect(await run(directory,receipt)).toEqual({code:0,stdout:'Migrator artifact verified\n'})})
 test.each(['root-app','root-opaque','extra-before-opaque','nonempty','dot-target'] as const)('whiteout_cannot_hide_missing_or_current_layer_files: %s',async whiteout=>{
-  const {directory,receipt}=await fixture({whiteout});expect((await run(directory,receipt)).code).toBe(1)
+  const {directory,receipt}=await fixture({whiteout});await expect(verifyFixture(directory,receipt)).rejects.toThrow('Invalid migration archive')
 })
 test.each(['replacement-before','replacement-after','root-replacement-before'] as const)('same_layer_replacement_survives_opacity: %s',async whiteout=>{
-  const {directory,receipt}=await fixture({whiteout});expect((await run(directory,receipt)).code).toBe(0)
+  const {directory,receipt}=await fixture({whiteout});await expect(verifyFixture(directory,receipt)).resolves.toEqual(receipt)
 })
 test.each(['utf8','wrong-byte-length','duplicate-key','unsupported-key'] as const)('pax_records_preserve_byte_lengths_and_supported_keys: %s',async pax=>{
   const {directory,receipt}=await fixture({pax})
-  await writeFile(join(directory,'migrator-receipt.json'),JSON.stringify(receipt))
-  const verifierPath='../../scripts/verify-migrator-release.mjs',verifier:unknown=await import(verifierPath)
-  if(typeof verifier!=='object'||verifier===null||!('verifyMigratorArtifact' in verifier)||typeof verifier.verifyMigratorArtifact!=='function')throw new Error('Missing actual migrator artifact verifier')
-  const operation=verifier.verifyMigratorArtifact(directory,receipt.commit)
+  const operation=verifyFixture(directory,receipt)
   if(pax==='utf8')await expect(operation).resolves.toEqual(receipt)
   else await expect(operation).rejects.toThrow('Invalid migration archive')
 })
