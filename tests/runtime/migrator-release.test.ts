@@ -53,7 +53,13 @@ test.each(['replacement-before','replacement-after','root-replacement-before'] a
   const {directory,receipt}=await fixture({whiteout});expect((await run(directory,receipt)).code).toBe(0)
 })
 test.each(['utf8','wrong-byte-length','duplicate-key','unsupported-key'] as const)('pax_records_preserve_byte_lengths_and_supported_keys: %s',async pax=>{
-  const {directory,receipt}=await fixture({pax});expect((await run(directory,receipt)).code).toBe(pax==='utf8'?0:1)
+  const {directory,receipt}=await fixture({pax})
+  await writeFile(join(directory,'migrator-receipt.json'),JSON.stringify(receipt))
+  const verifierPath='../../scripts/verify-migrator-release.mjs',verifier:unknown=await import(verifierPath)
+  if(typeof verifier!=='object'||verifier===null||!('verifyMigratorArtifact' in verifier)||typeof verifier.verifyMigratorArtifact!=='function')throw new Error('Missing actual migrator artifact verifier')
+  const operation=verifier.verifyMigratorArtifact(directory,receipt.commit)
+  if(pax==='utf8')await expect(operation).resolves.toEqual(receipt)
+  else await expect(operation).rejects.toThrow('Invalid migration archive')
 })
 test.each(['unsupported','malformed-gzip','visitor-refusal','source-error'] as const)('archive_stream_owners_settle_before_refusal: %s',async scenario=>{
   const {directory,receipt}=await fixture(scenario==='unsupported'?{unsupportedLayer:true}:scenario==='malformed-gzip'?{malformedGzip:true}:scenario==='visitor-refusal'?{gzip:true,blockedParent:true}:{gzip:true})
