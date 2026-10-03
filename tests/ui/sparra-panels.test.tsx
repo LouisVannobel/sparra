@@ -53,6 +53,7 @@ test('private panels render truthful empty and partial states in FR/EN without i
   }
 })
 
+// fallow-ignore-next-line complexity -- reviewed SSR A; TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003
 test('detail and inbox preserve the translated native category and observed number source in both locales',async()=>{
   const {InboxPanel}=await import('../../src/ui/sparra/inbox-panel')
   const {RequestPanel}=await import('../../src/ui/sparra/request-panel')
@@ -75,6 +76,7 @@ test('detail and inbox preserve the translated native category and observed numb
 
 const requestDetail:RequestDetailDto={id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',admittedAt:'2026-10-01T10:00:00.000Z',endedAt:'2026-10-01T10:03:00.000Z',status:'closed',configurationRevision:7,treatedAt:null,resultAvailability:'available',resultQuality:'partial',category:'information',summary:'Observed request text',contact:{name:'Camille',callback_e164:'+33123456789',preference:'Afternoon',callback_source:'caller',callback_confirmed:false},nextAction:'Check the request',configuration:{workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',revision:7,savedAt:'2026-09-30T10:00:00.000Z',businessName:'Pinned garage',sector:'garage',knowledge:{openingHours:'09:00–17:00',services:'Oil change',prices:'',faq:'Bring the vehicle papers',instructions:'Ask before proceeding'},transferDestination:null},transcript:[{id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc',ordinal:1,role:'user',text:'Caller turn',interrupted:false,startedAt:'2026-10-01T10:00:00.000Z'},{id:'dddddddd-dddd-4ddd-8ddd-dddddddddddd',ordinal:2,role:'assistant',text:'Assistant turn',interrupted:true,startedAt:'2026-10-01T10:01:00.000Z'}],transcriptAvailability:'partial',unavailableTurnCount:2,moreTurns:true,transcriptLossCount:3,erasureState:null}
 
+// fallow-ignore-next-line complexity -- reviewed SSR B; TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003
 test('request detail keeps observed metadata, ordered partial turns, pinned knowledge and disabled SSR actions in both locales',async()=>{
   const {RequestPanel}=await import('../../src/ui/sparra/request-panel')
   for(const locale of ['fr','en'] as const){
@@ -97,6 +99,7 @@ test('request detail keeps observed metadata, ordered partial turns, pinned know
   }
 })
 
+// fallow-ignore-next-line complexity -- reviewed SSR C; TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003
 test('request detail retains empty contact and absent snapshot fallbacks without treating complete quality as partial',async()=>{
   const {RequestPanel}=await import('../../src/ui/sparra/request-panel')
   for(const locale of ['fr','en'] as const){
@@ -116,6 +119,7 @@ test('request detail retains empty contact and absent snapshot fallbacks without
   }
 })
 
+// fallow-ignore-next-line complexity -- reviewed SSR D; TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003
 test('queued and completed erasure receipts take precedence over loaded private detail in both locales',async()=>{
   const {RequestPanel}=await import('../../src/ui/sparra/request-panel')
   for(const locale of ['fr','en'] as const)for(const state of ['queued','completed'] as const){
