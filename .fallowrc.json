@@ -6,6 +6,7 @@
     "ignore": ["src/routeTree.gen.ts"],
     "ignoredClones": ["dup:2cc8a7df:2"]
   },
-  "ignorePatterns": ["tools/oxlint/anti-slop/**"],
+  "ignorePatterns": ["tools/oxlint/anti-slop/**", "coverage/**"],
+  "health": { "coverage": "coverage/coverage-final.json" },
   "ignoreDependencies": ["@oxlint/plugins"]
 }

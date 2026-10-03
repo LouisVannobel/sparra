@@ -109,7 +109,9 @@ test('fallow_declares_only_native_subprocess_roots_and_exact_generated_import',(
   writeFileSync(join(root,'tests/helpers/runtime-probe.mjs'),"console.log('synthetic preload');\n")
   writeFileSync(join(root,'scripts/start-web.mjs'),"await import('../.output/server/index.mjs');\nawait import('../.output/server/genuinely-missing.mjs');\n")
   writeFileSync(join(root,'src/main.tsx'),readFileSync(join(root,'src/main.tsx'),'utf8')+"import './genuinely-missing';\n")
-  writeFileSync(join(root,'.fallowrc.json'),readFileSync(join(repositoryRoot,'.fallowrc.json')))
+  const fixtureConfig: {health:{coverage:string|null}} = JSON.parse(readFileSync(join(repositoryRoot,'.fallowrc.json'),'utf8'))
+  fixtureConfig.health.coverage = null
+  writeFileSync(join(root,'.fallowrc.json'),JSON.stringify(fixtureConfig))
   const result=runQuality('fallow',['audit','--no-css','--base',base],root)
   expect(result.error).toBeUndefined();expect(result.status,result.stderr||result.stdout).toBe(1)
   const output=result.stdout+result.stderr
