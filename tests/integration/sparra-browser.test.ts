@@ -193,6 +193,44 @@ test('request unmount aborts held native delivery, failure retains confirmation 
   }finally{releaseTreatment();releaseLogin();await cleanupRefusal().catch(()=>{});await context.close()}
 },30000)
 
+test('activity native mutation refusal renders private unavailable before login navigation completes',async()=>{
+  const {context,page}=await signedIn('sparra-activity-refusal'),savePath=await authRpcPath('saveActivity'),loginPath=await authRpcPath('getLoginAvailability')
+  let releaseLogin=()=>{},cleanupRefusal=async()=>{}
+  try{
+    await page.goto(origin+'/app/entreprise?lang=en');await page.getByRole('button',{name:'Create my workspace'}).click()
+    await page.getByRole('textbox',{name:/^Business name/}).fill('Private activity refusal fixture')
+    await page.getByRole('textbox',{name:'Services',exact:true}).fill('Private activity knowledge')
+    await page.getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    const workspace=(await stores.administrator.query('SELECT id FROM workspace WHERE owner_user_id=(SELECT id FROM "user" WHERE email=$1)',['sparra-activity-refusal@example.test'])).rows[0]
+    await stores.administrator.query('DELETE FROM session WHERE user_id=(SELECT id FROM "user" WHERE email=$1)',['sparra-activity-refusal@example.test'])
+    const loginHeld=new Promise<void>(done=>{releaseLogin=done}),loginStarted=new Promise<void>(done=>{
+      void page.route('**'+loginPath+'*',async route=>{done();await loginHeld;await route.continue()},{times:1})
+    })
+    const refusalRender=await page.evaluateHandle(()=>{
+      let finish=(observed:boolean)=>{void observed}
+      const observed=new Promise<boolean>(resolve=>{finish=resolve})
+      const settle=(value:boolean)=>{observer.disconnect();clearTimeout(timeout);window.removeEventListener('pagehide',unload);finish(value)}
+      const inspect=()=>{
+        const alert=[...document.querySelectorAll('[role="alert"]')].some(element=>element.textContent==='Data unavailable. Reload the page or sign in again.')
+        const signIn=[...document.querySelectorAll('a[href="/login?lang=en"]')].some(element=>element.textContent==='Go to sign in')
+        const privateAbsent=!document.querySelector('.sparra-business-form')&&!document.body.textContent?.includes('Private activity refusal fixture')&&!document.body.textContent?.includes('Private activity knowledge')
+        if(alert&&signIn&&privateAbsent)settle(true)
+      }
+      const observer=new MutationObserver(inspect),unload=()=>settle(false),timeout=setTimeout(()=>settle(false),6000)
+      observer.observe(document.body,{childList:true,subtree:true,characterData:true});window.addEventListener('pagehide',unload)
+      return {observed,dispose:()=>settle(false)}
+    })
+    cleanupRefusal=async()=>{try{await refusalRender.evaluate(({dispose})=>dispose())}finally{await refusalRender.dispose()}}
+    const refusal=page.waitForResponse(response=>new URL(response.url()).pathname===savePath)
+    await page.getByRole('button',{name:'Save',exact:true}).click();expect((await refusal).status()).toBe(401);await bounded(loginStarted)
+    expect(await refusalRender.evaluate(({observed})=>observed)).toBe(true)
+    expect(await page.locator('.sparra-business-form').count()).toBe(0)
+    expect(await page.getByRole('textbox',{name:/^Business name/}).count()).toBe(0)
+    releaseLogin();await page.waitForURL(origin+'/login?lang=en');await page.getByRole('button',{name:'Continue with Google',exact:true}).waitFor()
+    expect((await stores.administrator.query('SELECT max(revision)::int revision FROM sparra_knowledge_revision WHERE workspace_id=$1',[workspace.id])).rows[0].revision).toBe(1)
+  }finally{releaseLogin();await cleanupRefusal().catch(()=>{});await context.close()}
+},30000)
+
 test('unknown and foreign receipts reveal no private data; revoked native sessions redirect and CSRF refuses POST',async()=>{
   const {context,page}=await signedIn('sparra-other')
   try {

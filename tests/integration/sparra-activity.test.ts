@@ -158,15 +158,25 @@ test('RLS denies absent/zero/invalid/foreign tenants and guessed IDs, runtime ha
   expect((await stores.administrator.query("SELECT r.rolname AS owner,c.relrowsecurity,c.relforcerowsecurity FROM pg_class c JOIN pg_roles r ON r.oid=c.relowner WHERE c.oid='sparra_knowledge_revision'::regclass")).rows).toEqual([{owner:'workspace_owner',relrowsecurity:true,relforcerowsecurity:true}])
   expect((await stores.administrator.query("SELECT has_table_privilege('runtime','sparra_knowledge_revision','SELECT') AS read,has_table_privilege('runtime','sparra_knowledge_revision','INSERT') AS insert,has_table_privilege('runtime','sparra_knowledge_revision','UPDATE,DELETE') AS mutate,has_table_privilege('workspace_bootstrap','sparra_knowledge_revision','SELECT,INSERT') AS bootstrap")).rows).toEqual([{read:true,insert:true,mutate:false,bootstrap:false}])
   expect((await stores.administrator.query("SELECT count(*)::int AS n FROM pg_class c, LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a WHERE c.oid='sparra_knowledge_revision'::regclass AND a.grantee=0")).rows[0].n).toBe(0)
-  const policies=(await stores.administrator.query("SELECT policyname,cmd,roles::text[] AS roles,qual,with_check FROM pg_policies WHERE schemaname='public' AND tablename='sparra_knowledge_revision' ORDER BY cmd")).rows
-  expect(policies).toHaveLength(2)
+  const policies=(await stores.administrator.query("SELECT policyname,cmd,roles::text[] AS roles,permissive,qual,with_check FROM pg_policies WHERE schemaname='public' AND tablename='sparra_knowledge_revision' ORDER BY policyname")).rows
+  expect(policies.map(({policyname,cmd,roles,permissive,qual,with_check})=>({policyname,cmd,roles,permissive,using:qual!==null,check:with_check!==null}))).toEqual([
+    {policyname:'sparra_revision_insert',cmd:'INSERT',roles:['runtime'],permissive:'PERMISSIVE',using:false,check:true},
+    {policyname:'sparra_revision_read',cmd:'SELECT',roles:['runtime'],permissive:'PERMISSIVE',using:true,check:false},
+    {policyname:'sparra_revision_voice_delete',cmd:'DELETE',roles:['sparra_voice_definer'],permissive:'PERMISSIVE',using:true,check:false},
+    {policyname:'sparra_revision_voice_read',cmd:'SELECT',roles:['sparra_voice_definer'],permissive:'PERMISSIVE',using:true,check:false},
+  ])
   for(const policy of policies){
-    expect(policy.roles).toEqual(['runtime'])
-    const predicate:string=policy.qual ?? policy.with_check
-    expect(predicate).toContain('EXISTS')
-    expect(predicate).toContain("lifecycle = 'active'")
-    expect(predicate).toContain('workspace.id = sparra_knowledge_revision.workspace_id')
+    if(policy.roles[0]==='runtime'){
+      const predicate:string=policy.qual ?? policy.with_check
+      expect(predicate).toContain('EXISTS')
+      expect(predicate).toContain("lifecycle = 'active'")
+      expect(predicate).toContain('workspace.id = sparra_knowledge_revision.workspace_id')
+      expect(predicate).toMatch(/\(?workspace_id\)?::text = current_setting\('app\.tenant_id'::text, true\)/)
+      expect(predicate).toContain("<> '00000000-0000-0000-0000-000000000000'::text")
+    }else expect(policy.qual).toBe('(workspace_id = voice_private.bound_workspace())')
   }
+  const boundWorkspace=(await stores.administrator.query("SELECT prosrc FROM pg_proc WHERE oid='voice_private.bound_workspace()'::regprocedure")).rows[0].prosrc
+  expect(boundWorkspace.replace(/\s+/g,' ').trim()).toBe('SELECT workspace_id FROM voice_private.deployment_binding WHERE service_login=session_user AND service_role_oid=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=session_user)')
 })
 
 test('SQL independently bounds revision, sector, UTF16 text, typed destination and finite timestamp',async()=>{

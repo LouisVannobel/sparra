@@ -1,9 +1,33 @@
 import { existsSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, test } from 'vitest'
-import type { RequestDetailDto } from '../../src/modules/sparra/sparra.functions'
+import type { ActivityState, RequestDetailDto } from '../../src/modules/sparra/sparra.functions'
 
 const unavailable=async():Promise<never>=>{throw new Error('SSR must not mutate')}
+test('configured activity SSR preserves the observed revision, editor values and disabled actions in both locales',async()=>{
+  const {ActivityPanel}=await import('../../src/ui/sparra/activity-panel')
+  const state:ActivityState={workspace:{id:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',displayName:'Observed workspace'},configuration:{workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',revision:7,savedAt:'2026-10-01T10:00:00.000Z',businessName:'Observed inspection centre',sector:'controle-technique',knowledge:{openingHours:'09:00–17:00',services:'Vehicle inspection',prices:'80 euros',faq:'Bring the vehicle papers',instructions:'Ask before proceeding'},transferDestination:null}}
+  for(const locale of ['fr','en'] as const){
+    const html=renderToStaticMarkup(<ActivityPanel locale={locale} state={state} onEnsure={unavailable} onSave={unavailable} onRead={unavailable} onRefused={unavailable}/> )
+    expect(html).toContain('<p>'+(locale==='fr'?'Version enregistrée':'Saved version')+': 7</p>')
+    expect(html).toContain('value="Observed inspection centre"')
+    expect(html).toContain(locale==='fr'?'Contrôle technique':'Vehicle inspection')
+    const inputs=[...html.matchAll(/<input\b([^>]*)>/g)]
+    expect(inputs).toHaveLength(2)
+    expect(inputs[0]?.[1]).toContain('aria-required="true"')
+    expect(inputs[1]?.[1]).toContain('value=""')
+    const areas=[...html.matchAll(/<textarea\b([^>]*)>([\s\S]*?)<\/textarea>/g)]
+    expect(areas.map(area=>area[2])).toEqual(['09:00–17:00','Vehicle inspection','80 euros','Bring the vehicle papers','Ask before proceeding'])
+    const labels=locale==='fr'?['Horaires','Services','Tarifs','Questions fréquentes','Consignes']:['Opening hours','Services','Prices','Frequently asked questions','Instructions']
+    for(const label of labels)expect(html).toContain(label)
+    const controls=[...html.matchAll(/<(?:input|textarea|button)\b([^>]*)>/g)]
+    expect(controls).toHaveLength(9)
+    for(const control of controls)expect(control[1]).toContain('disabled=""')
+    expect(html).not.toContain(locale==='fr'?'Configuration enregistrée.':'Configuration saved.')
+    expect(html).not.toContain(locale==='fr'?'Créer mon espace':'Create my workspace')
+  }
+})
+
 test('private panels render truthful empty and partial states in FR/EN without invoking mutations',async()=>{
   expect(existsSync('src/ui/sparra/activity-panel.tsx'),'actual business editor required').toBe(true)
   const {ActivityPanel}=await import('../../src/ui/sparra/activity-panel')
