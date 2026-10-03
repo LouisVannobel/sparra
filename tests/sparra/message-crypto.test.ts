@@ -61,7 +61,7 @@ test.each(['ino','dev'] as const)('opened key-file %s mismatch is unavailable an
     vi.mocked(open).mockImplementationOnce(async(...args)=>{
       file=await filesystem.open(...args)
       const opened=await file.stat()
-      opened[field]++
+      opened[field]=opened[field]===0?1:0
       vi.spyOn(file,'stat').mockResolvedValueOnce(opened)
       return file
     })
