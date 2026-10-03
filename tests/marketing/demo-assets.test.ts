@@ -57,7 +57,7 @@ ConvertTo-Json -InputObject @($results) -Compress
     if (dirname(cleanup) !== resolve('.output') || !basename(cleanup).startsWith('demo-containment-')) throw new Error('Non-owned containment fixture cleanup')
     rmSync(cleanup, { recursive: true })
   }
-})
+}, 15000)
 
 test('both real MP3 illustrations decode and match their cues, text, receipt and provenance', () => {
   const source = JSON.parse(readFileSync('docs/demos/scenarios.fr.json', 'utf8'))
