@@ -144,7 +144,7 @@ test('non_tar_arbitrary_id_and_packaged_source_misbinding_are_refused',async()=>
   expect((await run(first.directory,first.receipt)).code).toBe(1)
   const second=await fixture();second.receipt.image_id='sha256:'+'d'.repeat(64)
   expect((await run(second.directory,second.receipt)).code).toBe(1)
-  for(const input of [{badManifest:true},{badSource:true},{blockedParent:true},{badPlatform:true},{repeatedPath:true}]){const candidate=await fixture(input);expect((await run(candidate.directory,candidate.receipt)).code).toBe(1)}
+  for(const input of [{badManifest:true},{badSource:true},{blockedParent:true},{badPlatform:true},{repeatedPath:true}]){const candidate=await fixture(input);await expect(verifyFixture(candidate.directory,candidate.receipt)).rejects.toThrow('Invalid migration archive')}
 })
 test('header_only_spdx_cannot_claim_an_image_subject',async()=>{
   const {directory,receipt}=await fixture(),header=JSON.stringify({spdxVersion:'SPDX-2.3',dataLicense:'CC0-1.0',SPDXID:'SPDXRef-DOCUMENT',name:'Header',documentNamespace:'https://example.invalid/header'})
@@ -176,5 +176,5 @@ test.each(['truncated','duplicate','traversal','symlink','extension','oversized'
     bytes.fill(32,148,156);bytes.write(bytes.subarray(0,512).reduce((sum,byte)=>sum+byte,0).toString(8).padStart(6,'0')+'\0 ',148)
   }
   await writeFile(join(directory,'migrator-image.tar'),bytes);receipt.archive_sha256=hash(bytes)
-  expect((await run(directory,receipt)).code).toBe(1)
+  await expect(verifyFixture(directory,receipt)).rejects.toThrow('Invalid migration archive')
 })
