@@ -1,12 +1,14 @@
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve, dirname, basename } from 'node:path'
 import { tmpdir } from 'node:os'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { API } from 'typescript/unstable/sync'
+import { pathToFileURL } from 'node:url'
+import { API, type Snapshot } from 'typescript/unstable/sync'
 import { createScanner, getLeadingCommentRanges, getTokenAtPosition, getTrailingCommentRanges, isArrowFunction, isBlock, isCallExpression, isExpressionStatement, isFunctionDeclaration, isIdentifier, isImportDeclaration, isNamedImports, isStringLiteral, LanguageVariant, SyntaxKind } from 'typescript/unstable/ast'
 import type { CallExpression, Node, SourceFile } from 'typescript/unstable/ast'
 import { afterAll, beforeAll, expect, test } from 'vitest'
+import { admitCommonGeometry, assertDirectory, assertRunTree, readNativeBlob, sourceIdentity } from '../scripts/native-coverage-inputs.mjs'
 
 const repositoryRoot = process.cwd()
 const fixtureRoot = mkdtempSync(join(repositoryRoot, 'src', '.anti-slop-canary-'))
@@ -99,6 +101,198 @@ function runQuality(tool:'fallow'|'react-doctor',args:string[],cwd:string) {
 }
 afterAll(()=>{for(const root of qualityRoots){if(dirname(root)!==tmpdir()||!basename(root).startsWith('sparra-quality-canary-'))throw new Error('Non-owned quality cleanup');rmSync(root,{recursive:true})}})
 
+function nativeCoverageFixture(activityAfterAll = '') {
+  const {root}=qualityFixture()
+  for(const name of ['App.tsx','main.tsx','unused.ts'])rmSync(join(root,'src',name))
+  for(const directory of ['scripts','tests/integration','drizzle','.output/server','.output/public','coverage'])mkdirSync(join(root,directory),{recursive:true})
+  const packageFile=join(root,'package.json'),metadata=JSON.parse(readFileSync(join(repositoryRoot,'package.json'),'utf8'))
+  writeFileSync(packageFile,JSON.stringify({name:'native-coverage-canary',private:true,type:'module',engines:metadata.engines,devDependencies:{vitest:'4.1.11','@vitest/coverage-istanbul':'4.1.11'}}))
+  writeFileSync(join(root,'pnpm-lock.yaml'),'lockfileVersion: 9.0\n')
+  for(const config of ['vitest.config.ts','vitest.integration.config.ts'])writeFileSync(join(root,config),readFileSync(join(repositoryRoot,config)))
+  writeFileSync(join(root,'scripts/test-prerequisites.mjs'),readFileSync(join(repositoryRoot,'scripts/test-prerequisites.mjs')))
+  writeFileSync(join(root,'.output/server/index.mjs'),'export const build = 1\n')
+  writeFileSync(join(root,'src/covered.ts'),'export function selectBranch(value: boolean): number {\n  if (value) return 7\n  return 9\n}\n')
+  writeFileSync(join(root,'src/unexecuted.ts'),'export function unexecuted(): number {\n  return 13\n}\n')
+  writeFileSync(join(root,'tests/ordinary.test.ts'),"import {expect,test} from 'vitest';import {selectBranch} from '../src/covered';test('ordinary true branch',()=>expect(selectBranch(true)).toBe(7));\n")
+  writeFileSync(join(root,'tests/integration/sparra-activity.test.ts'),"import {afterAll,expect,test} from 'vitest';import {selectBranch} from '../../src/covered';import {appendFileSync,readFileSync,readdirSync,rmSync,symlinkSync,writeFileSync} from 'node:fs';import {join} from 'node:path';test.each(Array.from({length:11},(_,index)=>index))('activity false branch %i',()=>expect(selectBranch(false)).toBe(9));afterAll(()=>{"+activityAfterAll+'});\n')
+  return root
+}
+
+function runNativeCoverage(root:string,args:string[]) {
+  return spawnSync(process.execPath,[join(repositoryRoot,'node_modules/vitest/vitest.mjs'),...args],{cwd:root,encoding:'utf8',windowsHide:true,timeout:12000})
+}
+
+test('native_blob_coverage_keeps_additive_counts_zero_entries_and_source_geometry',()=>{
+  const root=nativeCoverageFixture(),blobs=join(root,'coverage/blobs'),ordinary=join(root,'coverage/ordinary'),activity=join(root,'coverage/activity'),final=join(root,'coverage/final')
+  const startedAt=Date.now(),identity=sourceIdentity(root)
+  expect(sourceIdentity(root)).toBe(identity)
+  for(const path of [join(root,'src/covered.ts'),join(root,'.output/server/index.mjs')]) {
+    const original=readFileSync(path)
+    try {writeFileSync(path,Buffer.concat([original,Buffer.from('\nexport const directConsumerDrift = 1\n')]))
+      expect(sourceIdentity(root)).not.toBe(identity)
+    } finally {writeFileSync(path,original)}
+    expect(sourceIdentity(root)).toBe(identity)
+  }
+  mkdirSync(blobs);mkdirSync(ordinary);writeFileSync(join(ordinary,'stale.txt'),'old output')
+  const phase=(config:string,report:string,output:string,files:string[])=>runNativeCoverage(root,['run','--config',config,...files,'--maxWorkers=1','--coverage','--reporter=default','--reporter=blob','--outputFile.blob='+join(blobs,report),'--coverage.reportsDirectory='+output])
+  const first=phase('vitest.config.ts','ordinary.json',ordinary,[])
+  expect(first.error).toBeUndefined();expect(first.status,first.stdout+first.stderr).toBe(0)
+  expect(existsSync(join(ordinary,'stale.txt'))).toBe(false)
+  const second=phase('vitest.integration.config.ts','activity.json',activity,['tests/integration/sparra-activity.test.ts'])
+  expect(second.error).toBeUndefined();expect(second.status,second.stdout+second.stderr).toBe(0)
+  expect(readdirSync(blobs).sort()).toEqual(['activity.json','ordinary.json'])
+  expect(sourceIdentity(root)).toBe(identity)
+  const ordinaryPath=join(blobs,'ordinary.json'),activityPath=join(blobs,'activity.json')
+  const coverageDirectory=join(root,'coverage'),witnessDirectory=join(root,'owned-input-witness'),witness=join(witnessDirectory,'preserved.txt')
+  const witnessBytes=Buffer.from('owned coverage input preservation witness\n')
+  mkdirSync(witnessDirectory);writeFileSync(witness,witnessBytes)
+  for(const directory of [coverageDirectory,blobs,ordinary,activity]) {
+    const owner=assertDirectory(directory)
+    expect(owner.isDirectory()).toBe(true)
+    expect(assertDirectory(directory,owner)).toMatchObject({dev:owner.dev,ino:owner.ino})
+    expect(()=>assertDirectory(directory,{dev:owner.dev===0?1:0,ino:owner.ino})).toThrow('Native coverage directory ownership changed')
+    expect(readFileSync(witness)).toEqual(witnessBytes)
+    expect(()=>assertDirectory(directory,{dev:owner.dev,ino:owner.ino===0?1:0})).toThrow('Native coverage directory ownership changed')
+    expect(readFileSync(witness)).toEqual(witnessBytes)
+  }
+  expect(()=>assertDirectory(ordinaryPath)).toThrow('Native coverage directory ownership changed')
+  expect(readFileSync(witness)).toEqual(witnessBytes)
+  expect(()=>assertRunTree(coverageDirectory)).not.toThrow()
+  const ownedLink=join(blobs,'owned-input-link')
+  symlinkSync(witnessDirectory,ownedLink,process.platform==='win32'?'junction':'dir')
+  try {
+    expect(()=>assertDirectory(ownedLink)).toThrow('Native coverage directory ownership changed')
+    expect(readFileSync(witness)).toEqual(witnessBytes)
+    expect(()=>assertRunTree(coverageDirectory)).toThrow('Unsafe native coverage run entry')
+    expect(readFileSync(witness)).toEqual(witnessBytes)
+  } finally {rmSync(ownedLink)}
+  expect(()=>assertRunTree(coverageDirectory)).not.toThrow()
+  expect(readFileSync(witness)).toEqual(witnessBytes)
+  const nativeOrdinary=readNativeBlob(ordinaryPath,'ordinary',root,startedAt,'4.1.11'),nativeActivity=readNativeBlob(activityPath,'activity',root,startedAt,'4.1.11')
+  expect(nativeOrdinary.digest).toBe(createHash('sha256').update(readFileSync(ordinaryPath)).digest('hex'))
+  expect(nativeActivity.digest).toBe(createHash('sha256').update(readFileSync(activityPath)).digest('hex'))
+  expect(()=>admitCommonGeometry(nativeOrdinary,nativeActivity)).not.toThrow()
+  expect(()=>readNativeBlob(ordinaryPath,'ordinary',root,Date.now()+60000,'4.1.11')).toThrow('Native coverage blob is stale or invalid')
+  expect(()=>readNativeBlob(ordinaryPath,'ordinary',join(root,'foreign-root'),startedAt,'4.1.11')).toThrow('Native blob source root mismatch')
+  expect(()=>readNativeBlob(ordinaryPath,'activity',root,startedAt,'4.1.11')).toThrow('Native activity blob has an unexpected consumer')
+  const refusal=join(root,'coverage/direct-refusal.json')
+  const foreign=JSON.parse(readFileSync(ordinaryPath,'utf8')),foreignFiles=foreign[Number(foreign[0][1])],foreignFile=foreign[Number(foreignFiles[0])]
+  foreign[Number(foreignFile.filepath)]=process.platform==='win32'?'D:/sparra-foreign/ordinary.test.ts':'/sparra-foreign/ordinary.test.ts'
+  writeFileSync(refusal,JSON.stringify(foreign))
+  expect(()=>readNativeBlob(refusal,'ordinary',root,startedAt,'4.1.11')).toThrow('Native blob source root mismatch')
+  const alias=JSON.parse(readFileSync(ordinaryPath,'utf8')),aliasCoverage=alias[Number(alias[0][3])],key=Object.keys(aliasCoverage).find(path=>path.endsWith('/src/covered.ts'))!
+  aliasCoverage[key+'.alias']=aliasCoverage[key];delete aliasCoverage[key]
+  writeFileSync(refusal,JSON.stringify(alias))
+  expect(()=>readNativeBlob(refusal,'ordinary',root,startedAt,'4.1.11')).toThrow('Native coverage record identity mismatch')
+  for(const field of ['statementMap','fnMap','branchMap']) {
+    const changed=JSON.parse(readFileSync(ordinaryPath,'utf8')),entries=changed[Number(changed[0][3])],record=changed[Number(entries[key])],geometry=changed[Number(record[field])]
+    const location=changed[Number(geometry['0'])]
+    location.directConsumerMetadata=1
+    writeFileSync(refusal,JSON.stringify(changed))
+    const admitted=readNativeBlob(refusal,'ordinary',root,startedAt,'4.1.11')
+    expect(()=>admitCommonGeometry(admitted,nativeActivity)).toThrow('Native coverage common-file geometry mismatch')
+  }
+  const merge=(directory:string)=>runNativeCoverage(root,['--config','vitest.config.ts','--coverage','--mergeReports='+directory,'--reporter=default','--coverage.reportsDirectory='+final])
+  const merged=merge(blobs)
+  expect(merged.error).toBeUndefined();expect(merged.status,merged.stdout+merged.stderr).toBe(0)
+  const coverage=JSON.parse(readFileSync(join(final,'coverage-final.json'),'utf8'))
+  const covered=coverage[join(root,'src/covered.ts').replaceAll('\\','/')],unexecuted=coverage[join(root,'src/unexecuted.ts').replaceAll('\\','/')]
+  expect(covered.f).toEqual({'0':12});expect(covered.s).toEqual({'0':12,'1':1,'2':11})
+  expect(covered.b).toEqual({'0':[1,11]})
+  expect(covered.fnMap['0'].decl.start).toEqual({line:1,column:16})
+  expect(covered.statementMap['1']).toEqual({start:{line:2,column:13},end:{line:2,column:null}})
+  expect(covered.branchMap['0'].loc.start.line).toBe(2)
+  expect(unexecuted.f).toEqual({'0':0});expect(unexecuted.s).toEqual({'0':0})
+  const single=join(root,'coverage/single');mkdirSync(single)
+  writeFileSync(join(single,'ordinary.json'),readFileSync(join(blobs,'ordinary.json')))
+  expect(merge(single).status).toBe(0)
+  const empty=join(root,'coverage/empty');mkdirSync(empty)
+  for(const directory of [empty,join(root,'coverage/missing')])expect(merge(directory).status).not.toBe(0)
+  writeFileSync(join(single,'ordinary.json'),'invalid blob')
+  expect(()=>readNativeBlob(join(single,'ordinary.json'),'ordinary',root,startedAt,'4.1.11')).toThrow()
+  expect(merge(single).status).not.toBe(0)
+  const incompatible=JSON.parse(readFileSync(join(blobs,'ordinary.json'),'utf8'))
+  incompatible[Number(incompatible[0][0])]='0.0.0'
+  writeFileSync(join(single,'ordinary.json'),JSON.stringify(incompatible))
+  expect(()=>readNativeBlob(join(single,'ordinary.json'),'ordinary',root,startedAt,'4.1.11')).toThrow('Native coverage blob version mismatch')
+  expect(merge(single).status).not.toBe(0)
+  const ordinaryTest=join(root,'tests/ordinary.test.ts')
+  writeFileSync(ordinaryTest,readFileSync(ordinaryTest,'utf8').replace('.toBe(7)','.toBe(9)'))
+  const failed=phase('vitest.config.ts','ordinary.json',ordinary,[])
+  expect(failed.error).toBeUndefined();expect(failed.status).not.toBe(0)
+},60000)
+
+function runCoverageConsumer(root:string,preload?:string) {
+  writeFileSync(join(root,'scripts/test.mjs'),readFileSync(join(repositoryRoot,'scripts/test.mjs')))
+  writeFileSync(join(root,'scripts/native-coverage-inputs.mjs'),readFileSync(join(repositoryRoot,'scripts/native-coverage-inputs.mjs')))
+  writeFileSync(join(root,'coverage/coverage-final.json'),'{"stale":true}')
+  const args=preload?['--import',pathToFileURL(preload).href,'scripts/test.mjs']:['scripts/test.mjs']
+  return spawnSync(process.execPath,args,{cwd:root,encoding:'utf8',windowsHide:true,timeout:20000})
+}
+
+test('actual_coverage_runner_publishes_only_native_complete_map_after_retirement',()=>{
+  const root=nativeCoverageFixture(),result=runCoverageConsumer(root)
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
+  expect(readdirSync(join(root,'coverage'))).toEqual(['coverage-final.json'])
+  const coverage=JSON.parse(readFileSync(join(root,'coverage/coverage-final.json'),'utf8'))
+  expect(coverage.stale).toBeUndefined()
+  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].f).toEqual({'0':12})
+  expect(coverage[join(root,'src/unexecuted.ts').replaceAll('\\','/')].f).toEqual({'0':0})
+},25000)
+
+test.each([
+  ['afterAll failure',"throw new Error('Owned afterAll failure')"],
+  ['single blob',"const run=readdirSync('coverage').find(name=>name.startsWith('.native-'));rmSync(join('coverage',run!,'blobs/ordinary.json'))"],
+  ['extra blob',"const run=readdirSync('coverage').find(name=>name.startsWith('.native-'));writeFileSync(join('coverage',run!,'blobs/extra.json'),'{}')"],
+  ['source drift',"appendFileSync('src/covered.ts','\\nexport const drift = 1\\n')"],
+  ['build drift',"appendFileSync('.output/server/index.mjs','\\nexport const drift = 1\\n')"],
+  ['unsafe retirement',"const run=readdirSync('coverage').find(name=>name.startsWith('.native-'));symlinkSync(process.cwd(),join('coverage',run!,'ordinary/foreign'),process.platform==='win32'?'junction':'dir')"],
+  ['raw blob common geometry drift',"const run=readdirSync('coverage').find(name=>name.startsWith('.native-'));const path=join('coverage',run!,'blobs/ordinary.json');const table=JSON.parse(readFileSync(path,'utf8'));const coverage=table[Number(table[0][3])];const file=table[Number(coverage[Object.keys(coverage).find(name=>name.endsWith('/src/covered.ts'))!])];const statements=table[Number(file.statementMap)];const location=table[Number(statements['1'])];table[Number(location.start)].line+=1;writeFileSync(path,JSON.stringify(table))"],
+  ['raw blob foreign root',"const run=readdirSync('coverage').find(name=>name.startsWith('.native-'));const path=join('coverage',run!,'blobs/ordinary.json');const table=JSON.parse(readFileSync(path,'utf8'));const files=table[Number(table[0][1])];const file=table[Number(files[0])];table[Number(file.filepath)]=process.platform==='win32'?'D:/sparra-foreign/ordinary.test.ts':'/sparra-foreign/ordinary.test.ts';writeFileSync(path,JSON.stringify(table))"],
+  ['raw blob coverage key alias',"const run=readdirSync('coverage').find(name=>name.startsWith('.native-'));const path=join('coverage',run!,'blobs/ordinary.json');const table=JSON.parse(readFileSync(path,'utf8'));const coverage=table[Number(table[0][3])];const key=Object.keys(coverage).find(name=>name.endsWith('/src/covered.ts'))!;const file=table[Number(coverage[key])];const statements=table[Number(file.statementMap)];const location=table[Number(statements['1'])];table[Number(location.start)].line+=1;coverage[key+'.alias']=coverage[key];delete coverage[key];writeFileSync(path,JSON.stringify(table))"],
+])('actual_coverage_runner_invalidates_stale_publication_on_%s',(name,afterAllSource)=>{
+  const root=nativeCoverageFixture(afterAllSource),result=runCoverageConsumer(root)
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
+  expect(existsSync(join(root,'coverage/coverage-final.json')),name).toBe(false)
+  expect(readdirSync(join(root,'coverage')).some(file=>file.endsWith('.pending')),name).toBe(false)
+},25000)
+
+test('actual_coverage_runner_refuses_pruned_admitted_ordinary_blob',()=>{
+  const root=nativeCoverageFixture("const run=readdirSync('coverage').find(name=>name.startsWith('.native-'));const path=join('coverage',run!,'blobs/ordinary.json');const table=JSON.parse(readFileSync(path,'utf8'));const files=table[Number(table[0][1])];const index=files.findIndex((reference:string)=>table[Number(table[Number(reference)].filepath)].endsWith('/tests/ordinary.test.ts'));if(index<0||files.length!==2)throw new Error('Expected two genuine ordinary test files');files.splice(index,1);const coverage=table[Number(table[0][3])];delete coverage[Object.keys(coverage).find(name=>name.endsWith('/src/covered.ts'))!];writeFileSync(path,JSON.stringify(table))")
+  writeFileSync(join(root,'tests/second-ordinary.test.ts'),"import {expect,test} from 'vitest';test('second ordinary witness',()=>expect(1+1).toBe(2));\n")
+  const result=runCoverageConsumer(root),final=join(root,'coverage/coverage-final.json')
+  const published=existsSync(final)?JSON.parse(readFileSync(final,'utf8'))[join(root,'src/covered.ts').replaceAll('\\','/')].f:null
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr+'\nAccepted native function counts: '+JSON.stringify(published)).toBe(1)
+  expect(existsSync(final)).toBe(false)
+  expect(readdirSync(join(root,'coverage')).some(file=>file.endsWith('.pending'))).toBe(false)
+},25000)
+
+test('actual_coverage_runner_preserves_foreign_pending_collision_marker',()=>{
+  const root=nativeCoverageFixture("const run=readdirSync('coverage').find(name=>name.startsWith('.native-'));writeFileSync(join('coverage','.coverage-final-'+run!.slice('.native-'.length)+'.pending'),'foreign pending marker')")
+  const result=runCoverageConsumer(root)
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
+  expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
+  const pending=readdirSync(join(root,'coverage')).filter(file=>file.endsWith('.pending'))
+  expect(pending).toHaveLength(1)
+  expect(readFileSync(join(root,'coverage',pending[0]!),'utf8')).toBe('foreign pending marker')
+},25000)
+
+test('actual_coverage_runner_retires_owned_pending_after_partial_write_failure',()=>{
+  const root=nativeCoverageFixture(),preload=join(root,'coverage/partial-write-preload.mjs')
+  writeFileSync(preload,`import fs from 'node:fs';import {syncBuiltinESMExports} from 'node:module';import {join} from 'node:path';
+const open=fs.openSync,write=fs.writeFileSync,close=fs.closeSync,stat=fs.fstatSync,descriptors=new Set();
+const pending=path=>typeof path==='string'&&path.startsWith(join(process.cwd(),'coverage','.coverage-final-'))&&path.endsWith('.pending');
+fs.openSync=(path,flags,...args)=>{const descriptor=open(path,flags,...args);if(pending(path)&&flags==='wx')descriptors.add(descriptor);return descriptor};
+const partial=(descriptor,bytes)=>{write(descriptor,bytes.subarray(0,16));write(join(process.cwd(),'coverage/partial-write-observed.txt'),String(stat(descriptor).size));throw new Error('Owned partial pending write failure')};
+fs.writeFileSync=(file,bytes,...args)=>{if(typeof file==='number'&&descriptors.has(file))return partial(file,bytes);if(pending(file)){const descriptor=open(file,'wx',0o600);try{return partial(descriptor,bytes)}finally{close(descriptor)}}return write(file,bytes,...args)};
+syncBuiltinESMExports();\n`)
+  const result=runCoverageConsumer(root,preload)
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
+  expect(readFileSync(join(root,'coverage/partial-write-observed.txt'),'utf8')).toBe('16')
+  expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
+  expect(readdirSync(join(root,'coverage')).some(file=>file.endsWith('.pending'))).toBe(false)
+},25000)
+
 test('maintained_fallow_audit_scans_actual_changed_canary',()=>{
   const {root,base}=qualityFixture(),result=runQuality('fallow',['audit','--no-css','--base',base],root)
   expect(result.error).toBeUndefined();expect(result.status,result.stderr||result.stdout).toBe(1)
@@ -112,18 +306,23 @@ test('fallow_declares_only_native_subprocess_roots_and_exact_generated_import',(
   writeFileSync(join(root,'tests/helpers/generate-native-voice-envelope.ts'),"console.log('synthetic generator');\n")
   writeFileSync(join(root,'tests/helpers/runtime-probe.mjs'),"console.log('synthetic preload');\n")
   writeFileSync(join(root,'scripts/start-web.mjs'),"await import('../.output/server/index.mjs');\nawait import('../.output/server/genuinely-missing.mjs');\n")
+  writeFileSync(join(root,'scripts/test-prerequisites.mjs'),"console.log('synthetic prerequisite decoder');\n")
+  writeFileSync(join(root,'scripts/undeclared-prerequisite-sibling.mjs'),"console.log('synthetic undeclared sibling');\n")
   writeFileSync(join(root,'src/main.tsx'),readFileSync(join(root,'src/main.tsx'),'utf8')+"import './genuinely-missing';\n")
-  const fixtureConfig: {health:{coverage:string|null}} = JSON.parse(readFileSync(join(repositoryRoot,'.fallowrc.json'),'utf8'))
+  const fixtureConfig: {entry:string[];health:{coverage:string|null}} = JSON.parse(readFileSync(join(repositoryRoot,'.fallowrc.json'),'utf8'))
+  expect(fixtureConfig.entry).toEqual(['scripts/start-web.mjs','scripts/test-prerequisites.mjs','tests/helpers/generate-native-voice-envelope.ts'])
   fixtureConfig.health.coverage = null
   writeFileSync(join(root,'.fallowrc.json'),JSON.stringify(fixtureConfig))
   const result=runQuality('fallow',['audit','--no-css','--base',base],root)
   expect(result.error).toBeUndefined();expect(result.status,result.stderr||result.stdout).toBe(1)
   const output=result.stdout+result.stderr
   expect(output).toMatch(/src[\\/]unused\.ts/)
+  expect(output).toContain('undeclared-prerequisite-sibling.mjs')
   expect(output).toContain('./genuinely-missing')
   expect(output).toContain('../.output/server/genuinely-missing.mjs')
   expect(output).not.toContain('generate-native-voice-envelope.ts')
   expect(output).not.toContain('runtime-probe.mjs')
+  expect(output).not.toMatch(/(?:^|[\\/])test-prerequisites\.mjs/)
   expect(output).not.toContain('../.output/server/index.mjs')
 },40000)
 
@@ -335,15 +534,15 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
     if(doc.kind===SyntaxKind.JSDoc)ranges.push(...(getLeadingCommentRanges(text,doc.pos)??[]))
     return ranges.filter(range=>range.pos<=offset&&offset<range.end)
   }
-  function actualComments(candidate:Map<string,string>) {
+  function parsedCommentSources(candidate:Map<string,string>) {
     // Every maintained file is inspected; parse only text candidates so strings cannot become comments.
     const potential=[...candidate].filter(([,text])=>text.toLowerCase().includes('fallow-ignore'))
     const overlays=new Map(potential.map(([file,text])=>[resolve(repositoryRoot,file).toLowerCase(),text]))
     const api=new API({cwd:repositoryRoot,fs:{readFile:file=>overlays.get(resolve(file).toLowerCase()),fileExists:file=>overlays.has(resolve(file).toLowerCase())?true:undefined}})
     const markers=new Map<string,{file:string;start:number;end:number;text:string}>()
+    let snapshot:Snapshot|undefined
     try {
-      const snapshot=api.updateSnapshot({openFiles:potential.map(([file])=>join(repositoryRoot,file))})
-      try {
+      snapshot=api.updateSnapshot({openFiles:potential.map(([file])=>join(repositoryRoot,file))})
         for(const [file,text] of potential) {
           const filePath=join(repositoryRoot,file),program=snapshot.getDefaultProjectForFile(filePath)?.program,source=program?.getSourceFile(filePath)
           if(!program||!source)throw new Error('Reviewed SSR comment source was not parsed')
@@ -356,9 +555,15 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
             }
           }
         }
-      } finally {snapshot.dispose()}
-    } finally {api.close()}
-    return [...markers.values()]
+      return {api,snapshot,markers:[...markers.values()]}
+    } catch(error) {
+      try {snapshot?.dispose()} finally {api.close()}
+      throw error
+    }
+  }
+  function actualComments(candidate:Map<string,string>) {
+    const {api,snapshot,markers}=parsedCommentSources(candidate)
+    try {return markers} finally {try {snapshot.dispose()} finally {api.close()}}
   }
   const directive=targets[0][1]
   const textOnly=[
@@ -376,15 +581,13 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
     '// fallow-ignore complexity -- unknown EOF',
   ])expect(actualComments(new Map([[ssrFile,source]]))).toHaveLength(1)
   function reviewedCallbacks(candidate:Map<string,string>) {
-    const markers=actualComments(candidate)
-    expect(markers,'Reviewed SSR marker count expired').toHaveLength(4)
-    expect(markers.every(marker=>marker.file===ssrFile),'Reviewed SSR marker file expired').toBe(true)
-    expect(markers.map(marker=>marker.text).sort(),'Reviewed SSR canonical markers expired').toEqual(targets.map(target=>target[1]).sort())
-    const text=candidate.get(ssrFile)
-    const api=new API({cwd:repositoryRoot,fs:{readFile:file=>resolve(file).toLowerCase()===path.toLowerCase()?text:undefined}})
+    const {api,snapshot,markers}=parsedCommentSources(candidate)
     try {
-      const snapshot=api.updateSnapshot({openFiles:[path]})
       try {
+        expect(markers,'Reviewed SSR marker count expired').toHaveLength(4)
+        expect(markers.every(marker=>marker.file===ssrFile),'Reviewed SSR marker file expired').toBe(true)
+        expect(markers.map(marker=>marker.text).sort(),'Reviewed SSR canonical markers expired').toEqual(targets.map(target=>target[1]).sort())
+        const text=candidate.get(ssrFile)
         const project=snapshot.getDefaultProjectForFile(path),program=project?.program,source=program?.getSourceFile(path)
         if(!project||!program||!source)throw new Error('Reviewed SSR source was not parsed')
         expect(source.text,'Reviewed SSR source overlay expired').toBe(text)

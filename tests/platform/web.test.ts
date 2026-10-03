@@ -151,6 +151,72 @@ test('real Nitro-to-SSR requests carry the same process-owned resources without 
   expect(runtime.output()).not.toMatch(/test-web-only-secret|fixture-only/)
 })
 
+test('unknown controlled root mode fails safely while ordinary routes still delegate', async () => {
+  const runtime = launch({ FIXTURE_ROOT_RESPONSE: 'unknown' })
+  const { port } = await bounded(runtime.ready)
+  const base = `http://127.0.0.1:${port}`
+  for (const method of ['GET', 'HEAD']) {
+    const response = await fetch(base + '/', { method })
+    expect(response.status).toBe(500)
+    safeHeaders(response)
+    expect(await response.text()).toBe(method === 'HEAD' ? '' : 'Internal Server Error')
+  }
+  const live = await fetch(base + '/health/live')
+  expect(live.status).toBe(200)
+  expect(await live.text()).toBe('ok')
+  expect(runtime.output()).not.toContain('Unknown root response fixture')
+})
+
+test('an allowed fixture auth attempt increments effects after consume and retains resource identity', async () => {
+  const runtime = launch()
+  const { port } = await bounded(runtime.ready)
+  const base = `http://127.0.0.1:${port}`
+  expect(await (await fetch(base + '/__fixture_resources')).json()).toEqual({ resourceId: 1, ready: true, effects: 0 })
+  const before = redis.commands.length
+  const response = await new Promise<{ status: number; body: string }>((done, reject) => {
+    const call = httpRequest({ hostname: '127.0.0.1', port, path: '/__fixture_auth', localAddress: '127.0.0.2', headers: { 'x-real-ip': '192.0.2.31' } }, result => {
+      let body = ''
+      result.on('data', chunk => { body += chunk })
+      result.on('end', () => done({ status: result.statusCode!, body }))
+    })
+    call.on('error', reject); call.end()
+  })
+  expect(response).toEqual({ status: 201, body: 'effect reached' })
+  const attempts = redis.commands.slice(before).filter(command => command[0] === 'EVAL')
+  expect(attempts).toHaveLength(1)
+  expect(attempts[0][3]).toBe('rl:v1:production:test-web:' + createHmac('sha256', stores.RATE_LIMIT_HMAC_SECRET).update('application:beginGoogleSignIn:192.0.2.31').digest('hex'))
+  for (let index = 0; index < 2; index++) expect(await (await fetch(base + '/__fixture_resources')).json()).toEqual({ resourceId: 1, ready: true, effects: 1 })
+})
+
+test('native Google IPC ignores malformed commands, correlates receipts and retires normally', async () => {
+  const runtime = launch({ FIXTURE_GOOGLE_PROTOCOL: 'yes' })
+  await bounded(runtime.ready)
+  const messages: unknown[] = []
+  const observe = (message: unknown) => { messages.push(message) }
+  runtime.child.on('message', observe)
+  try {
+    runtime.child.send('unknown')
+    runtime.child.send({})
+    runtime.child.send({ type: 'google-register', id: 23, url: 'invalid' })
+    runtime.child.send({ type: 'unknown', id: 'ignored' })
+    runtime.child.send({ type: 'google-evidence', id: 'fixture-correlated' })
+    expect(await runtime.googleEvidence()).toEqual({ posts: 0, tls: 0, disallowed: 0, activeClientSockets: 0, activeRequests: 0 })
+    expect(messages).toContainEqual(expect.objectContaining({ type: 'google-evidence', id: 'fixture-correlated', evidence: expect.objectContaining({ pendingAttempts: 0 }) }))
+    expect(messages).not.toContainEqual(expect.objectContaining({ type: 'google-registered' }))
+    await expect(runtime.registerGoogle('invalid', 'fixture-registration')).rejects.toThrow('Google fixture registration failed')
+    const code = await runtime.registerGoogle('https://accounts.google.com/o/oauth2/v2/auth?nonce=fixture&code_challenge=fixture&code_challenge_method=S256&redirect_uri=https%3A%2F%2Ftemplate.example%2Fapi%2Fauth%2Fcallback%2Fgoogle', 'fixture-registration')
+    const receipts = messages.filter((message): message is { type: string; id: string; code?: string; failed?: boolean } => typeof message === 'object' && message !== null && 'type' in message && message.type === 'google-registered' && 'id' in message && typeof message.id === 'string')
+    expect(receipts).toHaveLength(2)
+    expect(receipts[0]).toEqual({ type: 'google-registered', id: receipts[0].id, failed: true })
+    expect(receipts[1]).toEqual({ type: 'google-registered', id: receipts[1].id, code })
+    expect(receipts[0].id).not.toBe(receipts[1].id)
+    expect(await runtime.shutdown()).toBeGreaterThan(0)
+    expect(await bounded(runtime.exit)).toBe(0)
+    expect(messages).toContainEqual(expect.objectContaining({ type: 'google-closed', evidence: expect.objectContaining({ activeClientSockets: 0, activeRequests: 0, pendingAttempts: 0, emergencyCleanup: false }) }))
+    expect(runtime.output()).toContain('Server closed successfully')
+  } finally { runtime.child.removeListener('message', observe) }
+})
+
 test.each([
   { name: 'excess', reply: tuple(0, 4, 1001), status: 429 },
   { name: 'unavailable', reply: null, status: 503 },
