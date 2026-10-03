@@ -2,6 +2,9 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { join, relative, resolve, dirname, basename } from 'node:path'
 import { tmpdir } from 'node:os'
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { API } from 'typescript/unstable/sync'
+import { createScanner, isFunctionDeclaration, LanguageVariant, SyntaxKind } from 'typescript/unstable/ast'
 import { afterAll, beforeAll, expect, test } from 'vitest'
 
 const repositoryRoot = process.cwd()
@@ -159,6 +162,106 @@ test('reviewed_fixed_authority_clone_exemption_expires_on_predicate_or_occurrenc
   writeFileSync(join(root,'scripts/third-credential-consumer.mjs'),web)
   expect(groups().some(group=>group.fingerprint==='dup:2cc8a7df'&&group.instances.length===3)).toBe(true)
 },40000)
+test('native_complexity_comment_is_function_scoped_and_expires_on_content_or_count_change',()=>{
+  const {root,base}=qualityFixture(),path=join(root,'src/scenario.ts')
+  rmSync(join(root,'src/unused.ts'))
+  writeFileSync(join(root,'src/App.tsx'),"export function App({value}:{value:string}){return <div>{value}</div>}\n")
+  writeFileSync(join(root,'src/main.tsx'),readFileSync(join(root,'src/main.tsx'),'utf8')+"import {cohesiveScenario} from './scenario';console.log(cohesiveScenario([1,2,3]));\n")
+  const fixtureConfig: {health:{coverage:string|null}} = JSON.parse(readFileSync(join(repositoryRoot,'.fallowrc.json'),'utf8'))
+  fixtureConfig.health.coverage=null
+  writeFileSync(join(root,'.fallowrc.json'),JSON.stringify(fixtureConfig))
+  const scenario=`export function cohesiveScenario(values: readonly number[]): number {
+  let total = 0;
+  for (const value of values) {
+    if (value >= 0 && value < 100 && Number.isFinite(value)) {
+      if (value % 2 === 0 || value % 3 === 0 || value % 5 === 0) total += value;
+      else if (value % 7 === 0 || value % 11 === 0 || value % 13 === 0) total -= value;
+      else if (value % 17 === 0 || value % 19 === 0) total *= 2;
+    } else if (value < -100 || value > 1000 || !Number.isInteger(value)) {
+      if (total > 0 && total < 100 && value < 0) total = 0;
+      else if (total < 0 && value > 0) total = -total;
+    } else if (value === 100 || value === -100 || value === 1000) total++;
+  }
+  return total;
+}
+`
+  function audit(source:string) {
+    writeFileSync(path,source)
+    const result=runQuality('fallow',['audit','--no-css','--base',base,'--format','json','--quiet'],root)
+    expect(result.error).toBeUndefined()
+    const report:{version:string;verdict:string;complexity:{findings:{name:string;cyclomatic:number;cognitive:number;introduced:boolean}[]}}=JSON.parse(result.stdout)
+    expect(report.version).toBe('3.18.0')
+    return {result,report}
+  }
+  const unsuppressed=audit(scenario)
+  expect(unsuppressed.result.status,unsuppressed.result.stderr||unsuppressed.result.stdout).toBe(1)
+  expect(unsuppressed.report.verdict).toBe('fail')
+  const finding=unsuppressed.report.complexity.findings.find(item=>item.name==='cohesiveScenario')
+  expect(finding?.cyclomatic).toBeGreaterThan(20);expect(finding?.cognitive).toBeGreaterThan(15)
+  expect(finding?.introduced).toBe(true)
+  const directive='// fallow-ignore-next-line complexity -- synthetic cohesive scenario; reviewed canary only'
+  const suppressedSource=directive+'\n'+scenario
+  const suppressed=audit(suppressedSource)
+  expect(suppressed.result.status,suppressed.result.stderr||suppressed.result.stdout).toBe(0)
+  expect(suppressed.report.verdict).toBe('pass')
+  expect(suppressed.report.complexity.findings).toEqual([])
+  // This expiry consumer is deliberately limited to the owned synthetic fixture.
+  function reviewedSyntheticScenario() {
+    const api=new API({cwd:root})
+    try {
+      const snapshot=api.updateSnapshot({openFiles:[path]})
+      try {
+        const program=snapshot.getDefaultProjectForFile(path)?.program,source=program?.getSourceFile(path)
+        if(!program||!source)throw new Error('Synthetic exception source was not parsed')
+        expect(program.getSyntacticDiagnostics(path)).toEqual([])
+        const targets=source.statements.filter(isFunctionDeclaration).filter(item=>item.name?.getText(source)==='cohesiveScenario')
+        const scanner=createScanner(false,LanguageVariant.Standard,source.text),markers:{start:number;end:number;text:string}[]=[]
+        for(let token=scanner.scan();token!==SyntaxKind.EndOfFile;token=scanner.scan()) {
+          if(token!==SyntaxKind.SingleLineCommentTrivia&&token!==SyntaxKind.MultiLineCommentTrivia)continue
+          const text=scanner.getTokenText()
+          if(text.includes('fallow-ignore')&&text.includes('complexity'))markers.push({start:scanner.getTokenStart(),end:scanner.getTokenEnd(),text})
+        }
+        expect(targets,'Synthetic exception target or marker count expired').toHaveLength(1)
+        expect(markers,'Synthetic exception target or marker count expired').toHaveLength(1)
+        const target=targets[0]!,marker=markers[0]!,body=target.body,start=target.getStart(source),end=target.getEnd()
+        if(!body)throw new Error('Synthetic exception function has no body')
+        expect(start).toBeGreaterThanOrEqual(0);expect(end).toBeLessThanOrEqual(source.text.length)
+        expect(body.getStart(source)).toBeGreaterThanOrEqual(start);expect(body.getEnd()).toBeLessThanOrEqual(end)
+        expect(marker.text).toBe(directive);expect(marker.start).toBeLessThan(start)
+        expect(source.text.slice(marker.end,start)).toMatch(/^\r?\n[ \t]*$/)
+        const digest=(text:string)=>createHash('sha256').update(text,'utf8').digest('hex')
+        expect(digest(source.text.slice(start,end)),'Synthetic exception content expired').toBe('c007313ff9709021b819cbede0f1d868fc054a8f46700daf33b18d3172d9ef2c')
+        expect(digest(source.text.slice(body.getStart(source),body.getEnd())),'Synthetic exception content expired').toBe('e95d4c7d20acba56e2d57c036e574f6a516034c6fc701b55afdfaf6d313dea96')
+      } finally {snapshot.dispose()}
+    } finally {api.close()}
+  }
+  expect(()=>reviewedSyntheticScenario()).not.toThrow()
+  const changed=audit(suppressedSource.replace('total *= 2','total *= 3'))
+  expect(changed.result.status,changed.result.stderr||changed.result.stdout).toBe(0)
+  expect(changed.report.verdict).toBe('pass')
+  expect(()=>reviewedSyntheticScenario()).toThrow('Synthetic exception content expired')
+  for(const source of [scenario,suppressedSource.replace('reviewed canary only','unreviewed'),directive+'\n\n'+scenario]) {
+    writeFileSync(path,source)
+    expect(()=>reviewedSyntheticScenario()).toThrow()
+  }
+  writeFileSync(path,suppressedSource+'\nfunction cohesiveScenario(value:number){return value}\n')
+  expect(()=>reviewedSyntheticScenario()).toThrow('Synthetic exception target or marker count expired')
+  const other=`export function otherScenario(value: number): string {
+  if ((value > 0 && value < 10) || (value > 20 && value < 30) || (value > 40 && value < 50) || (value > 60 && value < 70) || (value > 80 && value < 90) || (value > 100 && value < 110) || (value > 120 && value < 130) || (value > 140 && value < 150) || (value > 160 && value < 170) || (value > 180 && value < 190) || (value > 200 && value < 210)) return 'bounded';
+  return 'outside';
+}
+`
+  writeFileSync(join(root,'src/main.tsx'),readFileSync(join(root,'src/main.tsx'),'utf8')+"import {otherScenario} from './scenario';console.log(otherScenario(25));\n")
+  const additional=audit(suppressedSource+other)
+  expect(additional.result.status,additional.result.stderr||additional.result.stdout).toBe(1)
+  expect(additional.report.verdict).toBe('fail')
+  expect(additional.report.complexity.findings.map(item=>item.name)).toEqual(['otherScenario'])
+  const broadened=audit(suppressedSource+directive+'\n'+other)
+  expect(broadened.result.status,broadened.result.stderr||broadened.result.stdout).toBe(0)
+  expect(broadened.report.verdict).toBe('pass')
+  expect(()=>reviewedSyntheticScenario()).toThrow('Synthetic exception target or marker count expired')
+},40000)
+
 test('maintained_doctor_changed_scope_reports_actual_component_rule',()=>{
   const {root,base}=qualityFixture(),result=runQuality('react-doctor',['.','--no-telemetry','--no-dead-code','--no-supply-chain','--blocking','none','--yes','--no-color','--scope','changed','--base',base],root)
   expect(result.error).toBeUndefined();expect(result.status,result.stderr||result.stdout).toBe(0)
