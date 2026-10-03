@@ -55,6 +55,7 @@ async function rpc(context:BrowserContext,name:Parameters<typeof authRpcPath>[0]
 }
 test('compiled private inbox creates only by POST, saves knowledge across restart, keeps conflicting draft, treats and reloads durable erasure',async()=>{
   const {context,page}=await signedIn('sparra-owner'), errors:string[]=[]
+  let releaseMutation=()=>{}
   page.on('pageerror',e=>errors.push(e.message))
   try {
     for(const name of ['getWorkspace','getActivity','listRequests'] as const){const probe=await context.request.get(origin+await authRpcPath(name)+'?payload='+encodeURIComponent(await rpcBody({})),{headers:{'sec-fetch-site':'same-origin','x-tsr-serverFn':'true'}});expect(probe.status(),name).toBe(200)}
@@ -100,9 +101,29 @@ test('compiled private inbox creates only by POST, saves knowledge across restar
     await page.getByText('Partial transcript: 1 unavailable turns.',{exact:true}).waitFor()
     const detailAxe=await new AxeBuilder({page}).analyze();expect(detailAxe.violations).toEqual([])
     await page.screenshot({path:'.output/test-evidence/sparra/detail-en-320.png',fullPage:true})
-    await page.getByRole('button',{name:'Mark as treated',exact:true}).click();await page.getByText('Treated',{exact:true}).waitFor();await page.reload();await page.getByText('Treated',{exact:true}).waitFor()
+    const treatPath=await authRpcPath('markRequestTreated'),erasePath=await authRpcPath('eraseRequest'),erasures:string[]=[]
+    page.on('request',request=>{if(new URL(request.url()).pathname===erasePath)erasures.push(request.method())})
+    expect(await page.getByRole('button',{name:'Mark as treated',exact:true}).isDisabled()).toBe(false)
+    await page.getByRole('button',{name:'Erase this call',exact:true}).click();await page.getByRole('button',{name:'Cancel',exact:true}).click()
+    expect(erasures).toEqual([]);expect(await page.getByRole('button',{name:'Confirm erasure',exact:true}).count()).toBe(0)
+    await page.getByRole('button',{name:'Erase this call',exact:true}).click()
+    const treatmentHeld=new Promise<void>(done=>{releaseMutation=done}),treatmentCommitted=new Promise<void>(done=>{
+      void page.route('**'+treatPath,async route=>{const response=await route.fetch();expect(response.status()).toBe(200);done();await treatmentHeld;await route.fulfill({response})},{times:1})
+    })
+    await page.getByRole('button',{name:'Mark as treated',exact:true}).click();await bounded(treatmentCommitted)
+    await page.getByText('Working…',{exact:true}).waitFor()
+    for(const name of ['Mark as treated','Confirm erasure','Cancel'])expect(await page.getByRole('button',{name,exact:true}).isDisabled()).toBe(true)
+    expect(await page.getByText('Rappelez-moi',{exact:true}).count()).toBe(1)
+    releaseMutation();await page.getByText('Treated',{exact:true}).waitFor();await page.reload();await page.getByText('Treated',{exact:true}).waitFor()
     expect((await stores.administrator.query('SELECT treated_at,ended_at FROM sparra_call WHERE id=$1',[crypto.callId])).rows[0]).toMatchObject({ended_at:null})
-    await page.getByRole('button',{name:'Erase this call',exact:true}).click();await page.getByRole('button',{name:'Confirm erasure',exact:true}).click()
+    await page.getByRole('button',{name:'Erase this call',exact:true}).click()
+    const erasureHeld=new Promise<void>(done=>{releaseMutation=done}),erasureCommitted=new Promise<void>(done=>{
+      void page.route('**'+erasePath,async route=>{const response=await route.fetch();expect(response.status()).toBe(200);done();await erasureHeld;await route.fulfill({response})},{times:1})
+    })
+    await page.getByRole('button',{name:'Confirm erasure',exact:true}).click();await bounded(erasureCommitted)
+    for(const name of ['Confirm erasure','Cancel'])expect(await page.getByRole('button',{name,exact:true}).isDisabled()).toBe(true)
+    expect(await page.getByText('Rappelez-moi',{exact:true}).count()).toBe(1)
+    releaseMutation()
     await page.getByText('Erasure queued. Other copies are awaiting deletion.',{exact:true}).waitFor();expect(await page.getByText('Rappelez-moi',{exact:true}).count()).toBe(0)
     await page.reload();await page.getByText('Erasure queued. Other copies are awaiting deletion.',{exact:true}).waitFor()
     for(const name of ['getActivity','saveActivity','listRequests','getRequestDetail','markRequestTreated','eraseRequest','getRequestErasure'] as const)expect(await authRpcPath(name)).toMatch(/^\/_serverFn\/[a-f0-9]{64}$/)
@@ -114,8 +135,63 @@ test('compiled private inbox creates only by POST, saves knowledge across restar
     await page.goto(origin+'/app/demandes/'+foreignCallId+'?lang=en');await page.getByText('Transcript unavailable',{exact:true}).waitFor();await page.getByRole('heading',{name:'Summary unavailable',exact:true}).waitFor()
     expect(await page.content()).not.toContain('Call completed')
     expect(errors).toEqual([])
-  }finally{await context.close()}
+  }finally{releaseMutation();await context.close()}
 },90000)
+
+test('request unmount aborts held native delivery, failure retains confirmation and auth refusal hides content before navigation',async()=>{
+  const {context,page}=await signedIn('sparra-request-refusal'),treatPath=await authRpcPath('markRequestTreated'),erasePath=await authRpcPath('eraseRequest'),loginPath=await authRpcPath('getLoginAvailability'),id=randomUUID()
+  let releaseLogin=()=>{},releaseTreatment=()=>{},cleanupRefusal=async()=>{}
+  try{
+    await page.goto(origin+'/app/entreprise?lang=en');await page.getByRole('button',{name:'Create my workspace'}).click()
+    await page.getByRole('textbox',{name:/^Business name/}).fill('Request refusal fixture');await page.getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    const workspace=(await stores.administrator.query('SELECT id FROM workspace WHERE owner_user_id=(SELECT id FROM "user" WHERE email=$1)',['sparra-request-refusal@example.test'])).rows[0]
+    const result={schema_version:1,...crypto.encrypt(JSON.stringify({...crypto.inner,summary:'Private refusal request'}),'result:'+id)}
+    await stores.administrator.query(`INSERT INTO sparra_call(id,workspace_id,deployment_id,provider_call_control_id,admitted_at,retention_until,status,configuration_revision,encrypted_turns,encrypted_message_result) VALUES($1::uuid,$2::uuid,'fixture',$1::text,clock_timestamp(),clock_timestamp()+interval '30 days','closing',1,$3,$4)`,[id,workspace.id,{[crypto.turnId]:crypto.turn},result])
+    await page.goto(origin+'/app/demandes/'+id+'?lang=en');await page.getByText('Private refusal request',{exact:true}).waitFor()
+    const treatmentHeld=new Promise<void>(done=>{releaseTreatment=done}),treatmentCommitted=new Promise<void>(done=>{
+      void page.route('**'+treatPath,async route=>{const response=await route.fetch();expect(response.status()).toBe(200);done();await treatmentHeld;await route.fulfill({response}).catch(()=>{})},{times:1})
+    })
+    const cancelled=page.waitForEvent('requestfailed',{predicate:request=>new URL(request.url()).pathname===treatPath})
+    await page.getByRole('button',{name:'Mark as treated',exact:true}).click();await bounded(treatmentCommitted)
+    await page.getByRole('link',{name:'Account',exact:true}).click();await cancelled;await page.getByRole('heading',{name:'Your account',exact:true}).waitFor()
+    releaseTreatment();expect(await page.getByText('Private refusal request',{exact:true}).count()).toBe(0);expect(await page.getByText('Treated',{exact:true}).count()).toBe(0)
+    await page.goto(origin+'/app/demandes/'+id+'?lang=en');await page.getByText('Private refusal request',{exact:true}).waitFor();await page.getByText('Treated',{exact:true}).waitFor()
+    await page.getByRole('button',{name:'Erase this call',exact:true}).click()
+    await page.route('**'+erasePath,route=>route.abort('failed'),{times:1})
+    await page.getByRole('button',{name:'Confirm erasure',exact:true}).click();await page.getByRole('alert').filter({hasText:'Data unavailable. Reload the page or sign in again.'}).waitFor()
+    expect(await page.getByText('Private refusal request',{exact:true}).count()).toBe(1)
+    expect(await page.getByRole('button',{name:'Confirm erasure',exact:true}).isDisabled()).toBe(false)
+    expect(await page.getByRole('button',{name:'Cancel',exact:true}).isDisabled()).toBe(false)
+    expect((await stores.administrator.query('SELECT count(*)::int n FROM sparra_call WHERE id=$1',[id])).rows[0].n).toBe(1)
+    await stores.administrator.query('DELETE FROM session WHERE user_id=(SELECT id FROM "user" WHERE email=$1)',['sparra-request-refusal@example.test'])
+    const loginHeld=new Promise<void>(done=>{releaseLogin=done}),loginStarted=new Promise<void>(done=>{
+      void page.route('**'+loginPath+'*',async route=>{done();await loginHeld;await route.continue()},{times:1})
+    })
+    const refusalRender=await page.evaluateHandle(()=>{
+      let finish=(observed:boolean)=>{void observed}
+      const observed=new Promise<boolean>(resolve=>{finish=resolve})
+      const settle=(value:boolean)=>{observer.disconnect();clearTimeout(timeout);window.removeEventListener('pagehide',unload);finish(value)}
+      const inspect=()=>{
+        const alert=[...document.querySelectorAll('[role="alert"]')].some(element=>element.textContent==='Data unavailable. Reload the page or sign in again.')
+        const signIn=[...document.querySelectorAll('a[href="/login?lang=en"]')].some(element=>element.textContent==='Go to sign in')
+        const privateAbsent=!document.querySelector('.sparra-request-actions')&&!document.body.textContent?.includes('Private refusal request')&&!document.body.textContent?.includes('Rappelez-moi')
+        if(alert&&signIn&&privateAbsent)settle(true)
+      }
+      const observer=new MutationObserver(inspect),unload=()=>settle(false),timeout=setTimeout(()=>settle(false),6000)
+      observer.observe(document.body,{childList:true,subtree:true,characterData:true});window.addEventListener('pagehide',unload)
+      return {observed,dispose:()=>settle(false)}
+    })
+    cleanupRefusal=async()=>{try{await refusalRender.evaluate(({dispose})=>dispose())}finally{await refusalRender.dispose()}}
+    const refusal=page.waitForResponse(response=>new URL(response.url()).pathname===erasePath)
+    await page.getByRole('button',{name:'Confirm erasure',exact:true}).click();expect((await refusal).status()).toBe(401);await bounded(loginStarted)
+    expect(await refusalRender.evaluate(({observed})=>observed)).toBe(true)
+    expect(await page.getByText('Private refusal request',{exact:true}).count()).toBe(0)
+    expect(await page.getByText('Rappelez-moi',{exact:true}).count()).toBe(0)
+    expect(await page.locator('.sparra-request-actions').count()).toBe(0)
+    releaseLogin();await page.waitForURL(origin+'/login?lang=en');await page.getByRole('button',{name:'Continue with Google',exact:true}).waitFor()
+    expect((await stores.administrator.query('SELECT count(*)::int n FROM sparra_call WHERE id=$1',[id])).rows[0].n).toBe(1)
+  }finally{releaseTreatment();releaseLogin();await cleanupRefusal().catch(()=>{});await context.close()}
+},30000)
 
 test('unknown and foreign receipts reveal no private data; revoked native sessions redirect and CSRF refuses POST',async()=>{
   const {context,page}=await signedIn('sparra-other')

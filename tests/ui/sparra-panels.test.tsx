@@ -48,3 +48,58 @@ test('detail and inbox preserve the translated native category and observed numb
     }
   }
 })
+
+const requestDetail:RequestDetailDto={id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',admittedAt:'2026-10-01T10:00:00.000Z',endedAt:'2026-10-01T10:03:00.000Z',status:'closed',configurationRevision:7,treatedAt:null,resultAvailability:'available',resultQuality:'partial',category:'information',summary:'Observed request text',contact:{name:'Camille',callback_e164:'+33123456789',preference:'Afternoon',callback_source:'caller',callback_confirmed:false},nextAction:'Check the request',configuration:{workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',revision:7,savedAt:'2026-09-30T10:00:00.000Z',businessName:'Pinned garage',sector:'garage',knowledge:{openingHours:'09:00–17:00',services:'Oil change',prices:'',faq:'Bring the vehicle papers',instructions:'Ask before proceeding'},transferDestination:null},transcript:[{id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc',ordinal:1,role:'user',text:'Caller turn',interrupted:false,startedAt:'2026-10-01T10:00:00.000Z'},{id:'dddddddd-dddd-4ddd-8ddd-dddddddddddd',ordinal:2,role:'assistant',text:'Assistant turn',interrupted:true,startedAt:'2026-10-01T10:01:00.000Z'}],transcriptAvailability:'partial',unavailableTurnCount:2,moreTurns:true,transcriptLossCount:3,erasureState:null}
+
+test('request detail keeps observed metadata, ordered partial turns, pinned knowledge and disabled SSR actions in both locales',async()=>{
+  const {RequestPanel}=await import('../../src/ui/sparra/request-panel')
+  for(const locale of ['fr','en'] as const){
+    const html=renderToStaticMarkup(<RequestPanel locale={locale} loaded={{detail:requestDetail,receipt:null}} onTreat={unavailable} onErase={unavailable} onRefused={unavailable}/> )
+    expect(html).toContain('<time dateTime="2026-10-01T10:00:00.000Z">')
+    expect(html).toContain(locale==='fr'?'Fin observée: 1 oct. 2026, 12:03':'Observed end: Oct 1, 2026, 12:03 PM')
+    expect(html).toContain(locale==='fr'?'aria-label="Résumé"':'aria-label="Summary"')
+    for(const text of ['Observed request text','Check the request','Camille — +33123456789 — Afternoon'])expect(html).toContain(text)
+    expect(html).toContain(locale==='fr'?'Transcription partielle: 2 tours indisponibles.':'Partial transcript: 2 unavailable turns.')
+    expect(html).toContain(locale==='fr'?'3 tours capturés perdus.':'3 captured turns lost.')
+    expect(html).toContain(locale==='fr'?'La transcription affichée est limitée aux 200 premiers tours.':'The displayed transcript is limited to the first 200 turns.')
+    expect(html).toContain('<ol class="sparra-call-transcript"><li><p><strong>'+(locale==='fr'?'Appelant':'Caller')+'</strong></p><p>Caller turn</p></li><li><p><strong>Sparra</strong> — '+(locale==='fr'?'Interrompu':'Interrupted')+'</p><p>Assistant turn</p></li></ol>')
+    expect(html).toContain(locale==='fr'?'Pinned garage — Version enregistrée 7':'Pinned garage — Saved version 7')
+    expect(html.match(/<dt>/g)).toHaveLength(5)
+    for(const text of ['09:00–17:00','Oil change','Bring the vehicle papers','Ask before proceeding'])expect(html).toContain('<dd>'+text+'</dd>')
+    expect(html).toContain('<dt>'+(locale==='fr'?'Tarifs':'Prices')+'</dt><dd>—</dd>')
+    const buttons=[...html.matchAll(/<button\b([^>]*)>[\s\S]*?<\/button>/g)]
+    expect(buttons).toHaveLength(2)
+    for(const button of buttons)expect(button[1]).toContain('disabled=""')
+  }
+})
+
+test('request detail retains empty contact and absent snapshot fallbacks without treating complete quality as partial',async()=>{
+  const {RequestPanel}=await import('../../src/ui/sparra/request-panel')
+  for(const locale of ['fr','en'] as const){
+    const detail:RequestDetailDto={...requestDetail,resultQuality:'complete',summary:null,category:null,nextAction:null,contact:{name:null,callback_e164:null,preference:null,callback_source:'missing',callback_confirmed:false},configuration:null,transcript:[],transcriptAvailability:'available',unavailableTurnCount:0,moreTurns:false,transcriptLossCount:0,treatedAt:'2026-10-01T11:00:00.000Z'}
+    const html=renderToStaticMarkup(<RequestPanel locale={locale} loaded={{detail,receipt:null}} onTreat={unavailable} onErase={unavailable} onRefused={unavailable}/> )
+    expect(html).toContain(locale==='fr'?'Résumé indisponible':'Summary unavailable')
+    expect(html).not.toContain(locale==='fr'?'Résumé partiel':'Partial summary')
+    expect(html).toContain('<h3>'+(locale==='fr'?'Contact observé':'Observed contact')+'</h3><p>—</p>')
+    expect(html).toContain(locale==='fr'?'Aucun numéro disponible':'No number available')
+    expect(html).toContain(locale==='fr'?'Configuration non associée à cet appel.':'No configuration is associated with this call.')
+    expect(html).toContain('<ol class="sparra-call-transcript"></ol>')
+    expect(html).not.toContain(locale==='fr'?'Transcription indisponible':'Transcript unavailable')
+    expect(html).not.toContain(locale==='fr'?'Transcription partielle':'Partial transcript')
+    expect(html).not.toContain('<dl>')
+    expect(html).toContain('<p role="status">'+(locale==='fr'?'Traité':'Treated')+'</p>')
+    expect(html).not.toContain(locale==='fr'?'Marquer comme traité':'Mark as treated')
+  }
+})
+
+test('queued and completed erasure receipts take precedence over loaded private detail in both locales',async()=>{
+  const {RequestPanel}=await import('../../src/ui/sparra/request-panel')
+  for(const locale of ['fr','en'] as const)for(const state of ['queued','completed'] as const){
+    const html=renderToStaticMarkup(<RequestPanel locale={locale} loaded={{detail:requestDetail,receipt:{requestId:requestDetail.id,state}}} onTreat={unavailable} onErase={unavailable} onRefused={unavailable}/> )
+    const text=state==='queued'?(locale==='fr'?'Effacement en attente. Les autres copies restent à supprimer.':'Erasure queued. Other copies are awaiting deletion.'):(locale==='fr'?'Effacement terminé.':'Erasure completed.')
+    expect(html).toContain('<p role="status">'+text+'</p>')
+    for(const privateText of ['Observed request text','Caller turn','Pinned garage','+33123456789'])expect(html).not.toContain(privateText)
+    expect(html).not.toContain('<button')
+    expect(html).not.toContain('<section')
+  }
+})
