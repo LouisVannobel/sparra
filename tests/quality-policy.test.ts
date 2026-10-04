@@ -126,7 +126,7 @@ export async function prepareVoiceSource({appRoot}){const scope=join(appRoot,'co
     'fence insertion failure and cancellation roll back; recorded COMMIT cancellation rejects completion and reload resolves',
     'built native RPC enforces strict input, auth, missing and foreign Origin, bounded failures and no-store',
   ]
-  writeFileSync(join(root,'tests/integration/sparra-requests.test.ts'),"import {expect,test} from 'vitest';// Synthetic runner selection canary only.\n"+requestNames.map(name=>'test('+JSON.stringify(name)+",()=>expect(process.env.SPARRA_VOICE_TEST_ROOT).toContain('canary-voice-owner'));\n").join(''))
+  writeFileSync(join(root,'tests/integration/sparra-requests.test.ts'),"import {expect,test} from 'vitest';import {selectBranch} from '../../src/covered';// Synthetic runner selection canary only.\n"+requestNames.map(name=>'test('+JSON.stringify(name)+",()=>{expect(process.env.SPARRA_VOICE_TEST_ROOT).toContain('canary-voice-owner');expect(selectBranch(true)).toBe(7)});\n").join(''))
   writeFileSync(join(root,'.output/server/index.mjs'),'export const build = 1\n')
   writeFileSync(join(root,'src/covered.ts'),'export function selectBranch(value: boolean): number {\n  if (value) return 7\n  return 9\n}\n')
   writeFileSync(join(root,'src/unexecuted.ts'),'export function unexecuted(): number {\n  return 13\n}\n')
@@ -165,6 +165,26 @@ test('native_activity_blob_admits_twelve_complete_pass_cases_and_refuses_missing
     expect(()=>readNativeBlob(refusal,'activity',root,startedAt,'4.1.11'),String(count)+' complete PASS cases').toThrow('Native coverage test cardinality mismatch')
   }
   expect(readFileSync(blob)).toEqual(bytes)
+},25000)
+
+test('native_requests_blob_admits_eight_passes_and_refuses_missing_extra_or_foreign_consumers',()=>{
+  const root=nativeCoverageFixture(),blob=join(root,'coverage/requests.json'),startedAt=Date.now()
+  const fixture=join(root,'tests/integration/sparra-requests.test.ts')
+  writeFileSync(fixture,readFileSync(fixture,'utf8').replaceAll("expect(process.env.SPARRA_VOICE_TEST_ROOT).toContain('canary-voice-owner');",''))
+  const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts','tests/integration/sparra-requests.test.ts','--maxWorkers=1','--coverage','--reporter=blob','--outputFile.blob='+blob,'--coverage.reportsDirectory='+join(root,'coverage/requests')])
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
+  const bytes=readFileSync(blob),table=JSON.parse(bytes.toString('utf8'))
+  expect(()=>readNativeBlob(blob,'requests',root,startedAt,'4.1.11')).not.toThrow()
+  const files=table[Number(table[0][1])],file=table[Number(files[0])],tasksIndex=Number(file.tasks)
+  for(const count of [7,9]){
+    const changed=JSON.parse(bytes.toString('utf8')),tasks=changed[tasksIndex]
+    if(count===7)tasks.pop();else tasks.push(tasks[0])
+    const path=join(root,'coverage/requests-'+count+'.json');writeFileSync(path,JSON.stringify(changed))
+    expect(()=>readNativeBlob(path,'requests',root,startedAt,'4.1.11')).toThrow('Native coverage test cardinality mismatch')
+  }
+  const changed=JSON.parse(bytes.toString('utf8'));changed[Number(file.filepath)]=join(root,'tests/integration/sparra-activity.test.ts').replaceAll('\\','/')
+  const foreign=join(root,'coverage/requests-foreign.json');writeFileSync(foreign,JSON.stringify(changed))
+  expect(()=>readNativeBlob(foreign,'requests',root,startedAt,'4.1.11')).toThrow('Native requests blob has an unexpected consumer')
 },25000)
 
 test('native_blob_coverage_keeps_additive_counts_zero_entries_and_source_geometry',()=>{
@@ -284,8 +304,34 @@ test('actual_coverage_runner_publishes_only_native_complete_map_after_retirement
   expect(existsSync(join(root,'coverage/canary-voice-owner'))).toBe(false)
   const coverage=JSON.parse(readFileSync(join(root,'coverage/coverage-final.json'),'utf8'))
   expect(coverage.stale).toBeUndefined()
-  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].f).toEqual({'0':13})
+  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].f).toEqual({'0':21})
+  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].s).toEqual({'0':21,'1':9,'2':12})
+  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].b).toEqual({'0':[9,12]})
   expect(coverage[join(root,'src/unexecuted.ts').replaceAll('\\','/')].f).toEqual({'0':0})
+},25000)
+
+test('actual_coverage_runner_refuses_requests_missing_or_extra_leaves_before_publication',()=>{
+  for(const count of [7,9]){
+    const root=nativeCoverageFixture(),path=join(root,'tests/integration/sparra-requests.test.ts')
+    const lines=readFileSync(path,'utf8').trimEnd().split('\n')
+    if(count===7)lines.pop();else lines.push(lines.at(-1)!.replace('built native RPC','extra native RPC'))
+    writeFileSync(path,lines.join('\n')+'\n')
+    const result=runCoverageConsumer(root)
+    expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
+    expect(result.stderr).toContain('Native Requests requires its exact eight passing leaves')
+    expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
+  }
+},25000)
+
+test('actual_coverage_runner_accepts_native_coverage_bearing_requests_json_above_one_MiB',()=>{
+  const root=nativeCoverageFixture()
+  writeFileSync(join(root,'src/large-unexecuted.ts'),Array.from({length:3600},(_,index)=>'export function unexecuted'+index+'(){return '+index+'}\n').join(''))
+  const preload=join(root,'observe-native-report-size.mjs')
+  writeFileSync(preload,"import fs from 'node:fs';import {syncBuiltinESMExports} from 'node:module';import {join} from 'node:path';const original=fs.lstatSync;fs.lstatSync=(path,...args)=>{const value=original(path,...args);if(typeof path==='string'&&path.endsWith('requests-qualification.json'))fs.writeFileSync(join(process.cwd(),'native-report-size.txt'),String(value.size));return value};syncBuiltinESMExports();\n")
+  const result=runCoverageConsumer(root,preload)
+  expect(Number(readFileSync(join(root,'native-report-size.txt'),'utf8'))).toBeGreaterThan(1048576)
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
+  expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(true)
 },25000)
 
 test.each([

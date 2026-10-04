@@ -119,17 +119,21 @@ function admitTestFile(table, file, name, fileCount, root, startedAt) {
   if (name === 'activity' && (fileCount !== 1 || resolve(filepath) !== join(root, 'tests/integration/sparra-activity.test.ts'))) {
     throw new Error('Native activity blob has an unexpected consumer')
   }
+  if (name === 'requests' && (fileCount !== 1 || resolve(filepath) !== join(root, 'tests/integration/sparra-requests.test.ts'))) {
+    throw new Error('Native requests blob has an unexpected consumer')
+  }
   return passedTests(table, file)
 }
 
 export function readNativeBlob(filePath, name, root, startedAt, version) {
+  if(!['ordinary','activity','requests'].includes(name))throw new Error('Unknown native coverage consumer')
   const {table, envelope, digest} = readBlob(filePath, startedAt, version)
   const files = admitEnvelope(table, envelope)
   let count = 0
   for (const reference of files) {
     count += admitTestFile(table, blobValue(table, reference), name, files.length, root, startedAt)
   }
-  if (!count || (name === 'activity' && count !== 12)) throw new Error('Native coverage test cardinality mismatch')
+  if (!count || (name === 'activity' && count !== 12) || (name === 'requests' && count !== 8)) throw new Error('Native coverage test cardinality mismatch')
   const coverage = blobValue(table, envelope[3])
   admitCoverageEntries(table, coverage, root)
   return { table, coverage, digest }

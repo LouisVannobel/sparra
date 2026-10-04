@@ -47,7 +47,7 @@ async function runPhase(name, args, timeout) {
 
 function assertRequestsQualification(path) {
   const stat = lstatSync(path)
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.mtimeMs < startedAt || stat.size === 0 || stat.size > 1048576) throw new Error('Native Requests report is invalid')
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.mtimeMs < startedAt || stat.size === 0 || stat.size > 268435456) throw new Error('Native Requests report is invalid')
   const report = JSON.parse(readFileSync(path, 'utf8'))
   const expected = [
     'native owner reads absent state, actual Voice ciphertext and pinned configuration without inventing pending results',
@@ -78,10 +78,13 @@ function admitBlob(name) {
 
 function admitBlobs() {
   assertFrozenIdentity()
-  if (readdirSync(join(runDirectory, 'blobs')).sort().join('|') !== 'activity.json|ordinary.json') {
-    throw new Error('Native coverage requires exactly two current blobs')
+  if (readdirSync(join(runDirectory, 'blobs')).sort().join('|') !== 'activity.json|ordinary.json|requests.json') {
+    throw new Error('Native coverage requires exactly three current blobs')
   }
-  admitCommonGeometry(admitBlob('ordinary'), admitBlob('activity'))
+  const ordinary=admitBlob('ordinary'),activity=admitBlob('activity'),requests=admitBlob('requests')
+  admitCommonGeometry(ordinary,activity)
+  admitCommonGeometry(ordinary,requests)
+  admitCommonGeometry(activity,requests)
 }
 
 function retireRun() {
@@ -105,7 +108,7 @@ try {
     || metadata.devDependencies['@vitest/coverage-istanbul'] !== providerVersion || version !== providerVersion) throw new Error('Native coverage runtime pins mismatch')
   if (!lstatSync(join(root, '.output/server/index.mjs')).isFile()) throw new Error('Native coverage requires the frozen web build')
   mkdirSync(runDirectory, { mode: 0o700 }); runOwner = assertDirectory(runDirectory)
-  for (const directory of ['blobs', 'ordinary', 'activity', 'final']) mkdirSync(join(runDirectory, directory), { mode: 0o700 })
+  for (const directory of ['blobs', 'ordinary', 'activity', 'requests', 'final']) mkdirSync(join(runDirectory, directory), { mode: 0o700 })
   frozenIdentity = sourceIdentity(root)
   await runPhase('prerequisites', [join(root, 'scripts/test-prerequisites.mjs')], 300000)
   voice = await prepareVoiceSource({ appRoot: root })
@@ -119,8 +122,10 @@ try {
   admitBlob('activity')
   await runPhase('voice-crypto qualification', [vitestCli, 'run', '--config', 'vitest.integration.config.ts', 'tests/integration/sparra-voice-crypto.test.ts', '--maxWorkers=1'], 180000)
   const requestsReport = join(runDirectory, 'requests-qualification.json')
-  await runPhase('requests qualification', [vitestCli, 'run', '--config', 'vitest.integration.config.ts', 'tests/integration/sparra-requests.test.ts', '--maxWorkers=1', '--reporter=default', '--reporter=json', '--outputFile.json=' + requestsReport], 600000)
+  await runPhase('requests qualification', [vitestCli, 'run', '--config', 'vitest.integration.config.ts', 'tests/integration/sparra-requests.test.ts', '--maxWorkers=1', '--coverage', '--reporter=default', '--reporter=json', '--reporter=blob', '--outputFile.json=' + requestsReport,
+    '--outputFile.blob='+join(blobs,'requests.json'),'--coverage.reportsDirectory='+join(runDirectory,'requests')], 600000)
   assertRequestsQualification(requestsReport)
+  admitBlob('requests')
   admitBlobs()
   await runPhase('merge', [vitestCli, '--config', 'vitest.config.ts', '--coverage', '--mergeReports=' + blobs, '--reporter=default',
     '--coverage.reportsDirectory=' + join(runDirectory, 'final')], 120000)
