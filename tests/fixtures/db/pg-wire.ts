@@ -1,4 +1,5 @@
 import { createServer, type Socket } from 'node:net'
+import { listenWire } from './wire-listener'
 
 function int32(value: number) { const bytes = Buffer.alloc(4); bytes.writeInt32BE(value); return bytes }
 function int16(value: number) { const bytes = Buffer.alloc(2); bytes.writeInt16BE(value); return bytes }
@@ -81,12 +82,10 @@ export async function pgWire(result: (sql: string) => PgWireResult = () => ({}),
       }
     })
   })
-  await new Promise<void>(ready => server.listen(0, '127.0.0.1', ready))
-  const address = server.address()
-  if (!address || typeof address === 'string') throw new Error('Missing fixture port')
+  const listener = await listenWire(server, sockets)
   return {
-    url: `postgresql://fixture:fixture-only@127.0.0.1:${address.port}/fixture`, queries, sockets,
+    url: `postgresql://fixture:fixture-only@127.0.0.1:${listener.port}/fixture`, queries, sockets,
     connections: () => connections, closedConnections: () => closedConnections,
-    async close() { for (const socket of sockets) socket.destroy(); await new Promise<void>(done => server.close(() => done())) },
+    close: listener.close,
   }
 }

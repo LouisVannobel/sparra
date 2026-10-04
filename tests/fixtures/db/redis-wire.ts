@@ -1,4 +1,5 @@
 import { createServer, type Socket } from 'node:net'
+import { listenWire } from './wire-listener'
 
 // Controlled RESP transport, not a Redis implementation or live-store proof.
 export async function redisWire(reply: (command: string[], socket: Socket) => void, stallHandshake: boolean | 'reconnect' = false) {
@@ -34,16 +35,11 @@ export async function redisWire(reply: (command: string[], socket: Socket) => vo
       }
     })
   })
-  await new Promise<void>(ready => server.listen(0, '127.0.0.1', ready))
-  const address = server.address()
-  if (!address || typeof address === 'string') throw new Error('Missing fixture port')
+  const listener = await listenWire(server, sockets)
   return {
-    url: `redis://:fixture-only@127.0.0.1:${address.port}`,
+    url: `redis://:fixture-only@127.0.0.1:${listener.port}`,
     commands, sockets,
-    async close() {
-      for (const socket of sockets) socket.destroy()
-      await new Promise<void>(done => server.close(() => done()))
-    },
+    close: listener.close,
   }
 }
 
