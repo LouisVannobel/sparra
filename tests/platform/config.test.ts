@@ -52,6 +52,10 @@ test.each(['', 'Development', 'staging', ' production '])(
   },
 )
 
+test('continues loopback origin validation when NODE_ENV is invalid', () => {
+  expectInvalidKeys({ APP_ORIGIN: 'http://localhost', NODE_ENV: 'staging' }, ['NODE_ENV'])
+})
+
 test.each([
   ['HTTPS://Template.Example:443', 'https://template.example'],
   ['https://template.example/', 'https://template.example'],
@@ -187,8 +191,10 @@ test('reports combined invalid settings in input-table order', () => {
       HOST: 'localhost',
       APP_ORIGIN: 'http://template.example',
       NODE_ENV: 'staging',
+      SPARRA_INGRESS_PROFILE: 'unknown',
     },
     [
+      'SPARRA_INGRESS_PROFILE',
       'NODE_ENV',
       'APP_ORIGIN',
       'HOST',

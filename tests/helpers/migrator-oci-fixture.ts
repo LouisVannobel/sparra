@@ -17,9 +17,10 @@ function paxRecord(key:string,value:string,wrongBytes=false) {
   while(length!==size+String(length).length+1)length=size+String(length).length+1
   return Buffer.concat([Buffer.from(length+' '),body])
 }
-export async function ociFixture(input:Readonly<{badManifest?:boolean;badSource?:boolean;blockedParent?:boolean;badPlatform?:boolean;repeatedPath?:boolean;
+type OciFixtureInput=Readonly<{badManifest?:boolean;badSource?:boolean;blockedParent?:boolean;badPlatform?:boolean;repeatedPath?:boolean;
   whiteout?:'root-app'|'root-opaque'|'extra-before-opaque'|'replacement-before'|'replacement-after'|'root-replacement-before'|'nonempty'|'dot-target';
-  gzip?:boolean;malformedGzip?:boolean;unsupportedLayer?:boolean;pax?:'utf8'|'wrong-byte-length'|'duplicate-key'|'unsupported-key'}>={}) {
+  gzip?:boolean;malformedGzip?:boolean;unsupportedLayer?:boolean;pax?:'utf8'|'wrong-byte-length'|'duplicate-key'|'unsupported-key'}>
+async function migrationSourceSnapshot(input:Pick<OciFixtureInput,'badManifest'>) {
   const paths=['scripts/migrate.ts','scripts/fixed-credential-file.mjs','scripts/migration-credentials.mjs','scripts/start-migrate.mjs','src/platform/db/config.server.ts','src/platform/config.server.ts','src/modules/auth/auth-email-normalization.server.ts']
   async function scan(path:string){for(const entry of await readdir(path,{withFileTypes:true})){if(entry.isDirectory())await scan(path+'/'+entry.name);else paths.push(path+'/'+entry.name)}}
   await scan('drizzle');const source=createHash('sha256'),files=new Map<string,Buffer>()
@@ -27,22 +28,33 @@ export async function ociFixture(input:Readonly<{badManifest?:boolean;badSource?
   const manifest={schema_version:1,node:'24.14.0',pnpm:'10.32.1',lock_sha256:digest(await readFile('pnpm-lock.yaml')),dockerfile_sha256:digest(await readFile('Dockerfile')),migration_source_sha256:source.digest('hex')}
   files.set('app/migration-source-manifest.json',Buffer.from(JSON.stringify({...manifest,...(input.badManifest?{migration_source_sha256:'c'.repeat(64)}:{})})))
   files.set('app/pnpm-lock.yaml',await readFile('pnpm-lock.yaml'));files.set('app/package.json',await readFile('package.json'))
+  return {files,manifest}
+}
+function whiteoutLayers(whiteout:OciFixtureInput['whiteout'],expectedEntries:[string,Buffer][],replacements:[string,Buffer][]) {
+  const empty=Buffer.alloc(0),opaque:[string,Buffer]=['app/drizzle/.wh..wh..opq',empty]
+  switch(whiteout){
+    case 'root-app':
+    case 'root-opaque':return [tar(new Map([[whiteout==='root-app'?'.wh.app':'.wh..wh..opq',empty]]))]
+    case 'extra-before-opaque':return [tar(new Map([['app/drizzle/extra.sql',Buffer.from('current layer extra')],opaque,...replacements]))]
+    case 'replacement-before':return [tar(new Map([...replacements,opaque]))]
+    case 'replacement-after':return [tar(new Map([opaque,...replacements]))]
+    case 'root-replacement-before':return [tar(new Map([...expectedEntries,['.wh..wh..opq',empty]]))]
+    case 'nonempty':return [tar(new Map([['unrelated/.wh.file',Buffer.from('unsupported whiteout body')]]))]
+    case 'dot-target':return [tar(new Map([['app/scripts/.wh..',empty]]))]
+    default:return []
+  }
+}
+function migrationLayers(files:Map<string,Buffer>,input:Pick<OciFixtureInput,'badSource'|'blockedParent'|'repeatedPath'|'whiteout'|'gzip'>) {
   if(input.badSource)files.set('app/scripts/migrate.ts',Buffer.from('process.exit(0)\n'))
   const expectedEntries=[...files],replacements=expectedEntries.filter(([path])=>path.startsWith('app/drizzle/'))
   if(input.whiteout==='replacement-before'||input.whiteout==='replacement-after'||input.whiteout==='root-replacement-before')files.set('app/drizzle/old-extra.sql',Buffer.from('lower layer only'))
   const blocked=new Map([['app/scripts',Buffer.from('blocking-file')]])
   if(input.gzip)blocked.set('unrelated-padding',randomBytes(262144))
   const layer=tar(files),layers=[layer,...(input.blockedParent?[tar(blocked)]:[]),...(input.repeatedPath?[tar(new Map([['app//scripts/migrate.ts',Buffer.from('replacement')]]))]:[])]
-  if(input.whiteout){
-    const empty=Buffer.alloc(0),opaque:[string,Buffer]=['app/drizzle/.wh..wh..opq',empty]
-    if(input.whiteout==='root-app'||input.whiteout==='root-opaque')layers.push(tar(new Map([[input.whiteout==='root-app'?'.wh.app':'.wh..wh..opq',empty]])))
-    if(input.whiteout==='extra-before-opaque')layers.push(tar(new Map([['app/drizzle/extra.sql',Buffer.from('current layer extra')],opaque,...replacements])))
-    if(input.whiteout==='replacement-before')layers.push(tar(new Map([...replacements,opaque])))
-    if(input.whiteout==='replacement-after')layers.push(tar(new Map([opaque,...replacements])))
-    if(input.whiteout==='root-replacement-before')layers.push(tar(new Map([...expectedEntries,['.wh..wh..opq',empty]])))
-    if(input.whiteout==='nonempty')layers.push(tar(new Map([['unrelated/.wh.file',Buffer.from('unsupported whiteout body')]])))
-    if(input.whiteout==='dot-target')layers.push(tar(new Map([['app/scripts/.wh..',empty]])))
-  }
+  layers.push(...whiteoutLayers(input.whiteout,expectedEntries,replacements))
+  return layers
+}
+function migratorCarrier(layers:readonly Buffer[],input:Pick<OciFixtureInput,'badPlatform'|'malformedGzip'|'gzip'|'unsupportedLayer'|'pax'>) {
   const layerIds=layers.map(digest)
   const encoded=layers.map((value,index)=>input.malformedGzip&&index===0?Buffer.concat([Buffer.from('invalid gzip'),randomBytes(262144)]):input.gzip?gzipSync(value):value),encodedIds=encoded.map(digest)
   const config=Buffer.from(JSON.stringify({architecture:input.badPlatform?'arm64':'amd64',os:'linux',rootfs:{type:'layers',diff_ids:layerIds.map(value=>'sha256:'+value)},config:{User:'10001:10001',WorkingDir:'/app',Entrypoint:['node','scripts/start-migrate.mjs'],Env:['NODE_VERSION=24.14.0']}})),configId=digest(config)
@@ -54,5 +66,11 @@ export async function ociFixture(input:Readonly<{badManifest?:boolean;badSource?
   const sbom={spdxVersion:'SPDX-2.3',dataLicense:'CC0-1.0',SPDXID:'SPDXRef-DOCUMENT',name:'Synthetic OCI',documentNamespace:'https://example.invalid/spdx/oci',creationInfo:{creators:['Tool: trivy-0.74.0']},
     packages:[{name:'Synthetic OCI',SPDXID:'SPDXRef-Container',primaryPackagePurpose:'CONTAINER',annotations:[{comment:'ImageID: sha256:'+configId},...layerIds.map(value=>({comment:'DiffID: sha256:'+value}))]},{name:'pg',SPDXID:'SPDXRef-Package-pg',versionInfo:'8.23.0'}],
     relationships:[{spdxElementId:'SPDXRef-DOCUMENT',relatedSpdxElement:'SPDXRef-Container',relationshipType:'DESCRIBES'},{spdxElementId:'SPDXRef-Container',relatedSpdxElement:'SPDXRef-Package-pg',relationshipType:'CONTAINS'}]}
-  return {archive,imageId:'sha256:'+imageId,sbom,manifest}
+  return {archive,imageId:'sha256:'+imageId,sbom}
+}
+export async function ociFixture(input:OciFixtureInput={}) {
+  const {files,manifest}=await migrationSourceSnapshot(input)
+  const layers=migrationLayers(files,input)
+  const {archive,imageId,sbom}=migratorCarrier(layers,input)
+  return {archive,imageId,sbom,manifest}
 }
