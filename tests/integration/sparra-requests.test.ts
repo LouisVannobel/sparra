@@ -53,7 +53,7 @@ beforeAll(async()=>{
     expect(await dump()).toBe(ddl);expect(await snapshot()).toEqual(before)
     await stores.administrator.query('DROP EVENT TRIGGER fixture_inbox_ddl_seen; DROP FUNCTION app_private.fixture_inbox_ddl_seen(); DROP SEQUENCE fixture_inbox_ddl_marker; DROP FUNCTION app_private.sparra_erase_call()')
     await stores.migrate()
-    const after=await snapshot();expect(after[0].revisions).toEqual(before[0].revisions);expect(after[0].workspaces).toEqual(before[0].workspaces);expect(after[0].users).toEqual(before[0].users)
+    const after=await snapshot();expect(after[0].revisions).toEqual(before[0].revisions.map((revision:object)=>({...revision,recording_enabled:false})));expect(after[0].workspaces).toEqual(before[0].workspaces);expect(after[0].users).toEqual(before[0].users)
     expect(await unchangedCatalog()).toEqual(catalogBefore)
     expect(await Promise.all(entries.map(async e=>createHash('sha256').update(await readFile('drizzle/'+e.tag+'.sql')).digest('hex')))).toEqual(hashes)
   }finally{await rm(dir,{recursive:true,force:true})}

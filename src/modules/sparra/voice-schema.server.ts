@@ -16,7 +16,7 @@ export const voiceDeploymentBinding=privateSchema.table('deployment_binding',{
 },t=>[
   check('voice_binding_deployment',sql`length(${t.deploymentId}) between 1 and 256 and ${t.deploymentId} !~ '[[:cntrl:]]'`),
   check('voice_binding_connection',sql`octet_length(${t.connectionId}) between 1 and 256 and ${t.connectionId} !~ '[[:cntrl:]]'`),
-  check('voice_binding_did',sql`${t.toE164} ~ '^\\+[1-9][0-9]{1,14}$'`),check('voice_binding_audio_off',sql`not ${t.audioEnabled}`),
+  check('voice_binding_did',sql`${t.toE164} ~ '^\\+[1-9][0-9]{1,14}$'`),
   pgPolicy('voice_binding_read',{to:'sparra_voice_definer',for:'select',using:sql`${t.serviceLogin} = session_user and ${t.serviceRoleOid} = (select oid from pg_catalog.pg_roles where rolname = session_user)`}),
 ]).enableRLS()
 export const voiceOperationReceipt=privateSchema.table('operation_receipt',{

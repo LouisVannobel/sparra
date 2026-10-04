@@ -13,7 +13,7 @@ test('configured activity SSR preserves the observed revision, editor values and
     expect(html).toContain('value="Observed inspection centre"')
     expect(html).toContain(locale==='fr'?'Contrôle technique':'Vehicle inspection')
     const inputs=[...html.matchAll(/<input\b([^>]*)>/g)]
-    expect(inputs).toHaveLength(2)
+    expect(inputs).toHaveLength(3)
     expect(inputs[0]?.[1]).toContain('aria-required="true"')
     expect(inputs[1]?.[1]).toContain('value=""')
     const areas=[...html.matchAll(/<textarea\b([^>]*)>([\s\S]*?)<\/textarea>/g)]
@@ -21,7 +21,7 @@ test('configured activity SSR preserves the observed revision, editor values and
     const labels=locale==='fr'?['Horaires','Services','Tarifs','Questions fréquentes','Consignes']:['Opening hours','Services','Prices','Frequently asked questions','Instructions']
     for(const label of labels)expect(html).toContain(label)
     const controls=[...html.matchAll(/<(?:input|textarea|button)\b([^>]*)>/g)]
-    expect(controls).toHaveLength(9)
+    expect(controls).toHaveLength(10)
     for(const control of controls)expect(control[1]).toContain('disabled=""')
     expect(html).not.toContain(locale==='fr'?'Configuration enregistrée.':'Configuration saved.')
     expect(html).not.toContain(locale==='fr'?'Créer mon espace':'Create my workspace')

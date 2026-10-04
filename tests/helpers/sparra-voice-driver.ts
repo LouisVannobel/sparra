@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { resolve } from 'node:path'
 import type { NativeEncryptedTurn } from '../../src/modules/sparra/message-crypto.server'
 
-type BeginSnapshot={schema_version:1;call_id:string;configuration_revision:number;knowledge:{business_name:string;sector:string;opening_hours:string;services:string;prices:string;faq:string;instructions:string};transfer_destination:string|null;retention_until:string}
+type BeginSnapshot={schema_version:1;call_id:string;configuration_revision:number;recording_enabled:boolean;knowledge:{business_name:string;sector:string;opening_hours:string;services:string;prices:string;faq:string;instructions:string};transfer_destination:string|null;retention_until:string}
 type CallLease={schema_version:1;call_id:string;lease_token:string;deployment_id:string;original_retention_until:string;lease_expires_at:string}
 type RecordingLease={schema_version:1;recording_id:string;lease_token:string;telnyx_recording_id:string;purge_attempt:number;lease_expires_at:string}
 type BeginRequest={url:string;deployment:string;call_id:string;routing:object}

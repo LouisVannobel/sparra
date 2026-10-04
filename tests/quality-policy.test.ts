@@ -114,13 +114,41 @@ function nativeCoverageFixture(activityAfterAll = '') {
   writeFileSync(join(root,'src/covered.ts'),'export function selectBranch(value: boolean): number {\n  if (value) return 7\n  return 9\n}\n')
   writeFileSync(join(root,'src/unexecuted.ts'),'export function unexecuted(): number {\n  return 13\n}\n')
   writeFileSync(join(root,'tests/ordinary.test.ts'),"import {expect,test} from 'vitest';import {selectBranch} from '../src/covered';test('ordinary true branch',()=>expect(selectBranch(true)).toBe(7));\n")
-  writeFileSync(join(root,'tests/integration/sparra-activity.test.ts'),"import {afterAll,expect,test} from 'vitest';import {selectBranch} from '../../src/covered';import {appendFileSync,readFileSync,readdirSync,rmSync,symlinkSync,writeFileSync} from 'node:fs';import {join} from 'node:path';test.each(Array.from({length:11},(_,index)=>index))('activity false branch %i',()=>expect(selectBranch(false)).toBe(9));afterAll(()=>{"+activityAfterAll+'});\n')
+  writeFileSync(join(root,'tests/integration/sparra-activity.test.ts'),"import {afterAll,expect,test} from 'vitest';import {selectBranch} from '../../src/covered';import {appendFileSync,readFileSync,readdirSync,rmSync,symlinkSync,writeFileSync} from 'node:fs';import {join} from 'node:path';test.each(Array.from({length:12},(_,index)=>index))('activity false branch %i',()=>expect(selectBranch(false)).toBe(9));afterAll(()=>{"+activityAfterAll+'});\n')
   return root
 }
 
 function runNativeCoverage(root:string,args:string[]) {
   return spawnSync(process.execPath,[join(repositoryRoot,'node_modules/vitest/vitest.mjs'),...args],{cwd:root,encoding:'utf8',windowsHide:true,timeout:12000})
 }
+
+test('native_activity_blob_admits_twelve_complete_pass_cases_and_refuses_missing_or_extra',()=>{
+  const root=nativeCoverageFixture(),blob=join(root,'coverage/activity.json'),startedAt=Date.now()
+  const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts','tests/integration/sparra-activity.test.ts','--maxWorkers=1','--coverage','--reporter=default','--reporter=blob','--outputFile.blob='+blob,'--coverage.reportsDirectory='+join(root,'coverage/activity')])
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
+  const bytes=readFileSync(blob),table=JSON.parse(bytes.toString('utf8')),files=table[Number(table[0][1])]
+  expect(files).toHaveLength(1)
+  const file=table[Number(files[0])],tasksIndex=Number(file.tasks),tasks=table[tasksIndex]
+  expect(table[Number(file.filepath)]).toBe(join(root,'tests/integration/sparra-activity.test.ts').replaceAll('\\','/'))
+  expect(tasks).toHaveLength(12)
+  for(const reference of tasks) {
+    const task=table[Number(reference)]
+    expect(table[Number(task.type)]).toBe('test')
+    expect(table[Number(table[Number(task.result)].state)]).toBe('pass')
+  }
+  expect(()=>readNativeBlob(blob,'activity',root,startedAt,'4.1.11')).not.toThrow()
+  for(const count of [11,13]) {
+    const changed=JSON.parse(bytes.toString('utf8')),cases=changed[tasksIndex]
+    if(count===11)cases.pop()
+    else cases.push(cases[0])
+    expect(cases).toHaveLength(count)
+    expect(changed.filter((_:unknown,index:number)=>index!==tasksIndex)).toEqual(table.filter((_:unknown,index:number)=>index!==tasksIndex))
+    const refusal=join(root,'coverage/activity-'+count+'.json')
+    writeFileSync(refusal,JSON.stringify(changed))
+    expect(()=>readNativeBlob(refusal,'activity',root,startedAt,'4.1.11'),String(count)+' complete PASS cases').toThrow('Native coverage test cardinality mismatch')
+  }
+  expect(readFileSync(blob)).toEqual(bytes)
+},25000)
 
 test('native_blob_coverage_keeps_additive_counts_zero_entries_and_source_geometry',()=>{
   const root=nativeCoverageFixture(),blobs=join(root,'coverage/blobs'),ordinary=join(root,'coverage/ordinary'),activity=join(root,'coverage/activity'),final=join(root,'coverage/final')
@@ -197,8 +225,8 @@ test('native_blob_coverage_keeps_additive_counts_zero_entries_and_source_geometr
   expect(merged.error).toBeUndefined();expect(merged.status,merged.stdout+merged.stderr).toBe(0)
   const coverage=JSON.parse(readFileSync(join(final,'coverage-final.json'),'utf8'))
   const covered=coverage[join(root,'src/covered.ts').replaceAll('\\','/')],unexecuted=coverage[join(root,'src/unexecuted.ts').replaceAll('\\','/')]
-  expect(covered.f).toEqual({'0':12});expect(covered.s).toEqual({'0':12,'1':1,'2':11})
-  expect(covered.b).toEqual({'0':[1,11]})
+  expect(covered.f).toEqual({'0':13});expect(covered.s).toEqual({'0':13,'1':1,'2':12})
+  expect(covered.b).toEqual({'0':[1,12]})
   expect(covered.fnMap['0'].decl.start).toEqual({line:1,column:16})
   expect(covered.statementMap['1']).toEqual({start:{line:2,column:13},end:{line:2,column:null}})
   expect(covered.branchMap['0'].loc.start.line).toBe(2)
@@ -236,7 +264,7 @@ test('actual_coverage_runner_publishes_only_native_complete_map_after_retirement
   expect(readdirSync(join(root,'coverage'))).toEqual(['coverage-final.json'])
   const coverage=JSON.parse(readFileSync(join(root,'coverage/coverage-final.json'),'utf8'))
   expect(coverage.stale).toBeUndefined()
-  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].f).toEqual({'0':12})
+  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].f).toEqual({'0':13})
   expect(coverage[join(root,'src/unexecuted.ts').replaceAll('\\','/')].f).toEqual({'0':0})
 },25000)
 
@@ -634,7 +662,7 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
         expect(source.text.slice(marker.end,marker.end+newlineLength),'Reviewed SSR marker line expired').toMatch(/^\r?\n$/)
         reconstructed=reconstructed.slice(0,marker.start)+reconstructed.slice(marker.end+newlineLength)
       }
-      expect(digest(reconstructed),'Reviewed SSR whole file expired').toBe('fa8993933c52afcba57e7d0fc21543a72bb72582935a371918782d44d30768b3')
+      expect(digest(reconstructed),'Reviewed SSR whole file expired').toBe('3b6cf333378bf4961dd7b735ecabe478c4631fb9338758e8e6bf18f75737168f')
     }
     expect(()=>reviewedCallbacks(sources)).not.toThrow()
     const original=sources.get(ssrFile)!,title=targets[0][0]

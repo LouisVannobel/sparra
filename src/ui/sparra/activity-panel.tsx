@@ -5,6 +5,7 @@ import { Heading } from '@astryxdesign/core/Heading'
 import { TextInput } from '@astryxdesign/core/TextInput'
 import { TextArea } from '@astryxdesign/core/TextArea'
 import { Selector } from '@astryxdesign/core/Selector'
+import { CheckboxInput } from '@astryxdesign/core/CheckboxInput'
 import type { ActivityConfigurationDto, ActivityState, SaveActivityInput } from '../../modules/sparra/sparra.functions'
 import type { WorkspaceDto } from '../../modules/workspaces/personal.server'
 import { activityMessages, appMessages } from '../../modules/sparra/messages'
@@ -13,7 +14,7 @@ import { privateResult, PrivateUnavailable } from './app-shell'
 
 type Props={locale:Locale;state:ActivityState;onEnsure(signal:AbortSignal):Promise<WorkspaceDto|Response>;onSave(data:SaveActivityInput,signal:AbortSignal):Promise<ActivityConfigurationDto|Response>;onRead(signal:AbortSignal):Promise<ActivityState|Response>;onRefused():Promise<void>}
 const sections=[['openingHours',1000],['services',2000],['prices',1500],['faq',3000],['instructions',2000]] as const
-function draft(configuration:ActivityConfigurationDto|null):SaveActivityInput{return configuration?{businessName:configuration.businessName,sector:configuration.sector,knowledge:{...configuration.knowledge},transferDestination:configuration.transferDestination,expectedRevision:configuration.revision}:{businessName:'',sector:'garage',knowledge:{openingHours:'',services:'',prices:'',faq:'',instructions:''},transferDestination:null,expectedRevision:0}}
+function draft(configuration:ActivityConfigurationDto|null):SaveActivityInput{return configuration?{businessName:configuration.businessName,sector:configuration.sector,knowledge:{...configuration.knowledge},transferDestination:configuration.transferDestination,recordingEnabled:configuration.recordingEnabled??false,expectedRevision:configuration.revision}:{businessName:'',sector:'garage',knowledge:{openingHours:'',services:'',prices:'',faq:'',instructions:''},transferDestination:null,recordingEnabled:false,expectedRevision:0}}
 
 function ActivityEditor({locale,editable,hydrated,pending,reconcile,onEdit,onSubmit}:{locale:Locale;editable:SaveActivityInput;hydrated:boolean;pending:boolean;reconcile:boolean;onEdit(next:SaveActivityInput):void;onSubmit():void}){
   const t=activityMessages[locale]
@@ -22,6 +23,7 @@ function ActivityEditor({locale,editable,hydrated,pending,reconcile,onEdit,onSub
     <Selector label={t.sector} value={editable.sector} options={[{value:'garage',label:t.garage},{value:'controle-technique',label:t.controleTechnique}]} onChange={sector=>{if(sector==='garage'||sector==='controle-technique')onEdit({...editable,sector})}} isDisabled={!hydrated||pending} width="100%"/>
     {sections.map(([field,limit])=><TextArea key={field} label={t[field]} description={`${limit} ${locale==='fr'?'caractères maximum':'characters maximum'}`} htmlName={field} value={editable.knowledge[field]} onChange={value=>onEdit({...editable,knowledge:{...editable.knowledge,[field]:value}})} rows={4} isDisabled={!hydrated||pending} width="100%"/>)}
     <TextInput label={t.transferDestination} description={t.transferHint} htmlName="transferDestination" value={editable.transferDestination??''} onChange={value=>onEdit({...editable,transferDestination:value||null})} isDisabled={!hydrated||pending} width="100%"/>
+    <CheckboxInput label={t.recordingEnabled} description={t.recordingHint} htmlName="recordingEnabled" value={editable.recordingEnabled??false} onChange={recordingEnabled=>onEdit({...editable,recordingEnabled})} isDisabled={!hydrated||pending} width="100%"/>
     <Button label={t.save} type="submit" isDisabled={!hydrated||reconcile} isLoading={pending}/>
   </form>
 }
