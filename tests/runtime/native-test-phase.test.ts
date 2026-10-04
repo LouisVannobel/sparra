@@ -19,7 +19,9 @@ test('owned native phase timeout stops its live descendant and reports unknown t
   const owner=await mkdtemp(join(tmpdir(),'sparra-phase-test-'))
   try{
     const marker=join(owner,'alive.txt')
-    const script=`const {spawn}=require('node:child_process');const {writeFileSync}=require('node:fs');const child=spawn(process.execPath,['-e',"setInterval(()=>require('node:fs').writeFileSync(process.argv[1],String(Date.now())),20);setTimeout(()=>process.exit(0),6000)",process.argv[1]],{stdio:'ignore'});writeFileSync(process.argv[2],String(child.pid));setInterval(()=>{},1000);setTimeout(()=>process.exit(0),6000);`
+    // Atomic publication keeps forced termination from truncating the last heartbeat.
+    const heartbeat=`const fs=require('node:fs');const pending=process.argv[1]+'.pending';setInterval(()=>{fs.writeFileSync(pending,String(Date.now()));fs.renameSync(pending,process.argv[1])},20);setTimeout(()=>process.exit(0),6000)`
+    const script=`const {spawn}=require('node:child_process');const {writeFileSync}=require('node:fs');const child=spawn(process.execPath,['-e',${JSON.stringify(heartbeat)},process.argv[1]],{stdio:'ignore'});writeFileSync(process.argv[2],String(child.pid));setInterval(()=>{},1000);setTimeout(()=>process.exit(0),6000);`
     const result=await module.runNativePhase(process.execPath,['-e',script,marker,join(owner,'pid.txt')],{cwd:owner,env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,TEMP:process.env.TEMP,TMP:process.env.TMP},timeout:1500})
     expect(result.timedOut).toBe(true)
     const pid=Number(await readFile(join(owner,'pid.txt'),'utf8'))
