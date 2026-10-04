@@ -26,11 +26,13 @@ function decodeArchive(value:DriverValue):ArchivedFixture {
   if(!('receipt_operation' in value)||typeof value.call_id!=='string'||typeof value.recording_id!=='string'||typeof value.receipt_operation!=='string'
     ||!Array.isArray(value.operations)||!value.operations.every((entry:unknown)=>typeof entry==='string')||typeof value.ciphertext_bytes!=='number'
     ||typeof value.ciphertext_sha256!=='string'||typeof value.ledger_state!=='string')throw invalid()
-  const operation:ReceiptOperation=JSON.parse(value.receipt_operation)
-  if(operation.call_id!==value.call_id||operation.payload.recording_id!==value.recording_id||operation.payload.archive_receipt.ciphertext_sha256!==value.ciphertext_sha256
-    ||operation.payload.archive_receipt.encrypted_bytes!==value.ciphertext_bytes)throw invalid()
-  return {callId:value.call_id,recordingId:value.recording_id,operations:value.operations,receiptBytes:value.receipt_operation,
-    operation,ciphertextBytes:value.ciphertext_bytes,ciphertextSha256:value.ciphertext_sha256,ledgerState:value.ledger_state}
+  try{
+    const operation:ReceiptOperation=JSON.parse(value.receipt_operation)
+    if(operation.call_id!==value.call_id||operation.payload.recording_id!==value.recording_id||operation.payload.archive_receipt.ciphertext_sha256!==value.ciphertext_sha256
+      ||operation.payload.archive_receipt.encrypted_bytes!==value.ciphertext_bytes)throw invalid()
+    return {callId:value.call_id,recordingId:value.recording_id,operations:value.operations,receiptBytes:value.receipt_operation,
+      operation,ciphertextBytes:value.ciphertext_bytes,ciphertextSha256:value.ciphertext_sha256,ledgerState:value.ledger_state}
+  }catch{throw invalid()}
 }
 
 /** A persistent fixture avoids repeated cold graph imports; selected producer stays owned by the caller. */
@@ -49,6 +51,7 @@ export async function startRecordingArchiveFixture() {
   const exited=new Promise<void>(accept=>child.once('close',()=>{terminal=true;accept()}))
   function fail(){failed=true;for(const waiter of pending.splice(0))waiter.reject(invalid())}
   child.stdout.on('data',data=>{
+    if(terminal||failed)return
     buffer+=data.toString()
     if(buffer.length>1048576){child.kill();fail();return}
     for(let newline=buffer.indexOf('\n');newline>=0;newline=buffer.indexOf('\n')){
@@ -57,7 +60,7 @@ export async function startRecordingArchiveFixture() {
         const reply:DriverReply=JSON.parse(line)
         if(typeof reply!=='object'||reply===null||Array.isArray(reply))throw invalid()
         const waiter=pending.shift();if(waiter)waiter.resolve(reply);else queued.push(reply)
-      }catch{child.kill();fail()}
+      }catch{child.kill();fail();return}
     }
   })
   child.stderr.resume() // Provider URLs, private keys and dependency notices are never evidence output.
@@ -65,8 +68,8 @@ export async function startRecordingArchiveFixture() {
   child.once('error',fail)
   child.once('close',fail)
   function read():Promise<DriverReply> {
-    const ready=queued.shift();if(ready)return Promise.resolve(ready)
     if(terminal||failed)return Promise.reject(invalid())
+    const ready=queued.shift();if(ready)return Promise.resolve(ready)
     return new Promise((accept,reject)=>{
       const waiter={resolve:(value:DriverReply)=>{clearTimeout(timer);accept(value)},reject:(error:Error)=>{clearTimeout(timer);reject(error)}}
       const timer=setTimeout(()=>{const index=pending.indexOf(waiter);if(index>=0)pending.splice(index,1);child.kill();failed=true;reject(new Error('Native recording archive fixture30s deadline'))},30000)
@@ -77,6 +80,7 @@ export async function startRecordingArchiveFixture() {
     if(terminal||failed)throw invalid()
     child.stdin.write(JSON.stringify(request)+'\n')
     const reply=await read()
+    if(terminal||failed)throw invalid()
     if(typeof reply.error==='string')throw new Error('Native recording archive fixture: '+reply.error)
     if(reply.ok===undefined||typeof reply.ok!=='object'||reply.ok===null||Array.isArray(reply.ok))throw invalid()
     return reply.ok
@@ -98,7 +102,7 @@ export async function startRecordingArchiveFixture() {
     }
     if(!retired||child.exitCode!==0)throw new Error('Native recording archive cleanup failed')
   }
-  try{if((await read()).ready!==true)throw invalid()}
+  try{if((await read()).ready!==true||terminal||failed)throw invalid()}
   catch(error){try{await cleanup()}catch{}throw error}
   return {
     async prepare(input:PrepareInput){
@@ -106,7 +110,7 @@ export async function startRecordingArchiveFixture() {
     },
     async relay(callId:string){
       const reply=await command({action:'relay',call_id:callId})
-      if(!('relay' in reply)||typeof reply.relay.status!=='string'||typeof reply.relay.processed!=='number'
+      if(!('relay' in reply)||typeof reply.relay!=='object'||reply.relay===null||typeof reply.relay.status!=='string'||typeof reply.relay.processed!=='number'
         ||typeof reply.relay.acked!=='number'||typeof reply.ledger_state!=='string')throw invalid()
       return {status:reply.relay.status,processed:reply.relay.processed,acked:reply.relay.acked,ledgerState:reply.ledger_state}
     },

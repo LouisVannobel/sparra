@@ -10,6 +10,27 @@ function message(type: string, ...payload: Buffer[]) {
 const cstring = (value: string) => Buffer.from(value + '\0')
 export type PgWireResult = { fields?: string[]; values?: string[]; command?: string; error?: string; stall?: boolean }
 
+type PgFrame =
+  | { kind: 'startup'; code: number; remainder: Buffer }
+  | { kind: 'message'; type: string; body: Buffer; remainder: Buffer }
+
+export function parsePgFrame(bytes: Buffer, started: boolean): PgFrame | undefined {
+  if (!started) {
+    if (bytes.length < 4) return
+    const length = bytes.readInt32BE()
+    if (bytes.length < length) return
+    const code = bytes.readInt32BE(4)
+    return { kind: 'startup', code, remainder: bytes.subarray(length) }
+  }
+  if (bytes.length < 5) return
+  const length = bytes.readInt32BE(1)
+  if (bytes.length < length + 1) return
+  return {
+    kind: 'message', type: String.fromCharCode(bytes[0]),
+    body: bytes.subarray(5, length + 1), remainder: bytes.subarray(length + 1),
+  }
+}
+
 // A controlled PostgreSQL wire transport for ownership/startup tests. It does
 // not evaluate SQL, enforce constraints, or attest a real database/PgBouncer.
 export async function pgWire(result: (sql: string) => PgWireResult = () => ({}), stallHandshakeAfter = Infinity) {
@@ -23,7 +44,7 @@ export async function pgWire(result: (sql: string) => PgWireResult = () => ({}),
     sockets.add(socket)
     socket.on('error', () => {})
     socket.on('close', () => { sockets.delete(socket); closedConnections++ })
-    let bytes = Buffer.alloc(0)
+    let bytes: Buffer = Buffer.alloc(0)
     let started = false
     let parsed = ''
     let status = 'I'
@@ -55,24 +76,17 @@ export async function pgWire(result: (sql: string) => PgWireResult = () => ({}),
     socket.on('data', chunk => {
       bytes = Buffer.concat([bytes, typeof chunk === 'string' ? Buffer.from(chunk) : chunk])
       while (bytes.length) {
-        if (!started) {
-          if (bytes.length < 4) return
-          const length = bytes.readInt32BE()
-          if (bytes.length < length) return
-          const code = bytes.readInt32BE(4)
-          bytes = bytes.subarray(length)
-          if (code === 80877103) { socket.write('N'); continue }
+        const frame = parsePgFrame(bytes, started)
+        if (!frame) return
+        bytes = frame.remainder
+        if (frame.kind === 'startup') {
+          if (frame.code === 80877103) { socket.write('N'); continue }
           started = true
           if (connectionNumber > stallHandshakeAfter) continue
           socket.write(Buffer.concat([message('R', int32(0)), message('K', int32(1234), int32(5678)), message('Z', Buffer.from('I'))]))
           continue
         }
-        if (bytes.length < 5) return
-        const length = bytes.readInt32BE(1)
-        if (bytes.length < length + 1) return
-        const type = String.fromCharCode(bytes[0])
-        const body = bytes.subarray(5, length + 1)
-        bytes = bytes.subarray(length + 1)
+        const { type, body } = frame
         if (type === 'Q') { execute(body.toString().slice(0, -1)); if (!stalled) socket.write(message('Z', Buffer.from(status))) }
         if (type === 'P') { parsed = body.toString().split('\0')[1]; socket.write(message('1')) }
         if (type === 'B') socket.write(message('2'))
