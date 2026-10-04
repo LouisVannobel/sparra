@@ -26,19 +26,25 @@ test('native generator containment admits only descendants with the host path ca
   // Invoke the actual function AST only; metadata fixtures stay in this owned directory.
   const script = String.raw`
 $ErrorActionPreference = 'Stop'
+$timer = [Diagnostics.Stopwatch]::StartNew()
+[Console]::Error.WriteLine('CONTAINMENT_STAGE startup ' + $timer.ElapsedMilliseconds)
 $repo = [IO.Path]::GetFullPath((Get-Location).Path)
 $tokens = $null; $parseErrors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $repo 'scripts/generate-demo-audio.ps1'), [ref]$tokens, [ref]$parseErrors)
 if ($parseErrors.Count) { throw 'Generator parse failed' }
+[Console]::Error.WriteLine('CONTAINMENT_STAGE parsed ' + $timer.ElapsedMilliseconds)
 $function = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Assert-Contained' }, $false)
 if (-not $function) { throw 'Missing containment consumer' }
 Invoke-Expression $function.Extent.Text
+[Console]::Error.WriteLine('CONTAINMENT_STAGE loaded ' + $timer.ElapsedMilliseconds)
 $cases = [Console]::In.ReadToEnd() | ConvertFrom-Json
+[Console]::Error.WriteLine('CONTAINMENT_STAGE input ' + $timer.ElapsedMilliseconds)
 if ($IsWindows) {
   $hidden = [IO.Path]::GetDirectoryName(($cases | Where-Object name -CEQ 'hidden-ancestor').path)
   [IO.File]::SetAttributes($hidden, ([IO.File]::GetAttributes($hidden) -bor [IO.FileAttributes]::Hidden))
 }
 $results = foreach ($case in $cases) {
+  [Console]::Error.WriteLine('CONTAINMENT_CASE ' + $case.name + ' ' + $timer.ElapsedMilliseconds)
   $accepted = $false; $rejection = $null
   try { $null = Assert-Contained $case.path $case.directory; $accepted = $true }
   catch {
