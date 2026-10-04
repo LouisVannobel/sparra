@@ -10,7 +10,7 @@ const invalid=()=>new Error('Native Voice preparation failed')
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex')
 const uvHash='c8c60f47e6f88d18dbf6f33d7279fb1fbf7ae76631768152cf5578c3d65729b4'
 const scannerHash='551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb'
-const tokenizerHash='e57f64187974277726a3417ca6f181ec5403676c717672eef6a748a7b20e0106'
+const corpusArchiveSha256='e57f64187974277726a3417ca6f181ec5403676c717672eef6a748a7b20e0106'
 const safeAbsolute=path=>typeof path==='string'&&isAbsolute(path)&&!path.split(/[\\/]/).some(part=>part==='.'||part==='..')
 const samePath=(left,right)=>process.platform==='win32'?left.toLowerCase()===right.toLowerCase():left===right
 const baselineEnv=()=>Object.fromEntries(['PATH','SystemRoot','TEMP','TMP'].flatMap(key=>process.env[key]===undefined?[]:[[key,process.env[key]]]))
@@ -100,7 +100,7 @@ async function interpreterIdentity(executable){
 
 export async function installVoiceTokenizer(scope,pythonExecutable,archive){
   await directory(scope)
-  if(!Buffer.isBuffer(archive)||archive.length>16777216||sha(archive)!==tokenizerHash)throw invalid()
+  if(!Buffer.isBuffer(archive)||archive.length>16777216||sha(archive)!==corpusArchiveSha256)throw invalid()
   const home=join(scope,'home'),data=join(scope,'nltk'),zip=join(scope,'punkt_tab.zip')
   await mkdir(home,{recursive:true,mode:0o700});await mkdir(data,{mode:0o700})
   await writeFile(zip,archive,{flag:'wx',mode:0o400})
@@ -130,11 +130,11 @@ with zipfile.ZipFile(archive) as source:
 
 async function prepareTokenizer(scope,executable){
   const archive=join(scope,'tokenizer-download.zip')
-  await download('https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/packages/tokenizers/punkt_tab.zip',tokenizerHash,archive)
+  await download('https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/packages/tokenizers/punkt_tab.zip',corpusArchiveSha256,archive)
   const environment=await installVoiceTokenizer(scope,executable,await readFile(archive))
   await rm(archive)
   const identity=await environmentIdentity(environment.NLTK_DATA)
-  return {environment,archive:join(scope,'punkt_tab.zip'),assertIdentity:async()=>{if(await environmentIdentity(environment.NLTK_DATA)!==identity||sha(await readFile(join(scope,'punkt_tab.zip')))!==tokenizerHash)throw invalid()}}
+  return {environment,archive:join(scope,'punkt_tab.zip'),assertIdentity:async()=>{if(await environmentIdentity(environment.NLTK_DATA)!==identity||sha(await readFile(join(scope,'punkt_tab.zip')))!==corpusArchiveSha256)throw invalid()}}
 }
 
 async function assertNativeDescriptor(descriptor,testEnvironment){
@@ -240,34 +240,46 @@ export async function prepareVoiceSource({appRoot,explicitRoot=process.env.SPARR
   await directory(scopeParent)
   const owned=await createVoiceSourceScope(scopeParent),scope=owned.directory,retire=owned.retire
   let members,descriptor,identity,environment
+  let stage='owned directories'
   try{
     const producerRoot=owned.root,tools=join(scope,'tools'),cache=join(scope,'cache'),python=join(scope,'python'),temporary=join(scope,'tmp'),home=join(scope,'home')
     for(const path of [tools,cache,python,temporary,home])await mkdir(path,{mode:0o700})
     const env={PATH:'/usr/bin:/bin',HOME:home,TMPDIR:temporary,UV_CACHE_DIR:cache,UV_PYTHON_INSTALL_DIR:python,UV_PYTHON_BIN_DIR:join(scope,'bin'),UV_NO_CONFIG:'1',UV_PYTHON_PREFERENCE:'only-managed',UV_PYTHON_DOWNLOADS:'automatic',UV_CONCURRENT_BUILDS:'1',UV_CONCURRENT_DOWNLOADS:'2',UV_CONCURRENT_INSTALLS:'1',PYTHONDONTWRITEBYTECODE:'1'}
     const uvArchive=join(tools,'uv.tar.gz'),uv=join(tools,'uv')
+    stage='uv archive download'
     await download('https://releases.astral.sh/github/uv/releases/download/0.12.4/uv-x86_64-unknown-linux-gnu.tar.gz',uvHash,uvArchive)
+    stage='uv archive extraction'
     await tool(uvArchive,uv,'uv-x86_64-unknown-linux-gnu/uv')
+    stage='uv executable version'
     if((await run(uv,['--version'],{env})).toString().trim()!=='uv 0.12.4 (x86_64-unknown-linux-gnu)')throw invalid()
+    stage='Python installation'
     await run(uv,['python','install','3.13.15','--no-bin'],{env,timeout:180000})
-    const bootstrap=(await run(uv,['python','find','--managed-python','3.13.15'],{env})).toString().trim()
+    stage='Python lookup'
+    const bootstrap=(await run(uv,['python','find','--no-project','3.13.15'],{env})).toString().trim()
     if(!safeAbsolute(bootstrap)||!bootstrap.startsWith(python+'/'))throw invalid()
     const fixture=join(appRoot,'tests/fixtures/voice-source')
     const archive=await readFile(join(fixture,'voice-producer-source.tar.gz')),manifest=JSON.parse(await readFile(join(fixture,'voice-producer-source.manifest.json'),'utf8'))
+    stage='source archive verification'
     const verified=await readVoiceSourceFixture(archive,manifest,bootstrap);members=verified.members
     await owned.install(members)
     const scannerArchive=join(tools,'gitleaks.tar.gz'),scanner=join(tools,'gitleaks')
+    stage='scanner acquisition'
     await download('https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz',scannerHash,scannerArchive)
     await tool(scannerArchive,scanner,'gitleaks')
     const config=join(appRoot,'.gitleaks.toml'),args=['dir',producerRoot,'--redact','--no-banner','--exit-code','1']
     if(await lstat(config).then(()=>true,error=>error.code!=='ENOENT')){if(!(await lstat(config)).isFile()||(await lstat(config)).isSymbolicLink())throw invalid();args.push('--config',config)}
     await run(scanner,args,{env,timeout:30000})
+    stage='project lock verification'
     await sourceIdentity(producerRoot,members)
     await run(uv,['lock','--check','--python',bootstrap],{cwd:producerRoot,env,timeout:120000})
     await sourceIdentity(producerRoot,members)
+    stage='project dependency installation'
     await run(uv,['sync','--all-groups','--frozen','--python',bootstrap],{cwd:producerRoot,env,timeout:300000})
     await sourceIdentity(producerRoot,members)
     descriptor=await resolveVoiceProducer(producerRoot)
+    stage='owned language corpus'
     const tokenizer=await prepareTokenizer(scope,descriptor.pythonExecutable)
+    stage='native package and module imports'
     await assertNativeDescriptor(descriptor,tokenizer.environment)
     identity=await interpreterIdentity(descriptor.pythonExecutable)
     environment=await environmentIdentity(join(producerRoot,'.venv'))
@@ -280,6 +292,6 @@ export async function prepareVoiceSource({appRoot,explicitRoot=process.env.SPARR
     return {root:producerRoot,descriptor,fixturePython:descriptor.pythonExecutable,testEnvironment:tokenizer.environment,tokenizerArchive:tokenizer.archive,assertIdentity,retire}
   }catch(error){
     try{await retire()}catch(cleanup){throw new AggregateError([error,cleanup],'Native Voice preparation and retirement failed')}
-    throw error
+    throw new Error('Native Voice preparation failed at '+stage)
   }
 }

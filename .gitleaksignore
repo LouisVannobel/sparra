@@ -12,3 +12,5 @@
 06dcf574e6ae9c4ea1dafcf3f362e784c7110575:tests/fixtures/db/disposable-stores.ts:generic-api-key:299
 06dcf574e6ae9c4ea1dafcf3f362e784c7110575:docs/design/BOILERPLATE_DESIGN.md:generic-api-key:435
 06dcf574e6ae9c4ea1dafcf3f362e784c7110575:docs/superpowers/plans/2026-09-10-functional-auth.md:generic-api-key:537
+# Public NLTK punkt_tab archive SHA256, not a credential; the constant is now renamed.
+1571cb864022f3c391a317aee4bd96c562b8493c:scripts/prepare-voice-source.mjs:generic-api-key:13
