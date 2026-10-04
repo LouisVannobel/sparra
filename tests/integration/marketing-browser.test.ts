@@ -9,6 +9,12 @@ import { startWeb, bounded, unusedLoopbackPort } from '../helpers/web-process'
 
 let stores: Awaited<ReturnType<typeof startDisposableStores>>, app: ReturnType<typeof startWeb>, browser: Browser
 let proxy: ReturnType<typeof createServer>, origin: string
+type StartupProxyRequest = {
+  path: string; status: number | null; errorCode: string | null; reusedSocket: boolean | null
+  upstreamEnd: boolean; upstreamClose: boolean; upstreamComplete: boolean | null
+  downstreamFinish: boolean; downstreamClose: boolean
+}
+let startupProxyCapture: { requests: StartupProxyRequest[]; droppedRequests: number; detach: (() => void)[] } | undefined
 beforeAll(async () => {
   stores = await startDisposableStores(); await stores.migrate()
   const port = await unusedLoopbackPort(); origin = `http://localhost:${port}`
@@ -17,11 +23,41 @@ beforeAll(async () => {
     AUTH_SECRET: randomBytes(48).toString('hex'), REQUEST_TIMEOUT_MS: '10000' })
   const upstream = (await bounded(app.ready)).port
   proxy = createServer((incoming, outgoing) => {
+    const capture = startupProxyCapture
+    let observation: StartupProxyRequest | undefined
+    if (capture && incoming.method === 'GET' && incoming.url && /^\/assets\/[A-Za-z0-9._-]{1,160}\.(?:js|css)$/.test(incoming.url)) {
+      if (capture.requests.length < 48) {
+        observation = { path: incoming.url, status: null, errorCode: null, reusedSocket: null,
+          upstreamEnd: false, upstreamClose: false, upstreamComplete: null, downstreamFinish: false, downstreamClose: false }
+        capture.requests.push(observation)
+      } else capture.droppedRequests++
+    }
+    const row = observation
     const call = httpRequest({ hostname: '127.0.0.1', port: upstream, method: incoming.method, path: incoming.url,
       localAddress: '127.0.0.2', headers: { ...incoming.headers, 'x-real-ip': incoming.socket.remoteAddress } }, response => {
+      if (row && capture && startupProxyCapture === capture) {
+        row.status = response.statusCode ?? null; row.reusedSocket = call.reusedSocket
+        const ended = () => { row.upstreamEnd = true; row.upstreamComplete = response.complete }
+        const closed = () => { row.upstreamClose = true; row.upstreamComplete = response.complete }
+        response.once('end', ended); response.once('close', closed)
+        capture.detach.push(() => { response.off('end', ended); response.off('close', closed) })
+      }
       outgoing.writeHead(response.statusCode!, response.headers); response.pipe(outgoing)
     })
-    call.on('error', () => { outgoing.writeHead(502); outgoing.end() }); incoming.pipe(call)
+    if (row && capture) {
+      const finished = () => { row.downstreamFinish = outgoing.writableFinished }
+      const closed = () => { row.downstreamClose = true }
+      outgoing.once('finish', finished); outgoing.once('close', closed)
+      capture.detach.push(() => { outgoing.off('finish', finished); outgoing.off('close', closed) })
+    }
+    call.on('error', error => {
+      if (row && capture && startupProxyCapture === capture) {
+        const code = error instanceof Error && 'code' in error ? error.code : undefined
+        row.errorCode = ['ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'ETIMEDOUT', 'ERR_STREAM_PREMATURE_CLOSE'].find(value => value === code) ?? 'other'
+        row.reusedSocket = call.reusedSocket
+      }
+      outgoing.writeHead(502); outgoing.end()
+    }); incoming.pipe(call)
   })
   await new Promise<void>(done => proxy.listen(port, '127.0.0.1', done))
   browser = await chromium.launch({ headless: true })
@@ -131,7 +167,9 @@ async function observeDemoStartup(page: Page): Promise<() => Promise<void>> {
     }
     record('init')
   })
-  const assets = new Map<import('playwright').Request, { kind: 'script' | 'stylesheet'; path: string; status: number | null; completion: 'pending' | 'finished' | 'failed' }>()
+  const proxyCapture: NonNullable<typeof startupProxyCapture> = { requests: [], droppedRequests: 0, detach: [] }
+  startupProxyCapture = proxyCapture
+  const assets = new Map<import('playwright').Request, { kind: 'script' | 'stylesheet'; path: string; status: number | null; completion: 'pending' | 'finished' | 'failed'; failure: string | null }>()
   const errors: { class: string; code: string }[] = []
   let droppedAssets = 0, droppedErrors = 0
   const request = (request: import('playwright').Request) => {
@@ -139,11 +177,19 @@ async function observeDemoStartup(page: Page): Promise<() => Promise<void>> {
     if (url.origin !== origin || (kind !== 'script' && kind !== 'stylesheet')) return
     if (assets.size >= 48) { droppedAssets++; return }
     const path = !url.search && !url.hash && /^\/assets\/[A-Za-z0-9._-]{1,160}\.(?:js|css)$/.test(url.pathname) ? url.pathname : 'other'
-    assets.set(request, { kind, path, status: null, completion: 'pending' })
+    assets.set(request, { kind, path, status: null, completion: 'pending', failure: null })
   }
   const response = (response: import('playwright').Response) => { const row = assets.get(response.request()); if (row) row.status = response.status() }
   const finished = (request: import('playwright').Request) => { const row = assets.get(request); if (row) row.completion = 'finished' }
-  const failed = (request: import('playwright').Request) => { const row = assets.get(request); if (row) row.completion = 'failed' }
+  const failed = (request: import('playwright').Request) => {
+    const row = assets.get(request)
+    if (!row) return
+    row.completion = 'failed'
+    const errorText = request.failure()?.errorText
+    row.failure = errorText === undefined ? null : ['net::ERR_ABORTED', 'net::ERR_FAILED', 'net::ERR_BLOCKED_BY_CLIENT', 'net::ERR_BLOCKED_BY_RESPONSE',
+      'net::ERR_CONNECTION_RESET', 'net::ERR_CONNECTION_CLOSED', 'net::ERR_CONNECTION_REFUSED', 'net::ERR_EMPTY_RESPONSE', 'net::ERR_TIMED_OUT',
+      'net::ERR_CONTENT_LENGTH_MISMATCH', 'net::ERR_TOO_MANY_RETRIES', 'net::ERR_INSUFFICIENT_RESOURCES'].find(value => value === errorText) ?? 'other'
+  }
   const pageError = (error: Error) => {
     if (errors.length >= 16) { droppedErrors++; return }
     const errorClass = ['Error', 'TypeError', 'SyntaxError', 'ReferenceError', 'RangeError', 'DOMException'].find(value => value === error.name) ?? 'other'
@@ -161,9 +207,13 @@ async function observeDemoStartup(page: Page): Promise<() => Promise<void>> {
         evidence.stop()
         return { states: evidence.states, csp: evidence.csp, droppedStates: evidence.droppedStates, droppedCsp: evidence.droppedCsp, final }
       })
-      const diagnostic = JSON.stringify({ startup, assets: [...assets.values()], errors, droppedAssets, droppedErrors })
+      const diagnostic = JSON.stringify({ startup, assets: [...assets.values()], errors, droppedAssets, droppedErrors,
+        proxy: { requests: proxyCapture.requests, droppedRequests: proxyCapture.droppedRequests } })
       console.error('MARKETING_STARTUP_DIAGNOSTIC ' + (diagnostic.length <= 32768 ? diagnostic : '{"diagnostic":"size-bound-exceeded"}'))
     } finally {
+      if (startupProxyCapture === proxyCapture) startupProxyCapture = undefined
+      for (const detach of proxyCapture.detach) detach()
+      proxyCapture.detach.length = 0
       page.off('request', request); page.off('response', response); page.off('requestfinished', finished); page.off('requestfailed', failed); page.off('pageerror', pageError)
     }
   }
