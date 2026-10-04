@@ -9,7 +9,7 @@ import type { FileChangeSummary } from 'typescript/unstable/proto'
 import { createScanner, getLeadingCommentRanges, getTokenAtPosition, getTrailingCommentRanges, isArrowFunction, isBlock, isCallExpression, isExpressionStatement, isFunctionDeclaration, isIdentifier, isImportDeclaration, isNamedImports, isStringLiteral, LanguageVariant, SyntaxKind } from 'typescript/unstable/ast'
 import type { CallExpression, Node, SourceFile } from 'typescript/unstable/ast'
 import { afterAll, beforeAll, expect, test } from 'vitest'
-import { admitCommonGeometry, assertDirectory, assertRunTree, assertRequestsReport, readNativeBlob, sourceIdentity } from '../scripts/native-coverage-inputs.mjs'
+import { admitCommonGeometry, assertDirectory, assertRunTree, assertRequestsQualification, assertRequestsReport, readNativeBlob, sourceIdentity } from '../scripts/native-coverage-inputs.mjs'
 
 const repositoryRoot = process.cwd()
 const fixtureRoot = mkdtempSync(join(repositoryRoot, 'src', '.anti-slop-canary-'))
@@ -211,41 +211,39 @@ test('native_requests_report_preserves_exact_summary_consumer_and_leaf_admission
   ]){const wrong=structuredClone(report);mutate(wrong);expect(()=>assertRequestsReport(wrong,root)).toThrow('Native Requests requires its exact eight passing leaves')}
 },25000)
 
-test('native_requests_file_admission_requires_a_current_bounded_regular_report_with_exact_leaves',async()=>{
-  const inputs:unknown=await import('../scripts/native-coverage-inputs.mjs')
-  expect(typeof inputs==='object'&&inputs!==null&&'assertRequestsQualification' in inputs&&typeof inputs.assertRequestsQualification==='function').toBe(true)
-  if(typeof inputs!=='object'||inputs===null||!('assertRequestsQualification' in inputs)||typeof inputs.assertRequestsQualification!=='function')throw new Error('Missing Requests file admission')
-  const qualify=inputs.assertRequestsQualification
+test('native_requests_file_admission_requires_a_current_bounded_regular_report_with_exact_leaves',()=>{
   const root=nativeCoverageFixture(),reportPath=join(root,'coverage/native-requests.json'),startedAt=Date.now()
   const fixture=join(root,'tests/integration/sparra-requests.test.ts')
   writeFileSync(fixture,readFileSync(fixture,'utf8').replaceAll("expect(process.env.SPARRA_VOICE_TEST_ROOT).toContain('canary-voice-owner');",''))
   const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts','tests/integration/sparra-requests.test.ts','--maxWorkers=1','--reporter=json','--outputFile.json='+reportPath])
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
-  expect(()=>qualify(reportPath,root,startedAt)).not.toThrow()
+  expect(()=>assertRequestsQualification(reportPath,root,startedAt)).not.toThrow()
   const bytes=readFileSync(reportPath),report=JSON.parse(bytes.toString('utf8'))
   const refused=join(root,'coverage/refused-requests.json')
-  for(const kind of ['stale','empty','directory','link','oversize'] as const){
-    if(kind==='directory')mkdirSync(refused)
-    else if(kind==='link')symlinkSync(join(root,'tests'),refused,process.platform==='win32'?'junction':'dir')
-    else{
-      writeFileSync(refused,kind==='empty'?'':bytes)
-      if(kind==='stale')utimesSync(refused,new Date(0),new Date(0))
-      if(kind==='oversize')truncateSync(refused,268435457)
-    }
-    expect(()=>qualify(refused,root,startedAt),kind).toThrow('Native Requests report is invalid')
-    rmSync(refused,kind==='directory'?{recursive:true}:undefined)
+  for(const [kind,arrange] of [
+    ['stale',()=>{writeFileSync(refused,bytes);utimesSync(refused,new Date(0),new Date(0))}],
+    ['empty',()=>{writeFileSync(refused,'')}],
+    ['directory',()=>{mkdirSync(refused)}],
+    ['link',()=>{symlinkSync(join(root,'tests'),refused,process.platform==='win32'?'junction':'dir')}],
+    ['oversize',()=>{writeFileSync(refused,bytes);truncateSync(refused,268435457)}],
+  ] as const){
+    arrange()
+    expect(()=>assertRequestsQualification(refused,root,startedAt),kind).toThrow('Native Requests report is invalid')
+    rmSync(refused,{recursive:true})
   }
   writeFileSync(refused,'{')
-  expect(()=>qualify(refused,root,startedAt)).toThrow(SyntaxError)
-  for(const kind of ['summary','consumer','missing-leaf','extra-leaf','failed-leaf'] as const){
+  expect(()=>assertRequestsQualification(refused,root,startedAt)).toThrow(SyntaxError)
+  for(const [kind,mutate] of [
+    ['summary',(value:typeof report)=>{value.numPassedTests=7}],
+    ['consumer',(value:typeof report)=>{value.testResults[0].name=join(root,'tests/foreign.ts')}],
+    ['missing-leaf',(value:typeof report)=>{value.testResults[0].assertionResults.pop()}],
+    ['extra-leaf',(value:typeof report)=>{value.testResults[0].assertionResults.push({...value.testResults[0].assertionResults[0],fullName:'extra leaf'})}],
+    ['failed-leaf',(value:typeof report)=>{value.testResults[0].assertionResults[0].status='failed'}],
+  ] as const){
     const wrong=structuredClone(report)
-    if(kind==='summary')wrong.numPassedTests=7
-    else if(kind==='consumer')wrong.testResults[0].name=join(root,'tests/foreign.ts')
-    else if(kind==='missing-leaf')wrong.testResults[0].assertionResults.pop()
-    else if(kind==='extra-leaf')wrong.testResults[0].assertionResults.push({...wrong.testResults[0].assertionResults[0],fullName:'extra leaf'})
-    else wrong.testResults[0].assertionResults[0].status='failed'
+    mutate(wrong)
     writeFileSync(refused,JSON.stringify(wrong))
-    expect(()=>qualify(refused,root,startedAt),kind).toThrow('Native Requests requires its exact eight passing leaves')
+    expect(()=>assertRequestsQualification(refused,root,startedAt),kind).toThrow('Native Requests requires its exact eight passing leaves')
   }
 },25000)
 
