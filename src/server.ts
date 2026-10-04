@@ -6,6 +6,7 @@ import { googleAccountCallbackResponse, isGoogleAccountCallbackRequest } from '.
 import { requestResources } from './platform/resources.server'
 import { normalizeDirectServeIngress, readDirectServeConfig } from './platform/direct-serve-ingress.server'
 import { responseWithSecurityHeaders } from './platform/response-headers.server'
+import { cancelledResponse } from './platform/cancelled-response.server'
 
 // Nitro validates before listen. Its SSR service is a separate bundle: consume
 // the same pure validator here without importing the startup side effects twice.
@@ -48,10 +49,7 @@ export default createServerEntry({
       }
       // Real Start/H3 fulfills error responses, including aborted requests.
       if (clientSignal.aborted || httpTimeoutSignal.aborted) {
-        await response.body?.cancel().catch(() => {})
-        response = clientSignal.aborted
-          ? new Response('Request Cancelled', { status: 499 })
-          : new Response('Gateway Timeout', { status: 504 })
+        response = await cancelledResponse(response, clientSignal)
       }
     }
     return responseWithSecurityHeaders(request, response, nonce)
