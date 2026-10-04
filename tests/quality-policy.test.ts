@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 import { API, type Snapshot } from 'typescript/unstable/sync'
+import type { FileChangeSummary } from 'typescript/unstable/proto'
 import { createScanner, getLeadingCommentRanges, getTokenAtPosition, getTrailingCommentRanges, isArrowFunction, isBlock, isCallExpression, isExpressionStatement, isFunctionDeclaration, isIdentifier, isImportDeclaration, isNamedImports, isStringLiteral, LanguageVariant, SyntaxKind } from 'typescript/unstable/ast'
 import type { CallExpression, Node, SourceFile } from 'typescript/unstable/ast'
 import { afterAll, beforeAll, expect, test } from 'vitest'
@@ -571,16 +572,25 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
     const nextOverlays=new Map(potential.map(([file,text])=>[resolve(repositoryRoot,file).toLowerCase(),text]))
     const nextOpenPaths=new Set(potential.map(([file])=>join(repositoryRoot,file)))
     const closePaths=[...openPaths].filter(file=>!nextOpenPaths.has(file)||nextOverlays.get(resolve(file).toLowerCase())!==overlays.get(resolve(file).toLowerCase()))
+    const fileChanges:Required<FileChangeSummary>={changed:[],created:[],deleted:[]}
+    for(const file of new Set([...openPaths,...nextOpenPaths])) {
+      const key=resolve(file).toLowerCase()
+      if(nextOverlays.get(key)===overlays.get(key))continue
+      // Real-file overlays restore disk content; existing virtual overlays must reload changed text.
+      if(existsSync(file)||(overlays.has(key)&&nextOverlays.has(key)))fileChanges.changed.push(file)
+      else if(nextOverlays.has(key))fileChanges.created.push(file)
+      else fileChanges.deleted.push(file)
+    }
     overlays=nextOverlays
     // Keep the diff base alive; a membership transition makes the server rebuild its default project.
     if(closePaths.length) {
       const previous=latestSnapshot
-      latestSnapshot=api.updateSnapshot({closeFiles:closePaths,fileChanges:{invalidateAll:true}})
+      latestSnapshot=api.updateSnapshot({closeFiles:closePaths,fileChanges})
       for(const file of closePaths)openPaths.delete(file)
       previous?.dispose()
     }
     const previous=latestSnapshot
-    latestSnapshot=api.updateSnapshot({openFiles:[...nextOpenPaths].filter(file=>!openPaths.has(file)),fileChanges:{invalidateAll:true}})
+    latestSnapshot=api.updateSnapshot({openFiles:[...nextOpenPaths].filter(file=>!openPaths.has(file)),fileChanges})
     openPaths=nextOpenPaths
     previous?.dispose()
     const snapshot=latestSnapshot
@@ -704,6 +714,13 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
     const appendedString=changed(original+`\nconst markerText = ${JSON.stringify(directive)}\n`)
     expect(actualComments(appendedString)).toEqual(actualComments(sources))
     expect(()=>reviewedCallbacks(appendedString)).toThrow('Reviewed SSR whole file expired')
+    const virtualFile='tests/unreviewed-ssr-virtual-edit.test.ts'
+    expect(existsSync(join(repositoryRoot,virtualFile))).toBe(false)
+    const virtualCreated=new Map(sources);virtualCreated.set(virtualFile,'// fallow-ignore complexity -- virtual initial\nvoid 0\n')
+    expect(actualComments(virtualCreated).filter(marker=>marker.file===virtualFile).map(marker=>marker.text)).toEqual(['// fallow-ignore complexity -- virtual initial'])
+    const virtualChanged=new Map(virtualCreated);virtualChanged.set(virtualFile,'// fallow-ignore complexity -- virtual revised\nvoid 0\n')
+    expect(actualComments(virtualChanged).filter(marker=>marker.file===virtualFile).map(marker=>marker.text)).toEqual(['// fallow-ignore complexity -- virtual revised'])
+    expect(()=>reviewedCallbacks(sources)).not.toThrow()
   } finally {try {latestSnapshot?.dispose()} finally {api.close()}}
 },50000)
 

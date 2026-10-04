@@ -58,11 +58,113 @@ type MediaRequest = {
   contentType?: string | null; contentLength?: string | null; contentRange?: string | null
   acceptRanges?: string | null; contentEncoding?: string | null; failure?: string | null
 }
+type StartupState = {
+  ms: number; event: string; documentState: DocumentReadyState; startOptionsPresent: boolean
+  bootstrapPresent: boolean; coreHydrationFinalized: boolean | null; streamEnded: boolean | null
+  controlDisabled: boolean | null; audioConnected: boolean
+}
 declare global {
   interface Window {
     __sparraDemoMedia?: {
       events: (MediaState & { event: string })[]; plays: MediaPlay[]; droppedEvents: number; droppedPlays: number
       snapshot: () => MediaState | null
+    }
+    __sparraDemoStartup?: {
+      states: StartupState[]; csp: string[]; droppedStates: number; droppedCsp: number
+      snapshot: (event: string) => StartupState; stop: () => void
+    }
+  }
+}
+
+// Inspect the first real startup without changing scripts, React, media or action timing.
+async function observeDemoStartup(page: Page): Promise<() => Promise<void>> {
+  await page.addInitScript(() => {
+    const started = performance.now()
+    const snapshot = (event: string): StartupState => {
+      const bootstrap = window.$_TSR
+      const present = typeof bootstrap === 'object' && bootstrap !== null
+      const control = document.querySelector<HTMLButtonElement>('#demo .sparra-player-actions button')
+      return { ms: Math.round(performance.now() - started), event, documentState: document.readyState,
+        startOptionsPresent: '__TSS_START_OPTIONS__' in window, bootstrapPresent: present,
+        // Start calls h() in finally; this is not a successful React commit signal.
+        coreHydrationFinalized: present ? bootstrap.hydrated === true : null,
+        streamEnded: present ? bootstrap.streamEnded === true : null,
+        controlDisabled: control?.disabled ?? null, audioConnected: document.querySelector('#demo audio')?.isConnected === true }
+    }
+    const evidence: NonNullable<Window['__sparraDemoStartup']> = {
+      states: [], csp: [], droppedStates: 0, droppedCsp: 0, snapshot, stop: () => {},
+    }
+    window.__sparraDemoStartup = evidence
+    let previous = ''
+    const record = (event: string) => {
+      const state = snapshot(event)
+      const key = JSON.stringify({ ...state, ms: 0, event: '' })
+      if (key === previous) return
+      previous = key
+      if (evidence.states.length < 64) evidence.states.push(state)
+      else evidence.droppedStates++
+    }
+    const changed = () => record('document-or-control-change')
+    const resource = (event: Event) => {
+      if (event.target instanceof HTMLScriptElement || event.target instanceof HTMLLinkElement) record(event.type === 'load' ? 'resource-load' : 'resource-error')
+    }
+    const violation = (event: SecurityPolicyViolationEvent) => {
+      const directive = ['script-src', 'script-src-elem', 'script-src-attr', 'style-src', 'style-src-elem', 'style-src-attr', 'connect-src', 'media-src', 'default-src'].find(value => value === event.violatedDirective) ?? 'other'
+      if (evidence.csp.length < 16) evidence.csp.push(directive)
+      else evidence.droppedCsp++
+      record('csp-violation')
+    }
+    const observer = new MutationObserver(changed)
+    observer.observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ['disabled'] })
+    document.addEventListener('readystatechange', changed)
+    document.addEventListener('DOMContentLoaded', changed)
+    document.addEventListener('load', resource, true)
+    document.addEventListener('error', resource, true)
+    document.addEventListener('securitypolicyviolation', violation)
+    evidence.stop = () => {
+      observer.disconnect()
+      document.removeEventListener('readystatechange', changed)
+      document.removeEventListener('DOMContentLoaded', changed)
+      document.removeEventListener('load', resource, true)
+      document.removeEventListener('error', resource, true)
+      document.removeEventListener('securitypolicyviolation', violation)
+    }
+    record('init')
+  })
+  const assets = new Map<import('playwright').Request, { kind: 'script' | 'stylesheet'; path: string; status: number | null; completion: 'pending' | 'finished' | 'failed' }>()
+  const errors: { class: string; code: string }[] = []
+  let droppedAssets = 0, droppedErrors = 0
+  const request = (request: import('playwright').Request) => {
+    const url = new URL(request.url()), kind = request.resourceType()
+    if (url.origin !== origin || (kind !== 'script' && kind !== 'stylesheet')) return
+    if (assets.size >= 48) { droppedAssets++; return }
+    const path = !url.search && !url.hash && /^\/assets\/[A-Za-z0-9._-]{1,160}\.(?:js|css)$/.test(url.pathname) ? url.pathname : 'other'
+    assets.set(request, { kind, path, status: null, completion: 'pending' })
+  }
+  const response = (response: import('playwright').Response) => { const row = assets.get(response.request()); if (row) row.status = response.status() }
+  const finished = (request: import('playwright').Request) => { const row = assets.get(request); if (row) row.completion = 'finished' }
+  const failed = (request: import('playwright').Request) => { const row = assets.get(request); if (row) row.completion = 'failed' }
+  const pageError = (error: Error) => {
+    if (errors.length >= 16) { droppedErrors++; return }
+    const errorClass = ['Error', 'TypeError', 'SyntaxError', 'ReferenceError', 'RangeError', 'DOMException'].find(value => value === error.name) ?? 'other'
+    const code = /Minified React error #(418|419|420|421|422|423|424|425)\b|hydration failed|hydration mismatch/i.test(error.message) ? 'react-hydration-error'
+      : /failed to fetch dynamically imported module|importing a module script failed/i.test(error.message) ? 'module-load-error' : 'unclassified'
+    errors.push({ class: errorClass, code })
+  }
+  page.on('request', request); page.on('response', response); page.on('requestfinished', finished); page.on('requestfailed', failed); page.on('pageerror', pageError)
+  return async () => {
+    try {
+      const startup = await page.evaluate(() => {
+        const evidence = window.__sparraDemoStartup
+        if (!evidence) return null
+        const final = evidence.snapshot('final')
+        evidence.stop()
+        return { states: evidence.states, csp: evidence.csp, droppedStates: evidence.droppedStates, droppedCsp: evidence.droppedCsp, final }
+      })
+      const diagnostic = JSON.stringify({ startup, assets: [...assets.values()], errors, droppedAssets, droppedErrors })
+      console.error('MARKETING_STARTUP_DIAGNOSTIC ' + (diagnostic.length <= 32768 ? diagnostic : '{"diagnostic":"size-bound-exceeded"}'))
+    } finally {
+      page.off('request', request); page.off('response', response); page.off('requestfinished', finished); page.off('requestfailed', failed); page.off('pageerror', pageError)
     }
   }
 }
@@ -164,7 +266,9 @@ async function observeDemoMedia(page: Page): Promise<() => Promise<void>> {
 test('no autoplay; real play, pause, restart and arrows keep audio, transcript and receipt paired', async () => {
   const page = await openPage()
   let reportMedia: (() => Promise<void>) | undefined
+  let reportStartup: (() => Promise<void>) | undefined
   try {
+    reportStartup = await observeDemoStartup(page)
     reportMedia = await observeDemoMedia(page)
     await page.goto(origin); await page.getByRole('button', { name: 'Écouter l’exemple', exact: true }).waitFor()
     expect(await media(page)).toMatchObject({ paused: true, time: 0 })
@@ -200,7 +304,10 @@ test('no autoplay; real play, pause, restart and arrows keep audio, transcript a
   } catch (error) {
     try { await reportMedia?.() } catch { console.error('MARKETING_MEDIA_DIAGNOSTIC {"diagnostic":"unavailable"}') }
     throw error
-  } finally { await page.context().close() }
+  } finally {
+    try { await reportStartup?.() } catch { console.error('MARKETING_STARTUP_DIAGNOSTIC {"diagnostic":"unavailable"}') }
+    await page.context().close()
+  }
 }, 30000)
 
 test('demo actions wait for real startup hydration before the first native play', async () => {

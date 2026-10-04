@@ -33,26 +33,35 @@ function sameProducerPath(actual:string,requested:string){
   return process.platform==='win32'?actual.toLowerCase()===requested.toLowerCase():actual===requested
 }
 
+async function canonicalVoiceProducerPaths(requestedRoot:string){
+  const producerRoot=await realpath(requestedRoot)
+  if(!sameProducerPath(producerRoot,requestedRoot))throw new Error('Voice producer path refused')
+  const sourceRoot=join(producerRoot,'src'),venv=join(producerRoot,'.venv')
+  const pythonExecutable=join(venv,process.platform==='win32'?'Scripts/python.exe':'bin/python')
+  for(const directory of [producerRoot,sourceRoot,venv,dirname(pythonExecutable)]){
+    if(!(await stat(directory)).isDirectory()||!sameProducerPath(await realpath(directory),directory))throw new Error('Voice producer path refused')
+  }
+  for(const path of [join(venv,'pyvenv.cfg'),join(producerRoot,'.python-version'),join(producerRoot,'pyproject.toml'),join(producerRoot,'uv.lock'),...['__init__.py','models.py','production_wiring.py','crypto.py'].map(name=>join(sourceRoot,'projetv0_voice',name))]){
+    const file=await stat(path)
+    if(!file.isFile()||file.size>1048576||!sameProducerPath(await realpath(path),path))throw new Error('Voice producer path refused')
+  }
+  // Linux venv interpreters normally link to their base Python; sys.prefix below
+  // proves the selected venv instead of refusing that legitimate symlink.
+  if(!(await stat(pythonExecutable)).isFile()||(process.platform==='win32'&&!sameProducerPath(await realpath(pythonExecutable),pythonExecutable)))throw new Error('Voice producer executable refused')
+  return {producerRoot,sourceRoot,pythonExecutable}
+}
+
+async function assertVoiceProducerPins(producerRoot:string){
+  const [python,project,lock]=await Promise.all([readFile(join(producerRoot,'.python-version'),'utf8'),readFile(join(producerRoot,'pyproject.toml'),'utf8'),readFile(join(producerRoot,'uv.lock'),'utf8')])
+  if(python.trim()!=='3.13.15'||!project.includes('"cryptography==50.0.0"')||!project.includes('"pydantic==2.13.4"')||!/\[\[package\]\]\r?\nname = "cryptography"\r?\nversion = "50\.0\.0"\r?\n/.test(lock)||!/\[\[package\]\]\r?\nname = "pydantic"\r?\nversion = "2\.13\.4"\r?\n/.test(lock))throw new Error('Voice producer pins refused')
+}
+
 export async function resolveVoiceProducer(root?:string):Promise<VoiceProducer>{
   root??=process.env.SPARRA_VOICE_TEST_ROOT??(process.platform==='win32'?'C:/Users/louis/Documents/ChatGPT/.worktrees/sparra-voice-pilot':undefined)
   if(root===undefined||!absoluteProducerPath(root))throw new Error('Voice producer requires an explicit absolute root')
   try{
-    const requestedRoot=resolve(root),producerRoot=await realpath(requestedRoot)
-    if(!sameProducerPath(producerRoot,requestedRoot))throw new Error('Voice producer path refused')
-    const sourceRoot=join(producerRoot,'src'),venv=join(producerRoot,'.venv')
-    const pythonExecutable=join(venv,process.platform==='win32'?'Scripts/python.exe':'bin/python')
-    for(const directory of [producerRoot,sourceRoot,venv,dirname(pythonExecutable)]){
-      if(!(await stat(directory)).isDirectory()||!sameProducerPath(await realpath(directory),directory))throw new Error('Voice producer path refused')
-    }
-    for(const path of [join(venv,'pyvenv.cfg'),join(producerRoot,'.python-version'),join(producerRoot,'pyproject.toml'),join(producerRoot,'uv.lock'),...['__init__.py','models.py','production_wiring.py','crypto.py'].map(name=>join(sourceRoot,'projetv0_voice',name))]){
-      const file=await stat(path)
-      if(!file.isFile()||file.size>1048576||!sameProducerPath(await realpath(path),path))throw new Error('Voice producer path refused')
-    }
-    // Linux venv interpreters normally link to their base Python; sys.prefix below
-    // proves the selected venv instead of refusing that legitimate symlink.
-    if(!(await stat(pythonExecutable)).isFile()||(process.platform==='win32'&&!sameProducerPath(await realpath(pythonExecutable),pythonExecutable)))throw new Error('Voice producer executable refused')
-    const [python,project,lock]=await Promise.all([readFile(join(producerRoot,'.python-version'),'utf8'),readFile(join(producerRoot,'pyproject.toml'),'utf8'),readFile(join(producerRoot,'uv.lock'),'utf8')])
-    if(python.trim()!=='3.13.15'||!project.includes('"cryptography==50.0.0"')||!project.includes('"pydantic==2.13.4"')||!/\[\[package\]\]\r?\nname = "cryptography"\r?\nversion = "50\.0\.0"\r?\n/.test(lock)||!/\[\[package\]\]\r?\nname = "pydantic"\r?\nversion = "2\.13\.4"\r?\n/.test(lock))throw new Error('Voice producer pins refused')
+    const {producerRoot,sourceRoot,pythonExecutable}=await canonicalVoiceProducerPaths(resolve(root))
+    await assertVoiceProducerPins(producerRoot)
     return {pythonExecutable:process.platform==='win32'?await realpath(pythonExecutable):pythonExecutable,sourceRoot:await realpath(sourceRoot)}
   }catch{
     throw new Error('Voice producer requires its canonical source and pinned virtual environment')
