@@ -13,6 +13,20 @@ import type { Locale } from '../auth/messages'
 import { privateResult, PrivateUnavailable } from './app-shell'
 
 type Props={locale:Locale;state:ActivityState;onEnsure(signal:AbortSignal):Promise<WorkspaceDto|Response>;onSave(data:SaveActivityInput,signal:AbortSignal):Promise<ActivityConfigurationDto|Response>;onRead(signal:AbortSignal):Promise<ActivityState|Response>;onRefused():Promise<void>}
+type ActivityOperation='ensure'|'save'|'latest'
+type ActivityFailure={kind:'refused'}|{kind:'uncertain'}|{kind:'error';reason:'conflict'|'invalid'|'unavailable'}
+
+export function classifyActivityFailure(mode:ActivityOperation,failure:unknown):ActivityFailure{
+  if(failure instanceof Response){
+    switch(failure.status){
+      case 401:return {kind:'refused'}
+      case 409:return {kind:'error',reason:'conflict'}
+      case 400:return {kind:'error',reason:'invalid'}
+    }
+  }
+  return mode==='save'?{kind:'uncertain'}:{kind:'error',reason:'unavailable'}
+}
+
 const sections=[['openingHours',1000],['services',2000],['prices',1500],['faq',3000],['instructions',2000]] as const
 function draft(configuration:ActivityConfigurationDto|null):SaveActivityInput{return configuration?{businessName:configuration.businessName,sector:configuration.sector,knowledge:{...configuration.knowledge},transferDestination:configuration.transferDestination,recordingEnabled:configuration.recordingEnabled??false,expectedRevision:configuration.revision}:{businessName:'',sector:'garage',knowledge:{openingHours:'',services:'',prices:'',faq:'',instructions:''},transferDestination:null,recordingEnabled:false,expectedRevision:0}}
 
@@ -35,7 +49,7 @@ function ActivityReconciliation({locale,pending,latest,onCheckLatest,onReplaceLa
 
 export function ActivityPanel({locale,state,onEnsure,onSave,onRead,onRefused}:Props){
   const t=activityMessages[locale],a=appMessages[locale],hydrated=useHydrated()
-  const [current,setCurrent]=useState(state),[editable,setEditable]=useState(()=>draft(state.configuration)),[pendingMode,setPendingMode]=useState<'ensure'|'save'|'latest'|null>(null),[saved,setSaved]=useState(false),[error,setError]=useState(''),[conflict,setConflict]=useState(false),[uncertain,setUncertain]=useState(false),[latest,setLatest]=useState<ActivityState|null>(null)
+  const [current,setCurrent]=useState(state),[editable,setEditable]=useState(()=>draft(state.configuration)),[pendingMode,setPendingMode]=useState<ActivityOperation|null>(null),[saved,setSaved]=useState(false),[error,setError]=useState(''),[conflict,setConflict]=useState(false),[uncertain,setUncertain]=useState(false),[latest,setLatest]=useState<ActivityState|null>(null)
   const pending=pendingMode!==null,reconcile=conflict||uncertain
   const attempt=useRef(0),controller=useRef<AbortController|null>(null)
   const [refused,setRefused]=useState(false)
@@ -55,14 +69,14 @@ export function ActivityPanel({locale,state,onEnsure,onSave,onRead,onRefused}:Pr
     const configuration=await privateResult(onSave(editable,signal))
     if(live()){setCurrent({...current,configuration});setEditable(draft(configuration));setSaved(true);setConflict(false);setUncertain(false);setLatest(null)}
   }
-  async function interpretFailure(mode:'ensure'|'save'|'latest',failure:unknown){
-    if(failure instanceof Response&&failure.status===401){setRefused(true);await onRefused();return}
-    if(failure instanceof Response&&failure.status===409){setConflict(true);setError(t.conflict)}
-    else if(failure instanceof Response&&failure.status===400)setError(t.invalid)
-    else if(mode==='save'){setUncertain(true);setLatest(null)}
-    else setError(t.unavailable)
+  async function interpretFailure(mode:ActivityOperation,failure:unknown){
+    const outcome=classifyActivityFailure(mode,failure)
+    if(outcome.kind==='refused'){setRefused(true);await onRefused();return}
+    if(outcome.kind==='uncertain'){setUncertain(true);setLatest(null);return}
+    if(outcome.reason==='conflict')setConflict(true)
+    setError(t[outcome.reason])
   }
-  async function persist(mode:'ensure'|'save'|'latest'){
+  async function persist(mode:ActivityOperation){
     controller.current?.abort();const owned=new AbortController(),id=++attempt.current;controller.current=owned
     const live=()=>!owned.signal.aborted&&attempt.current===id
     setPendingMode(mode);setSaved(false);setError('')
