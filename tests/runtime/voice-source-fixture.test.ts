@@ -49,3 +49,21 @@ test.each([undefined,'python3','relative/python','/tmp/../python'])('native fixt
   const refused=await readVoiceSourceFixture(archive,manifest,executable).then(()=>false,error=>error.message==='Invalid native Voice source fixture')
   expect(refused).toBe(true)
 })
+
+test.each(['repository','owned-ref','archive-size','decoded-size','member-size','missing-manifest','duplicate-member'] as const)('native fixture admission refuses inconsistent %s metadata',async kind=>{
+  const {readVoiceSourceFixture}=await import('../../scripts/voice-source-fixture.mjs')
+  const archive=readFileSync(join(fixture,'voice-producer-source.tar.gz'))
+  const manifest=JSON.parse(readFileSync(join(fixture,'voice-producer-source.manifest.json'),'utf8'))
+  if(typeof pythonExecutable!=='string')throw new Error('Missing qualified Voice fixture interpreter')
+  if(kind==='repository')manifest.repository='foreign/voice'
+  else if(kind==='owned-ref')manifest.owned_ref='refs/heads/main'
+  else if(kind==='archive-size')manifest.archive_size-=1
+  else if(kind==='decoded-size')manifest.decoded_source_bytes-=1
+  else if(kind==='member-size')manifest.members[0].size=1048577
+  else if(kind==='duplicate-member')manifest.members[1]={...manifest.members[0]}
+  const rejected=kind==='missing-manifest'
+    // @ts-expect-error -- deliberate absent manifest exercises the JavaScript refusal.
+    ?readVoiceSourceFixture(archive,null,pythonExecutable)
+    :readVoiceSourceFixture(archive,manifest,pythonExecutable)
+  await expect(rejected).rejects.toThrow('Invalid native Voice source fixture')
+})

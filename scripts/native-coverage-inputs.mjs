@@ -163,3 +163,35 @@ export function admitCommonGeometry(ordinary, activity) {
   }
 }
 
+
+const requestsLeafNames = [
+    'native owner reads absent state, actual Voice ciphertext and pinned configuration without inventing pending results',
+    'equal-millisecond pagination returns all 103 calls exactly once in tuple order',
+    'treat active preserves inventory and stamp, erase deletes native content and survives retention',
+    'treat closed preserves inventory and stamp, erase deletes native content and survives retention',
+    'expired content stays unreadable including a Workspace lock held across retention; queued receipt outlives fence deadline',
+    'native runtime UPDATE RETURNING cooperates with narrow definer, FORCE RLS and column grants',
+    'fence insertion failure and cancellation roll back; recorded COMMIT cancellation rejects completion and reload resolves',
+    'built native RPC enforces strict input, auth, missing and foreign Origin, bounded failures and no-store',
+  ]
+
+function requestsSummaryPassed(report) {
+  const counters = {numTotalTests:8,numPassedTests:8,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
+  return report?.success === true && Object.entries(counters).every(([key,wanted])=>report[key]===wanted)
+}
+
+function requestsFilePassed(file, root) {
+  return file?.name===join(root,'tests/integration/sparra-requests.test.ts').replaceAll('\\','/')
+    && file.status==='passed' && file.message==='' && Array.isArray(file.assertionResults) && file.assertionResults.length===8
+}
+
+function requestsLeafPassed(test,index) {
+  return test?.status==='passed' && test.fullName===requestsLeafNames[index] && Array.isArray(test.failureMessages) && test.failureMessages.length===0
+}
+
+export function assertRequestsReport(report,root) {
+  if(!requestsSummaryPassed(report) || !Array.isArray(report.testResults) || report.testResults.length!==1
+    || !requestsFilePassed(report.testResults[0],root) || !report.testResults[0].assertionResults.every(requestsLeafPassed)) {
+    throw new Error('Native Requests requires its exact eight passing leaves')
+  }
+}

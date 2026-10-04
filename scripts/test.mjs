@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { closeSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { admitCommonGeometry, assertDirectory, assertRunTree, readNativeBlob, sourceIdentity } from './native-coverage-inputs.mjs'
+import { admitCommonGeometry, assertDirectory, assertRunTree, assertRequestsReport, readNativeBlob, sourceIdentity } from './native-coverage-inputs.mjs'
 import { prepareVoiceSource } from './prepare-voice-source.mjs'
 import { runNativePhase } from './native-test-phase.mjs'
 
@@ -48,24 +48,7 @@ async function runPhase(name, args, timeout) {
 function assertRequestsQualification(path) {
   const stat = lstatSync(path)
   if (!stat.isFile() || stat.isSymbolicLink() || stat.mtimeMs < startedAt || stat.size === 0 || stat.size > 268435456) throw new Error('Native Requests report is invalid')
-  const report = JSON.parse(readFileSync(path, 'utf8'))
-  const expected = [
-    'native owner reads absent state, actual Voice ciphertext and pinned configuration without inventing pending results',
-    'equal-millisecond pagination returns all 103 calls exactly once in tuple order',
-    'treat active preserves inventory and stamp, erase deletes native content and survives retention',
-    'treat closed preserves inventory and stamp, erase deletes native content and survives retention',
-    'expired content stays unreadable including a Workspace lock held across retention; queued receipt outlives fence deadline',
-    'native runtime UPDATE RETURNING cooperates with narrow definer, FORCE RLS and column grants',
-    'fence insertion failure and cancellation roll back; recorded COMMIT cancellation rejects completion and reload resolves',
-    'built native RPC enforces strict input, auth, missing and foreign Origin, bounded failures and no-store',
-  ]
-  if (report.success !== true || report.numTotalTests !== 8 || report.numPassedTests !== 8 || report.numPendingTests !== 0 || report.numTodoTests !== 0
-    || report.numFailedTests !== 0 || report.numFailedTestSuites !== 0 || report.numPendingTestSuites !== 0
-    || !Array.isArray(report.testResults) || report.testResults.length !== 1 || report.testResults[0].name !== join(root, 'tests/integration/sparra-requests.test.ts').replaceAll('\\', '/')
-    || report.testResults[0].status !== 'passed' || report.testResults[0].message !== '' || !Array.isArray(report.testResults[0].assertionResults)
-    || report.testResults[0].assertionResults.length !== 8 || report.testResults[0].assertionResults.some((test, index) => test.status !== 'passed' || test.fullName !== expected[index] || test.failureMessages.length !== 0)) {
-    throw new Error('Native Requests requires its exact eight passing leaves')
-  }
+  assertRequestsReport(JSON.parse(readFileSync(path,'utf8')),root)
 }
 
 function admitBlob(name) {

@@ -8,3 +8,5 @@ export function assertRunTree(path: string): void
 export function sourceIdentity(root: string): string
 export function readNativeBlob(filePath: string, name: 'ordinary' | 'activity' | 'requests', root: string, startedAt: number, version: string): NativeCoverageBlob
 export function admitCommonGeometry(ordinary: NativeCoverageBlob, activity: NativeCoverageBlob): void
+
+export function assertRequestsReport(report: unknown, root: string): void

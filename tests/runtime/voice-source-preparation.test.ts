@@ -124,3 +124,19 @@ test('changed owned directory fails retirement and preserves the replacement',as
     expect(await readFile(join(scope.directory,'foreign.txt'),'utf8')).toBe('foreign')
   }finally{await rm(parent,{recursive:true,force:true})}
 })
+
+test.each(['missing-member','extra-member','source-link'] as const)('owned source identity refuses %s and retires only its scope',async kind=>{
+  const {createVoiceSourceScope}=await import('../../scripts/prepare-voice-source.mjs')
+  const parent=await mkdtemp(join(tmpdir(),'sparra-source-shape-'))
+  try{
+    const outside=join(parent,'outside.txt');await writeFile(outside,'external')
+    const scope=await createVoiceSourceScope(parent,new Map([['nested/input.txt',Buffer.from('frozen')]]))
+    if(kind==='missing-member')await rm(join(scope.root,'nested/input.txt'))
+    else if(kind==='extra-member')await writeFile(join(scope.root,'extra.txt'),'extra')
+    else await symlink(parent,join(scope.root,'source-link'),process.platform==='win32'?'junction':'dir')
+    await expect(scope.assertIdentity()).rejects.toThrow('Native Voice preparation failed')
+    await scope.retire()
+    expect(await readdir(parent)).toEqual(['outside.txt'])
+    expect(await readFile(outside,'utf8')).toBe('external')
+  }finally{await rm(parent,{recursive:true,force:true})}
+})

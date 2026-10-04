@@ -36,12 +36,16 @@ async function run(executable,args,{cwd,env,timeout=30000,maxOutput=4194304,inpu
   })
 }
 
+async function downloadBytes(response){
+  let size=0;const parts=[]
+  try{for await(const part of response.body){size+=part.length;if(size>33554432)throw invalid();parts.push(part)}}catch(error){await response.body.cancel().catch(()=>{});throw error}
+  return Buffer.concat(parts)
+}
+
 async function download(url,hash,destination){
   const response=await fetch(url,{signal:AbortSignal.timeout(60000),redirect:'follow'})
   if(!response.ok||!response.url.startsWith('https:'))throw invalid()
-  let size=0;const parts=[]
-  try{for await(const part of response.body){size+=part.length;if(size>33554432)throw invalid();parts.push(part)}}catch(error){await response.body.cancel().catch(()=>{});throw error}
-  const bytes=Buffer.concat(parts)
+  const bytes=await downloadBytes(response)
   if(sha(bytes)!==hash)throw invalid()
   await writeFile(destination,bytes,{flag:'wx',mode:0o600})
 }
@@ -76,16 +80,17 @@ with tarfile.open(fileobj=io.BytesIO(data),mode='r:gz') as source:
 
 async function sourceIdentity(root,members){
   const expected=new Set(members.keys())
+  async function inspect(child,logical){
+    const current=await lstat(child)
+    if(current.isSymbolicLink())throw invalid()
+    if(current.isDirectory())return await visit(child,logical)
+    if(!current.isFile()||!expected.delete(logical))throw invalid()
+    if(!(await readFile(child)).equals(members.get(logical)))throw invalid()
+  }
   async function visit(path,relative=''){
     for(const name of await readdir(path)){
       if(!relative&&name==='.venv')continue
-      const child=join(path,name),logical=relative?relative+'/'+name:name,current=await lstat(child)
-      if(current.isSymbolicLink())throw invalid()
-      if(current.isDirectory())await visit(child,logical)
-      else if(current.isFile()&&expected.delete(logical)){
-        const bytes=await readFile(child)
-        if(!bytes.equals(members.get(logical)))throw invalid()
-      }else throw invalid()
+      await inspect(join(path,name),relative?relative+'/'+name:name)
     }
   }
   await directory(root);await visit(root)
@@ -166,16 +171,30 @@ assert production_wiring.CryptoKeyring is crypto.CryptoKeyring
 
 async function environmentIdentity(root,sourceOnly=false){
   const digest=createHash('sha256')
+  const sourceRoots=['.python-version','pyproject.toml','uv.lock','README.md','src','scripts','agents','deployment-profiles']
+  function selected(name,logical){
+    if(!sourceOnly)return true
+    if(!logical&&!sourceRoots.includes(name))return false
+    return name!=='__pycache__'
+  }
+  async function hashEntry(child,label){
+    const current=await lstat(child)
+    if(current.isSymbolicLink()){
+      if(sourceOnly)throw invalid()
+      digest.update('link\0').update(await readlink(child));return
+    }
+    if(current.isDirectory()){
+      digest.update('directory\0');await visit(child,label);return
+    }
+    if(!current.isFile())throw invalid()
+    digest.update('file\0').update(await readFile(child))
+  }
   async function visit(path,logical=''){
     for(const name of (await readdir(path)).sort()){
-      if(sourceOnly&&!logical&&!['.python-version','pyproject.toml','uv.lock','README.md','src','scripts','agents','deployment-profiles'].includes(name))continue
-      if(sourceOnly&&name==='__pycache__')continue
-      const child=join(path,name),label=logical?logical+'/'+name:name,current=await lstat(child)
+      if(!selected(name,logical))continue
+      const label=logical?logical+'/'+name:name
       digest.update(label).update('\0')
-      if(current.isSymbolicLink()){if(sourceOnly)throw invalid();digest.update('link\0').update(await readlink(child))}
-      else if(current.isDirectory()){digest.update('directory\0');await visit(child,label)}
-      else if(current.isFile())digest.update('file\0').update(await readFile(child))
-      else throw invalid()
+      await hashEntry(join(path,name),label)
       digest.update('\0')
     }
   }
@@ -217,27 +236,34 @@ export async function createVoiceSourceScope(parent,members){
   }catch(error){try{await retire()}catch(cleanup){throw new AggregateError([error,cleanup],'Native Voice source and retirement failed')}throw error}
 }
 
-export async function prepareVoiceSource({appRoot,explicitRoot=process.env.SPARRA_VOICE_TEST_ROOT,scopeParent=tmpdir()}={}){
-  if(!safeAbsolute(appRoot)||!samePath(await realpath(appRoot),resolve(appRoot)))throw invalid()
-  if(explicitRoot===undefined&&process.platform==='win32')explicitRoot='C:/Users/louis/Documents/ChatGPT/.worktrees/sparra-voice-pilot'
-  if(explicitRoot===null)explicitRoot=undefined
-  if(explicitRoot!==undefined){
-    const descriptor=await resolveVoiceProducer(explicitRoot)
-    const owned=await createVoiceSourceScope(scopeParent)
-    try{
-      const scopeOwner=await directory(owned.directory)
-      const tokenizer=await prepareTokenizer(owned.directory,descriptor.pythonExecutable)
-      await assertNativeDescriptor(descriptor,tokenizer.environment)
-      const producerRoot=dirname(descriptor.sourceRoot),identity=await interpreterIdentity(descriptor.pythonExecutable),source=await environmentIdentity(producerRoot,true)
-      let retired=false
-      return {root:producerRoot,descriptor,fixturePython:descriptor.pythonExecutable,testEnvironment:tokenizer.environment,tokenizerArchive:tokenizer.archive,
-        assertIdentity:async()=>{await directory(owned.directory,scopeOwner);await tokenizer.assertIdentity();if(retired||JSON.stringify(await resolveVoiceProducer(explicitRoot))!==JSON.stringify(descriptor)||await interpreterIdentity(descriptor.pythonExecutable)!==identity||await environmentIdentity(producerRoot,true)!==source)throw invalid()},
-        retire:async()=>{await owned.retire();retired=true}}
-    }catch(error){try{await owned.retire()}catch(cleanup){throw new AggregateError([error,cleanup],'Native Voice preparation and retirement failed')}throw error}
+async function prepareExternalVoiceSource(explicitRoot,scopeParent){
+  const descriptor=await resolveVoiceProducer(explicitRoot)
+  const owned=await createVoiceSourceScope(scopeParent)
+  try{
+    const scopeOwner=await directory(owned.directory)
+    const tokenizer=await prepareTokenizer(owned.directory,descriptor.pythonExecutable)
+    await assertNativeDescriptor(descriptor,tokenizer.environment)
+    const producerRoot=dirname(descriptor.sourceRoot),identity=await interpreterIdentity(descriptor.pythonExecutable),source=await environmentIdentity(producerRoot,true)
+    let retired=false
+    return {root:producerRoot,descriptor,fixturePython:descriptor.pythonExecutable,testEnvironment:tokenizer.environment,tokenizerArchive:tokenizer.archive,
+      assertIdentity:async()=>{await directory(owned.directory,scopeOwner);await tokenizer.assertIdentity();if(retired||JSON.stringify(await resolveVoiceProducer(explicitRoot))!==JSON.stringify(descriptor)||await interpreterIdentity(descriptor.pythonExecutable)!==identity||await environmentIdentity(producerRoot,true)!==source)throw invalid()},
+      retire:async()=>{await owned.retire();retired=true}}
+  }catch(error){try{await owned.retire()}catch(cleanup){throw new AggregateError([error,cleanup],'Native Voice preparation and retirement failed')}throw error}
+}
+
+async function scanVoiceSource(appRoot,producerRoot,tools,env){
+  const scannerArchive=join(tools,'gitleaks.tar.gz'),scanner=join(tools,'gitleaks')
+  await download('https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz',scannerHash,scannerArchive)
+  await tool(scannerArchive,scanner,'gitleaks')
+  const config=join(appRoot,'.gitleaks.toml'),args=['dir',producerRoot,'--redact','--no-banner','--exit-code','1']
+  if(await lstat(config).then(()=>true,error=>error.code!=='ENOENT')){
+    if(!(await lstat(config)).isFile()||(await lstat(config)).isSymbolicLink())throw invalid()
+    args.push('--config',config)
   }
-  if(process.platform!=='linux'||process.arch!=='x64')throw new Error('Native Voice bootstrap requires Linux x64')
-  if(!safeAbsolute(scopeParent))throw invalid()
-  await directory(scopeParent)
+  await run(scanner,args,{env,timeout:30000})
+}
+
+async function prepareLinuxVoiceSource(appRoot,scopeParent){
   const owned=await createVoiceSourceScope(scopeParent),scope=owned.directory,retire=owned.retire
   let members,descriptor,identity,environment
   let stage='owned directories'
@@ -262,13 +288,8 @@ export async function prepareVoiceSource({appRoot,explicitRoot=process.env.SPARR
     stage='source archive verification'
     const verified=await readVoiceSourceFixture(archive,manifest,bootstrap);members=verified.members
     await owned.install(members)
-    const scannerArchive=join(tools,'gitleaks.tar.gz'),scanner=join(tools,'gitleaks')
     stage='scanner acquisition'
-    await download('https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz',scannerHash,scannerArchive)
-    await tool(scannerArchive,scanner,'gitleaks')
-    const config=join(appRoot,'.gitleaks.toml'),args=['dir',producerRoot,'--redact','--no-banner','--exit-code','1']
-    if(await lstat(config).then(()=>true,error=>error.code!=='ENOENT')){if(!(await lstat(config)).isFile()||(await lstat(config)).isSymbolicLink())throw invalid();args.push('--config',config)}
-    await run(scanner,args,{env,timeout:30000})
+    await scanVoiceSource(appRoot,producerRoot,tools,env)
     stage='project lock verification'
     await sourceIdentity(producerRoot,members)
     await run(uv,['lock','--check','--python',bootstrap],{cwd:producerRoot,env,timeout:120000})
@@ -294,4 +315,15 @@ export async function prepareVoiceSource({appRoot,explicitRoot=process.env.SPARR
     try{await retire()}catch(cleanup){throw new AggregateError([error,cleanup],'Native Voice preparation and retirement failed')}
     throw new Error('Native Voice preparation failed at '+stage)
   }
+}
+
+export async function prepareVoiceSource({appRoot,explicitRoot=process.env.SPARRA_VOICE_TEST_ROOT,scopeParent=tmpdir()}={}){
+  if(!safeAbsolute(appRoot)||!samePath(await realpath(appRoot),resolve(appRoot)))throw invalid()
+  if(explicitRoot===undefined&&process.platform==='win32')explicitRoot='C:/Users/louis/Documents/ChatGPT/.worktrees/sparra-voice-pilot'
+  if(explicitRoot===null)explicitRoot=undefined
+  if(explicitRoot!==undefined)return await prepareExternalVoiceSource(explicitRoot,scopeParent)
+  if(process.platform!=='linux'||process.arch!=='x64')throw new Error('Native Voice bootstrap requires Linux x64')
+  if(!safeAbsolute(scopeParent))throw invalid()
+  await directory(scopeParent)
+  return await prepareLinuxVoiceSource(appRoot,scopeParent)
 }
