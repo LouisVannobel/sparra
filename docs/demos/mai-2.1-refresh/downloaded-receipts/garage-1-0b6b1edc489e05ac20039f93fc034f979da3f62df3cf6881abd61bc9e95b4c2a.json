@@ -1,0 +1,21 @@
+{
+  "state": "downloaded",
+  "model": "microsoft/mai-voice-2.1-flash",
+  "voice": "fr-FR-Marc:MAI-Voice-2.1-Flash",
+  "input": "Bonjour, je voudrais faire une révision de ma voiture.",
+  "inputSha256": "9d08687d77fa973914bedc8d9fab29d1f079cfad27c3119296f69eb784cc099a",
+  "requestSha256": "0b6b1edc489e05ac20039f93fc034f979da3f62df3cf6881abd61bc9e95b4c2a",
+  "responseFormat": "mp3",
+  "attemptedUtc": "2026-10-02T02:31:31.2648321Z",
+  "scenario": "garage",
+  "index": 1,
+  "httpStatus": 200,
+  "responseHeadersMs": 690,
+  "contentType": "audio/mpeg",
+  "generationId": "gen-tts-1790908291-ghmEldHtno1WOn0OwPGD",
+  "generatedUtc": "2026-10-02T02:31:32.2282767Z",
+  "totalHttpMs": 954,
+  "bytes": 103680,
+  "sha256": "491d3c8d6ca75852a767d025336a51aa9b15761241d219b99183b7f4c58a5199",
+  "decoderQualification": "pending sole heavy token"
+}

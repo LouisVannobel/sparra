@@ -1,11 +1,13 @@
 node_modules/
 dist/
 .output/
+.demo-audio-cache/
 .tanstack/
 .superpowers/
 test-results/
 playwright-report/
 coverage/
+dist-migrator/
 .env
 .env.*
 !.env.example

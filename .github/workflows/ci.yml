@@ -1,0 +1,71 @@
+name: Native App CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  maintained:
+    uses: LouisVannobel/projetV0-pipelines/.github/workflows/reusable-saas-ci.yml@5b464b9b2d47bc867d3c046c924244c3f9c2d609 # v1.5.0
+    with:
+      node-version: '24.14.0'
+      pnpm-version: '10.32.1'
+      working-directory: .
+      run-a11y: true
+      run-container: true
+      docker-context: .
+      dockerfile: Dockerfile
+      image-name: sparra-web
+
+  native-image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+        with:
+          version: '10.32.1'
+          run_install: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24.14.0'
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Typecheck the installed native graph
+        run: pnpm run typecheck
+      - name: Audio fixture decoder prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y ffmpeg
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm run build
+      - name: Ordinary source consumers on the installed graph and build
+        run: pnpm test
+      - name: Actual local Linux stores and direct ingress
+        run: pnpm exec vitest run --config vitest.integration.config.ts tests/integration/disposable-stores-linux.test.ts tests/integration/direct-serve-ingress.test.ts --maxWorkers=1
+      - name: Native web image and fixed credential admission
+        run: pnpm run test:image
+      - name: Separate native migrator image and ambiguous commit
+        run: pnpm run test:migrator-image
+
+  gate:
+    if: always()
+    needs: [maintained, native-image]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require both independent consumers
+        env:
+          MAINTAINED: ${{ needs.maintained.result }}
+          NATIVE_IMAGE: ${{ needs.native-image.result }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$MAINTAINED" == success && "$NATIVE_IMAGE" == success ]]

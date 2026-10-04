@@ -1,0 +1,21 @@
+{
+  "state": "downloaded",
+  "model": "microsoft/mai-voice-2.1-flash",
+  "voice": "fr-FR-Soleil:MAI-Voice-2.1-Flash",
+  "input": "D'accord, votre préférence est un rappel demain matin pour une révision. L'équipe devra confirmer le rappel et les modalités. Aucun rendez-vous n'est confirmé.",
+  "inputSha256": "d211d86e07df1ed9709955f4afa095d691cd432fd44470840b65bad24c543953",
+  "requestSha256": "aa7dbea13b6c2a0e858e9beb4bf797b0198fac0ac45031020a488e62c7796414",
+  "responseFormat": "mp3",
+  "attemptedUtc": "2026-10-02T02:31:33.4928717Z",
+  "scenario": "garage",
+  "index": 4,
+  "httpStatus": 200,
+  "responseHeadersMs": 383,
+  "contentType": "audio/mpeg",
+  "generationId": "gen-tts-1790908293-SJxue8GrT5ySZ65T7zES",
+  "generatedUtc": "2026-10-02T02:31:34.3100193Z",
+  "totalHttpMs": 816,
+  "bytes": 205440,
+  "sha256": "f07db02136a3084d8d2307649e2ce66ab752fa478f2d1c5e6ebe54c0d7b08420",
+  "decoderQualification": "pending sole heavy token"
+}

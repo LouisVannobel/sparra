@@ -11,10 +11,10 @@ export async function rpcBody(data: unknown) { return JSON.stringify(await toJSO
 export async function rpcResult(result: unknown) {
   return { status: 200, headers: { 'content-type': 'application/json', 'x-tss-serialized': 'true' }, body: JSON.stringify(await toCrossJSONAsync({ result, context: {} })) }
 }
-export async function authRpcPath(name: 'beginSessionList' | 'finishSessionList' | 'beginSessionRevocation' | 'finishSessionRevocation' | 'beginGoogleAccountLink' | 'authorizeGoogleAccountLink' | 'beginGoogleAccountUnlink' | 'finishGoogleAccountUnlink' | 'readGoogleAccountIntent' | 'cancelGoogleAccountIntent' | 'beginGoogleSignIn' | 'beginPasskeySignIn' | 'finishPasskeySignIn' | 'beginAdditionalPasskey' | 'authorizeAdditionalPasskey' | 'finishAdditionalPasskey' | 'beginFirstGooglePasskey' | 'readFirstGooglePasskey' | 'prepareFirstGooglePasskey' | 'finishFirstGooglePasskey' | 'cancelFirstGooglePasskey' | 'requestMagicLink' | 'logout' | 'getAccount' | 'getLoginAvailability' | 'getWorkspace' | 'ensurePersonalWorkspace' | 'renameWorkspace') {
+export async function authRpcPath(name: 'beginSessionList' | 'finishSessionList' | 'beginSessionRevocation' | 'finishSessionRevocation' | 'beginGoogleAccountLink' | 'authorizeGoogleAccountLink' | 'beginGoogleAccountUnlink' | 'finishGoogleAccountUnlink' | 'readGoogleAccountIntent' | 'cancelGoogleAccountIntent' | 'beginGoogleSignIn' | 'beginPasskeySignIn' | 'finishPasskeySignIn' | 'beginAdditionalPasskey' | 'authorizeAdditionalPasskey' | 'finishAdditionalPasskey' | 'beginFirstGooglePasskey' | 'readFirstGooglePasskey' | 'prepareFirstGooglePasskey' | 'finishFirstGooglePasskey' | 'cancelFirstGooglePasskey' | 'requestMagicLink' | 'logout' | 'getAccount' | 'getLoginAvailability' | 'getWorkspace' | 'ensurePersonalWorkspace' | 'renameWorkspace' | 'getActivity' | 'saveActivity' | 'listRequests' | 'getRequestDetail' | 'markRequestTreated' | 'eraseRequest' | 'getRequestErasure') {
   const directory = resolve('.output/server/_ssr')
   for (const file of await readdir(directory)) {
-    if (!file.startsWith('auth.functions-') && !file.startsWith('workspace.functions-')) continue
+    if (!file.startsWith('auth.functions-') && !file.startsWith('workspace.functions-') && !file.startsWith('sparra.functions-')) continue
     const source = await readFile(resolve(directory, file), 'utf8')
     const match = new RegExp(`id: "([a-f0-9]{64})",\\s+name: "${name}"`).exec(source)
     if (match) return '/_serverFn/' + match[1]

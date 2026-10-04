@@ -2,3 +2,9 @@
 *.png binary
 *.jpg binary
 *.woff2 binary
+
+# Preserve byte-qualified prerecorded assets and their immutable receipts.
+/docs/demos/audio-provenance.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+/docs/demos/history/** -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+/docs/demos/mai-2.1-refresh/** -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+/src/modules/marketing/demo-scenarios.generated.ts -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

@@ -7,6 +7,16 @@ import {
 
 const validOrigin = 'https://template.example'
 
+test.each(['', 'DIRECT-SERVE', ' direct-serve', 'direct-serve ', 'unknown'])(
+  'profile_rejects_empty_unknown_and_non_https %j', profile => {
+    expectInvalidKeys({ APP_ORIGIN: validOrigin, SPARRA_INGRESS_PROFILE: profile }, ['SPARRA_INGRESS_PROFILE'])
+  },
+)
+test('direct Serve requires HTTPS and accepts only exact enabled profile', () => {
+  expectInvalidKeys({ APP_ORIGIN: 'http://localhost', SPARRA_INGRESS_PROFILE: 'direct-serve' }, ['APP_ORIGIN'])
+  expect(readWebConfig({ APP_ORIGIN: validOrigin, SPARRA_INGRESS_PROFILE: 'direct-serve' }).ingressProfile).toBe('direct-serve')
+})
+
 test('returns frozen bounded startup settings without mutating the supplied environment', () => {
   const env = Object.freeze({ APP_ORIGIN: validOrigin })
 
@@ -19,6 +29,7 @@ test('returns frozen bounded startup settings without mutating the supplied envi
     port: 3000,
     requestTimeoutMs: 10000,
     shutdownTimeoutMs: 5000,
+    ingressProfile: null,
   })
   expect(Object.isFrozen(config)).toBe(true)
   expect(env).toEqual({ APP_ORIGIN: validOrigin })
@@ -40,6 +51,10 @@ test.each(['', 'Development', 'staging', ' production '])(
     expectInvalidKeys({ APP_ORIGIN: validOrigin, NODE_ENV: value }, ['NODE_ENV'])
   },
 )
+
+test('continues loopback origin validation when NODE_ENV is invalid', () => {
+  expectInvalidKeys({ APP_ORIGIN: 'http://localhost', NODE_ENV: 'staging' }, ['NODE_ENV'])
+})
 
 test.each([
   ['HTTPS://Template.Example:443', 'https://template.example'],
@@ -176,8 +191,10 @@ test('reports combined invalid settings in input-table order', () => {
       HOST: 'localhost',
       APP_ORIGIN: 'http://template.example',
       NODE_ENV: 'staging',
+      SPARRA_INGRESS_PROFILE: 'unknown',
     },
     [
+      'SPARRA_INGRESS_PROFILE',
       'NODE_ENV',
       'APP_ORIGIN',
       'HOST',
@@ -204,6 +221,7 @@ test('ignores unrelated keys without reading or returning them', () => {
     port: 3000,
     requestTimeoutMs: 10000,
     shutdownTimeoutMs: 5000,
+    ingressProfile: null,
   })
 })
 

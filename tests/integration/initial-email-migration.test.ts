@@ -223,7 +223,7 @@ test('native deferred journal COMMIT rejection leaves no new schema or journal r
   const before = await structure(database.client)
   await cleanFailure(await cli(database.url), database.name)
   expect(await structure(database.client) === before).toBe(true)
-  expect(Number((await database.client.query('SELECT last_value FROM drizzle.__drizzle_migrations_id_seq')).rows[0].last_value)).toBe(8)
+  expect(Number((await database.client.query('SELECT last_value FROM drizzle.__drizzle_migrations_id_seq')).rows[0].last_value)).toBe(readMigrationFiles({migrationsFolder:resolve('drizzle')}).length)
 })
 test('row-security filtered visibility refuses certification rather than silently scanning a subset', async () => {
   const database = await isolatedDatabase()

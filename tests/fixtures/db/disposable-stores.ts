@@ -1,14 +1,17 @@
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { cp, mkdtemp, mkdir, readFile, writeFile, rm, realpath } from 'node:fs/promises'
+import { cp, mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { resolve, join, basename, dirname } from 'node:path'
+import { resolve, join } from 'node:path'
 import { Client } from 'pg'
+import { fetch as imageFetch } from 'undici'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { migrate as migrateDrizzle } from 'drizzle-orm/node-postgres/migrator'
 import { unusedLoopbackPort } from '../../helpers/web-process.ts'
 import { proveHatchetStatementDeadline, readHatchetClaimExpiry, readHatchetClock, readHatchetRestartSnapshot } from './hatchet-restart-observation.ts'
+import { fixtureDockerEndpoint, fixtureDockerEnvironment, assertFixtureDockerEndpoint, fixtureDockerFileUser } from './docker-endpoint.ts'
+import { awaitCredentialInit,retireFixtureDirectory } from '../../helpers/credential-init-retirement.ts'
 
 const exec = promisify(execFile)
 const label = 'projetv0.template.auth-fixture'
@@ -19,11 +22,11 @@ const images = {
   node: 'node@sha256:4bd6219054c8bebcd26a66bfd8ca0bd6e1024b4b97474c59bb7ee3bbcbef4fe8',
 }
 const hatchetImage = 'ghcr.io/hatchet-dev/hatchet/hatchet-lite@sha256:098f549448de860e95f79f93583dc353be3143a6bb2f6eba446b3d443e39e838'
-const essentials = () => ({ PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, TEMP: process.env.TEMP, TMP: process.env.TMP, USERPROFILE: process.env.USERPROFILE })
-async function docker(args: string[], env: Record<string, string> = {}) {
+const essentials = () => fixtureDockerEnvironment()
+async function docker(args: string[], env: Record<string, string> = {},timeoutMs=120000) {
   try {
-    return (await exec('docker', ['--context', 'desktop-linux', ...args], {
-      env: { ...essentials(), ...env }, windowsHide: true, timeout: 120000, maxBuffer: 1024 * 1024,
+    return (await exec('docker', [...fixtureDockerEndpoint(process.platform).args, ...args], {
+      env: { ...essentials(), ...env }, windowsHide: true, timeout: timeoutMs, maxBuffer: 1024 * 1024,
     })).stdout.trim()
   } catch { throw new Error(`Disposable Docker operation failed: ${args[0]}`) }
 }
@@ -32,6 +35,22 @@ async function inventory() {
   // Inspect only these non-secret fields; never inspect an existing Config.Env.
   const states = ids.length ? (await docker(['inspect', ...ids, '--format', '{{.Id}}|{{.Name}}|{{.Image}}|{{.State.Status}}|{{.State.StartedAt}}|{{.State.FinishedAt}}|{{.RestartCount}}|{{json .HostConfig.PortBindings}}|{{json .NetworkSettings.Networks}}'])).split('\n').sort() : []
   return { states, networks: (await docker(['network', 'ls', '--no-trunc', '--format', '{{.ID}}|{{.Name}}|{{.Driver}}'])).split('\n').sort(), volumes: (await docker(['volume', 'ls', '--format', '{{.Name}}|{{.Driver}}'])).split('\n').sort() }
+}
+
+// Describe only the existing non-secret projection; the unchanged-inventory guard stays exact.
+export function inventoryDelta(before:Awaited<ReturnType<typeof inventory>>,after:Awaited<ReturnType<typeof inventory>>,ownedIds:ReadonlySet<string>) {
+  const fields=['Id','Name','Image','State.Status','State.StartedAt','State.FinishedAt','RestartCount','HostConfig.PortBindings','NetworkSettings.Networks']
+  const rows=(values:string[])=>new Map(values.map(value=>{const parts=value.split('|');return [parts[0],parts] as const}))
+  const changes=(oldRows:string[],newRows:string[],names:string[],kind:string)=>{
+    const old=rows(oldRows),next=rows(newRows)
+    return [...new Set([...old.keys(),...next.keys()])].sort().flatMap(id=>{
+      const a=old.get(id),b=next.get(id)
+      const changed=a&&b?names.filter((_name,index)=>a[index]!==b[index]):names
+      const diagnosticId=kind==='volume'?'volume-sha256:'+createHash('sha256').update(id).digest('hex'):id
+      return changed.length?[{kind,id:diagnosticId,ownership:ownedIds.has(id)?'owned':'foreign',change:!a?'added':!b?'removed':'changed',fields:changed}]:[]
+    })
+  }
+  return [...changes(before.states,after.states,fields,'container'),...changes(before.networks,after.networks,['Id','Name','Driver'],'network'),...changes(before.volumes,after.volumes,['Name','Driver'],'volume')]
 }
 
 export async function startDisposableStores(artifactDirectory = resolve('.output')) {
@@ -53,8 +72,12 @@ export function createHatchetAdministrator(connectionString: string) {
 
 async function startAuthFixture(artifactDirectory: string | undefined) {
   const hatchet = artifactDirectory === undefined
-  const context = JSON.parse(await docker(['context', 'inspect', 'desktop-linux']))
-  if (context[0]?.Endpoints?.docker?.Host !== 'npipe:////./pipe/dockerDesktopLinuxEngine') throw new Error('Fixture requires the explicitly authorized local desktop-linux pipe')
+  const endpoint = fixtureDockerEndpoint(process.platform)
+  const privateFileUser = hatchet ? [] : fixtureDockerFileUser(process.platform, process.getuid?.(), process.getgid?.())
+  const actualEndpoint = process.platform === 'win32'
+    ? JSON.parse(await docker(['context', 'inspect', 'desktop-linux']))[0]?.Endpoints?.docker?.Host
+    : endpoint.endpoint
+  await assertFixtureDockerEndpoint(process.platform, actualEndpoint)
   const engine = JSON.parse(await docker(['version', '--format', '{{json .Server}}']))
   if (engine.Os !== 'linux' || engine.Arch !== 'amd64') throw new Error('Fixture requires Linux amd64 engine')
   const before = await inventory()
@@ -62,6 +85,8 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
   const prefix = `template-auth-${runId}`
   const directory = await mkdtemp(join(tmpdir(), `${prefix}-`))
   const owned: { id: string; name: string }[] = []
+  const ownedVolumes: string[] = []
+  const pendingInitCli=new Set<ReturnType<typeof spawn>>()
   let network: string | undefined
   let administrator: Client | undefined
   const secret = () => randomBytes(32).toString('hex')
@@ -72,9 +97,9 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
     const value = JSON.parse(await docker(['inspect', id, '--format', '{{json .Config.Labels}}']))
     if (value[label] !== runId || !owned.some(item => item.id === id)) throw new Error('Refusing non-owned fixture container')
   }
-  async function create(kind: string, image: string, args: string[], env: Record<string, string> = {}, command: string[] = []) {
+  async function create(kind: string, image: string, args: string[], env: Record<string, string> = {}, command: string[] = [], networkName = network!) {
     const name = `${prefix}-${kind}`
-    const id = await docker(['create', '--name', name, '--label', `${label}=${runId}`, '--network', network!, ...args, image, ...command], env)
+    const id = await docker(['create', '--name', name, '--label', `${label}=${runId}`, '--network', networkName, ...args, image, ...command], env)
     owned.push({ id, name })
     await assertOwned(id)
     return id
@@ -87,8 +112,7 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
     }
     return Number(bindings[0].HostPort)
   }
-  async function cleanup() {
-    const failures: string[] = []
+  async function retireContainers(failures: string[]) {
     try { await administrator?.end() } catch { failures.push('administrator') }
     for (const [index, item] of [...owned].reverse().entries()) {
       try { await assertOwned(item.id) }
@@ -96,6 +120,8 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
       try { await docker(['rm', '-f', item.id]) }
       catch { failures.push(`container-${index}-removal`) }
     }
+  }
+  async function retireNetworkAndVolumes(failures: string[]) {
     if (network) {
       let verified = false
       try {
@@ -108,19 +134,38 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
         catch { failures.push('network-removal') }
       }
     }
+    for (const volume of ownedVolumes) {
+      try {
+        if (JSON.parse(await docker(['volume', 'inspect', volume, '--format', '{{json .Labels}}']))[label] !== runId) throw new Error('Volume ownership')
+        await docker(['volume', 'rm', volume])
+      } catch { failures.push('volume-removal') }
+    }
+  }
+  async function retireTemporarySource(failures: string[]) {
+    if(pendingInitCli.size)failures.push('credential-init-child-retirement')
+    evidence.consumerRetirementConfirmed=failures.length===0
     try {
-      const target = await realpath(directory), parent = await realpath(tmpdir())
-      if (dirname(target) !== parent || basename(target) !== basename(directory) || !basename(target).startsWith(`${prefix}-`)) throw new Error('Refusing non-owned temporary path')
-      await rm(target, { recursive: true })
-    } catch { failures.push('temporary-path') }
+      const removed=await retireFixtureDirectory(directory,prefix+'-',failures.length===0)
+      if(!removed)evidence.retainedTemporaryPath=directory
+    } catch { failures.push('temporary-path');evidence.retainedTemporaryPath=directory }
+  }
+  async function recordFinalInventory(failures: string[]) {
     evidence.before = { fingerprint: createHash('sha256').update(JSON.stringify(before)).digest('hex'), containerIds: before.states.map(row => row.split('|')[0]), networks: before.networks, volumeCount: before.volumes.length }
     evidence.unrelatedUnchanged = false
     try {
       const after = await inventory()
+      evidence.inventoryDelta=inventoryDelta(before,after,new Set([...owned.map(item=>item.id),...ownedVolumes,...(network?[network]:[])]))
       evidence.after = { fingerprint: createHash('sha256').update(JSON.stringify(after)).digest('hex'), volumeCount: after.volumes.length }
       evidence.unrelatedUnchanged = JSON.stringify(before) === JSON.stringify(after)
       if (!evidence.unrelatedUnchanged) failures.push('inventory')
     } catch { failures.push('inventory') }
+  }
+  async function cleanup() {
+    const failures: string[] = []
+    await retireContainers(failures)
+    await retireNetworkAndVolumes(failures)
+    await retireTemporarySource(failures)
+    await recordFinalInventory(failures)
     if (failures.length) evidence.cleanupFailures = failures
     console.log('AUTH_STORE_EVIDENCE ' + JSON.stringify(evidence))
     if (failures.length) throw new Error(`Disposable fixture cleanup failed: ${failures.join(', ')}`)
@@ -224,6 +269,11 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
     await administrator.query(`CREATE ROLE runtime LOGIN PASSWORD '${runtimePassword}' NOINHERIT NOREPLICATION NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`)
     await administrator.query(`CREATE ROLE workspace_owner NOLOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
       CREATE ROLE workspace_bootstrap NOLOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;`)
+    const voicePasswordA = secret(), voicePasswordB = secret(), voicePasswordShared = secret()
+    await administrator.query(`CREATE ROLE sparra_voice_definer NOLOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
+      CREATE ROLE sparra_voice_a LOGIN PASSWORD '${voicePasswordA}' NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
+      CREATE ROLE sparra_voice_b LOGIN PASSWORD '${voicePasswordB}' NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
+      CREATE ROLE sparra_voice_shared LOGIN PASSWORD '${voicePasswordShared}' NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;`)
     const relayPassword = secret(), workerPassword = secret()
     await administrator.query(`CREATE ROLE auth_mail_owner NOLOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
       CREATE ROLE auth_mail_definer NOLOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
@@ -231,8 +281,8 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
       CREATE ROLE auth_mail_worker LOGIN PASSWORD '${workerPassword}' NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;`)
     await administrator.query(`CREATE ROLE pool_admin LOGIN PASSWORD '${poolPassword}' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`)
     await writeFile(join(directory, 'pgbouncer.ini'), `[databases]\nauth = host=pg port=5432 dbname=auth\n[pgbouncer]\nlisten_addr = 0.0.0.0\nlisten_port = 5432\nauth_type = scram-sha-256\nauth_file = /fixture/users.txt\nadmin_users = pool_admin\npool_mode = transaction\ndefault_pool_size = 1\nmax_client_conn = 100\nmax_prepared_statements = 0\nignore_startup_parameters = extra_float_digits\nlog_connections = 0\nlog_disconnections = 0\n`, { mode: 0o600 })
-    await writeFile(join(directory, 'users.txt'), `"runtime" "${runtimePassword}"\n"pool_admin" "${poolPassword}"\n"auth_mail_relay" "${relayPassword}"\n"auth_mail_worker" "${workerPassword}"\n`, { mode: 0o600 })
-    const poolId = await create('pool', images.pool, ['--network-alias', 'pool', '-p', '127.0.0.1::5432', '--mount', `type=bind,source=${directory},target=/fixture,readonly`, '--entrypoint', '/usr/bin/pgbouncer'], {}, ['/fixture/pgbouncer.ini'])
+    await writeFile(join(directory, 'users.txt'), `"runtime" "${runtimePassword}"\n"pool_admin" "${poolPassword}"\n"auth_mail_relay" "${relayPassword}"\n"auth_mail_worker" "${workerPassword}"\n"sparra_voice_a" "${voicePasswordA}"\n"sparra_voice_b" "${voicePasswordB}"\n"sparra_voice_shared" "${voicePasswordShared}"\n`, { mode: 0o600 })
+    const poolId = await create('pool', images.pool, [...privateFileUser, '--network-alias', 'pool', '-p', '127.0.0.1::5432', '--mount', `type=bind,source=${directory},target=/fixture,readonly`, '--entrypoint', '/usr/bin/pgbouncer'], {}, ['/fixture/pgbouncer.ini'])
     await docker(['start', poolId])
     const poolPort = await port(poolId, 5432)
     await writeFile(join(directory, 'redis.conf'), `bind 0.0.0.0\nport 6379\nrequirepass ${redisPassword}\nsave ""\nappendonly no\n`, { mode: 0o600 })
@@ -240,7 +290,7 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
     // Docker reallocates an unspecified host port on stop/start. Reserve a
     // checked unused loopback port and explicitly retain it for restart tests.
     const redisPublication = await unusedLoopbackPort()
-    const redis = await docker(['create', '--name', redisName, '--label', `${label}=${runId}`, '--network', network, '--network-alias', 'redis', '-p', `127.0.0.1:${redisPublication}:6379`, '--tmpfs', '/data:rw', '--mount', `type=bind,source=${directory},target=/fixture,readonly`, images.redis, 'redis-server', '/fixture/redis.conf'])
+    const redis = await docker(['create', '--name', redisName, '--label', `${label}=${runId}`, '--network', network, ...privateFileUser, '--network-alias', 'redis', '-p', `127.0.0.1:${redisPublication}:6379`, '--tmpfs', '/data:rw', '--mount', `type=bind,source=${directory},target=/fixture,readonly`, images.redis, 'redis-server', '/fixture/redis.conf'])
     owned.push({ id: redis, name: redisName }); await assertOwned(redis); await docker(['start', redis])
     const redisPort = await port(redis, 6379)
     if (redisPort !== redisPublication) throw new Error('Owned Redis publication mismatch')
@@ -254,9 +304,98 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
       const client = new Client({ connectionString: `postgresql://pool_admin:${poolPassword}@127.0.0.1:${poolPort}/pgbouncer`, connectionTimeoutMillis: 1000 })
       await client.connect(); return client
     }
+    type CredentialMutation = 'valid'|'empty-env'|'missing'|'malformed'|'oversized'|'symlink'|'mode'|'empty'|'newline'|'nul'|'whitespace'|'utf8'|'uid'|'gid'|'directory'|'parent-mode'
+    const webVolumes = new Map<string,string>()
+    async function privateInput(id:string, value:string) {
+      await assertOwned(id)
+      const child=spawn('docker',[...endpoint.args,'start','-ai',id],{env:essentials(),windowsHide:true,stdio:['pipe','pipe','pipe']})
+      pendingInitCli.add(child);child.once('close',()=>pendingInitCli.delete(child))
+      child.stdout.resume();child.stderr.resume();child.stdin.on('error',()=>{})
+      const completion=awaitCredentialInit(child,async()=>{
+        await assertOwned(id)
+        if(await docker(['inspect',id,'--format','{{.State.Running}}'])==='true')await docker(['stop','--time','1',id],{},3000)
+        if(await docker(['inspect',id,'--format','{{.State.Running}}'])!=='false')throw Error('Init consumer still live')
+      },10000)
+      const bytes=Buffer.from(value)
+      try{child.stdin.end(bytes);await completion}finally{bytes.fill(0)}
+    }
+    async function provision(volume:string, values:Readonly<Record<string,string>>, mutation:CredentialMutation) {
+      if (JSON.parse(await docker(['volume','inspect',volume,'--format','{{json .Labels}}']))[label]!==runId) throw new Error('Volume ownership')
+      const script=`const fs=require('node:fs');let raw='';process.stdin.on('data',b=>raw+=b);process.stdin.on('end',()=>{const {values,mutation}=JSON.parse(raw);const root='/run/secrets';for(const name of fs.readdirSync(root))fs.rmSync(root+'/'+name,{force:true,recursive:true});fs.chownSync(root,0,10001);fs.chmodSync(root,mutation==='parent-mode'?0o755:0o750);let first=true;for(const [name,text]of Object.entries(values)){const path=root+'/'+name;let data=Buffer.from(text);if(first){if(mutation==='missing'){first=false;continue}if(mutation==='empty')data=Buffer.alloc(0);if(mutation==='malformed')data=Buffer.from('invalid-synthetic-only');if(mutation==='oversized')data=Buffer.alloc(16385,120);if(mutation==='newline')data=Buffer.from(text+'\\n');if(mutation==='nul')data=Buffer.from(text+'\\0');if(mutation==='whitespace')data=Buffer.from(' '+text);if(mutation==='utf8')data=Buffer.from([255]);if(mutation==='directory'){fs.mkdirSync(path);first=false;continue}}fs.writeFileSync(path,data,{mode:0o440});data.fill(0);fs.chownSync(path,first&&mutation==='uid'?10001:0,first&&mutation==='gid'?0:10001);if(first&&mutation==='mode')fs.chmodSync(path,0o444);if(first&&mutation==='symlink'){fs.renameSync(path,path+'.target');fs.symlinkSync(path+'.target',path)}first=false}raw='';})`
+      const id=await create('credential-init-'+owned.length,images.node,['-i','--read-only','--mount','type=volume,source='+volume+',target=/run/secrets'],{},['node','-e',script],'none')
+      await privateInput(id,JSON.stringify({values,mutation}))
+    }
+    async function credentialVolume(values:Readonly<Record<string,string>>,mutation:CredentialMutation) {
+      const volume=await docker(['volume','create','--label',label+'='+runId,prefix+'-credentials-'+ownedVolumes.length])
+      ownedVolumes.push(volume);await provision(volume,values,mutation);return volume
+    }
+    const webCredentialValues=(auth:Readonly<{secret:string;googleClientId:string;googleClientSecret:string}>)=>({
+      app_database_url:'postgresql://runtime:'+runtimePassword+'@pool:5432/auth',app_redis_url:'redis://:'+redisPassword+'@redis:6379/0',
+      app_rate_limit_hmac_secret:hmac,app_auth_secret:auth.secret,app_google_client_id:auth.googleClientId,app_google_client_secret:auth.googleClientSecret,
+    })
+    const assertImage=async(image:string)=>{
+      if(!/^sha256:[0-9a-f]{64}$/.test(image)||await docker(['image','inspect',image,'--format','{{.Id}}|{{.Os}}/{{.Architecture}}'])!==image+'|linux/amd64')throw new Error('Immutable owned test image required')
+    }
+    async function imageMetadata(id:string) {
+      await assertOwned(id)
+      const config=JSON.parse(await docker(['inspect',id,'--format','{{json .Config}}']))
+      const host=JSON.parse(await docker(['inspect',id,'--format','{{json .HostConfig}}']))
+      return { user:config.User,environment:config.Env,entrypoint:config.Entrypoint,command:config.Cmd,readonly:host.ReadonlyRootfs,
+        caps:host.CapDrop,security:host.SecurityOpt,mounts:JSON.parse(await docker(['inspect',id,'--format','{{json .Mounts}}'])) }
+    }
+    async function directImageStatus(id:string,path:'/health/ready'|'/login',wrongAuthority=false) {
+      await assertOwned(id)
+      const script="const http=require('node:http');const r=http.request({host:'127.0.0.1',port:3000,path:process.argv[1],headers:{host:'image.example','x-forwarded-host':process.argv[2]==='wrong'?'foreign.example':'image.example','x-forwarded-proto':'https','x-forwarded-for':'192.0.2.1'}},response=>{console.log(response.statusCode);response.resume()});r.setTimeout(1000,()=>r.destroy());r.on('error',()=>process.exit(1));r.end()"
+      return Number(await docker(['exec',id,'node','-e',script,path,wrongAuthority?'wrong':'valid']))
+    }
+    async function startWebImage(imageReference:string,mutation:CredentialMutation='valid',auth:Readonly<{secret:string;googleClientId:string;googleClientSecret:string}>={secret:secret(),googleClientId:'fixture.apps.googleusercontent.com',googleClientSecret:secret()},keyring?:string,directServe=false,selectedPort?:number) {
+      await assertImage(imageReference)
+      const volume=await credentialVolume({...webCredentialValues(auth),...(keyring?{'aead_keyring_v1.json':keyring}: {})},mutation)
+      const webPort=selectedPort??await unusedLoopbackPort(),url='http://localhost:'+webPort
+      if(!Number.isInteger(webPort)||webPort<1||webPort>65535)throw new Error('Owned image port invalid')
+      const gateway=JSON.parse(await docker(['network','inspect',network!,'--format','{{json .IPAM.Config}}']))[0].Gateway
+      if(typeof gateway!=='string'||!/^[0-9.]+$/.test(gateway))throw new Error('Owned network gateway missing')
+      const env={NODE_ENV:'test',APP_ORIGIN:directServe?'https://image.example':url,HOST:'0.0.0.0',PORT:'3000',SHUTDOWN_TIMEOUT_MS:'1000',REQUEST_TIMEOUT_MS:'10000',RATE_LIMIT_KEY_ID:'image',TRUSTED_PROXY_IPS:directServe?'127.0.0.1':gateway,...(directServe?{SPARRA_INGRESS_PROFILE:'direct-serve'}:{}),...(keyring?{SPARRA_AEAD_KEYRING_PATH:'/run/secrets/aead_keyring_v1.json'}:{}),...(mutation==='empty-env'?{DATABASE_URL:''}:{})}
+      const id=await create('web-image-'+owned.length,imageReference,['-p','127.0.0.1:'+webPort+':3000','--read-only','--tmpfs','/tmp','--cap-drop','ALL','--security-opt','no-new-privileges','--mount','type=volume,source='+volume+',target=/run/secrets,readonly',...Object.keys(env).flatMap(key=>['-e',key])],env)
+      webVolumes.set(id,volume);await docker(['start',id])
+      if(mutation!=='valid')return {id,url}
+      let lastStatus=0
+      const deadline=Date.now()+10000
+      while(Date.now()<deadline){
+        if(await docker(['inspect',id,'--format','{{.State.Status}}'])==='exited')throw new Error('Native image startup failed')
+        try{lastStatus=directServe?await directImageStatus(id,'/health/ready'):(await imageFetch(url+'/health/ready',{signal:AbortSignal.timeout(500)})).status;if(lastStatus===200)return {id,url}}catch{}
+        await new Promise(resolve=>setTimeout(resolve,100))
+      }
+      throw new Error('Native web image not ready: response-'+lastStatus)
+    }
+    async function runMigrationImage(imageId:string,mutation:CredentialMutation='valid',transport:'direct'|'drop-commit-ack'='direct') {
+      await assertImage(imageId)
+      let proxy:string|undefined
+      if(transport==='drop-commit-ack'){
+        proxy=await create('commit-proxy-'+owned.length,images.node,['--network-alias','commit-proxy','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges','--mount','type=bind,source='+resolve('tests/helpers/migration-commit-proxy.mjs')+',target=/proxy.mjs,readonly'],{},['node','/proxy.mjs'])
+        await docker(['start',proxy])
+        for(let attempt=0;attempt<50;attempt++){if((await docker(['logs',proxy])).includes('READY'))break;await new Promise(resolve=>setTimeout(resolve,100))}
+      }
+      const volume=await credentialVolume({migration_database_url:'postgresql://migrator:'+migrationPassword+'@'+(proxy?'commit-proxy':'pg')+':5432/auth'},mutation)
+      const id=await create('migrator-image-'+owned.length,imageId,['--read-only','--cap-drop','ALL','--security-opt','no-new-privileges','--mount','type=volume,source='+volume+',target=/run/secrets,readonly',...(mutation==='empty-env'?['-e','MIGRATION_DATABASE_URL=']:[])])
+      await docker(['start',id]);const exitCode=Number(await docker(['wait',id]))
+      const result=await exec('docker',[...endpoint.args,'logs',id],{env:essentials(),windowsHide:true,timeout:10000})
+      if(proxy){
+        await assertOwned(proxy);await docker(['stop','--time','2',proxy])
+        if(Number(await docker(['wait',proxy]))!==0)throw new Error('Proxy retirement failed')
+        const terminal=JSON.parse((await docker(['logs',proxy])).split('\n').filter(line=>line.startsWith('{')).at(-1)??'{}')
+        if(terminal.type!=='terminal'||terminal.accepting!==false||terminal.activeSockets!==0)throw new Error('Proxy terminal evidence missing')
+        evidence.commitProxy=terminal
+      }
+      return {id,exitCode,stdout:String(result.stdout),stderr:String(result.stderr)}
+    }
     return {
       kind: 'stores' as const,
       pg, pool: poolId, redis, administrator, migrate, cleanup, poolAdmin, evidence,
+      startWebImage,runMigrationImage,imageMetadata,directImageStatus,
+      async imageLogs(id:string){await assertOwned(id);const result=await exec('docker',[...endpoint.args,'logs',id],{env:essentials(),windowsHide:true,timeout:10000});return {stdout:String(result.stdout),stderr:String(result.stderr)}},
+      async replaceWebCredentials(id:string,auth:Readonly<{secret:string;googleClientId:string;googleClientSecret:string}>,keyring?:string){await assertOwned(id);const volume=webVolumes.get(id);if(!volume)throw new Error('Owned web volume missing');await provision(volume,{...webCredentialValues(auth),...(keyring?{'aead_keyring_v1.json':keyring}:{})},'valid')},
+      async restartWebImage(id:string){await assertOwned(id);if(!webVolumes.has(id))throw new Error('Owned image missing');await docker(['restart','--time','2',id])},
       async migrateRecoveryAdmissionPrefix() {
         const prefixDirectory = join(directory, 'recovery-admission-prefix')
         await mkdir(join(prefixDirectory, 'meta'), { recursive: true })
@@ -304,6 +443,9 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
         await migrateDrizzle(drizzle(administrator!, { logger: false }), { migrationsFolder: prefixDirectory })
       },
       runtimeUrl: `postgresql://runtime:${runtimePassword}@127.0.0.1:${poolPort}/auth`,
+      voiceUrlA: `postgresql://sparra_voice_a:${voicePasswordA}@127.0.0.1:${poolPort}/auth`,
+      voiceUrlB: `postgresql://sparra_voice_b:${voicePasswordB}@127.0.0.1:${poolPort}/auth`,
+      voiceUrlShared: `postgresql://sparra_voice_shared:${voicePasswordShared}@127.0.0.1:${poolPort}/auth`,
       directRuntimeUrl: `postgresql://runtime:${runtimePassword}@127.0.0.1:${pgPort}/auth`,
       mailRelayUrl: `postgresql://auth_mail_relay:${relayPassword}@127.0.0.1:${poolPort}/auth`,
       mailWorkerUrl: `postgresql://auth_mail_worker:${workerPassword}@127.0.0.1:${poolPort}/auth`,

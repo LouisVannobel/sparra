@@ -2,8 +2,10 @@ import { ConfigurationError, readWebConfig } from './config.server'
 import type { NitroAppPlugin } from 'nitro/types'
 import { getEventContext } from 'nitro/h3'
 import { createWebResources } from './runtime.server'
+import { normalizeDirectServeIngress, readDirectServeConfig } from './direct-serve-ingress.server'
 
 const webConfig = readWebConfig(process.env)
+const ingressConfig = readDirectServeConfig(process.env, webConfig)
 
 // Nitro statically imports this plugin before its Node preset reads host/port.
 // A plugin callback alone is too late for those two settings.
@@ -25,6 +27,10 @@ process.env.NITRO_HOST = webConfig.hostname
 process.env.NITRO_PORT = String(webConfig.port)
 
 const configureNodeShutdown: NitroAppPlugin = app => {
+  // Native node-server captures app.fetch after plugins, before H3 constructs
+  // any event or URL. Keep the identical original lazy srvx carrier.
+  const nativeFetch = app.fetch
+  app.fetch = request => normalizeDirectServeIngress(request, ingressConfig) ?? nativeFetch(request)
   // This callback runs before srvx serve(), whose released plugin uses seconds.
   process.env.SERVER_SHUTDOWN_TIMEOUT = String(webConfig.shutdownTimeoutMs / 1000)
   app.hooks.hook('request', event => { getEventContext(event).appResources = resources })

@@ -4,14 +4,20 @@ import { readWebConfig } from './platform/config.server'
 import { randomBytes } from 'node:crypto'
 import { googleAccountCallbackResponse, isGoogleAccountCallbackRequest } from './modules/auth/http-boundary.server'
 import { requestResources } from './platform/resources.server'
+import { normalizeDirectServeIngress, readDirectServeConfig } from './platform/direct-serve-ingress.server'
+import { responseWithSecurityHeaders } from './platform/response-headers.server'
+import { cancelledResponse } from './platform/cancelled-response.server'
 
 // Nitro validates before listen. Its SSR service is a separate bundle: consume
 // the same pure validator here without importing the startup side effects twice.
 const webConfig = readWebConfig(process.env)
+const ingressConfig = readDirectServeConfig(process.env, webConfig)
 const handle = createStartHandler(defaultStreamHandler)
 
 export default createServerEntry({
   async fetch(request, options) {
+    const refusal = normalizeDirectServeIngress(request, ingressConfig)
+    if (refusal) return refusal
     const ingressNow = Date.now()
     Object.defineProperty(request, 'appAuthDeadlineAtMs', {
       value: ingressNow + Math.min(webConfig.requestTimeoutMs, 10_000),
@@ -43,18 +49,9 @@ export default createServerEntry({
       }
       // Real Start/H3 fulfills error responses, including aborted requests.
       if (clientSignal.aborted || httpTimeoutSignal.aborted) {
-        await response.body?.cancel().catch(() => {})
-        response = clientSignal.aborted
-          ? new Response('Request Cancelled', { status: 499 })
-          : new Response('Gateway Timeout', { status: 504 })
+        response = await cancelledResponse(response, clientSignal)
       }
     }
-    const headers = new Headers(response.headers)
-    headers.set('cache-control', 'no-store')
-    headers.set('x-robots-tag', 'noindex')
-    headers.set('referrer-policy', 'no-referrer')
-    headers.set('x-content-type-options', 'nosniff')
-    headers.set('content-security-policy', `default-src 'none'; object-src 'none'; script-src 'self' 'nonce-${nonce}'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`)
-    return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
+    return responseWithSecurityHeaders(request, response, nonce)
   },
 })

@@ -1,0 +1,21 @@
+{
+  "state": "downloaded",
+  "model": "microsoft/mai-voice-2.1-flash",
+  "voice": "fr-FR-Soleil:MAI-Voice-2.1-Flash",
+  "input": "Bonjour, vous êtes au Garage Horizon. Je suis Sparra, un agent IA. Quelle est votre demande ?",
+  "inputSha256": "864f810c4fae3c12a83e07b231871608bd23324e90e32f10a7a3e99bbd107ca8",
+  "requestSha256": "cc5a3c34e9c18c39627683309a7c7c59d08af8f55f4b58c510c90d6421934047",
+  "responseFormat": "mp3",
+  "attemptedUtc": "2026-10-02T02:31:24.7619145Z",
+  "scenario": "garage",
+  "index": 0,
+  "httpStatus": 200,
+  "responseHeadersMs": 855,
+  "contentType": "audio/mpeg",
+  "generationId": "gen-tts-1790908285-ynt6IJGCayuSeAE0rnFj",
+  "generatedUtc": "2026-10-02T02:31:25.8754290Z",
+  "totalHttpMs": 1101,
+  "bytes": 146880,
+  "sha256": "d9240b9837e960235fef0facc4874ecc945be1c3427cc2229ce6f9e29126efa1",
+  "decoderQualification": "pending sole heavy token"
+}

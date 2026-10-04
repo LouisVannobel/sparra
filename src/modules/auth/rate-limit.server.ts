@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto'
-import { isIP } from 'node:net'
+import { canonicalIp as nativeCanonicalIp } from '../../platform/canonical-ip.server'
 import { Redacted, Schema } from 'effect'
 import {
   createClient, AbortError, TimeoutError, ConnectionTimeoutError, SocketTimeoutError,
@@ -14,20 +14,14 @@ export class AuthAttemptExceeded extends Error {
   constructor(readonly retryAfter: number) { super('Too Many Requests'); this.name = 'AuthAttemptExceeded' }
 }
 const trustedClient = Symbol('TrustedClientContext')
-export type TrustedClientContext = Readonly<{ [trustedClient]: true }>
+type TrustedClientContext = Readonly<{ [trustedClient]: true }>
 type IngressRequest = {
   headers: Headers
   runtime?: { node?: { req?: { socket: { remoteAddress?: string } } } }
 }
 
 function canonicalIp(ip: string): string {
-  if (!isIP(ip) || ip.includes('%')) throw new RedisInvalid()
-  if (isIP(ip) === 4) return ip
-  const normalized = new URL(`http://[${ip}]/`).hostname.slice(1, -1)
-  const mapped = /^::ffff:([0-9a-f]+):([0-9a-f]+)$/.exec(normalized)
-  if (!mapped) return normalized
-  const high = parseInt(mapped[1], 16), low = parseInt(mapped[2], 16)
-  return `${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`
+  try { return nativeCanonicalIp(ip) } catch { throw new RedisInvalid() }
 }
 
 const positive = Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }))

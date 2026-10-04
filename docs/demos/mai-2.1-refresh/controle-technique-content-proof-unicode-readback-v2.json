@@ -1,0 +1,22 @@
+{
+  "status": "transcription_received",
+  "nativeServiceInvoked": true,
+  "service": "Pipecat1.7 OpenAISTTService._transcribe",
+  "model": "openai/whisper-large-v3-turbo",
+  "input": "owned full fictional controle-technique16k mono WAV",
+  "privateCallerData": false,
+  "maxRetries": 0,
+  "rawErrorSaved": false,
+  "rawLogsSaved": false,
+  "fictionalTranscript": " « Bonjour, vous êtes au Centre Claire. Je suis Spara, un agent IA. »  Quelle est votre demande ?  Bonjour.  « Je souhaite une visite de contrôle technique pour ma voiture. »  Quelle est votre préférence pour cette visite ?  L'équipe devra vérifier les disponibilités.  Plutôt vendredi après-midi.  Je m'appelle Alex.  Pour cet exemple, mon numéro est fictif.  Je retiens une demande de contrôle technique  avec une préférence pour vendredi après-midi ?  La date, le tarif et les modalités restent à confirmer avec l'équipe.  Aucun rendez-vous ?  n'est réservé.",
+  "totalMs": 4430,
+  "processExit": 0,
+  "scenario": "controle-technique",
+  "audioSha256": "03c31ef4e784cb834ac7194e4a38219f4d0e7f7c91ff01ef1bdb119882ff456d",
+  "observedUtc": "2026-10-02T02:39:17.5100263Z",
+  "witness": "unicode-readback-v2",
+  "priorSuccessfulReceipt": "controle-technique-content-proof.json",
+  "deliberateNewRequestRationale": "The original provider request succeeded; local non-ASCII pipe decoding was lossy. Original raw bytes were not retained and cannot be recovered; intact French text evidence requires this separately identified corrected-output witness.",
+  "originalRawBytesRecoverable": false,
+  "serialization": "ASCII-escaped JSON; Unicode recovered by JSON parser"
+}

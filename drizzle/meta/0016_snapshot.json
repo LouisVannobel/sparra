@@ -1,0 +1,3485 @@
+{
+  "id": "9921d43a-678f-474a-8403-ccdeb1ebb24c",
+  "prevId": "7ad76b0c-fb1f-4329-b1b9-55fe23178ed5",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.account": {
+      "name": "account",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "account_id": {
+          "name": "account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_id": {
+          "name": "provider_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "access_token": {
+          "name": "access_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "refresh_token": {
+          "name": "refresh_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "id_token": {
+          "name": "id_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "access_token_expires_at": {
+          "name": "access_token_expires_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "refresh_token_expires_at": {
+          "name": "refresh_token_expires_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "password": {
+          "name": "password",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "account_user_id_idx": {
+          "name": "account_user_id_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "account_user_id_user_id_fk": {
+          "name": "account_user_id_user_id_fk",
+          "tableFrom": "account",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "account_provider_account_id_unique": {
+          "name": "account_provider_account_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "provider_id",
+            "account_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "account_provider_google": {
+          "name": "account_provider_google",
+          "value": "\"account\".\"provider_id\" = 'google'"
+        },
+        "account_password_disabled": {
+          "name": "account_password_disabled",
+          "value": "\"account\".\"password\" is null"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.additional_passkey_intent": {
+      "name": "additional_passkey_intent",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recovery_generation": {
+          "name": "recovery_generation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "phase": {
+          "name": "phase",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "authentication_challenge": {
+          "name": "authentication_challenge",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "authorizing_key_id": {
+          "name": "authorizing_key_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "authorizing_credential_id": {
+          "name": "authorizing_credential_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "authorizing_public_key": {
+          "name": "authorizing_public_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "registration_verification_identifier": {
+          "name": "registration_verification_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "additional_passkey_intent_expired_idx": {
+          "name": "additional_passkey_intent_expired_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "additional_passkey_intent_user_id_user_id_fk": {
+          "name": "additional_passkey_intent_user_id_user_id_fk",
+          "tableFrom": "additional_passkey_intent",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "additional_passkey_intent_session_id_session_id_fk": {
+          "name": "additional_passkey_intent_session_id_session_id_fk",
+          "tableFrom": "additional_passkey_intent",
+          "tableTo": "session",
+          "columnsFrom": [
+            "session_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "additional_passkey_intent_scope": {
+          "name": "additional_passkey_intent_scope",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "public"
+          ],
+          "using": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'",
+          "withCheck": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'"
+        }
+      },
+      "checkConstraints": {
+        "additional_passkey_intent_generation": {
+          "name": "additional_passkey_intent_generation",
+          "value": "\"additional_passkey_intent\".\"recovery_generation\" >= 0"
+        },
+        "additional_passkey_intent_phase": {
+          "name": "additional_passkey_intent_phase",
+          "value": "(\n    \"additional_passkey_intent\".\"phase\" = 'CHALLENGE' and \"additional_passkey_intent\".\"authentication_challenge\" is not null\n    and \"additional_passkey_intent\".\"authorizing_key_id\" is null and \"additional_passkey_intent\".\"authorizing_credential_id\" is null\n    and \"additional_passkey_intent\".\"authorizing_public_key\" is null and \"additional_passkey_intent\".\"registration_verification_identifier\" is null\n  ) or (\n    \"additional_passkey_intent\".\"phase\" in ('AUTHORIZED','CONSUMED') and \"additional_passkey_intent\".\"authentication_challenge\" is null\n    and \"additional_passkey_intent\".\"authorizing_key_id\" is not null and \"additional_passkey_intent\".\"authorizing_credential_id\" is not null\n    and \"additional_passkey_intent\".\"authorizing_public_key\" is not null and \"additional_passkey_intent\".\"registration_verification_identifier\" is not null\n  )"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.auth_email_command": {
+      "name": "auth_email_command",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "generation": {
+          "name": "generation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "purpose": {
+          "name": "purpose",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recipient": {
+          "name": "recipient",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "locale": {
+          "name": "locale",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "recovery_generation": {
+          "name": "recovery_generation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "auth_email_command_request_id_auth_email_request_id_fk": {
+          "name": "auth_email_command_request_id_auth_email_request_id_fk",
+          "tableFrom": "auth_email_command",
+          "tableTo": "auth_email_request",
+          "columnsFrom": [
+            "request_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "auth_email_command_user_id_user_id_fk": {
+          "name": "auth_email_command_user_id_user_id_fk",
+          "tableFrom": "auth_email_command",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "auth_email_command_request_generation_unique": {
+          "name": "auth_email_command_request_generation_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "request_id",
+            "generation"
+          ]
+        }
+      },
+      "policies": {
+        "auth_email_command_scope": {
+          "name": "auth_email_command_scope",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "public"
+          ],
+          "using": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'",
+          "withCheck": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'"
+        }
+      },
+      "checkConstraints": {
+        "auth_email_command_generation_positive": {
+          "name": "auth_email_command_generation_positive",
+          "value": "\"auth_email_command\".\"generation\" > 0"
+        },
+        "auth_email_command_purpose": {
+          "name": "auth_email_command_purpose",
+          "value": "\"auth_email_command\".\"purpose\" = 'magic-link'"
+        },
+        "auth_email_command_locale": {
+          "name": "auth_email_command_locale",
+          "value": "\"auth_email_command\".\"locale\" in ('fr','en')"
+        },
+        "auth_email_command_expiry": {
+          "name": "auth_email_command_expiry",
+          "value": "\"auth_email_command\".\"expires_at\" > \"auth_email_command\".\"created_at\" and \"auth_email_command\".\"expires_at\" <= \"auth_email_command\".\"created_at\" + interval '10 minutes'"
+        },
+        "auth_email_command_user_binding": {
+          "name": "auth_email_command_user_binding",
+          "value": "(\"auth_email_command\".\"user_id\" is null and \"auth_email_command\".\"recovery_generation\" is null) or (\"auth_email_command\".\"user_id\" is not null and \"auth_email_command\".\"recovery_generation\" is not null and \"auth_email_command\".\"recovery_generation\" >= 0)"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.auth_email_outbox": {
+      "name": "auth_email_outbox",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "delivery_id": {
+          "name": "delivery_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "admission_state": {
+          "name": "admission_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "admission_fence": {
+          "name": "admission_fence",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "admission_lease_until": {
+          "name": "admission_lease_until",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "auth_email_outbox_admission_candidates_idx": {
+          "name": "auth_email_outbox_admission_candidates_idx",
+          "columns": [
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"auth_email_outbox\".\"admission_state\" = 'pending' OR \"auth_email_outbox\".\"admission_state\" = 'admitting'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "auth_email_outbox_delivery_id_email_delivery_id_fk": {
+          "name": "auth_email_outbox_delivery_id_email_delivery_id_fk",
+          "tableFrom": "auth_email_outbox",
+          "tableTo": "email_delivery",
+          "columnsFrom": [
+            "delivery_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "auth_email_outbox_delivery_id_unique": {
+          "name": "auth_email_outbox_delivery_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "delivery_id"
+          ]
+        }
+      },
+      "policies": {
+        "auth_email_outbox_scope": {
+          "name": "auth_email_outbox_scope",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "public"
+          ],
+          "using": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'",
+          "withCheck": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'"
+        }
+      },
+      "checkConstraints": {
+        "auth_email_outbox_admission": {
+          "name": "auth_email_outbox_admission",
+          "value": "\"auth_email_outbox\".\"admission_state\" in ('pending','admitting','admitted','admission_unknown') and \"auth_email_outbox\".\"admission_fence\" >= 0"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.auth_email_request": {
+      "name": "auth_email_request",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "purpose": {
+          "name": "purpose",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "generation": {
+          "name": "generation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "auth_email_request_user_id_user_id_fk": {
+          "name": "auth_email_request_user_id_user_id_fk",
+          "tableFrom": "auth_email_request",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "auth_email_request_email_purpose_unique": {
+          "name": "auth_email_request_email_purpose_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "email",
+            "purpose"
+          ]
+        }
+      },
+      "policies": {
+        "auth_email_request_scope": {
+          "name": "auth_email_request_scope",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "public"
+          ],
+          "using": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'",
+          "withCheck": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'"
+        }
+      },
+      "checkConstraints": {
+        "auth_email_request_generation_positive": {
+          "name": "auth_email_request_generation_positive",
+          "value": "\"auth_email_request\".\"generation\" > 0"
+        },
+        "auth_email_request_purpose": {
+          "name": "auth_email_request_purpose",
+          "value": "\"auth_email_request\".\"purpose\" = 'magic-link'"
+        },
+        "auth_email_request_normalized": {
+          "name": "auth_email_request_normalized",
+          "value": "\"auth_email_request\".\"email\" = lower(btrim(\"auth_email_request\".\"email\"))"
+        },
+        "auth_email_request_state": {
+          "name": "auth_email_request_state",
+          "value": "\"auth_email_request\".\"state\" in ('active','consumed','terminal')"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.auth_session_revocation": {
+      "name": "auth_session_revocation",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "authorizing_session_id": {
+          "name": "authorizing_session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_session_id": {
+          "name": "target_session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "correlation_id": {
+          "name": "correlation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "auth_session_revocation_insert": {
+          "name": "auth_session_revocation_insert",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": [
+            "public"
+          ],
+          "withCheck": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'"
+        }
+      },
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "public.email_delivery": {
+      "name": "email_delivery",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "command_id": {
+          "name": "command_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "verifier_hash": {
+          "name": "verifier_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "key_id": {
+          "name": "key_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ciphertext": {
+          "name": "ciphertext",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "nonce": {
+          "name": "nonce",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tag": {
+          "name": "tag",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "snapshot_format": {
+          "name": "snapshot_format",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "snapshot_hash": {
+          "name": "snapshot_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "replay_window_seconds": {
+          "name": "replay_window_seconds",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "provider_state": {
+          "name": "provider_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'unattempted'"
+        },
+        "provider_fence": {
+          "name": "provider_fence",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "provider_lease_until": {
+          "name": "provider_lease_until",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "first_attempt_at": {
+          "name": "first_attempt_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "replay_not_after": {
+          "name": "replay_not_after",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "queued_evidence": {
+          "name": "queued_evidence",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "plunk_email_id": {
+          "name": "plunk_email_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "email_delivery_verifier_unique": {
+          "name": "email_delivery_verifier_unique",
+          "columns": [
+            {
+              "expression": "verifier_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"email_delivery\".\"verifier_hash\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "email_delivery_material_candidates_idx": {
+          "name": "email_delivery_material_candidates_idx",
+          "columns": [
+            {
+              "expression": "command_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"email_delivery\".\"ciphertext\" IS NOT NULL OR \"email_delivery\".\"verifier_hash\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "email_delivery_command_id_auth_email_command_id_fk": {
+          "name": "email_delivery_command_id_auth_email_command_id_fk",
+          "tableFrom": "email_delivery",
+          "tableTo": "auth_email_command",
+          "columnsFrom": [
+            "command_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "email_delivery_command_id_unique": {
+          "name": "email_delivery_command_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "command_id"
+          ]
+        }
+      },
+      "policies": {
+        "email_delivery_scope": {
+          "name": "email_delivery_scope",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "public"
+          ],
+          "using": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'",
+          "withCheck": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'"
+        }
+      },
+      "checkConstraints": {
+        "email_delivery_verifier_canonical": {
+          "name": "email_delivery_verifier_canonical",
+          "value": "\"email_delivery\".\"verifier_hash\" IS NULL OR \"email_delivery\".\"verifier_hash\" ~ '^[0-9a-f]{64}$'"
+        },
+        "email_delivery_snapshot": {
+          "name": "email_delivery_snapshot",
+          "value": "(\"email_delivery\".\"snapshot_format\" is null and \"email_delivery\".\"snapshot_hash\" is null and \"email_delivery\".\"replay_window_seconds\" is null) or (\"email_delivery\".\"snapshot_format\" = 'auth-plunk-v1' and \"email_delivery\".\"snapshot_hash\" ~ '^[0-9a-f]{64}$' and (\"email_delivery\".\"replay_window_seconds\" is null or \"email_delivery\".\"replay_window_seconds\" between 1 and 600))"
+        },
+        "email_delivery_provider_state": {
+          "name": "email_delivery_provider_state",
+          "value": "\"email_delivery\".\"provider_state\" in ('unattempted','attempting','effect_unknown','plunk_queued','held') and \"email_delivery\".\"provider_fence\" >= 0"
+        },
+        "email_delivery_state": {
+          "name": "email_delivery_state",
+          "value": "\"email_delivery\".\"state\" in ('active','consumed','terminal','superseded','expired')"
+        },
+        "email_delivery_envelope": {
+          "name": "email_delivery_envelope",
+          "value": "(\"email_delivery\".\"ciphertext\" is null and \"email_delivery\".\"nonce\" is null and \"email_delivery\".\"tag\" is null) or (\"email_delivery\".\"ciphertext\" is not null and \"email_delivery\".\"nonce\" is not null and \"email_delivery\".\"tag\" is not null and \"email_delivery\".\"nonce\" ~ '^[0-9a-f]{24}$' and \"email_delivery\".\"tag\" ~ '^[0-9a-f]{32}$')"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.first_google_passkey_intent": {
+      "name": "first_google_passkey_intent",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recovery_generation": {
+          "name": "recovery_generation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "account_id": {
+          "name": "account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "subject": {
+          "name": "subject",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "phase": {
+          "name": "phase",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "authenticated_at": {
+          "name": "authenticated_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "registration_verification_identifier": {
+          "name": "registration_verification_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "passkey_id": {
+          "name": "passkey_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "first_google_passkey_intent_retention_idx": {
+          "name": "first_google_passkey_intent_retention_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "first_google_passkey_intent_user_id_user_id_fk": {
+          "name": "first_google_passkey_intent_user_id_user_id_fk",
+          "tableFrom": "first_google_passkey_intent",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "first_google_passkey_intent_session_id_session_id_fk": {
+          "name": "first_google_passkey_intent_session_id_session_id_fk",
+          "tableFrom": "first_google_passkey_intent",
+          "tableTo": "session",
+          "columnsFrom": [
+            "session_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "first_google_passkey_intent_scope": {
+          "name": "first_google_passkey_intent_scope",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "public"
+          ],
+          "using": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'",
+          "withCheck": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'"
+        }
+      },
+      "checkConstraints": {
+        "first_google_passkey_intent_generation": {
+          "name": "first_google_passkey_intent_generation",
+          "value": "\"first_google_passkey_intent\".\"recovery_generation\" >= 0"
+        },
+        "first_google_passkey_intent_expiry": {
+          "name": "first_google_passkey_intent_expiry",
+          "value": "\"first_google_passkey_intent\".\"expires_at\" > \"first_google_passkey_intent\".\"created_at\" and \"first_google_passkey_intent\".\"expires_at\" <= \"first_google_passkey_intent\".\"created_at\" + interval '5 minutes'"
+        },
+        "first_google_passkey_intent_phase": {
+          "name": "first_google_passkey_intent_phase",
+          "value": "\"first_google_passkey_intent\".\"phase\" in ('PENDING_GOOGLE','EXCHANGING','AUTHORIZED','CONSUMED','INVALIDATED')"
+        },
+        "first_google_passkey_intent_authority": {
+          "name": "first_google_passkey_intent_authority",
+          "value": "\"first_google_passkey_intent\".\"phase\" not in ('AUTHORIZED','CONSUMED') or \"first_google_passkey_intent\".\"authenticated_at\" is not null"
+        },
+        "first_google_passkey_intent_reason": {
+          "name": "first_google_passkey_intent_reason",
+          "value": "(\"first_google_passkey_intent\".\"phase\" = 'INVALIDATED' and \"first_google_passkey_intent\".\"reason\" is not null and \"first_google_passkey_intent\".\"reason\" in ('unavailable','proof_unavailable','proof_stale','cancelled','superseded')) or (\"first_google_passkey_intent\".\"phase\" <> 'INVALIDATED' and \"first_google_passkey_intent\".\"reason\" is null)"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.google_account_intent": {
+      "name": "google_account_intent",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recovery_generation": {
+          "name": "recovery_generation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "locale": {
+          "name": "locale",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_account_id": {
+          "name": "target_account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "target_subject": {
+          "name": "target_subject",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "phase": {
+          "name": "phase",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "authentication_challenge": {
+          "name": "authentication_challenge",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "authorizing_key_id": {
+          "name": "authorizing_key_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "authorizing_credential_id": {
+          "name": "authorizing_credential_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "authorizing_public_key": {
+          "name": "authorizing_public_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "oauth_state": {
+          "name": "oauth_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "native_account_id": {
+          "name": "native_account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "provider_subject": {
+          "name": "provider_subject",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "google_account_intent_retention_idx": {
+          "name": "google_account_intent_retention_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "google_account_intent_user_id_user_id_fk": {
+          "name": "google_account_intent_user_id_user_id_fk",
+          "tableFrom": "google_account_intent",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "google_account_intent_session_id_session_id_fk": {
+          "name": "google_account_intent_session_id_session_id_fk",
+          "tableFrom": "google_account_intent",
+          "tableTo": "session",
+          "columnsFrom": [
+            "session_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "google_account_intent_scope": {
+          "name": "google_account_intent_scope",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "public"
+          ],
+          "using": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'",
+          "withCheck": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'"
+        }
+      },
+      "checkConstraints": {
+        "google_account_intent_generation": {
+          "name": "google_account_intent_generation",
+          "value": "\"google_account_intent\".\"recovery_generation\" >= 0"
+        },
+        "google_account_intent_locale": {
+          "name": "google_account_intent_locale",
+          "value": "\"google_account_intent\".\"locale\" in ('fr','en')"
+        },
+        "google_account_intent_expiry": {
+          "name": "google_account_intent_expiry",
+          "value": "\"google_account_intent\".\"expires_at\" > \"google_account_intent\".\"created_at\" and \"google_account_intent\".\"expires_at\" <= \"google_account_intent\".\"created_at\" + interval '5 minutes'"
+        },
+        "google_account_intent_target": {
+          "name": "google_account_intent_target",
+          "value": "(\"google_account_intent\".\"action\" = 'LINK' and \"google_account_intent\".\"target_account_id\" is null and \"google_account_intent\".\"target_subject\" is null) or (\"google_account_intent\".\"action\" = 'UNLINK' and \"google_account_intent\".\"target_account_id\" is not null and \"google_account_intent\".\"target_subject\" is not null)"
+        },
+        "google_account_intent_phase": {
+          "name": "google_account_intent_phase",
+          "value": "\"google_account_intent\".\"phase\" in ('CHALLENGE','AUTHORIZED','EXCHANGING','CONSUMED','INVALIDATED') and (\"google_account_intent\".\"action\" = 'LINK' or \"google_account_intent\".\"phase\" not in ('AUTHORIZED','EXCHANGING'))"
+        },
+        "google_account_intent_proof": {
+          "name": "google_account_intent_proof",
+          "value": "(\n    \"google_account_intent\".\"phase\" = 'CHALLENGE' and \"google_account_intent\".\"authentication_challenge\" is not null and \"google_account_intent\".\"authorizing_key_id\" is null and \"google_account_intent\".\"authorizing_credential_id\" is null and \"google_account_intent\".\"authorizing_public_key\" is null and \"google_account_intent\".\"oauth_state\" is null\n  ) or (\n    \"google_account_intent\".\"phase\" in ('AUTHORIZED','EXCHANGING') and \"google_account_intent\".\"authentication_challenge\" is null and \"google_account_intent\".\"authorizing_key_id\" is not null and \"google_account_intent\".\"authorizing_credential_id\" is not null and \"google_account_intent\".\"authorizing_public_key\" is not null and \"google_account_intent\".\"oauth_state\" is not null\n  ) or (\n    \"google_account_intent\".\"phase\" in ('CONSUMED','INVALIDATED') and \"google_account_intent\".\"authentication_challenge\" is null and \"google_account_intent\".\"authorizing_key_id\" is null and \"google_account_intent\".\"authorizing_credential_id\" is null and \"google_account_intent\".\"authorizing_public_key\" is null and \"google_account_intent\".\"oauth_state\" is null\n  )"
+        },
+        "google_account_intent_receipt": {
+          "name": "google_account_intent_receipt",
+          "value": "(\"google_account_intent\".\"phase\" = 'CONSUMED' and \"google_account_intent\".\"native_account_id\" is not null and \"google_account_intent\".\"provider_subject\" is not null and \"google_account_intent\".\"outcome\" is not null and ((\"google_account_intent\".\"action\" = 'LINK' and \"google_account_intent\".\"outcome\" = 'linked') or (\"google_account_intent\".\"action\" = 'UNLINK' and \"google_account_intent\".\"outcome\" = 'unlinked'))) or (\"google_account_intent\".\"phase\" <> 'CONSUMED' and \"google_account_intent\".\"native_account_id\" is null and \"google_account_intent\".\"provider_subject\" is null and \"google_account_intent\".\"outcome\" is null)"
+        },
+        "google_account_intent_reason": {
+          "name": "google_account_intent_reason",
+          "value": "(\"google_account_intent\".\"phase\" = 'INVALIDATED' and \"google_account_intent\".\"reason\" is not null and \"google_account_intent\".\"reason\" in ('unavailable','expired','cancelled')) or (\"google_account_intent\".\"phase\" <> 'INVALIDATED' and \"google_account_intent\".\"reason\" is null)"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.passkey": {
+      "name": "passkey",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "public_key": {
+          "name": "public_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "credential_id": {
+          "name": "credential_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "counter": {
+          "name": "counter",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "device_type": {
+          "name": "device_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "backed_up": {
+          "name": "backed_up",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "transports": {
+          "name": "transports",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "aaguid": {
+          "name": "aaguid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "passkey_user_id_idx": {
+          "name": "passkey_user_id_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "passkey_user_id_user_id_fk": {
+          "name": "passkey_user_id_user_id_fk",
+          "tableFrom": "passkey",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "passkey_credential_id_unique": {
+          "name": "passkey_credential_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "credential_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.recovery_attempt": {
+      "name": "recovery_attempt",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recovery_generation": {
+          "name": "recovery_generation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "batch_id": {
+          "name": "batch_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "code_id": {
+          "name": "code_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "google_account_id": {
+          "name": "google_account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "issuer": {
+          "name": "issuer",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "subject": {
+          "name": "subject",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "oauth_state": {
+          "name": "oauth_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "phase": {
+          "name": "phase",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "recovery_attempt_cleanup_idx": {
+          "name": "recovery_attempt_cleanup_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "recovery_attempt_user_id_user_id_fk": {
+          "name": "recovery_attempt_user_id_user_id_fk",
+          "tableFrom": "recovery_attempt",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "recovery_attempt_oauth_state_unique": {
+          "name": "recovery_attempt_oauth_state_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "oauth_state"
+          ]
+        }
+      },
+      "policies": {
+        "recovery_attempt_scope": {
+          "name": "recovery_attempt_scope",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "public"
+          ],
+          "using": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'",
+          "withCheck": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'"
+        }
+      },
+      "checkConstraints": {
+        "recovery_attempt_generation_nonnegative": {
+          "name": "recovery_attempt_generation_nonnegative",
+          "value": "\"recovery_attempt\".\"recovery_generation\" >= 0"
+        },
+        "recovery_attempt_issuer_google": {
+          "name": "recovery_attempt_issuer_google",
+          "value": "\"recovery_attempt\".\"issuer\" = 'https://accounts.google.com'"
+        },
+        "recovery_attempt_subject_nonempty": {
+          "name": "recovery_attempt_subject_nonempty",
+          "value": "length(\"recovery_attempt\".\"subject\") > 0"
+        },
+        "recovery_attempt_state_nonempty": {
+          "name": "recovery_attempt_state_nonempty",
+          "value": "length(\"recovery_attempt\".\"oauth_state\") > 0"
+        },
+        "recovery_attempt_deadline": {
+          "name": "recovery_attempt_deadline",
+          "value": "\"recovery_attempt\".\"expires_at\" > \"recovery_attempt\".\"created_at\" and \"recovery_attempt\".\"expires_at\" <= \"recovery_attempt\".\"created_at\" + interval '5 minutes'"
+        },
+        "recovery_attempt_phase": {
+          "name": "recovery_attempt_phase",
+          "value": "\"recovery_attempt\".\"phase\" in ('PENDING_GOOGLE','EXCHANGING','PROVED')"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.recovery_code": {
+      "name": "recovery_code",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "batch_id": {
+          "name": "batch_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "digest": {
+          "name": "digest",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "spent_at": {
+          "name": "spent_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "recovery_code_current_batch_fk": {
+          "name": "recovery_code_current_batch_fk",
+          "tableFrom": "recovery_code",
+          "tableTo": "recovery_code_batch",
+          "columnsFrom": [
+            "user_id",
+            "batch_id"
+          ],
+          "columnsTo": [
+            "user_id",
+            "batch_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "recovery_code_digest_unique": {
+          "name": "recovery_code_digest_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "digest"
+          ]
+        }
+      },
+      "policies": {
+        "recovery_code_scope": {
+          "name": "recovery_code_scope",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "public"
+          ],
+          "using": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'",
+          "withCheck": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'"
+        }
+      },
+      "checkConstraints": {
+        "recovery_code_digest_hex": {
+          "name": "recovery_code_digest_hex",
+          "value": "\"recovery_code\".\"digest\" ~ '^[0-9a-f]{64}$'"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.recovery_code_batch": {
+      "name": "recovery_code_batch",
+      "schema": "",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "batch_id": {
+          "name": "batch_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "format_version": {
+          "name": "format_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recovery_generation": {
+          "name": "recovery_generation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "issued_at": {
+          "name": "issued_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "recovery_code_batch_user_id_user_id_fk": {
+          "name": "recovery_code_batch_user_id_user_id_fk",
+          "tableFrom": "recovery_code_batch",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "recovery_code_batch_batch_id_unique": {
+          "name": "recovery_code_batch_batch_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "batch_id"
+          ]
+        },
+        "recovery_code_batch_owner_unique": {
+          "name": "recovery_code_batch_owner_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "user_id",
+            "batch_id"
+          ]
+        }
+      },
+      "policies": {
+        "recovery_code_batch_scope": {
+          "name": "recovery_code_batch_scope",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "public"
+          ],
+          "using": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'",
+          "withCheck": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'"
+        }
+      },
+      "checkConstraints": {
+        "recovery_code_batch_format_v1": {
+          "name": "recovery_code_batch_format_v1",
+          "value": "\"recovery_code_batch\".\"format_version\" = 1"
+        },
+        "recovery_code_batch_generation_nonnegative": {
+          "name": "recovery_code_batch_generation_nonnegative",
+          "value": "\"recovery_code_batch\".\"recovery_generation\" >= 0"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.recovery_code_rotation_fact": {
+      "name": "recovery_code_rotation_fact",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "generation": {
+          "name": "generation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "authorizing_session_id": {
+          "name": "authorizing_session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "authorizing_passkey_id": {
+          "name": "authorizing_passkey_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "challenge_id": {
+          "name": "challenge_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "prior_batch_id": {
+          "name": "prior_batch_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "new_batch_id": {
+          "name": "new_batch_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "code_count": {
+          "name": "code_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "correlation_id": {
+          "name": "correlation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "recovery_code_rotation_fact_insert": {
+          "name": "recovery_code_rotation_fact_insert",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": [
+            "public"
+          ],
+          "withCheck": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'"
+        }
+      },
+      "checkConstraints": {
+        "recovery_code_rotation_fact_generation": {
+          "name": "recovery_code_rotation_fact_generation",
+          "value": "\"recovery_code_rotation_fact\".\"generation\" >= 0"
+        },
+        "recovery_code_rotation_fact_eight": {
+          "name": "recovery_code_rotation_fact_eight",
+          "value": "\"recovery_code_rotation_fact\".\"code_count\" = 8"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.session": {
+      "name": "session",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token": {
+          "name": "token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "ip_address": {
+          "name": "ip_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "user_agent": {
+          "name": "user_agent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "auth_state": {
+          "name": "auth_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "auth_method": {
+          "name": "auth_method",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "authenticated_at": {
+          "name": "authenticated_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_identity": {
+          "name": "provider_identity",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "recovery_generation": {
+          "name": "recovery_generation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_activity_at": {
+          "name": "last_activity_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "session_user_id_idx": {
+          "name": "session_user_id_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "session_user_id_user_id_fk": {
+          "name": "session_user_id_user_id_fk",
+          "tableFrom": "session",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "session_token_unique": {
+          "name": "session_token_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "token"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "session_auth_state_allowed": {
+          "name": "session_auth_state_allowed",
+          "value": "\"session\".\"auth_state\" in ('ACTIVE', 'MFA_PENDING', 'RECOVERY_RESTRICTED')"
+        },
+        "session_auth_method_allowed": {
+          "name": "session_auth_method_allowed",
+          "value": "\"session\".\"auth_method\" in ('google', 'magic-link', 'passkey', 'totp', 'recovery')"
+        },
+        "session_recovery_generation_nonnegative": {
+          "name": "session_recovery_generation_nonnegative",
+          "value": "\"session\".\"recovery_generation\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.user": {
+      "name": "user",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email_verified": {
+          "name": "email_verified",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "image": {
+          "name": "image",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "recovering": {
+          "name": "recovering",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "recovery_generation": {
+          "name": "recovery_generation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "hold_until": {
+          "name": "hold_until",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "user_email_unique": {
+          "name": "user_email_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "email"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "user_recovery_generation_nonnegative": {
+          "name": "user_recovery_generation_nonnegative",
+          "value": "\"user\".\"recovery_generation\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.verification": {
+      "name": "verification",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "identifier": {
+          "name": "identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "verification_identifier_idx": {
+          "name": "verification_identifier_idx",
+          "columns": [
+            {
+              "expression": "identifier",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.workspace": {
+      "name": "workspace",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'personal'"
+        },
+        "lifecycle": {
+          "name": "lifecycle",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "auth_organization_id": {
+          "name": "auth_organization_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'Workspace'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "workspace_owner_user_id_user_id_fk": {
+          "name": "workspace_owner_user_id_user_id_fk",
+          "tableFrom": "workspace",
+          "tableTo": "user",
+          "columnsFrom": [
+            "owner_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "workspace_owner_user_id_unique": {
+          "name": "workspace_owner_user_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "owner_user_id"
+          ]
+        }
+      },
+      "policies": {
+        "workspace_voice_read": {
+          "name": "workspace_voice_read",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": [
+            "sparra_voice_definer"
+          ],
+          "using": "id = voice_private.bound_workspace()"
+        },
+        "workspace_voice_lock": {
+          "name": "workspace_voice_lock",
+          "as": "PERMISSIVE",
+          "for": "UPDATE",
+          "to": [
+            "sparra_voice_definer"
+          ],
+          "using": "id = voice_private.bound_workspace()",
+          "withCheck": "id = voice_private.bound_workspace()"
+        },
+        "workspace_tenant": {
+          "name": "workspace_tenant",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "runtime"
+          ],
+          "using": "\"workspace\".\"id\"::text = current_setting('app.tenant_id', true) and \"workspace\".\"lifecycle\" = 'active'",
+          "withCheck": "\"workspace\".\"id\"::text = current_setting('app.tenant_id', true) and \"workspace\".\"lifecycle\" = 'active'"
+        },
+        "workspace_bootstrap": {
+          "name": "workspace_bootstrap",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "workspace_bootstrap"
+          ],
+          "using": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'",
+          "withCheck": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000'"
+        }
+      },
+      "checkConstraints": {
+        "workspace_personal": {
+          "name": "workspace_personal",
+          "value": "\"workspace\".\"kind\" = 'personal' and \"workspace\".\"auth_organization_id\" is null"
+        },
+        "workspace_lifecycle": {
+          "name": "workspace_lifecycle",
+          "value": "\"workspace\".\"lifecycle\" in ('provisioning','active','deleting')"
+        },
+        "workspace_nonzero_id": {
+          "name": "workspace_nonzero_id",
+          "value": "\"workspace\".\"id\" <> '00000000-0000-0000-0000-000000000000'::uuid"
+        },
+        "workspace_display_name": {
+          "name": "workspace_display_name",
+          "value": "length(\"workspace\".\"display_name\") between 1 and 80 and length(btrim(\"workspace\".\"display_name\")) > 0 and \"workspace\".\"display_name\" !~ '[[:cntrl:]]' and position(chr(8232) in \"workspace\".\"display_name\") = 0 and position(chr(8233) in \"workspace\".\"display_name\") = 0"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.workspace_audit": {
+      "name": "workspace_audit",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "correlation_id": {
+          "name": "correlation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "clock_timestamp()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "workspace_audit_tenant_insert": {
+          "name": "workspace_audit_tenant_insert",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": [
+            "runtime"
+          ],
+          "withCheck": "\"workspace_audit\".\"workspace_id\"::text = current_setting('app.tenant_id', true) and \"workspace_audit\".\"action\" = 'display-name-changed'"
+        },
+        "workspace_audit_bootstrap_insert": {
+          "name": "workspace_audit_bootstrap_insert",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": [
+            "workspace_bootstrap"
+          ],
+          "withCheck": "current_setting('app.tenant_id', true) = '00000000-0000-0000-0000-000000000000' and \"workspace_audit\".\"action\" = 'personal-created'"
+        }
+      },
+      "checkConstraints": {
+        "workspace_audit_action": {
+          "name": "workspace_audit_action",
+          "value": "\"workspace_audit\".\"action\" in ('personal-created','display-name-changed')"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.sparra_call": {
+      "name": "sparra_call",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "configuration_revision": {
+          "name": "configuration_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deployment_id": {
+          "name": "deployment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_call_control_id": {
+          "name": "provider_call_control_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_call_leg_id": {
+          "name": "provider_call_leg_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "provider_call_session_id": {
+          "name": "provider_call_session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "admitted_at": {
+          "name": "admitted_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "retention_until": {
+          "name": "retention_until",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ended_at": {
+          "name": "ended_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "connection_id": {
+          "name": "connection_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "to_e164": {
+          "name": "to_e164",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "from_e164": {
+          "name": "from_e164",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "end_reason": {
+          "name": "end_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "end_reason_rank": {
+          "name": "end_reason_rank",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "end_reason_occurred_at": {
+          "name": "end_reason_occurred_at",
+          "type": "timestamp (6) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "end_reason_operation_id": {
+          "name": "end_reason_operation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "transcript_loss_count": {
+          "name": "transcript_loss_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "disclosure_state": {
+          "name": "disclosure_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "disclosure_started_at": {
+          "name": "disclosure_started_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "disclosure_completed_at": {
+          "name": "disclosure_completed_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "disclosure_failed_at": {
+          "name": "disclosure_failed_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "input_gate_opened_at": {
+          "name": "input_gate_opened_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "encrypted_turns": {
+          "name": "encrypted_turns",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "encrypted_message_result": {
+          "name": "encrypted_message_result",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "treated_at": {
+          "name": "treated_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "erasure_requested_at": {
+          "name": "erasure_requested_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "sparra_call_inbox": {
+          "name": "sparra_call_inbox",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "admitted_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "sparra_call_workspace_id_workspace_id_fk": {
+          "name": "sparra_call_workspace_id_workspace_id_fk",
+          "tableFrom": "sparra_call",
+          "tableTo": "workspace",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "sparra_call_configuration_pin": {
+          "name": "sparra_call_configuration_pin",
+          "tableFrom": "sparra_call",
+          "tableTo": "sparra_knowledge_revision",
+          "columnsFrom": [
+            "workspace_id",
+            "configuration_revision"
+          ],
+          "columnsTo": [
+            "workspace_id",
+            "revision"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "sparra_call_provider_identity": {
+          "name": "sparra_call_provider_identity",
+          "nullsNotDistinct": false,
+          "columns": [
+            "deployment_id",
+            "provider_call_control_id"
+          ]
+        }
+      },
+      "policies": {
+        "sparra_call_voice": {
+          "name": "sparra_call_voice",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "sparra_voice_definer"
+          ],
+          "using": "workspace_id = voice_private.bound_workspace() and deployment_id = voice_private.bound_deployment()",
+          "withCheck": "workspace_id = voice_private.bound_workspace() and deployment_id = voice_private.bound_deployment()"
+        },
+        "sparra_call_read": {
+          "name": "sparra_call_read",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": [
+            "runtime"
+          ],
+          "using": "\"sparra_call\".\"workspace_id\"::text = current_setting('app.tenant_id',true) and current_setting('app.tenant_id',true) <> '00000000-0000-0000-0000-000000000000' and exists (select 1 from public.workspace where workspace.id = \"sparra_call\".\"workspace_id\" and workspace.lifecycle = 'active')"
+        },
+        "sparra_call_update": {
+          "name": "sparra_call_update",
+          "as": "PERMISSIVE",
+          "for": "UPDATE",
+          "to": [
+            "runtime"
+          ],
+          "using": "\"sparra_call\".\"workspace_id\"::text = current_setting('app.tenant_id',true) and current_setting('app.tenant_id',true) <> '00000000-0000-0000-0000-000000000000' and exists (select 1 from public.workspace where workspace.id = \"sparra_call\".\"workspace_id\" and workspace.lifecycle = 'active')",
+          "withCheck": "\"sparra_call\".\"workspace_id\"::text = current_setting('app.tenant_id',true) and current_setting('app.tenant_id',true) <> '00000000-0000-0000-0000-000000000000' and exists (select 1 from public.workspace where workspace.id = \"sparra_call\".\"workspace_id\" and workspace.lifecycle = 'active')"
+        },
+        "sparra_call_erase_read": {
+          "name": "sparra_call_erase_read",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": [
+            "workspace_owner"
+          ],
+          "using": "\"sparra_call\".\"workspace_id\"::text = current_setting('app.tenant_id',true) and current_setting('app.tenant_id',true) <> '00000000-0000-0000-0000-000000000000'"
+        },
+        "sparra_call_erase_delete": {
+          "name": "sparra_call_erase_delete",
+          "as": "PERMISSIVE",
+          "for": "DELETE",
+          "to": [
+            "workspace_owner"
+          ],
+          "using": "\"sparra_call\".\"workspace_id\"::text = current_setting('app.tenant_id',true) and current_setting('app.tenant_id',true) <> '00000000-0000-0000-0000-000000000000'"
+        }
+      },
+      "checkConstraints": {
+        "sparra_call_nonzero_workspace": {
+          "name": "sparra_call_nonzero_workspace",
+          "value": "\"sparra_call\".\"workspace_id\" <> '00000000-0000-0000-0000-000000000000'::uuid"
+        },
+        "sparra_call_identity": {
+          "name": "sparra_call_identity",
+          "value": "length(\"sparra_call\".\"deployment_id\") between 1 and 256 and length(\"sparra_call\".\"provider_call_control_id\") between 1 and 1024"
+        },
+        "sparra_call_retention": {
+          "name": "sparra_call_retention",
+          "value": "isfinite(\"sparra_call\".\"admitted_at\") and isfinite(\"sparra_call\".\"retention_until\") and \"sparra_call\".\"retention_until\" = \"sparra_call\".\"admitted_at\" + interval '2592000 seconds'"
+        },
+        "sparra_call_loss": {
+          "name": "sparra_call_loss",
+          "value": "\"sparra_call\".\"transcript_loss_count\" >= 0"
+        },
+        "sparra_call_status": {
+          "name": "sparra_call_status",
+          "value": "\"sparra_call\".\"status\" in ('pending','active','closing','closed','failed')"
+        },
+        "sparra_call_disclosure": {
+          "name": "sparra_call_disclosure",
+          "value": "\"sparra_call\".\"disclosure_state\" in ('pending','completed','failed')"
+        },
+        "sparra_call_turns": {
+          "name": "sparra_call_turns",
+          "value": "jsonb_typeof(\"sparra_call\".\"encrypted_turns\") = 'object' and octet_length(\"sparra_call\".\"encrypted_turns\"::text) <= 524288"
+        },
+        "sparra_call_result": {
+          "name": "sparra_call_result",
+          "value": "\"sparra_call\".\"encrypted_message_result\" is null or (jsonb_typeof(\"sparra_call\".\"encrypted_message_result\") = 'object' and octet_length(\"sparra_call\".\"encrypted_message_result\"::text) <= 16384)"
+        },
+        "sparra_call_finite_ended_at": {
+          "name": "sparra_call_finite_ended_at",
+          "value": "\"sparra_call\".\"ended_at\" is null or isfinite(\"sparra_call\".\"ended_at\")"
+        },
+        "sparra_call_finite_disclosure_started_at": {
+          "name": "sparra_call_finite_disclosure_started_at",
+          "value": "\"sparra_call\".\"disclosure_started_at\" is null or isfinite(\"sparra_call\".\"disclosure_started_at\")"
+        },
+        "sparra_call_finite_disclosure_completed_at": {
+          "name": "sparra_call_finite_disclosure_completed_at",
+          "value": "\"sparra_call\".\"disclosure_completed_at\" is null or isfinite(\"sparra_call\".\"disclosure_completed_at\")"
+        },
+        "sparra_call_finite_disclosure_failed_at": {
+          "name": "sparra_call_finite_disclosure_failed_at",
+          "value": "\"sparra_call\".\"disclosure_failed_at\" is null or isfinite(\"sparra_call\".\"disclosure_failed_at\")"
+        },
+        "sparra_call_finite_input_gate_opened_at": {
+          "name": "sparra_call_finite_input_gate_opened_at",
+          "value": "\"sparra_call\".\"input_gate_opened_at\" is null or isfinite(\"sparra_call\".\"input_gate_opened_at\")"
+        },
+        "sparra_call_finite_treated_at": {
+          "name": "sparra_call_finite_treated_at",
+          "value": "\"sparra_call\".\"treated_at\" is null or isfinite(\"sparra_call\".\"treated_at\")"
+        },
+        "sparra_call_finite_erasure_requested_at": {
+          "name": "sparra_call_finite_erasure_requested_at",
+          "value": "\"sparra_call\".\"erasure_requested_at\" is null or isfinite(\"sparra_call\".\"erasure_requested_at\")"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.sparra_erasure": {
+      "name": "sparra_erasure",
+      "schema": "",
+      "columns": {
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "call_id": {
+          "name": "call_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "deployment_id": {
+          "name": "deployment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_call_control_id": {
+          "name": "provider_call_control_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "requested_at": {
+          "name": "requested_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "original_retention_until": {
+          "name": "original_retention_until",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fence_until": {
+          "name": "fence_until",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "local_cleanup_completed_at": {
+          "name": "local_cleanup_completed_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "local_ack_occurred_at": {
+          "name": "local_ack_occurred_at",
+          "type": "timestamp (6) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'queued'"
+        },
+        "lease_token": {
+          "name": "lease_token",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lease_until": {
+          "name": "lease_until",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "sparra_erasure_workspace_id_call_id_pk": {
+          "name": "sparra_erasure_workspace_id_call_id_pk",
+          "columns": [
+            "workspace_id",
+            "call_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "sparra_erasure_provider_identity": {
+          "name": "sparra_erasure_provider_identity",
+          "nullsNotDistinct": false,
+          "columns": [
+            "deployment_id",
+            "provider_call_control_id"
+          ]
+        }
+      },
+      "policies": {
+        "sparra_erasure_voice": {
+          "name": "sparra_erasure_voice",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "sparra_voice_definer"
+          ],
+          "using": "workspace_id = voice_private.bound_workspace() and deployment_id = voice_private.bound_deployment()",
+          "withCheck": "workspace_id = voice_private.bound_workspace() and deployment_id = voice_private.bound_deployment()"
+        },
+        "sparra_erasure_read": {
+          "name": "sparra_erasure_read",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": [
+            "runtime"
+          ],
+          "using": "\"sparra_erasure\".\"workspace_id\"::text = current_setting('app.tenant_id',true) and current_setting('app.tenant_id',true) <> '00000000-0000-0000-0000-000000000000' and exists (select 1 from public.workspace where workspace.id = \"sparra_erasure\".\"workspace_id\" and workspace.lifecycle = 'active')"
+        },
+        "sparra_erasure_insert": {
+          "name": "sparra_erasure_insert",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": [
+            "workspace_owner"
+          ],
+          "withCheck": "\"sparra_erasure\".\"workspace_id\"::text = current_setting('app.tenant_id',true) and current_setting('app.tenant_id',true) <> '00000000-0000-0000-0000-000000000000'"
+        }
+      },
+      "checkConstraints": {
+        "sparra_erasure_nonzero_workspace": {
+          "name": "sparra_erasure_nonzero_workspace",
+          "value": "\"sparra_erasure\".\"workspace_id\" <> '00000000-0000-0000-0000-000000000000'::uuid"
+        },
+        "sparra_erasure_fence": {
+          "name": "sparra_erasure_fence",
+          "value": "isfinite(\"sparra_erasure\".\"requested_at\") and isfinite(\"sparra_erasure\".\"original_retention_until\") and isfinite(\"sparra_erasure\".\"fence_until\") and \"sparra_erasure\".\"fence_until\" = \"sparra_erasure\".\"original_retention_until\" + interval '900 seconds'"
+        },
+        "sparra_erasure_state": {
+          "name": "sparra_erasure_state",
+          "value": "(\"sparra_erasure\".\"state\" = 'queued' and \"sparra_erasure\".\"completed_at\" is null) or (\"sparra_erasure\".\"state\" = 'completed' and \"sparra_erasure\".\"completed_at\" is not null and isfinite(\"sparra_erasure\".\"completed_at\"))"
+        },
+        "sparra_erasure_lease": {
+          "name": "sparra_erasure_lease",
+          "value": "(\"sparra_erasure\".\"lease_token\" is null and \"sparra_erasure\".\"lease_until\" is null) or (\"sparra_erasure\".\"lease_token\" is not null and \"sparra_erasure\".\"lease_until\" is not null and isfinite(\"sparra_erasure\".\"lease_until\"))"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.sparra_knowledge_revision": {
+      "name": "sparra_knowledge_revision",
+      "schema": "",
+      "columns": {
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "business_name": {
+          "name": "business_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sector": {
+          "name": "sector",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "opening_hours": {
+          "name": "opening_hours",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "services": {
+          "name": "services",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "prices": {
+          "name": "prices",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "faq": {
+          "name": "faq",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "instructions": {
+          "name": "instructions",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "transfer_destination": {
+          "name": "transfer_destination",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "saved_at": {
+          "name": "saved_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "clock_timestamp()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "sparra_knowledge_revision_workspace_id_workspace_id_fk": {
+          "name": "sparra_knowledge_revision_workspace_id_workspace_id_fk",
+          "tableFrom": "sparra_knowledge_revision",
+          "tableTo": "workspace",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "sparra_knowledge_revision_workspace_id_revision_pk": {
+          "name": "sparra_knowledge_revision_workspace_id_revision_pk",
+          "columns": [
+            "workspace_id",
+            "revision"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {
+        "sparra_revision_voice_read": {
+          "name": "sparra_revision_voice_read",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": [
+            "sparra_voice_definer"
+          ],
+          "using": "workspace_id = voice_private.bound_workspace()"
+        },
+        "sparra_revision_voice_delete": {
+          "name": "sparra_revision_voice_delete",
+          "as": "PERMISSIVE",
+          "for": "DELETE",
+          "to": [
+            "sparra_voice_definer"
+          ],
+          "using": "workspace_id = voice_private.bound_workspace()"
+        },
+        "sparra_revision_read": {
+          "name": "sparra_revision_read",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": [
+            "runtime"
+          ],
+          "using": "\"sparra_knowledge_revision\".\"workspace_id\"::text = current_setting('app.tenant_id',true) and current_setting('app.tenant_id',true) <> '00000000-0000-0000-0000-000000000000' and exists (select 1 from public.workspace where workspace.id = \"sparra_knowledge_revision\".\"workspace_id\" and workspace.lifecycle = 'active')"
+        },
+        "sparra_revision_insert": {
+          "name": "sparra_revision_insert",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": [
+            "runtime"
+          ],
+          "withCheck": "\"sparra_knowledge_revision\".\"workspace_id\"::text = current_setting('app.tenant_id',true) and current_setting('app.tenant_id',true) <> '00000000-0000-0000-0000-000000000000' and exists (select 1 from public.workspace where workspace.id = \"sparra_knowledge_revision\".\"workspace_id\" and workspace.lifecycle = 'active')"
+        }
+      },
+      "checkConstraints": {
+        "sparra_revision_positive": {
+          "name": "sparra_revision_positive",
+          "value": "\"sparra_knowledge_revision\".\"revision\" > 0"
+        },
+        "sparra_revision_nonzero_workspace": {
+          "name": "sparra_revision_nonzero_workspace",
+          "value": "\"sparra_knowledge_revision\".\"workspace_id\" <> '00000000-0000-0000-0000-000000000000'::uuid"
+        },
+        "sparra_revision_business_name": {
+          "name": "sparra_revision_business_name",
+          "value": "length(\"sparra_knowledge_revision\".\"business_name\") + length(regexp_replace(\"sparra_knowledge_revision\".\"business_name\", U&'[\\0001-\\FFFF]', '', 'g')) between 1 and 80 and \"sparra_knowledge_revision\".\"business_name\" = btrim(\"sparra_knowledge_revision\".\"business_name\") and \"sparra_knowledge_revision\".\"business_name\" !~ U&'[\\0001-\\001F\\007F-\\009F\\2028\\2029]'"
+        },
+        "sparra_revision_sector": {
+          "name": "sparra_revision_sector",
+          "value": "\"sparra_knowledge_revision\".\"sector\" in ('garage','controle-technique')"
+        },
+        "sparra_revision_opening_hours": {
+          "name": "sparra_revision_opening_hours",
+          "value": "length(\"sparra_knowledge_revision\".\"opening_hours\") + length(regexp_replace(\"sparra_knowledge_revision\".\"opening_hours\", U&'[\\0001-\\FFFF]', '', 'g')) <= 1000 and \"sparra_knowledge_revision\".\"opening_hours\" !~ U&'[\\0001-\\0008\\000B\\000C\\000E-\\001F\\007F-\\009F]'"
+        },
+        "sparra_revision_services": {
+          "name": "sparra_revision_services",
+          "value": "length(\"sparra_knowledge_revision\".\"services\") + length(regexp_replace(\"sparra_knowledge_revision\".\"services\", U&'[\\0001-\\FFFF]', '', 'g')) <= 2000 and \"sparra_knowledge_revision\".\"services\" !~ U&'[\\0001-\\0008\\000B\\000C\\000E-\\001F\\007F-\\009F]'"
+        },
+        "sparra_revision_prices": {
+          "name": "sparra_revision_prices",
+          "value": "length(\"sparra_knowledge_revision\".\"prices\") + length(regexp_replace(\"sparra_knowledge_revision\".\"prices\", U&'[\\0001-\\FFFF]', '', 'g')) <= 1500 and \"sparra_knowledge_revision\".\"prices\" !~ U&'[\\0001-\\0008\\000B\\000C\\000E-\\001F\\007F-\\009F]'"
+        },
+        "sparra_revision_faq": {
+          "name": "sparra_revision_faq",
+          "value": "length(\"sparra_knowledge_revision\".\"faq\") + length(regexp_replace(\"sparra_knowledge_revision\".\"faq\", U&'[\\0001-\\FFFF]', '', 'g')) <= 3000 and \"sparra_knowledge_revision\".\"faq\" !~ U&'[\\0001-\\0008\\000B\\000C\\000E-\\001F\\007F-\\009F]'"
+        },
+        "sparra_revision_instructions": {
+          "name": "sparra_revision_instructions",
+          "value": "length(\"sparra_knowledge_revision\".\"instructions\") + length(regexp_replace(\"sparra_knowledge_revision\".\"instructions\", U&'[\\0001-\\FFFF]', '', 'g')) <= 2000 and \"sparra_knowledge_revision\".\"instructions\" !~ U&'[\\0001-\\0008\\000B\\000C\\000E-\\001F\\007F-\\009F]'"
+        },
+        "sparra_revision_transfer": {
+          "name": "sparra_revision_transfer",
+          "value": "\"sparra_knowledge_revision\".\"transfer_destination\" is null or \"sparra_knowledge_revision\".\"transfer_destination\" ~ '^\\+[1-9][0-9]{1,14}$'"
+        },
+        "sparra_revision_saved_at": {
+          "name": "sparra_revision_saved_at",
+          "value": "isfinite(\"sparra_knowledge_revision\".\"saved_at\")"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "voice_private.deployment_binding": {
+      "name": "deployment_binding",
+      "schema": "voice_private",
+      "columns": {
+        "service_login": {
+          "name": "service_login",
+          "type": "name",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "service_role_oid": {
+          "name": "service_role_oid",
+          "type": "oid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "deployment_id": {
+          "name": "deployment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "connection_id": {
+          "name": "connection_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "to_e164": {
+          "name": "to_e164",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "admission_enabled": {
+          "name": "admission_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "audio_enabled": {
+          "name": "audio_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "deployment_binding_workspace_id_workspace_id_fk": {
+          "name": "deployment_binding_workspace_id_workspace_id_fk",
+          "tableFrom": "deployment_binding",
+          "tableTo": "workspace",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "deployment_binding_service_role_oid_unique": {
+          "name": "deployment_binding_service_role_oid_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "service_role_oid"
+          ]
+        },
+        "deployment_binding_deployment_id_unique": {
+          "name": "deployment_binding_deployment_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "deployment_id"
+          ]
+        }
+      },
+      "policies": {
+        "voice_binding_read": {
+          "name": "voice_binding_read",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": [
+            "sparra_voice_definer"
+          ],
+          "using": "\"voice_private\".\"deployment_binding\".\"service_login\" = session_user and \"voice_private\".\"deployment_binding\".\"service_role_oid\" = (select oid from pg_catalog.pg_roles where rolname = session_user)"
+        }
+      },
+      "checkConstraints": {
+        "voice_binding_deployment": {
+          "name": "voice_binding_deployment",
+          "value": "length(\"voice_private\".\"deployment_binding\".\"deployment_id\") between 1 and 256 and \"voice_private\".\"deployment_binding\".\"deployment_id\" !~ '[[:cntrl:]]'"
+        },
+        "voice_binding_connection": {
+          "name": "voice_binding_connection",
+          "value": "octet_length(\"voice_private\".\"deployment_binding\".\"connection_id\") between 1 and 256 and \"voice_private\".\"deployment_binding\".\"connection_id\" !~ '[[:cntrl:]]'"
+        },
+        "voice_binding_did": {
+          "name": "voice_binding_did",
+          "value": "\"voice_private\".\"deployment_binding\".\"to_e164\" ~ '^\\+[1-9][0-9]{1,14}$'"
+        },
+        "voice_binding_audio_off": {
+          "name": "voice_binding_audio_off",
+          "value": "not \"voice_private\".\"deployment_binding\".\"audio_enabled\""
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "voice_private.operation_receipt": {
+      "name": "operation_receipt",
+      "schema": "voice_private",
+      "columns": {
+        "deployment_id": {
+          "name": "deployment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "operation_id": {
+          "name": "operation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "call_id": {
+          "name": "call_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payload_sha256": {
+          "name": "payload_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "original_retention_until": {
+          "name": "original_retention_until",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "operation_receipt_deployment_id_operation_id_pk": {
+          "name": "operation_receipt_deployment_id_operation_id_pk",
+          "columns": [
+            "deployment_id",
+            "operation_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {
+        "voice_receipt_scope": {
+          "name": "voice_receipt_scope",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "sparra_voice_definer"
+          ],
+          "using": "workspace_id = voice_private.bound_workspace() and deployment_id = voice_private.bound_deployment()",
+          "withCheck": "workspace_id = voice_private.bound_workspace() and deployment_id = voice_private.bound_deployment()"
+        }
+      },
+      "checkConstraints": {
+        "voice_receipt_digest": {
+          "name": "voice_receipt_digest",
+          "value": "\"voice_private\".\"operation_receipt\".\"payload_sha256\" ~ '^[0-9a-f]{64}$'"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "voice_private.recording_purge": {
+      "name": "recording_purge",
+      "schema": "voice_private",
+      "columns": {
+        "recording_id": {
+          "name": "recording_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "deployment_id": {
+          "name": "deployment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "call_id": {
+          "name": "call_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_recording_id": {
+          "name": "provider_recording_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "original_retention_until": {
+          "name": "original_retention_until",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "purge_attempt": {
+          "name": "purge_attempt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "lease_token": {
+          "name": "lease_token",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lease_until": {
+          "name": "lease_until",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "retry_at": {
+          "name": "retry_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "clock_timestamp()"
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ack_token": {
+          "name": "ack_token",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ack_occurred_at": {
+          "name": "ack_occurred_at",
+          "type": "timestamp (6) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "voice_recording_provider": {
+          "name": "voice_recording_provider",
+          "nullsNotDistinct": false,
+          "columns": [
+            "deployment_id",
+            "provider_recording_id"
+          ]
+        }
+      },
+      "policies": {
+        "voice_recording_scope": {
+          "name": "voice_recording_scope",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "sparra_voice_definer"
+          ],
+          "using": "workspace_id = voice_private.bound_workspace() and deployment_id = voice_private.bound_deployment()",
+          "withCheck": "workspace_id = voice_private.bound_workspace() and deployment_id = voice_private.bound_deployment()"
+        }
+      },
+      "checkConstraints": {
+        "voice_recording_id": {
+          "name": "voice_recording_id",
+          "value": "length(\"voice_private\".\"recording_purge\".\"provider_recording_id\") between 1 and 256 and \"voice_private\".\"recording_purge\".\"provider_recording_id\" ~ '^[A-Za-z0-9._~-]+$' and \"voice_private\".\"recording_purge\".\"provider_recording_id\" not in ('.','..')"
+        },
+        "voice_recording_attempt": {
+          "name": "voice_recording_attempt",
+          "value": "\"voice_private\".\"recording_purge\".\"purge_attempt\" between 0 and 1000000"
+        },
+        "voice_recording_outcome": {
+          "name": "voice_recording_outcome",
+          "value": "\"voice_private\".\"recording_purge\".\"outcome\" is null or \"voice_private\".\"recording_purge\".\"outcome\" in ('deleted','not_found','retry','failed')"
+        }
+      },
+      "isRLSEnabled": true
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

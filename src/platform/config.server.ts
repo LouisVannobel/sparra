@@ -7,6 +7,7 @@ export type WebConfig = Readonly<{
   port: number
   requestTimeoutMs: number
   shutdownTimeoutMs: number
+  ingressProfile: 'direct-serve' | null
 }>
 
 export class ConfigurationError extends Error {
@@ -36,6 +37,30 @@ export function readWebConfig(
   env: Readonly<Record<string, string | undefined>>,
 ): WebConfig {
   const invalidKeys: string[] = []
+  const { environment, origin, ingressProfile } = readOriginSettings(env, invalidKeys)
+  const { hostname, port, requestTimeoutMs, shutdownTimeoutMs } = readListenerSettings(env, invalidKeys)
+
+  if (invalidKeys.length > 0) {
+    throw new ConfigurationError(invalidKeys)
+  }
+
+  return Object.freeze({
+    environment,
+    origin,
+    hostname,
+    port,
+    requestTimeoutMs,
+    shutdownTimeoutMs,
+    ingressProfile,
+  })
+}
+
+function readOriginSettings(
+  env: Readonly<Record<string, string | undefined>>,
+  invalidKeys: string[],
+): Pick<WebConfig, 'environment' | 'origin' | 'ingressProfile'> {
+  const ingressProfile = env.SPARRA_INGRESS_PROFILE === undefined ? null : env.SPARRA_INGRESS_PROFILE
+  if (ingressProfile !== null && ingressProfile !== 'direct-serve') invalidKeys.push('SPARRA_INGRESS_PROFILE')
 
   let environment: WebConfig['environment'] = 'development'
   try {
@@ -49,10 +74,22 @@ export function readWebConfig(
   let origin = ''
   try {
     origin = decodeOrigin(env.APP_ORIGIN, invalidKeys.includes('NODE_ENV') ? undefined : environment)
+    if (ingressProfile === 'direct-serve' && !origin.startsWith('https://')) throw new Error('invalid origin')
   } catch {
     invalidKeys.push('APP_ORIGIN')
   }
 
+  return {
+    environment,
+    origin,
+    ingressProfile: ingressProfile === 'direct-serve' ? ingressProfile : null,
+  }
+}
+
+function readListenerSettings(
+  env: Readonly<Record<string, string | undefined>>,
+  invalidKeys: string[],
+): Pick<WebConfig, 'hostname' | 'port' | 'requestTimeoutMs' | 'shutdownTimeoutMs'> {
   let hostname: WebConfig['hostname'] = '127.0.0.1'
   try {
     hostname = Schema.decodeUnknownSync(HostSchema)(
@@ -92,18 +129,12 @@ export function readWebConfig(
     invalidKeys.push('SHUTDOWN_TIMEOUT_MS')
   }
 
-  if (invalidKeys.length > 0) {
-    throw new ConfigurationError(invalidKeys)
-  }
-
-  return Object.freeze({
-    environment,
-    origin,
+  return {
     hostname,
     port,
     requestTimeoutMs,
     shutdownTimeoutMs,
-  })
+  }
 }
 
 function decodeCanonicalInteger(
