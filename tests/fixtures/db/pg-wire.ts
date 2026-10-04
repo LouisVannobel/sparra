@@ -73,6 +73,14 @@ export async function pgWire(result: (sql: string) => PgWireResult = () => ({}),
       }
       socket.write(message('C', cstring(answer.command ?? (sql.startsWith('BEGIN') ? 'BEGIN' : sql === 'COMMIT' || sql === 'ROLLBACK' ? sql : 'SELECT 1'))))
     }
+    function handleMessage(type: string, body: Buffer) {
+      if (type === 'Q') { execute(body.toString().slice(0, -1)); if (!stalled) socket.write(message('Z', Buffer.from(status))) }
+      if (type === 'P') { parsed = body.toString().split('\0')[1]; socket.write(message('1')) }
+      if (type === 'B') socket.write(message('2'))
+      if (type === 'E') execute(parsed)
+      if (type === 'S' && !stalled) socket.write(message('Z', Buffer.from(status)))
+      if (type === 'X') socket.end()
+    }
     socket.on('data', chunk => {
       bytes = Buffer.concat([bytes, typeof chunk === 'string' ? Buffer.from(chunk) : chunk])
       while (bytes.length) {
@@ -86,13 +94,7 @@ export async function pgWire(result: (sql: string) => PgWireResult = () => ({}),
           socket.write(Buffer.concat([message('R', int32(0)), message('K', int32(1234), int32(5678)), message('Z', Buffer.from('I'))]))
           continue
         }
-        const { type, body } = frame
-        if (type === 'Q') { execute(body.toString().slice(0, -1)); if (!stalled) socket.write(message('Z', Buffer.from(status))) }
-        if (type === 'P') { parsed = body.toString().split('\0')[1]; socket.write(message('1')) }
-        if (type === 'B') socket.write(message('2'))
-        if (type === 'E') execute(parsed)
-        if (type === 'S' && !stalled) socket.write(message('Z', Buffer.from(status)))
-        if (type === 'X') socket.end()
+        handleMessage(frame.type, frame.body)
       }
     })
   })

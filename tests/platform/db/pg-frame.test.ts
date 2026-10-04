@@ -129,3 +129,42 @@ test('PostgreSQL wire keeps native pg simple and prepared results and transactio
     await wire.close()
   }
 })
+
+test('PostgreSQL wire preserves coalesced opcode order and suppresses ready responses after a stall', async () => {
+  const { pgWire } = await import('../../fixtures/db/pg-wire')
+  const wire = await pgWire(sql => sql === 'stall' ? { stall: true } : {})
+  const target = new URL(wire.url)
+  const socket = createConnection({ host: '127.0.0.1', port: Number(target.port) })
+  let response = Buffer.alloc(0)
+  socket.on('data', chunk => { response = Buffer.concat([response, typeof chunk === 'string' ? Buffer.from(chunk) : chunk]) })
+  try {
+    await once(socket, 'connect')
+    const disconnected = once(socket, 'close')
+    socket.write(Buffer.from(
+      '0000000800030000' +
+      '510000000a424547494e00' +
+      '50000000170053454c454354207072657061726564000000' +
+      '420000000c0000000000000000' +
+      '45000000090000000000' +
+      '5300000004' +
+      '510000000a7374616c6c00' +
+      '5300000004' +
+      '510000000d524f4c4c4241434b00' +
+      '5800000004', 'hex',
+    ))
+    await disconnected
+    expect(response.toString('hex')).toBe(
+      '5200000008000000004b0000000c000004d20000162e5a0000000549' +
+      '430000000a424547494e005a0000000554' +
+      '31000000043200000004' +
+      '430000000d53454c4543542031005a0000000554' +
+      '430000000d524f4c4c4241434b00',
+    )
+    expect(wire.queries).toEqual(['BEGIN', 'SELECT prepared', 'stall', 'ROLLBACK'])
+    await expect.poll(wire.closedConnections).toBe(1)
+    expect(wire.sockets.size).toBe(0)
+  } finally {
+    socket.destroy()
+    await wire.close()
+  }
+})
