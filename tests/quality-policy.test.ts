@@ -566,6 +566,22 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
   let overlays=new Map<string,string>(),openPaths=new Set<string>()
   let latestSnapshot:Snapshot|undefined
   const api=new API({cwd:repositoryRoot,fs:{readFile:file=>overlays.get(resolve(file).toLowerCase()),fileExists:file=>overlays.has(resolve(file).toLowerCase())?true:undefined}})
+  function collectCommentMarkers(snapshot:Snapshot,potential:[string,string][]) {
+    const markers=new Map<string,{file:string;start:number;end:number;text:string}>()
+    for(const [file,text] of potential) {
+      const filePath=join(repositoryRoot,file),program=snapshot.getDefaultProjectForFile(filePath)?.program,source=program?.getSourceFile(filePath)
+      if(!program||!source)throw new Error('Reviewed SSR comment source was not parsed')
+      expect(source.text,'Reviewed SSR comment source overlay expired').toBe(text)
+      expect(program.getSyntacticDiagnostics(filePath),'Reviewed SSR comment source syntax expired').toEqual([])
+      for(const match of text.matchAll(/fallow-ignore/gi)) {
+        for(const range of actualMarkerRanges(source,match.index)) {
+          expect(range.pos).toBeGreaterThanOrEqual(0);expect(range.end).toBeLessThanOrEqual(text.length)
+          markers.set(`${file}:${range.pos}:${range.end}`,{file,start:range.pos,end:range.end,text:text.slice(range.pos,range.end)})
+        }
+      }
+    }
+    return [...markers.values()]
+  }
   function parsedCommentSources(candidate:Map<string,string>) {
     // Every maintained file is inspected; parse only text candidates so strings cannot become comments.
     const potential=[...candidate].filter(([,text])=>text.toLowerCase().includes('fallow-ignore'))
@@ -594,20 +610,7 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
     openPaths=nextOpenPaths
     previous?.dispose()
     const snapshot=latestSnapshot
-    const markers=new Map<string,{file:string;start:number;end:number;text:string}>()
-    for(const [file,text] of potential) {
-      const filePath=join(repositoryRoot,file),program=snapshot.getDefaultProjectForFile(filePath)?.program,source=program?.getSourceFile(filePath)
-      if(!program||!source)throw new Error('Reviewed SSR comment source was not parsed')
-      expect(source.text,'Reviewed SSR comment source overlay expired').toBe(text)
-      expect(program.getSyntacticDiagnostics(filePath),'Reviewed SSR comment source syntax expired').toEqual([])
-      for(const match of text.matchAll(/fallow-ignore/gi)) {
-        for(const range of actualMarkerRanges(source,match.index)) {
-          expect(range.pos).toBeGreaterThanOrEqual(0);expect(range.end).toBeLessThanOrEqual(text.length)
-          markers.set(`${file}:${range.pos}:${range.end}`,{file,start:range.pos,end:range.end,text:text.slice(range.pos,range.end)})
-        }
-      }
-    }
-    return {snapshot,markers:[...markers.values()]}
+    return {snapshot,markers:collectCommentMarkers(snapshot,potential)}
   }
   function actualComments(candidate:Map<string,string>) {
     return parsedCommentSources(candidate).markers
