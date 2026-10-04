@@ -44,14 +44,17 @@ test('a relative explicit producer root cannot initiate hosted bootstrap',async(
   await expect(prepare({appRoot:process.cwd(),explicitRoot:'relative'})).rejects.toThrow('Voice producer requires an explicit absolute root')
 })
 
-test.runIf(process.platform!=='linux'||process.arch!=='x64')('unsupported missing producer refuses downloads and leaves caller-owned directory unchanged',async()=>{
+test('unsupported missing producer refuses downloads and leaves caller-owned directory unchanged',async()=>{
   const prepare=await preparation()
   const root=await mkdtemp(join(tmpdir(),'sparra-caller-voice-'))
+  const platform=Object.getOwnPropertyDescriptor(process,'platform')
+  if(!platform)throw new Error('Missing platform descriptor')
   try{
+    Object.defineProperty(process,'platform',{...platform,value:'unsupported'})
     await mkdir(join(root,'scope'))
     await expect(prepare({appRoot:process.cwd(),scopeParent:join(root,'scope'),explicitRoot:null})).rejects.toThrow('Native Voice bootstrap requires Linux x64')
     expect(await readFile(join(root,'scope'),'utf8').then(()=>false,error=>error.code==='EISDIR')).toBe(true)
-  }finally{await rm(root,{recursive:true,force:true})}
+  }finally{Object.defineProperty(process,'platform',platform);await rm(root,{recursive:true,force:true})}
 })
 
 test('an aliased explicit root is refused without following or retiring its external source',async()=>{

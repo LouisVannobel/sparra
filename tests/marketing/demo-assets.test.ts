@@ -28,9 +28,10 @@ test('native generator containment admits only descendants with the host path ca
 $ErrorActionPreference = 'Stop'
 $timer = [Diagnostics.Stopwatch]::StartNew()
 [Console]::Error.WriteLine('CONTAINMENT_STAGE startup ' + $timer.ElapsedMilliseconds)
-$repo = [IO.Path]::GetFullPath((Get-Location).Path)
+$repo = [IO.Path]::GetFullPath([Environment]::CurrentDirectory)
+[Console]::Error.WriteLine('CONTAINMENT_STAGE cwd ' + $timer.ElapsedMilliseconds)
 $tokens = $null; $parseErrors = $null
-$ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $repo 'scripts/generate-demo-audio.ps1'), [ref]$tokens, [ref]$parseErrors)
+$ast = [Management.Automation.Language.Parser]::ParseFile([IO.Path]::Combine($repo, 'scripts/generate-demo-audio.ps1'), [ref]$tokens, [ref]$parseErrors)
 if ($parseErrors.Count) { throw 'Generator parse failed' }
 [Console]::Error.WriteLine('CONTAINMENT_STAGE parsed ' + $timer.ElapsedMilliseconds)
 $function = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Assert-Contained' }, $false)
