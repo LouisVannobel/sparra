@@ -3,22 +3,21 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
 import { readVoiceSourceFixture } from '../../scripts/voice-source-fixture.mjs'
+import { installVoiceTokenizer } from '../../scripts/prepare-voice-source.mjs'
 
 const modulePath='../../scripts/prepare-voice-source.mjs'
 
 test('native tokenizer preparation verifies the public corpus and keeps it inside its owner',async()=>{
-  const source:unknown=await import(modulePath)
-  if(typeof source!=='object'||source===null||!('installVoiceTokenizer'in source)||typeof source.installVoiceTokenizer!=='function')throw new Error('Missing owned Voice tokenizer')
   const parent=await mkdtemp(join(tmpdir(),'sparra-tokenizer-test-'))
   try{
     const executable=process.env.SPARRA_VOICE_FIXTURE_PYTHON??(process.platform==='win32'?'C:/Users/louis/Documents/ChatGPT/.worktrees/sparra-voice-pilot/.venv/Scripts/python.exe':undefined)
     if(typeof executable!=='string')throw new Error('Missing qualified Voice fixture interpreter')
     const archive=await readFile(process.env.SPARRA_VOICE_TOKENIZER_ARCHIVE??'C:/Users/louis/.codex/artifacts/sparra/2026-10-04/public-test-prerequisites/punkt_tab.zip')
-    const prepared=await source.installVoiceTokenizer(parent,executable,archive)
+    const prepared=await installVoiceTokenizer(parent,executable,archive)
     expect(await readdir(join(prepared.NLTK_DATA,'tokenizers/punkt_tab'))).toEqual(['english','french'])
     expect(prepared.HOME).toBe(join(parent,'home'))
     const before=await readdir(parent),damaged=Buffer.from(archive);damaged[0]^=1
-    await expect(source.installVoiceTokenizer(parent,executable,damaged)).rejects.toThrow('Native Voice preparation failed')
+    await expect(installVoiceTokenizer(parent,executable,damaged)).rejects.toThrow('Native Voice preparation failed')
     expect(await readdir(parent)).toEqual(before)
   }finally{await rm(parent,{recursive:true,force:true})}
 })
