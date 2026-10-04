@@ -10,6 +10,32 @@ import { useRequestAttempt } from './use-request-attempt'
 
 export type RequestLoaded={detail:RequestDetailDto|null;receipt:EraseReceipt|null}
 type Props={locale:Locale;loaded:RequestLoaded;onTreat(signal:AbortSignal):Promise<{requestId:string;treatedAt:string}|Response>;onErase(signal:AbortSignal):Promise<EraseReceipt|Response>;onRefused():Promise<void>}
+type RequestActionEffects={setCurrent(loaded:RequestLoaded):void;setPending(value:boolean):void;setFailed(value:boolean):void;setRefused(value:boolean):void;onRefused():Promise<void>}
+
+async function consumeTreatAction(current:RequestLoaded,signal:AbortSignal,live:()=>boolean,onTreat:Props['onTreat'],setCurrent:RequestActionEffects['setCurrent']){
+  const result=await privateResult(onTreat(signal))
+  if(live())setCurrent({...current,detail:current.detail?{...current.detail,treatedAt:result.treatedAt}:null})
+}
+
+async function consumeEraseAction(signal:AbortSignal,live:()=>boolean,onErase:Props['onErase'],setCurrent:RequestActionEffects['setCurrent']){
+  const receipt=await privateResult(onErase(signal))
+  if(live())setCurrent({detail:null,receipt})
+}
+
+async function settleRequestActionFailure(error:unknown,live:()=>boolean,{setFailed,setRefused,onRefused}:Pick<RequestActionEffects,'setFailed'|'setRefused'|'onRefused'>){
+  if(!live())return
+  if(error instanceof Response&&error.status===401){setRefused(true);await onRefused();return}
+  setFailed(true)
+}
+
+export async function performRequestAction(kind:'treat'|'erase',current:RequestLoaded,begin:ReturnType<typeof useRequestAttempt>,onTreat:Props['onTreat'],onErase:Props['onErase'],effects:RequestActionEffects){
+  const {signal,live}=begin()
+  effects.setPending(true);effects.setFailed(false)
+  try{
+    if(kind==='treat')await consumeTreatAction(current,signal,live,onTreat,effects.setCurrent)
+    else await consumeEraseAction(signal,live,onErase,effects.setCurrent)
+  }catch(error){await settleRequestActionFailure(error,live,effects)}finally{if(live())effects.setPending(false)}
+}
 
 function RequestSummary({locale,detail}:{locale:Locale;detail:RequestDetailDto}){
   const t=appMessages[locale],labels=requestMessages[locale]
@@ -40,20 +66,7 @@ export function RequestPanel({locale,loaded,onTreat,onErase,onRefused}:Props){
   const t=appMessages[locale],hydrated=useHydrated(),[current,setCurrent]=useState(loaded),[pending,setPending]=useState(false),[failed,setFailed]=useState(false),[confirm,setConfirm]=useState(false)
   const begin=useRequestAttempt()
   const [refused,setRefused]=useState(false)
-  async function treatCurrentRequest(signal:AbortSignal,live:()=>boolean){
-    const result=await privateResult(onTreat(signal))
-    if(live())setCurrent({...current,detail:current.detail?{...current.detail,treatedAt:result.treatedAt}:null})
-  }
-  async function eraseCurrentRequest(signal:AbortSignal,live:()=>boolean){
-    const receipt=await privateResult(onErase(signal))
-    if(live())setCurrent({detail:null,receipt})
-  }
-  async function mutate(kind:'treat'|'erase'){
-    const {signal,live}=begin()
-    setPending(true);setFailed(false)
-    try{if(kind==='treat')await treatCurrentRequest(signal,live);else await eraseCurrentRequest(signal,live)}
-    catch(error){if(live()){if(error instanceof Response&&error.status===401){setRefused(true);await onRefused();return}setFailed(true)}}finally{if(live())setPending(false)}
-  }
+  function mutate(kind:'treat'|'erase'){return performRequestAction(kind,current,begin,onTreat,onErase,{setCurrent,setPending,setFailed,setRefused,onRefused})}
   const detail=current.detail
   if(refused)return <PrivateUnavailable locale={locale}/>
   return <><a href={`/app?lang=${locale}`}>{t.inbox}</a><Heading level={1}>{t.details}</Heading>
