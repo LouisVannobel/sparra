@@ -201,3 +201,43 @@ export function assertRequestsQualification(path,root,startedAt) {
   if (!stat.isFile() || stat.isSymbolicLink() || stat.mtimeMs < startedAt || stat.size === 0 || stat.size > 268435456) throw new Error('Native Requests report is invalid')
   assertRequestsReport(JSON.parse(readFileSync(path,'utf8')),root)
 }
+
+const recordingReceiptLeafNames = [
+  'actual Voice archived receipt commits with provider purge due',
+  'native receipt shape and exact integer/canonical deadline validation reject metadata coercion',
+  'native pin and bound Workspace/deployment/provider identity cannot be supplied by a callback',
+  'old receiptless bytes and changed receipts cannot clear accepted metadata or terminal purge ACK',
+  'native deferred commit failure rolls back receipt metadata and immediate purge due together',
+  'lost native receipt COMMIT reply replays the unchanged operation before actual local ACK',
+  'erased and expired late receipts retain provider-copy obligations without archive availability',
+  'provider NULL ACK remains distinct from actual archive unlink and local cleanup NULL ACK',
+  'receipt columns retain FORCE RLS and execute-only native authority',
+]
+
+function recordingReceiptSummaryPassed(report) {
+  const counters = {numTotalTests:9,numPassedTests:9,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
+  return report?.success === true && Object.entries(counters).every(([key,wanted])=>report[key]===wanted)
+}
+
+function recordingReceiptFilePassed(file,root) {
+  return file?.name===join(root,'tests/integration/sparra-recording-receipt.test.ts').replaceAll('\\','/')
+    && file.status==='passed' && file.message==='' && Array.isArray(file.assertionResults) && file.assertionResults.length===9
+}
+
+function recordingReceiptLeafPassed(test,index) {
+  return test?.status==='passed' && test.fullName===recordingReceiptLeafNames[index] && Array.isArray(test.failureMessages) && test.failureMessages.length===0
+}
+
+export function assertRecordingReceiptReport(report,root) {
+  if(!recordingReceiptSummaryPassed(report) || !Array.isArray(report.testResults) || report.testResults.length!==1
+    || !recordingReceiptFilePassed(report.testResults[0],root)
+    || !recordingReceiptLeafNames.every((_,index)=>recordingReceiptLeafPassed(report.testResults[0].assertionResults[index],index))) {
+    throw new Error('Native Recording receipt requires its exact nine passing leaves')
+  }
+}
+
+export function assertRecordingReceiptQualification(path,root,startedAt) {
+  const stat = lstatSync(path)
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.mtimeMs < startedAt || stat.size === 0 || stat.size > 268435456) throw new Error('Native Recording receipt report is invalid')
+  assertRecordingReceiptReport(JSON.parse(readFileSync(path,'utf8')),root)
+}

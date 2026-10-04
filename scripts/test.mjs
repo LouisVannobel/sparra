@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { closeSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { admitCommonGeometry, assertDirectory, assertRunTree, assertRequestsQualification, readNativeBlob, sourceIdentity } from './native-coverage-inputs.mjs'
+import { admitCommonGeometry, assertDirectory, assertRunTree, assertRecordingReceiptQualification, assertRequestsQualification, readNativeBlob, sourceIdentity } from './native-coverage-inputs.mjs'
 import { prepareVoiceSource } from './prepare-voice-source.mjs'
 import { runNativePhase } from './native-test-phase.mjs'
 
@@ -98,6 +98,13 @@ try {
     '--outputFile.blob=' + join(blobs, 'activity.json'), '--coverage.reportsDirectory=' + join(runDirectory, 'activity')], 600000)
   admitBlob('activity')
   await runPhase('voice-crypto qualification', [vitestCli, 'run', '--config', 'vitest.integration.config.ts', 'tests/integration/sparra-voice-crypto.test.ts', '--maxWorkers=1'], 180000)
+  const recordingReport = join(runDirectory, 'recording-receipt-qualification.json')
+  await runPhase('recording receipt qualification', [
+    vitestCli, 'run', '--config', 'vitest.integration.config.ts',
+    'tests/integration/sparra-recording-receipt.test.ts', '--maxWorkers=1',
+    '--reporter=default', '--reporter=json', '--outputFile.json=' + recordingReport,
+  ], 180000)
+  assertRecordingReceiptQualification(recordingReport, root, startedAt)
   const requestsReport = join(runDirectory, 'requests-qualification.json')
   await runPhase('requests qualification', [vitestCli, 'run', '--config', 'vitest.integration.config.ts', 'tests/integration/sparra-requests.test.ts', '--maxWorkers=1', '--coverage', '--reporter=default', '--reporter=json', '--reporter=blob', '--outputFile.json=' + requestsReport,
     '--outputFile.blob='+join(blobs,'requests.json'),'--coverage.reportsDirectory='+join(runDirectory,'requests')], 600000)

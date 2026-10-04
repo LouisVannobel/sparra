@@ -127,6 +127,13 @@
       "tag": "0017_company_recording_policy",
       "when": 1791079415656,
       "version": "7"
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791140435453,
+      "tag": "0018_recording_archive_receipt",
+      "breakpoints": true
     }
   ]
 }

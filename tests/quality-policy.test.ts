@@ -9,7 +9,7 @@ import type { FileChangeSummary } from 'typescript/unstable/proto'
 import { createScanner, getLeadingCommentRanges, getTokenAtPosition, getTrailingCommentRanges, isArrowFunction, isBlock, isCallExpression, isExpressionStatement, isFunctionDeclaration, isIdentifier, isImportDeclaration, isNamedImports, isStringLiteral, LanguageVariant, SyntaxKind } from 'typescript/unstable/ast'
 import type { CallExpression, Node, SourceFile } from 'typescript/unstable/ast'
 import { afterAll, beforeAll, expect, test } from 'vitest'
-import { admitCommonGeometry, assertDirectory, assertRunTree, assertRequestsQualification, assertRequestsReport, readNativeBlob, sourceIdentity } from '../scripts/native-coverage-inputs.mjs'
+import { admitCommonGeometry, assertDirectory, assertRunTree, assertRecordingReceiptQualification, assertRecordingReceiptReport, assertRequestsQualification, assertRequestsReport, readNativeBlob, sourceIdentity } from '../scripts/native-coverage-inputs.mjs'
 
 const repositoryRoot = process.cwd()
 const fixtureRoot = mkdtempSync(join(repositoryRoot, 'src', '.anti-slop-canary-'))
@@ -102,7 +102,19 @@ function runQuality(tool:'fallow'|'react-doctor',args:string[],cwd:string) {
 }
 afterAll(()=>{for(const root of qualityRoots){if(dirname(root)!==tmpdir()||!basename(root).startsWith('sparra-quality-canary-'))throw new Error('Non-owned quality cleanup');rmSync(root,{recursive:true})}})
 
-function nativeCoverageFixture(activityAfterAll = '') {
+const recordingReceiptNames=[
+  'actual Voice archived receipt commits with provider purge due',
+  'native receipt shape and exact integer/canonical deadline validation reject metadata coercion',
+  'native pin and bound Workspace/deployment/provider identity cannot be supplied by a callback',
+  'old receiptless bytes and changed receipts cannot clear accepted metadata or terminal purge ACK',
+  'native deferred commit failure rolls back receipt metadata and immediate purge due together',
+  'lost native receipt COMMIT reply replays the unchanged operation before actual local ACK',
+  'erased and expired late receipts retain provider-copy obligations without archive availability',
+  'provider NULL ACK remains distinct from actual archive unlink and local cleanup NULL ACK',
+  'receipt columns retain FORCE RLS and execute-only native authority',
+]
+
+function nativeCoverageFixture(activityAfterAll = '',recordingAfterAll = '') {
   const {root}=qualityFixture()
   for(const name of ['App.tsx','main.tsx','unused.ts'])rmSync(join(root,'src',name))
   for(const directory of ['scripts','tests/integration','drizzle','.output/server','.output/public','coverage'])mkdirSync(join(root,directory),{recursive:true})
@@ -116,6 +128,9 @@ function nativeCoverageFixture(activityAfterAll = '') {
   writeFileSync(join(root,'scripts/prepare-voice-source.mjs'),`import {existsSync,mkdirSync,rmSync,writeFileSync} from 'node:fs';import {join} from 'node:path';
 export async function prepareVoiceSource({appRoot}){const scope=join(appRoot,'coverage/canary-voice-owner');mkdirSync(scope);return {root:scope,fixturePython:process.execPath,testEnvironment:{HOME:scope,APPDATA:scope,NLTK_DATA:scope},tokenizerArchive:join(scope,'synthetic-tokenizer.zip'),assertIdentity:async()=>{if(!existsSync(scope))throw new Error('Synthetic canary Voice owner missing')},retire:async()=>{if(existsSync(scope)){if(existsSync(join(scope,'retirement-failure')))throw new Error('Synthetic canary Voice retirement failed');rmSync(scope,{recursive:true});writeFileSync(join(appRoot,'canary-voice-retired.txt'),'retired')}}}}\n`)
   writeFileSync(join(root,'tests/integration/sparra-voice-crypto.test.ts'),"import {expect,test} from 'vitest';test('synthetic runner Crypto wiring',()=>expect(process.env.SPARRA_VOICE_TEST_ROOT).toContain('canary-voice-owner'));\n")
+  // The nine private named leaves qualify report admission and environment
+  // forwarding only; they do not qualify native SQL or the real Voice source.
+  writeFileSync(join(root,'tests/integration/sparra-recording-receipt.test.ts'),"import {afterAll,expect,test} from 'vitest';import {join} from 'node:path';\n"+recordingReceiptNames.map(name=>'test('+JSON.stringify(name)+",()=>{const root=process.env.SPARRA_VOICE_TEST_ROOT;expect(root).toContain('canary-voice-owner');expect(process.env.SPARRA_VOICE_FIXTURE_PYTHON).toBe(process.execPath);expect(process.env.SPARRA_VOICE_NLTK_DATA).toBe(root);expect(process.env.SPARRA_VOICE_TEST_HOME).toBe(root);expect(process.env.SPARRA_VOICE_TOKENIZER_ARCHIVE).toBe(join(root!,'synthetic-tokenizer.zip'))});\n").join('')+'afterAll(()=>{'+recordingAfterAll+'});\n')
   const requestNames=[
     'native owner reads absent state, actual Voice ciphertext and pinned configuration without inventing pending results',
     'equal-millisecond pagination returns all 103 calls exactly once in tuple order',
@@ -135,8 +150,8 @@ export async function prepareVoiceSource({appRoot}){const scope=join(appRoot,'co
   return root
 }
 
-function runNativeCoverage(root:string,args:string[]) {
-  return spawnSync(process.execPath,[join(repositoryRoot,'node_modules/vitest/vitest.mjs'),...args],{cwd:root,encoding:'utf8',windowsHide:true,timeout:12000})
+function runNativeCoverage(root:string,args:string[],env=process.env) {
+  return spawnSync(process.execPath,[join(repositoryRoot,'node_modules/vitest/vitest.mjs'),...args],{cwd:root,env,encoding:'utf8',windowsHide:true,timeout:12000})
 }
 
 test('native_activity_blob_admits_twelve_complete_pass_cases_and_refuses_missing_or_extra',()=>{
@@ -245,6 +260,67 @@ test('native_requests_file_admission_requires_a_current_bounded_regular_report_w
     writeFileSync(refused,JSON.stringify(wrong))
     expect(()=>assertRequestsQualification(refused,root,startedAt),kind).toThrow('Native Requests requires its exact eight passing leaves')
   }
+},25000)
+
+test('native_recording_report_admission_requires_exact_summary_consumer_leaves_and_fresh_bounded_file',()=>{
+  const root=nativeCoverageFixture(),reportPath=join(root,'coverage/private-recording-report.json'),startedAt=Date.now()
+  const voiceRoot=join(root,'coverage/canary-voice-owner')
+  const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts','tests/integration/sparra-recording-receipt.test.ts','--maxWorkers=1','--reporter=json','--outputFile.json='+reportPath],{
+    ...process.env,SPARRA_VOICE_TEST_ROOT:voiceRoot,SPARRA_VOICE_FIXTURE_PYTHON:process.execPath,
+    SPARRA_VOICE_NLTK_DATA:voiceRoot,SPARRA_VOICE_TEST_HOME:voiceRoot,SPARRA_VOICE_TOKENIZER_ARCHIVE:join(voiceRoot,'synthetic-tokenizer.zip'),
+  })
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
+  const bytes=readFileSync(reportPath),report=JSON.parse(bytes.toString('utf8'))
+  expect(report.numTotalTests).toBe(9);expect(report.numPassedTests).toBe(9)
+  expect(report.testResults[0].assertionResults.map((leaf:{fullName:string})=>leaf.fullName)).toEqual(recordingReceiptNames)
+  expect(report.coverageMap).toBeUndefined()
+  expect(readdirSync(join(root,'coverage'))).toEqual(['private-recording-report.json'])
+  expect(()=>assertRecordingReceiptReport(report,root)).not.toThrow()
+  expect(()=>assertRecordingReceiptQualification(reportPath,root,startedAt)).not.toThrow()
+  const refusal='Native Recording receipt requires its exact nine passing leaves'
+  for(const field of ['success','numTotalTests','numPassedTests','numPendingTests','numTodoTests','numFailedTests','numFailedTestSuites','numPendingTestSuites']){
+    expect(()=>assertRecordingReceiptReport({...report,[field]:field==='success'?false:report[field]+1},root),field).toThrow(refusal)
+  }
+  const refused=join(root,'coverage/refused-recording.json')
+  for(const [kind,mutate] of [
+    ['no consumer',(value:typeof report)=>{value.testResults=[]}],
+    ['extra consumer',(value:typeof report)=>{value.testResults.push(structuredClone(value.testResults[0]))}],
+    ['foreign consumer',(value:typeof report)=>{value.testResults[0].name=join(root,'tests/foreign.ts')}],
+    ['foreign root',(value:typeof report)=>{value.testResults[0].name=join(root,'foreign/tests/integration/sparra-recording-receipt.test.ts').replaceAll('\\','/')}],
+    ['failed consumer',(value:typeof report)=>{value.testResults[0].status='failed'}],
+    ['consumer message',(value:typeof report)=>{value.testResults[0].message='failure'}],
+    ['missing leaf',(value:typeof report)=>{value.testResults[0].assertionResults.pop()}],
+    ['extra leaf',(value:typeof report)=>{value.testResults[0].assertionResults.push(structuredClone(value.testResults[0].assertionResults[0]))}],
+    ['duplicate leaf',(value:typeof report)=>{value.testResults[0].assertionResults[8]=structuredClone(value.testResults[0].assertionResults[0])}],
+    ['renamed leaf',(value:typeof report)=>{value.testResults[0].assertionResults[0].fullName='wrong leaf'}],
+    ['reordered leaves',(value:typeof report)=>{value.testResults[0].assertionResults.reverse()}],
+    ['skipped leaf',(value:typeof report)=>{value.testResults[0].assertionResults[0].status='skipped'}],
+    ['failed leaf',(value:typeof report)=>{value.testResults[0].assertionResults[0].status='failed'}],
+    ['failure messages',(value:typeof report)=>{value.testResults[0].assertionResults[0].failureMessages=['failure']}],
+    ['missing failure messages',(value:typeof report)=>{delete value.testResults[0].assertionResults[0].failureMessages}],
+    ['one pass and eight skips',(value:typeof report)=>{value.numPassedTests=1;value.numPendingTests=8;for(const leaf of value.testResults[0].assertionResults.slice(1))leaf.status='skipped'}],
+  ] as const){
+    const wrong=structuredClone(report);mutate(wrong)
+    expect(()=>assertRecordingReceiptReport(wrong,root),kind).toThrow(refusal)
+    writeFileSync(refused,JSON.stringify(wrong))
+    expect(()=>assertRecordingReceiptQualification(refused,root,startedAt),kind).toThrow(refusal)
+  }
+  rmSync(refused)
+  expect(()=>assertRecordingReceiptQualification(refused,root,startedAt),'absent').toThrow()
+  for(const [kind,arrange] of [
+    ['stale',()=>{writeFileSync(refused,bytes);utimesSync(refused,new Date(0),new Date(0))}],
+    ['empty',()=>{writeFileSync(refused,'')}],
+    ['directory',()=>{mkdirSync(refused)}],
+    ['link',()=>{symlinkSync(join(root,'tests'),refused,process.platform==='win32'?'junction':'dir')}],
+    ['oversize',()=>{writeFileSync(refused,bytes);truncateSync(refused,268435457)}],
+  ] as const){
+    arrange()
+    expect(()=>assertRecordingReceiptQualification(refused,root,startedAt),kind).toThrow('Native Recording receipt report is invalid')
+    rmSync(refused,{recursive:true})
+  }
+  writeFileSync(refused,'{')
+  expect(()=>assertRecordingReceiptQualification(refused,root,startedAt)).toThrow(SyntaxError)
+  expect(readFileSync(reportPath)).toEqual(bytes)
 },25000)
 
 test('native_blob_coverage_keeps_additive_counts_zero_entries_and_source_geometry',()=>{
@@ -362,12 +438,44 @@ test('actual_coverage_runner_publishes_only_native_complete_map_after_retirement
   expect(readdirSync(join(root,'coverage'))).toEqual(['coverage-final.json'])
   expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
   expect(existsSync(join(root,'coverage/canary-voice-owner'))).toBe(false)
+  expect(result.stdout.split('\n').filter(line=>/^\[tests\] (voice-crypto qualification|recording receipt qualification|requests qualification|merge)$/.test(line.trim())).map(line=>line.trim())).toEqual([
+    '[tests] voice-crypto qualification','[tests] recording receipt qualification','[tests] requests qualification','[tests] merge',
+  ])
   const coverage=JSON.parse(readFileSync(join(root,'coverage/coverage-final.json'),'utf8'))
   expect(coverage.stale).toBeUndefined()
   expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].f).toEqual({'0':21})
   expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].s).toEqual({'0':21,'1':9,'2':12})
   expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].b).toEqual({'0':[9,12]})
   expect(coverage[join(root,'src/unexecuted.ts').replaceAll('\\','/')].f).toEqual({'0':0})
+},25000)
+
+test.each(['missing','duplicate'] as const)('actual_coverage_runner_refuses_recording_%s_leaf_before_requests_and_publication',kind=>{
+  const root=nativeCoverageFixture(),path=join(root,'tests/integration/sparra-recording-receipt.test.ts')
+  const lines=readFileSync(path,'utf8').trimEnd().split('\n')
+  if(kind==='missing')lines.splice(9,1)
+  else lines[9]=lines[1]!
+  writeFileSync(path,lines.join('\n')+'\n')
+  const result=runCoverageConsumer(root)
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
+  expect(result.stderr).toContain('Native Recording receipt requires its exact nine passing leaves')
+  expect(result.stdout).toContain('[tests] recording receipt qualification')
+  expect(result.stdout).not.toContain('[tests] requests qualification')
+  expect(result.stdout).not.toContain('[tests] merge')
+  expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
+  expect(readdirSync(join(root,'coverage'))).toEqual([])
+  expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
+},25000)
+
+test('actual_coverage_runner_retains_producer_on_recording_afterAll_failure',()=>{
+  const root=nativeCoverageFixture('',"throw new Error('Owned recording afterAll failure')"),result=runCoverageConsumer(root)
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
+  expect(result.stderr).toContain('Native coverage recording receipt qualification failed; consumer cleanup is unconfirmed')
+  expect(result.stderr).toContain('Native Voice scope retained: consumer resource cleanup is unconfirmed')
+  expect(result.stdout).not.toContain('[tests] requests qualification')
+  expect(result.stdout).not.toContain('[tests] merge')
+  expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
+  expect(readdirSync(join(root,'coverage'))).toEqual(['canary-voice-owner'])
+  expect(existsSync(join(root,'canary-voice-retired.txt'))).toBe(false)
 },25000)
 
 test('actual_coverage_runner_refuses_requests_missing_or_extra_leaves_before_publication',()=>{

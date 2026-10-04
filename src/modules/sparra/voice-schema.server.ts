@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { boolean, check, customType, integer, pgPolicy, pgSchema, primaryKey, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
+import { bigint, boolean, check, customType, integer, pgPolicy, pgSchema, primaryKey, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
 import { workspace } from '../workspaces/schema.server'
 
 // Consumed by Drizzle migration generation. Procedural source is the forward
@@ -26,8 +26,10 @@ export const voiceRecordingPurge=privateSchema.table('recording_purge',{
   recordingId:uuid('recording_id').primaryKey(),workspaceId:uuid('workspace_id').notNull(),deploymentId:text('deployment_id').notNull(),callId:uuid('call_id').notNull(),providerRecordingId:text('provider_recording_id').notNull(),originalRetentionUntil:date('original_retention_until').notNull(),
   purgeAttempt:integer('purge_attempt').notNull().default(0),leaseToken:uuid('lease_token'),leaseUntil:date('lease_until'),retryAt:date('retry_at').notNull().default(sql`clock_timestamp()`),
   outcome:text('outcome'),ackToken:uuid('ack_token'),ackOccurredAt:timestamp('ack_occurred_at',{withTimezone:true,precision:6}),
+  archiveCiphertextSha256:text('archive_ciphertext_sha256'),archiveEncryptedBytes:integer('archive_encrypted_bytes'),archiveKeyVersion:bigint('archive_key_version',{mode:'number'}),
 },t=>[
   unique('voice_recording_provider').on(t.deploymentId,t.providerRecordingId),check('voice_recording_id',sql`length(${t.providerRecordingId}) between 1 and 256 and ${t.providerRecordingId} ~ '^[A-Za-z0-9._~-]+$' and ${t.providerRecordingId} not in ('.','..')`),
   check('voice_recording_attempt',sql`${t.purgeAttempt} between 0 and 1000000`),check('voice_recording_outcome',sql`${t.outcome} is null or ${t.outcome} in ('deleted','not_found','retry','failed')`),
+  check('voice_recording_archive_receipt',sql`(${t.archiveCiphertextSha256} is null and ${t.archiveEncryptedBytes} is null and ${t.archiveKeyVersion} is null) or (${t.archiveCiphertextSha256} is not null and ${t.archiveCiphertextSha256} ~ '^[0-9a-f]{64}$' and ${t.archiveEncryptedBytes} is not null and ${t.archiveEncryptedBytes} between 17 and 33554448 and ${t.archiveKeyVersion} is not null and ${t.archiveKeyVersion} between 1 and 9007199254740991)`),
   pgPolicy('voice_recording_scope',{to:'sparra_voice_definer',for:'all',using:scope,withCheck:scope}),
 ]).enableRLS()
