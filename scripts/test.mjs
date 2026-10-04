@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { closeSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { admitCommonGeometry, assertDirectory, assertRunTree, assertRequestsReport, readNativeBlob, sourceIdentity } from './native-coverage-inputs.mjs'
+import { admitCommonGeometry, assertDirectory, assertRunTree, assertRequestsQualification, readNativeBlob, sourceIdentity } from './native-coverage-inputs.mjs'
 import { prepareVoiceSource } from './prepare-voice-source.mjs'
 import { runNativePhase } from './native-test-phase.mjs'
 
@@ -43,12 +43,6 @@ async function runPhase(name, args, timeout) {
   }
   assertFrozenIdentity()
   await voice?.assertIdentity()
-}
-
-function assertRequestsQualification(path) {
-  const stat = lstatSync(path)
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.mtimeMs < startedAt || stat.size === 0 || stat.size > 268435456) throw new Error('Native Requests report is invalid')
-  assertRequestsReport(JSON.parse(readFileSync(path,'utf8')),root)
 }
 
 function admitBlob(name) {
@@ -107,7 +101,7 @@ try {
   const requestsReport = join(runDirectory, 'requests-qualification.json')
   await runPhase('requests qualification', [vitestCli, 'run', '--config', 'vitest.integration.config.ts', 'tests/integration/sparra-requests.test.ts', '--maxWorkers=1', '--coverage', '--reporter=default', '--reporter=json', '--reporter=blob', '--outputFile.json=' + requestsReport,
     '--outputFile.blob='+join(blobs,'requests.json'),'--coverage.reportsDirectory='+join(runDirectory,'requests')], 600000)
-  assertRequestsQualification(requestsReport)
+  assertRequestsQualification(requestsReport,root,startedAt)
   admitBlob('requests')
   admitBlobs()
   await runPhase('merge', [vitestCli, '--config', 'vitest.config.ts', '--coverage', '--mergeReports=' + blobs, '--reporter=default',

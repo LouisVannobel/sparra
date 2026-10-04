@@ -10,3 +10,4 @@ export function readNativeBlob(filePath: string, name: 'ordinary' | 'activity' |
 export function admitCommonGeometry(ordinary: NativeCoverageBlob, activity: NativeCoverageBlob): void
 
 export function assertRequestsReport(report: unknown, root: string): void
+export function assertRequestsQualification(path: string, root: string, startedAt: number): void

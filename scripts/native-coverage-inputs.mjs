@@ -195,3 +195,9 @@ export function assertRequestsReport(report,root) {
     throw new Error('Native Requests requires its exact eight passing leaves')
   }
 }
+
+export function assertRequestsQualification(path,root,startedAt) {
+  const stat = lstatSync(path)
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.mtimeMs < startedAt || stat.size === 0 || stat.size > 268435456) throw new Error('Native Requests report is invalid')
+  assertRequestsReport(JSON.parse(readFileSync(path,'utf8')),root)
+}

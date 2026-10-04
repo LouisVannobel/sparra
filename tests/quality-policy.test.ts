@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, truncateSync, utimesSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve, dirname, basename } from 'node:path'
 import { tmpdir } from 'node:os'
 import { spawnSync } from 'node:child_process'
@@ -209,6 +209,44 @@ test('native_requests_report_preserves_exact_summary_consumer_and_leaf_admission
     (value:typeof report)=>{value.testResults[0].assertionResults[0].status='skipped'},
     (value:typeof report)=>{value.testResults[0].assertionResults[0].failureMessages=['failure']},
   ]){const wrong=structuredClone(report);mutate(wrong);expect(()=>assertRequestsReport(wrong,root)).toThrow('Native Requests requires its exact eight passing leaves')}
+},25000)
+
+test('native_requests_file_admission_requires_a_current_bounded_regular_report_with_exact_leaves',async()=>{
+  const inputs:unknown=await import('../scripts/native-coverage-inputs.mjs')
+  expect(typeof inputs==='object'&&inputs!==null&&'assertRequestsQualification' in inputs&&typeof inputs.assertRequestsQualification==='function').toBe(true)
+  if(typeof inputs!=='object'||inputs===null||!('assertRequestsQualification' in inputs)||typeof inputs.assertRequestsQualification!=='function')throw new Error('Missing Requests file admission')
+  const qualify=inputs.assertRequestsQualification
+  const root=nativeCoverageFixture(),reportPath=join(root,'coverage/native-requests.json'),startedAt=Date.now()
+  const fixture=join(root,'tests/integration/sparra-requests.test.ts')
+  writeFileSync(fixture,readFileSync(fixture,'utf8').replaceAll("expect(process.env.SPARRA_VOICE_TEST_ROOT).toContain('canary-voice-owner');",''))
+  const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts','tests/integration/sparra-requests.test.ts','--maxWorkers=1','--reporter=json','--outputFile.json='+reportPath])
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
+  expect(()=>qualify(reportPath,root,startedAt)).not.toThrow()
+  const bytes=readFileSync(reportPath),report=JSON.parse(bytes.toString('utf8'))
+  const refused=join(root,'coverage/refused-requests.json')
+  for(const kind of ['stale','empty','directory','link','oversize'] as const){
+    if(kind==='directory')mkdirSync(refused)
+    else if(kind==='link')symlinkSync(join(root,'tests'),refused,process.platform==='win32'?'junction':'dir')
+    else{
+      writeFileSync(refused,kind==='empty'?'':bytes)
+      if(kind==='stale')utimesSync(refused,new Date(0),new Date(0))
+      if(kind==='oversize')truncateSync(refused,268435457)
+    }
+    expect(()=>qualify(refused,root,startedAt),kind).toThrow('Native Requests report is invalid')
+    rmSync(refused,kind==='directory'?{recursive:true}:undefined)
+  }
+  writeFileSync(refused,'{')
+  expect(()=>qualify(refused,root,startedAt)).toThrow(SyntaxError)
+  for(const kind of ['summary','consumer','missing-leaf','extra-leaf','failed-leaf'] as const){
+    const wrong=structuredClone(report)
+    if(kind==='summary')wrong.numPassedTests=7
+    else if(kind==='consumer')wrong.testResults[0].name=join(root,'tests/foreign.ts')
+    else if(kind==='missing-leaf')wrong.testResults[0].assertionResults.pop()
+    else if(kind==='extra-leaf')wrong.testResults[0].assertionResults.push({...wrong.testResults[0].assertionResults[0],fullName:'extra leaf'})
+    else wrong.testResults[0].assertionResults[0].status='failed'
+    writeFileSync(refused,JSON.stringify(wrong))
+    expect(()=>qualify(refused,root,startedAt),kind).toThrow('Native Requests requires its exact eight passing leaves')
+  }
 },25000)
 
 test('native_blob_coverage_keeps_additive_counts_zero_entries_and_source_geometry',()=>{
