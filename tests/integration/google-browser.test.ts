@@ -27,6 +27,23 @@ beforeAll(async () => {
   stores = await startDisposableStores()
   await stores.migrate()
   await stores.administrator.query('GRANT USAGE ON SCHEMA public TO runtime; GRANT SELECT,INSERT,UPDATE,DELETE ON "user",account,session,verification TO runtime')
+  // The account loader consumes only passkey metadata in this Google fixture.
+  await stores.administrator.query('GRANT SELECT (id,name,created_at,user_id) ON public.passkey TO runtime')
+  expect((await stores.administrator.query(`SELECT
+    has_column_privilege('runtime','public.passkey','id','SELECT') AS id_select,
+    has_column_privilege('runtime','public.passkey','name','SELECT') AS name_select,
+    has_column_privilege('runtime','public.passkey','created_at','SELECT') AS created_at_select,
+    has_column_privilege('runtime','public.passkey','user_id','SELECT') AS user_id_select,
+    has_column_privilege('runtime','public.passkey','public_key','SELECT') AS public_key_select,
+    has_column_privilege('runtime','public.passkey','credential_id','SELECT') AS credential_id_select,
+    has_column_privilege('runtime','public.passkey','counter','SELECT') AS counter_select,
+    has_table_privilege('runtime','public.passkey','SELECT') AS table_select,
+    has_any_column_privilege('runtime','public.passkey','INSERT') AS can_insert,
+    has_any_column_privilege('runtime','public.passkey','UPDATE') AS can_update,
+    has_table_privilege('runtime','public.passkey','DELETE') AS can_delete
+  `)).rows[0]).toEqual({ id_select: true, name_select: true, created_at_select: true, user_id_select: true,
+    public_key_select: false, credential_id_select: false, counter_select: false, table_select: false,
+    can_insert: false, can_update: false, can_delete: false })
   const port = await unusedLoopbackPort()
   origin = `http://localhost:${port}`
   app = startWeb({ NODE_ENV: 'test', APP_ORIGIN: origin, DATABASE_URL: stores.runtimeUrl, REDIS_URL: stores.redisUrl,
@@ -77,7 +94,8 @@ test('actual browser Google protocol, locale, Secure cookie, account and logout;
   await page.getByRole('button', { name: 'Continue with Google' }).waitFor()
   await page.getByRole('link', { name: 'Français' }).focus()
   expect(await page.evaluate(() => document.activeElement?.textContent)).toBe('Français')
-  await page.keyboard.press('Tab'); await page.keyboard.press('Tab')
+  await page.keyboard.press('Tab'); await page.keyboard.press('Tab'); await page.keyboard.press('Tab')
+  expect(await page.getByRole('button', { name: 'Continue with Google', exact: true }).evaluate(button => document.activeElement === button)).toBe(true)
   const focused = await page.evaluate(() => ({ tag: document.activeElement?.tagName, outline: getComputedStyle(document.activeElement!).outlineWidth, fits: document.documentElement.scrollWidth <= 320 }))
   expect(focused).toMatchObject({ tag: 'BUTTON', fits: true })
   expect(parseFloat(focused.outline)).toBeGreaterThan(0)

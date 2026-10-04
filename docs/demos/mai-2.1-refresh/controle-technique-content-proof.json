@@ -1,0 +1,17 @@
+{
+  "status": "transcription_received",
+  "nativeServiceInvoked": true,
+  "service": "Pipecat1.7 OpenAISTTService._transcribe",
+  "model": "openai/whisper-large-v3-turbo",
+  "input": "owned full fictional controle-technique16k mono WAV",
+  "privateCallerData": false,
+  "maxRetries": 0,
+  "rawErrorSaved": false,
+  "rawLogsSaved": false,
+  "fictionalTranscript": " � Bonjour, vous �tes au Centre Claire. Je suis Spara, un agent IA. �  Quelle est votre demande ?  Bonjour.  � Je souhaite une visite de contr�le technique pour ma voiture. �  Quelle est votre pr�f�rence pour cette visite ?  L'�quipe devra v�rifier les disponibilit�s.  Plut�t vendredi apr�s-midi.  Je m'appelle Alex.  Pour cet exemple, mon num�ro est fictif.  Je retiens une demande de contr�le technique  avec une pr�f�rence pour vendredi apr�s-midi ?  La date, le tarif et les modalit�s restent � confirmer avec l'�quipe.  Aucun rendez-vous ?  n'est r�serv�.",
+  "totalMs": 6157,
+  "processExit": 0,
+  "scenario": "controle-technique",
+  "audioSha256": "03c31ef4e784cb834ac7194e4a38219f4d0e7f7c91ff01ef1bdb119882ff456d",
+  "observedUtc": "2026-10-02T02:36:23.0116489Z"
+}

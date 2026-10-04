@@ -1,0 +1,17 @@
+{
+  "status": "transcription_received",
+  "nativeServiceInvoked": true,
+  "service": "Pipecat1.7 OpenAISTTService._transcribe",
+  "model": "openai/whisper-large-v3-turbo",
+  "input": "owned full fictional garage16k mono WAV",
+  "privateCallerData": false,
+  "maxRetries": 0,
+  "rawErrorSaved": false,
+  "rawLogsSaved": false,
+  "fictionalTranscript": " Bonjour, vous �tes au Garage Horizon.  Merci.  � Je suis Spara, un agent IA �,  Quelle est votre demande ?  � Bonjour, je voudrais faire une r�vision de ma voiture. �  Je voudrais faire une r�vision de ma voiture.  Je peux recueillir votre demande pour l'�quipe.  Quand pr�f�rez-vous �tre rappel� ?  Demain matin, si possible.  � Je m'appelle Camille. �  Pour cet exemple, mon num�ro est fictif.  D'accord. Votre pr�f�rence est un rappel demain matin pour une r�vision.  L'�quipe devra confirmer le rappel et les modalit�s.  Aucun rendez-vous n'est confirm�.",
+  "totalMs": 4935,
+  "processExit": 0,
+  "scenario": "garage",
+  "audioSha256": "368defe5f1c0b1ecdfee5e693c7b4a326e068a5e7d0d093bcf94bbfc6adab6df",
+  "observedUtc": "2026-10-02T02:36:14.5180400Z"
+}

@@ -1,11 +1,12 @@
 {
-  "entry": ["scripts/start-web.mjs", "tests/helpers/generate-native-voice-envelope.ts"],
+  "entry": ["scripts/start-web.mjs", "scripts/test-prerequisites.mjs", "tests/helpers/generate-native-voice-envelope.ts"],
   "dynamicallyLoaded": ["tests/helpers/runtime-probe.mjs"],
   "ignoreUnresolvedImports": ["../.output/server/index.mjs"],
   "duplicates": {
     "ignore": ["src/routeTree.gen.ts"],
     "ignoredClones": ["dup:2cc8a7df:2"]
   },
-  "ignorePatterns": ["tools/oxlint/anti-slop/**"],
+  "ignorePatterns": ["tools/oxlint/anti-slop/**", "coverage/**"],
+  "health": { "coverage": "coverage/coverage-final.json" },
   "ignoreDependencies": ["@oxlint/plugins"]
 }

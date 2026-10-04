@@ -1,0 +1,21 @@
+{
+  "state": "downloaded",
+  "model": "microsoft/mai-voice-2.1-flash",
+  "voice": "fr-FR-Soleil:MAI-Voice-2.1-Flash",
+  "input": "Bonjour, vous êtes au Centre Clair. Je suis Sparra, un agent IA. Quelle est votre demande ?",
+  "inputSha256": "b99db1512b2ab981b6fcda2caccdbbcbf9fa683857782750c148c741ff3c912f",
+  "requestSha256": "28f0add4644de657fd815632497a7539fdac0db3fedc42f33b41de2494648f6b",
+  "responseFormat": "mp3",
+  "attemptedUtc": "2026-10-02T02:31:34.3228123Z",
+  "scenario": "controle-technique",
+  "index": 0,
+  "httpStatus": 200,
+  "responseHeadersMs": 421,
+  "contentType": "audio/mpeg",
+  "generationId": "gen-tts-1790908294-MuP46BHPfHgJEJIWLWAC",
+  "generatedUtc": "2026-10-02T02:31:34.8870407Z",
+  "totalHttpMs": 563,
+  "bytes": 134880,
+  "sha256": "79de8285c3dc20a0be4b8ea034f9e8b9ebd1ba74a96efea0ac27cd8f73a49291",
+  "decoderQualification": "pending sole heavy token"
+}

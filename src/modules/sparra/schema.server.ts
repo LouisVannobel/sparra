@@ -1,5 +1,5 @@
 import { sql, type SQLWrapper } from 'drizzle-orm'
-import { check, foreignKey, index, integer, jsonb, pgPolicy, pgTable, primaryKey, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
+import { boolean, check, foreignKey, index, integer, jsonb, pgPolicy, pgTable, primaryKey, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
 import { workspace } from '../workspaces/schema.server'
 import type { NativeEncryptedTurn, EncryptedMessageResult } from './message-crypto.server'
 
@@ -13,6 +13,7 @@ export const sparraKnowledgeRevision = pgTable('sparra_knowledge_revision', {
   sector: text('sector', { enum: ['garage', 'controle-technique'] }).notNull(),
   openingHours: text('opening_hours').notNull(), services: text('services').notNull(), prices: text('prices').notNull(), faq: text('faq').notNull(), instructions: text('instructions').notNull(),
   transferDestination: text('transfer_destination'),
+  recordingEnabled: boolean('recording_enabled').notNull().default(false),
   savedAt: timestamp('saved_at', { withTimezone: true, precision: 3 }).notNull().default(sql`clock_timestamp()`),
 }, table => [
   primaryKey({ columns: [table.workspaceId, table.revision] }),

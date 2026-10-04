@@ -15,12 +15,14 @@ export function SparraDemo(): React.JSX.Element {
   const [playing, setPlaying] = useState(false)
   const [seconds, setSeconds] = useState(0)
   const [error, setError] = useState(false)
+  const [interactive, setInteractive] = useState(false)
   const audio = useRef<HTMLAudioElement>(null)
   const attempt = useRef(0)
   const cue = currentCueIndex(scenario, seconds)
 
   useEffect(() => {
     const captured = audio.current
+    setInteractive(captured !== null)
     return () => {
       attempt.current++
       captured?.pause()
@@ -80,7 +82,7 @@ export function SparraDemo(): React.JSX.Element {
     <div className="sparra-demo-window">
     <div className="sparra-demo-toolbar"><span className="sparra-demo-wordmark">sparra<span aria-hidden="true">.</span></span><span className="sparra-demo-caption">Exemple enregistré · scénario fictif</span></div>
     <div className="sparra-demo-body">
-    <SegmentedControl className="sparra-sectors" label="Métier de l’exemple" value={scenario.id} onChange={select} layout="fill">
+    <SegmentedControl className="sparra-sectors" label="Métier de l’exemple" value={scenario.id} onChange={select} layout="fill" isDisabled={!interactive}>
       {demoScenarios.map(item => <SegmentedControlItem key={item.id} value={item.id} label={item.label} />)}
     </SegmentedControl>
     <div className="sparra-demo-pair">
@@ -97,8 +99,8 @@ export function SparraDemo(): React.JSX.Element {
             setError(true)
           }} />
         <div className="sparra-player-actions">
-          <Button className="sparra-contact" label={playing ? 'Pause' : 'Écouter l’exemple'} onClick={toggle} variant="primary" />
-          <Button label="Recommencer" onClick={restart} variant="secondary" />
+          <Button className="sparra-contact" label={playing ? 'Pause' : 'Écouter l’exemple'} onClick={toggle} variant="primary" isDisabled={!interactive} />
+          <Button label="Recommencer" onClick={restart} variant="secondary" isDisabled={!interactive} />
         </div>
         <div className="sparra-progress">
           <progress aria-label="Progression de l’exemple" value={seconds} max={scenario.durationSeconds} />

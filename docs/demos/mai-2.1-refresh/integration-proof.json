@@ -1,0 +1,13 @@
+{
+  "observedUtc": "2026-10-02T02:38:10.7685963Z",
+  "schemaEqual": true,
+  "labelsTextsReceiptsAudioSrcEqual": true,
+  "publicFiles": [
+    "demos\\controle-technique.mp3",
+    "demos\\garage-revision.mp3"
+  ],
+  "publicFileCount": 2,
+  "originalSourceSha256": "26c28bb683e29591704954ed7869fe965361e9ef7b3c213adc1628e112c136eb",
+  "ownedSourceSha256": "26c28bb683e29591704954ed7869fe965361e9ef7b3c213adc1628e112c136eb",
+  "generatedModuleSha256": "09538a158299a442722ce680f1e2ebb29b2419241ab7659b2baa444cdff4008d"
+}

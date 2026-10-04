@@ -3,7 +3,13 @@ import { getTableConfig, PgDialect } from 'drizzle-orm/pg-core'
 import { InvalidActivityInput, parseSaveActivityInput } from '../../src/modules/sparra/activity.server'
 import { sparraKnowledgeRevision } from '../../src/modules/sparra/schema.server'
 
-const input = () => ({ expectedRevision: 0, businessName: ' Garage Dupont ', sector: 'garage', knowledge: { openingHours: '', services: '', prices: '', faq: '', instructions: '' }, transferDestination: null })
+const input = () => ({ expectedRevision: 0, businessName: ' Garage Dupont ', sector: 'garage', knowledge: { openingHours: '', services: '', prices: '', faq: '', instructions: '' }, transferDestination: null, recordingEnabled: false })
+test('company recording defaults OFF for legacy input and accepts only explicit Boolean policy', () => {
+  const { recordingEnabled: _, ...legacy } = input()
+  expect(parseSaveActivityInput(legacy)).toMatchObject({ recordingEnabled: false })
+  for (const recordingEnabled of [false,true]) expect(parseSaveActivityInput({ ...input(), recordingEnabled })).toMatchObject({ recordingEnabled })
+  for (const recordingEnabled of ['true','false',null,0,1]) expect(() => parseSaveActivityInput({ ...input(), recordingEnabled })).toThrow(InvalidActivityInput)
+})
 test('strict editable input trims the greeting and normalizes line endings', () => {
   expect(parseSaveActivityInput({ ...input(), knowledge: { ...input().knowledge, services: 'Vidange\r\nPneus' }, transferDestination: '+33123456789' })).toEqual({ ...input(), businessName: 'Garage Dupont', knowledge: { ...input().knowledge, services: 'Vidange\nPneus' }, transferDestination: '+33123456789' })
   expect(parseSaveActivityInput({ ...input(), transferDestination: undefined }).transferDestination).toBeNull()

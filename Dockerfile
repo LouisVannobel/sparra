@@ -17,6 +17,12 @@ FROM builder AS migration-dependencies
 RUN --network=none sha256sum pnpm-lock.yaml > /tmp/lock.sha256 && pnpm prune --prod && sha256sum -c /tmp/lock.sha256
 
 FROM node:24.14.0-bookworm-slim@sha256:4bd6219054c8bebcd26a66bfd8ca0bd6e1024b4b97474c59bb7ee3bbcbef4fe8 AS runtime-base
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends --only-upgrade \
+      libcap2=1:2.66-4+deb12u3+b1 \
+      libgnutls30=3.7.9-2+deb12u7 \
+      libpcre2-8-0=10.42-1+deb12u2 \
+    && rm -rf /var/lib/apt/lists/*
 RUN rm -rf /usr/local/lib/node_modules /opt/yarn* /root/.cache /root/.npm && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/pnpm /usr/local/bin/pnpx /usr/local/bin/yarn /usr/local/bin/yarnpkg && test "$(node --version)" = v24.14.0
 WORKDIR /app
 

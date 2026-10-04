@@ -54,7 +54,7 @@ beforeAll(async()=>{
   expect(await snapshot()).toEqual(before);expect((await admin("SELECT to_regnamespace('voice') AS v")).rows[0].v).toBeNull()
   await admin('DROP EVENT TRIGGER fixture_voice_fail;DROP FUNCTION public.fixture_voice_fail();DROP SEQUENCE public.fixture_voice_late')
   await stores.migrate();const after=await snapshot()
-  expect(after.users).toEqual(before.users);expect(after.workspaces).toEqual(before.workspaces);expect(after.revisions).toEqual(before.revisions)
+  expect(after.users).toEqual(before.users);expect(after.workspaces).toEqual(before.workspaces);expect(after.revisions).toMatchObject(before.revisions)
   expect(after.calls[0]).toMatchObject(before.calls[0]);expect(after.calls[0].transcript_loss_count).toBe(0)
   expect(after.journal.slice(0,16)).toEqual(before.journal)
   expect(await Promise.all(entries.map(async e=>createHash('sha256').update(await readFile('drizzle/'+e.tag+'.sql')).digest('hex')))).toEqual(hashes)
@@ -104,7 +104,9 @@ test('real native begin pin is committed, stable on retry, and read through the 
  const id=crypto.callId,route=routing(id)
  const result=nativeValue(await nativeVoice({action:'begin',url:stores.voiceUrlA,deployment:'fixture-a',call_id:id,routing:route}))
  expect(result).toMatchObject({schema_version:1,call_id:id,configuration_revision:1,knowledge:{business_name:'Garage',services:'Vidange'},transfer_destination:null,retention_until:new Date(Date.parse(route.admitted_at)+2592000000).toISOString()})
- expect(Object.keys(result).sort()).toEqual(['schema_version','call_id','configuration_revision','knowledge','transfer_destination','retention_until'].sort())
+ expect(result.recording_enabled).toBe(false)
+ expect((await admin("SELECT recording_enabled FROM sparra_knowledge_revision WHERE workspace_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'")).rows).toEqual([{recording_enabled:false}])
+ expect(Object.keys(result).sort()).toEqual(['schema_version','call_id','configuration_revision','knowledge','transfer_destination','retention_until','recording_enabled'].sort())
  await activity.save(principalA,{...configuration,expectedRevision:1,businessName:'Updated'})
  expect(nativeValue(await nativeVoice({action:'begin',url:stores.voiceUrlA,deployment:'fixture-a',call_id:id,routing:route}))).toEqual(result)
  expect(await requests.detail(principalA,id)).toMatchObject({configurationRevision:1,configuration:{businessName:'Garage'},transcriptLossCount:0})
@@ -381,4 +383,49 @@ test('same Workspace deployments retain hidden revision references without abort
  }finally{await admin('DROP TRIGGER fixture_voice_unrelated_fk ON sparra_knowledge_revision;DROP FUNCTION public.fixture_voice_unrelated_fk()')}
  expect(nativeValue(await nativeVoice({action:'lease_call',url})).some(lease=>lease.call_id===rollbackDue)).toBe(true)
  expect(await row(rollbackDue)).toBeUndefined()
+})
+
+test('native company policy pin survives ON and OFF saves while deployment capability independently denies ON',async()=>{
+ const current=(await activity.read(principalA)).configuration!.revision
+ const off=await activity.save(principalA,{...configuration,expectedRevision:current,recordingEnabled:false})
+ await a.query('BEGIN')
+ const admitted=await begin()
+ expect(admitted.snapshot.recording_enabled).toBe(false)
+ const saving=activity.save(principalA,{...configuration,expectedRevision:off!.revision,recordingEnabled:true})
+ try{
+  await expect.poll(async()=>(await admin("SELECT exists(SELECT 1 FROM pg_stat_activity WHERE usename='runtime' AND wait_event_type='Lock') waiting")).rows[0].waiting,{timeout:750,interval:10}).toBe(true)
+  await a.query('COMMIT')
+ }finally{await a.query('ROLLBACK')}
+ const on=await saving
+ expect((await begin(admitted.id,admitted.route)).snapshot).toEqual(admitted.snapshot)
+ const deniedId=randomUUID(),deniedRouting=routing(deniedId)
+ await expect(a.query('SELECT voice.begin_call_v1($1,$2,$3)',['fixture-a',deniedId,deniedRouting])).rejects.toMatchObject({code:'PV202'})
+ expect(await row(deniedId)).toBeUndefined()
+ // This disposable SQL capability tests pin allocation only; native runtime ON remains closed.
+ await admin("CREATE ROLE fixture_audio_policy LOGIN PASSWORD 'fixture-only';GRANT USAGE ON SCHEMA voice TO fixture_audio_policy;GRANT EXECUTE ON FUNCTION voice.begin_call_v1(text,uuid,jsonb) TO fixture_audio_policy")
+ await admin(`INSERT INTO voice_private.deployment_binding(service_login,service_role_oid,deployment_id,workspace_id,connection_id,to_e164,admission_enabled,audio_enabled) SELECT 'fixture_audio_policy',oid,'fixture-audio',$1,'connection-a','+33123456789',true,true FROM pg_roles WHERE rolname='fixture_audio_policy'`,[workspaceA])
+ const url=new URL(stores.directRuntimeUrl);url.username='fixture_audio_policy';url.password='fixture-only'
+ const client=new Client({connectionString:url.href});await client.connect()
+ try{
+  const id=randomUUID(),route=routing(id)
+  expect(await nativeVoice({action:'begin_unknown_commit',url:url.href,deployment:'fixture-audio',call_id:id,routing:route})).toEqual({error:'OperationSinkCommitAmbiguousError'})
+  const pinned=nativeValue(await nativeVoice({action:'begin',url:url.href,deployment:'fixture-audio',call_id:id,routing:route}))
+  expect(pinned).toMatchObject({recording_enabled:true,configuration_revision:on!.revision})
+  const pendingId=randomUUID(),pendingRoute=routing(pendingId)
+  await ingest(callOp(pendingId,pendingRoute))
+  await expect(a.query('SELECT voice.begin_call_v1($1,$2,$3)',['fixture-a',pendingId,pendingRoute])).rejects.toMatchObject({code:'PV202'})
+  expect((await row(pendingId)).configuration_revision).toBeNull()
+  const next=await activity.save(principalA,{...configuration,expectedRevision:on!.revision,recordingEnabled:false})
+  expect((await client.query('SELECT voice.begin_call_v1($1,$2,$3) AS v',['fixture-audio',id,route])).rows[0].v).toEqual(pinned)
+  expect((await begin(pendingId,pendingRoute)).snapshot).toMatchObject({recording_enabled:false,configuration_revision:next!.revision})
+  // The earlier role-OID test retires b; authenticate the restored foreign login anew.
+  const foreignUrl=new URL(stores.directRuntimeUrl),foreignLogin=new URL(stores.voiceUrlB)
+  foreignUrl.username=foreignLogin.username;foreignUrl.password=foreignLogin.password
+  const foreign=new Client({connectionString:foreignUrl.href})
+  try{
+   await foreign.connect()
+   expect((await foreign.query('SELECT session_user::text AS login,current_user::text AS role')).rows).toEqual([{login:'sparra_voice_b',role:'sparra_voice_b'}])
+   await expect(foreign.query('SELECT voice.begin_call_v1($1,$2,$3)',['fixture-audio',id,route])).rejects.toMatchObject({code:'PV202'})
+  }finally{await foreign.end()}
+ }finally{await client.end();await admin("UPDATE voice_private.deployment_binding SET admission_enabled=false WHERE deployment_id='fixture-audio'")}
 })

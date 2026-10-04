@@ -1,0 +1,21 @@
+{
+  "qualified": true,
+  "scope": "fictional prerecorded presentation audio",
+  "reviewer": "root independent of audio implementer",
+  "unchangedScriptAndIllustrativeReceipt": true,
+  "unchangedSourceHash": true,
+  "publicFiles": 2,
+  "decodedCompletely": true,
+  "nativeFrenchAsrContent": true,
+  "ttsRequests": 10,
+  "asrRequests": 4,
+  "humanNaturalnessVerified": false,
+  "realCallVerified": false,
+  "garageSha256": "76d6b25524b01b7512fe6797af8f07a8f83e8fa20e32d4d43337363e12839ca4",
+  "controleSha256": "ede5fc183311448da34ce3ca1b994e1e947523dd5e7fecb6346d577c0b20d49d",
+  "limits": [
+    "ASR homophones/punctuation/extra Merci/repeated client phrase are not verbatim listening proof",
+    "Actual phone/PCMU/interruptions and private France application are unqualified"
+  ],
+  "reviewedUtc": "2026-10-02T02:42:55.0909268Z"
+}

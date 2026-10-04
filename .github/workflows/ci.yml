@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   maintained:
-    uses: LouisVannobel/projetV0-pipelines/.github/workflows/reusable-saas-ci.yml@43070d2d70d25d80405c92f3024e7de3d449af58
+    uses: LouisVannobel/projetV0-pipelines/.github/workflows/reusable-saas-ci.yml@5b464b9b2d47bc867d3c046c924244c3f9c2d609 # v1.5.0
     with:
       node-version: '24.14.0'
       pnpm-version: '10.32.1'
@@ -40,8 +40,16 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - name: Typecheck the installed native graph
+        run: pnpm run typecheck
+      - name: Audio fixture decoder prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y ffmpeg
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm run build
+      - name: Ordinary source consumers on the installed graph and build
+        run: pnpm test
       - name: Actual local Linux stores and direct ingress
         run: pnpm exec vitest run --config vitest.integration.config.ts tests/integration/disposable-stores-linux.test.ts tests/integration/direct-serve-ingress.test.ts --maxWorkers=1
       - name: Native web image and fixed credential admission

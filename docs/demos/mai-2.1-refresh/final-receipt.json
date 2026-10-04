@@ -1,0 +1,42 @@
+{
+  "observedUtc": "2026-10-02T02:40:15.9185167Z",
+  "scope": "owned presentation candidate only; no source/browser/build/deploy/production profile mutation",
+  "ttsRequests": 10,
+  "cachedSuccessfulTurnRecords": 10,
+  "immutableKnownSuccessFences": 10,
+  "asrRequests": 4,
+  "asrReceipts": [
+    {
+      "file": "controle-technique-content-proof-unicode-readback-v2.json",
+      "status": "transcription_received",
+      "processExit": 0,
+      "totalMs": 4430,
+      "replacementCharacters": false
+    },
+    {
+      "file": "controle-technique-content-proof.json",
+      "status": "transcription_received",
+      "processExit": 0,
+      "totalMs": 6157,
+      "replacementCharacters": true
+    },
+    {
+      "file": "garage-content-proof-unicode-readback-v2.json",
+      "status": "transcription_received",
+      "processExit": 0,
+      "totalMs": 4098,
+      "replacementCharacters": false
+    },
+    {
+      "file": "garage-content-proof.json",
+      "status": "transcription_received",
+      "processExit": 0,
+      "totalMs": 4935,
+      "replacementCharacters": true
+    }
+  ],
+  "unchangedSource": true,
+  "publicFileCount": 2,
+  "actualHeavyProcessesTerminal": true,
+  "productionSourceModified": false
+}

@@ -102,8 +102,26 @@ test('absent reads and saves never create a workspace; native ensure enables rev
   const workspace=await personal.ensurePersonalWorkspace(principal)
   expect(await activity.read(principal)).toEqual({workspace,configuration:null})
   const saved=await activity.save(principal,input())
-  expect(saved).toEqual({sector:input().sector,transferDestination:null,workspaceId:workspace!.id,revision:1,savedAt:expect.any(String),businessName:'Garage Dupont',knowledge:{...input().knowledge,openingHours:'Lundi\nVendredi'}})
+  expect(saved).toEqual({sector:input().sector,transferDestination:null,recordingEnabled:false,workspaceId:workspace!.id,revision:1,savedAt:expect.any(String),businessName:'Garage Dupont',knowledge:{...input().knowledge,openingHours:'Lundi\nVendredi'}})
   expect(await activity.read(principal)).toEqual({workspace,configuration:saved})
+})
+test('native company audio policy saves and reloads immutable ON then OFF revisions with strict validation',async()=>{
+  const a=await ceremony(),b=await ceremony(),workspace=await personal.ensurePersonalWorkspace(a.principal)
+  expect((await activity.save(a.principal,input()))?.recordingEnabled).toBe(false)
+  for(const recordingEnabled of ['true','false',null,0,1]) await expect(activity.save(a.principal,{...input(1),recordingEnabled})).rejects.toMatchObject({name:'InvalidActivityInput'})
+  const on=await activity.save(a.principal,{...input(1),recordingEnabled:true})
+  expect(on).toMatchObject({revision:2,recordingEnabled:true})
+  expect((await activity.read(a.principal)).configuration).toEqual(on)
+  expect(await activity.save(b.principal,{...input(),recordingEnabled:true})).toBeNull()
+  const outcomes=await Promise.allSettled([activity.save(a.principal,{...input(2),recordingEnabled:false}),activity.save(a.principal,{...input(2),recordingEnabled:true})])
+  expect(outcomes.filter(outcome=>outcome.status==='fulfilled')).toHaveLength(1)
+  expect(outcomes.filter(outcome=>outcome.status==='rejected')).toEqual([{status:'rejected',reason:expect.objectContaining({name:'ActivityRevisionConflict'})}])
+  const current=(await activity.read(a.principal)).configuration!
+  const off=await activity.save(a.principal,{...input(current.revision),recordingEnabled:false})
+  expect((await activity.read(a.principal)).configuration).toEqual(off)
+  expect(off?.recordingEnabled).toBe(false)
+  expect((await stores.administrator.query('SELECT recording_enabled FROM sparra_knowledge_revision WHERE workspace_id=$1 AND revision=2',[workspace!.id])).rows).toEqual([{recording_enabled:true}])
+  await expect(stores.administrator.query('UPDATE sparra_knowledge_revision SET recording_enabled=false WHERE workspace_id=$1 AND revision=2',[workspace!.id])).rejects.toMatchObject({code:'23514'})
 })
 test('same expected revision has exactly one winner; old snapshot remains immutable', async () => {
   const {principal}=await ceremony(), workspace=await personal.ensurePersonalWorkspace(principal)
@@ -158,15 +176,25 @@ test('RLS denies absent/zero/invalid/foreign tenants and guessed IDs, runtime ha
   expect((await stores.administrator.query("SELECT r.rolname AS owner,c.relrowsecurity,c.relforcerowsecurity FROM pg_class c JOIN pg_roles r ON r.oid=c.relowner WHERE c.oid='sparra_knowledge_revision'::regclass")).rows).toEqual([{owner:'workspace_owner',relrowsecurity:true,relforcerowsecurity:true}])
   expect((await stores.administrator.query("SELECT has_table_privilege('runtime','sparra_knowledge_revision','SELECT') AS read,has_table_privilege('runtime','sparra_knowledge_revision','INSERT') AS insert,has_table_privilege('runtime','sparra_knowledge_revision','UPDATE,DELETE') AS mutate,has_table_privilege('workspace_bootstrap','sparra_knowledge_revision','SELECT,INSERT') AS bootstrap")).rows).toEqual([{read:true,insert:true,mutate:false,bootstrap:false}])
   expect((await stores.administrator.query("SELECT count(*)::int AS n FROM pg_class c, LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a WHERE c.oid='sparra_knowledge_revision'::regclass AND a.grantee=0")).rows[0].n).toBe(0)
-  const policies=(await stores.administrator.query("SELECT policyname,cmd,roles::text[] AS roles,qual,with_check FROM pg_policies WHERE schemaname='public' AND tablename='sparra_knowledge_revision' ORDER BY cmd")).rows
-  expect(policies).toHaveLength(2)
+  const policies=(await stores.administrator.query("SELECT policyname,cmd,roles::text[] AS roles,permissive,qual,with_check FROM pg_policies WHERE schemaname='public' AND tablename='sparra_knowledge_revision' ORDER BY policyname")).rows
+  expect(policies.map(({policyname,cmd,roles,permissive,qual,with_check})=>({policyname,cmd,roles,permissive,using:qual!==null,check:with_check!==null}))).toEqual([
+    {policyname:'sparra_revision_insert',cmd:'INSERT',roles:['runtime'],permissive:'PERMISSIVE',using:false,check:true},
+    {policyname:'sparra_revision_read',cmd:'SELECT',roles:['runtime'],permissive:'PERMISSIVE',using:true,check:false},
+    {policyname:'sparra_revision_voice_delete',cmd:'DELETE',roles:['sparra_voice_definer'],permissive:'PERMISSIVE',using:true,check:false},
+    {policyname:'sparra_revision_voice_read',cmd:'SELECT',roles:['sparra_voice_definer'],permissive:'PERMISSIVE',using:true,check:false},
+  ])
   for(const policy of policies){
-    expect(policy.roles).toEqual(['runtime'])
-    const predicate:string=policy.qual ?? policy.with_check
-    expect(predicate).toContain('EXISTS')
-    expect(predicate).toContain("lifecycle = 'active'")
-    expect(predicate).toContain('workspace.id = sparra_knowledge_revision.workspace_id')
+    if(policy.roles[0]==='runtime'){
+      const predicate:string=policy.qual ?? policy.with_check
+      expect(predicate).toContain('EXISTS')
+      expect(predicate).toContain("lifecycle = 'active'")
+      expect(predicate).toContain('workspace.id = sparra_knowledge_revision.workspace_id')
+      expect(predicate).toMatch(/\(?workspace_id\)?::text = current_setting\('app\.tenant_id'::text, true\)/)
+      expect(predicate).toContain("<> '00000000-0000-0000-0000-000000000000'::text")
+    }else expect(policy.qual).toBe('(workspace_id = voice_private.bound_workspace())')
   }
+  const boundWorkspace=(await stores.administrator.query("SELECT prosrc FROM pg_proc WHERE oid='voice_private.bound_workspace()'::regprocedure")).rows[0].prosrc
+  expect(boundWorkspace.replace(/\s+/g,' ').trim()).toBe('SELECT workspace_id FROM voice_private.deployment_binding WHERE service_login=session_user AND service_role_oid=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=session_user)')
 })
 
 test('SQL independently bounds revision, sector, UTF16 text, typed destination and finite timestamp',async()=>{
@@ -210,13 +238,13 @@ test('cancellation after recorded native COMMIT rejects saved completion and fre
   }))
   try{
     const observedOwner=createTransactions(observedPool,{maxStatementTimeoutMs:1000,maxCleanupTimeoutMs:1000})
-    const save=createActivityOperations(observedOwner).save(principal,input(),controller.signal)
+    const save=createActivityOperations(observedOwner).save(principal,{...input(),recordingEnabled:true},controller.signal)
     await expect(save).rejects.toMatchObject({name:'PgTransactionError',phase:'finalize',outcome:'committed'})
     observed.push('rejected')
     expect(observed).toEqual(['COMMIT','cancel','rejected'])
     const state=await activity.read(principal)
     expect(state.workspace).toEqual(workspace)
-    expect(state.configuration).toMatchObject({workspaceId:workspace!.id,revision:1,businessName:'Garage Dupont'})
+    expect(state.configuration).toMatchObject({workspaceId:workspace!.id,revision:1,businessName:'Garage Dupont',recordingEnabled:true})
     expect(await revisions(workspace!.id)).toEqual([{revision:1,business_name:'Garage Dupont'}])
     expect(observed).toHaveLength(3)
   }finally{await observedPool.end()}

@@ -9,12 +9,15 @@ const uuid = Schema.String.check(Schema.isPattern(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9
 const text = (max:number) => Schema.String.check(Schema.isMaxLength(max),Schema.isPattern(/^[^\ud800-\udfff]*$/u),Schema.isPattern(/^[^\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]*$/))
 // Native datetime observations have Gregorian calendar validity and microsecond
 // ordering, even though the browser DTO deliberately normalizes to milliseconds.
+function isGregorianDate(year:number,month:number,day:number):boolean {
+  const days=[31,year%4===0&&(year%100!==0||year%400===0)?29:28,31,30,31,30,31,31,30,31,30,31]
+  return year>=1&&month>=1&&month<=12&&day>=1&&day<=days[month-1]
+}
 function instantMicros(value:string):bigint|null {
   const parts=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(?:Z|([+-])(\d{2}):(\d{2}))$/.exec(value)
   if(!parts)return null
   const year=Number(parts[1]),month=Number(parts[2]),day=Number(parts[3]),hour=Number(parts[4]),minute=Number(parts[5]),second=Number(parts[6])
-  const days=[31,year%4===0&&(year%100!==0||year%400===0)?29:28,31,30,31,30,31,31,30,31,30,31]
-  if(year<1||month<1||month>12||day<1||day>days[month-1]||hour>23||minute>59||second>59||Number(parts[9]??0)>23||Number(parts[10]??0)>59)return null
+  if(!isGregorianDate(year,month,day)||hour>23||minute>59||second>59||Number(parts[9]??0)>23||Number(parts[10]??0)>59)return null
   const milliseconds=Date.parse(value)
   if(!Number.isFinite(milliseconds)||milliseconds<Date.parse('0001-01-01T00:00:00Z')||milliseconds>Date.parse('9999-12-31T23:59:59.999Z'))return null
   return BigInt(milliseconds)*1000n+BigInt((parts[7]??'').padEnd(6,'0').slice(3))
@@ -54,12 +57,9 @@ function rejectDuplicateMembers(raw:string):void {
   }
 }
 
-/** No default key, discovery or empty replacement. Invalid configuration is bounded unavailability. */
-export async function readKeyring(): Promise<Keyring|null> {
+async function readKeyFile(path:string):Promise<Buffer|null> {
   let file:Awaited<ReturnType<typeof open>>|undefined
   try {
-    const path=process.env.SPARRA_AEAD_KEYRING_PATH
-    if(!path || !isAbsolute(path))return null
     const before=await lstat(path)
     if(!before.isFile() || before.isSymbolicLink() || before.size>16384 || resolve(await realpath(path))!==resolve(path))return null
     file=await open(path,constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
@@ -69,13 +69,25 @@ export async function readKeyring(): Promise<Keyring|null> {
     let length=0
     while(length<buffer.length){const {bytesRead}=await file.read(buffer,length,buffer.length-length,null);if(!bytesRead)break;length+=bytesRead}
     if(length>16384)return null
-    const raw=new TextDecoder('utf-8',{fatal:true}).decode(buffer.subarray(0,length)),parsed:unknown=JSON.parse(raw)
-    rejectDuplicateMembers(raw)
-    const value=Schema.decodeUnknownSync(keyringSchema,strict)(parsed)
-    const keys=new Map<number,Buffer>()
-    for(const key of value.keys){if(keys.has(key.version))return null;keys.set(key.version,Buffer.from(key.aes256_key_hex,'hex'))}
-    return keys.has(value.active_version)?keys:null
-  }catch{return null}finally{await file?.close().catch(()=>{})}
+    return buffer.subarray(0,length)
+  }finally{await file?.close().catch(()=>{})}
+}
+function decodeKeyring(buffer:Buffer):Keyring|null {
+  const raw=new TextDecoder('utf-8',{fatal:true}).decode(buffer),parsed:unknown=JSON.parse(raw)
+  rejectDuplicateMembers(raw)
+  const value=Schema.decodeUnknownSync(keyringSchema,strict)(parsed)
+  const keys=new Map<number,Buffer>()
+  for(const key of value.keys){if(keys.has(key.version))return null;keys.set(key.version,Buffer.from(key.aes256_key_hex,'hex'))}
+  return keys.has(value.active_version)?keys:null
+}
+/** No default key, discovery or empty replacement. Invalid configuration is bounded unavailability. */
+export async function readKeyring(): Promise<Keyring|null> {
+  try {
+    const path=process.env.SPARRA_AEAD_KEYRING_PATH
+    if(!path || !isAbsolute(path))return null
+    const buffer=await readKeyFile(path)
+    return buffer===null?null:decodeKeyring(buffer)
+  }catch{return null}
 }
 function decrypt(value:typeof envelopeSchema.Type|typeof turnSchema.Type,aad:string,keys:Keyring):string {
   const key=keys.get(value.key_version),nonce=Buffer.from(value.nonce_b64,'base64'),ciphertext=Buffer.from(value.ciphertext_b64,'base64')
@@ -86,9 +98,16 @@ function decrypt(value:typeof envelopeSchema.Type|typeof turnSchema.Type,aad:str
   const plaintext=Buffer.concat([decipher.update(ciphertext.subarray(0,-16)),decipher.final()])
   return new TextDecoder('utf-8',{fatal:true}).decode(plaintext)
 }
-export function decodeMessageContent(callId:string,storedTurns:unknown,storedResult:unknown,keys:Keyring|null,transcriptLossCount=0):MessageContent {
+function authenticateTranscriptTurn(id:string,turn:NativeEncryptedTurn|null,keys:Keyring|null):TranscriptTurn {
+  if(!turn || !keys || id!==turn.turn_id || turn.source!==(turn.role==='user'?'stt_final':'pipecat_assistant'))throw new Error('Unavailable')
+  const started=instantMicros(turn.started_at),ended=instantMicros(turn.ended_at)
+  if(started===null||ended===null||ended<started)throw new Error('Unavailable')
+  const decoded=Schema.decodeUnknownSync(text(65536))(decrypt(turn,'turn:'+id,keys))
+  return {id,ordinal:turn.turn_no,role:turn.role,text:decoded,interrupted:turn.interrupted,startedAt:new Date(turn.started_at).toISOString()}
+}
+function authenticateTranscript(storedTurns:unknown,keys:Keyring|null) {
   const transcript:TranscriptTurn[]=[],authenticated=new Map<string,'user'|'assistant'>()
-  let unavailableTurnCount=0,moreTurns=false,result:MessageResultV1|null=null
+  let unavailableTurnCount=0,moreTurns=false
   try{
     if(Buffer.byteLength(JSON.stringify(storedTurns),'utf8')>524288)throw new Error('Unavailable')
     const map=Schema.decodeUnknownSync(Schema.Record(Schema.String,Schema.Unknown))(storedTurns)
@@ -96,14 +115,14 @@ export function decodeMessageContent(callId:string,storedTurns:unknown,storedRes
     moreTurns=entries.length>200
     for(const {id,turn} of entries.slice(0,200)){
       try{
-        if(!turn || !keys || id!==turn.turn_id || turn.source!==(turn.role==='user'?'stt_final':'pipecat_assistant'))throw new Error('Unavailable')
-        const started=instantMicros(turn.started_at),ended=instantMicros(turn.ended_at)
-        if(started===null||ended===null||ended<started)throw new Error('Unavailable')
-        const decoded=Schema.decodeUnknownSync(text(65536))(decrypt(turn,'turn:'+id,keys))
-        transcript.push({id,ordinal:turn.turn_no,role:turn.role,text:decoded,interrupted:turn.interrupted,startedAt:new Date(turn.started_at).toISOString()});authenticated.set(id,turn.role)
+        const decoded=authenticateTranscriptTurn(id,turn,keys)
+        transcript.push(decoded);authenticated.set(id,decoded.role)
       }catch{unavailableTurnCount++}
     }
   }catch{unavailableTurnCount=1}
+  return {transcript,authenticated,unavailableTurnCount,moreTurns}
+}
+function authenticateResult(callId:string,storedResult:unknown,keys:Keyring|null,authenticated:ReadonlyMap<string,'user'|'assistant'>):MessageResultV1|null {
   try{
     if(!keys || storedResult===null || Buffer.byteLength(JSON.stringify(storedResult),'utf8')>16384)throw new Error('Unavailable')
     const envelope=Schema.decodeUnknownSync(envelopeSchema,strict)(storedResult),plain=decrypt(envelope,'result:'+callId,keys)
@@ -111,7 +130,11 @@ export function decodeMessageContent(callId:string,storedTurns:unknown,storedRes
     const value=Schema.decodeUnknownSync(resultSchema,strict)(JSON.parse(plain)),ids=new Set<string>()
     for(const evidence of value.evidence){if(ids.has(evidence.turn_id)||authenticated.get(evidence.turn_id)!==evidence.role)throw new Error('Unavailable');ids.add(evidence.turn_id)}
     if((value.contact.callback_e164===null)!==(value.contact.callback_source==='missing'))throw new Error('Unavailable')
-    result=value
-  }catch{result=null}
+    return value
+  }catch{return null}
+}
+export function decodeMessageContent(callId:string,storedTurns:unknown,storedResult:unknown,keys:Keyring|null,transcriptLossCount=0):MessageContent {
+  const {transcript,authenticated,unavailableTurnCount,moreTurns}=authenticateTranscript(storedTurns,keys)
+  const result=authenticateResult(callId,storedResult,keys,authenticated)
   return {result,transcript,unavailableTurnCount,moreTurns,transcriptLossCount,transcriptAvailability:transcript.length===0?'unavailable':unavailableTurnCount||moreTurns||transcriptLossCount>0?'partial':'available'}
 }

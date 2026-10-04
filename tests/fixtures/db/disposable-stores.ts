@@ -112,8 +112,7 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
     }
     return Number(bindings[0].HostPort)
   }
-  async function cleanup() {
-    const failures: string[] = []
+  async function retireContainers(failures: string[]) {
     try { await administrator?.end() } catch { failures.push('administrator') }
     for (const [index, item] of [...owned].reverse().entries()) {
       try { await assertOwned(item.id) }
@@ -121,6 +120,8 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
       try { await docker(['rm', '-f', item.id]) }
       catch { failures.push(`container-${index}-removal`) }
     }
+  }
+  async function retireNetworkAndVolumes(failures: string[]) {
     if (network) {
       let verified = false
       try {
@@ -139,12 +140,16 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
         await docker(['volume', 'rm', volume])
       } catch { failures.push('volume-removal') }
     }
+  }
+  async function retireTemporarySource(failures: string[]) {
     if(pendingInitCli.size)failures.push('credential-init-child-retirement')
     evidence.consumerRetirementConfirmed=failures.length===0
     try {
       const removed=await retireFixtureDirectory(directory,prefix+'-',failures.length===0)
       if(!removed)evidence.retainedTemporaryPath=directory
     } catch { failures.push('temporary-path');evidence.retainedTemporaryPath=directory }
+  }
+  async function recordFinalInventory(failures: string[]) {
     evidence.before = { fingerprint: createHash('sha256').update(JSON.stringify(before)).digest('hex'), containerIds: before.states.map(row => row.split('|')[0]), networks: before.networks, volumeCount: before.volumes.length }
     evidence.unrelatedUnchanged = false
     try {
@@ -154,6 +159,13 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
       evidence.unrelatedUnchanged = JSON.stringify(before) === JSON.stringify(after)
       if (!evidence.unrelatedUnchanged) failures.push('inventory')
     } catch { failures.push('inventory') }
+  }
+  async function cleanup() {
+    const failures: string[] = []
+    await retireContainers(failures)
+    await retireNetworkAndVolumes(failures)
+    await retireTemporarySource(failures)
+    await recordFinalInventory(failures)
     if (failures.length) evidence.cleanupFailures = failures
     console.log('AUTH_STORE_EVIDENCE ' + JSON.stringify(evidence))
     if (failures.length) throw new Error(`Disposable fixture cleanup failed: ${failures.join(', ')}`)
