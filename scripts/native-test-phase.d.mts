@@ -1,0 +1,1 @@
+export function runNativePhase(executable:string,args:readonly string[],options:{cwd:string;env:NodeJS.ProcessEnv;timeout:number}):Promise<Readonly<{cleanExit:boolean;timedOut:boolean;signal:string|null;status:number|null}>>

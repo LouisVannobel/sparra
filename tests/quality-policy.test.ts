@@ -111,6 +111,22 @@ function nativeCoverageFixture(activityAfterAll = '') {
   writeFileSync(join(root,'pnpm-lock.yaml'),'lockfileVersion: 9.0\n')
   for(const config of ['vitest.config.ts','vitest.integration.config.ts'])writeFileSync(join(root,config),readFileSync(join(repositoryRoot,config)))
   writeFileSync(join(root,'scripts/test-prerequisites.mjs'),readFileSync(join(repositoryRoot,'scripts/test-prerequisites.mjs')))
+  // Test-only resource adapter for the miniature merger canary. These named
+  // tests exercise runner wiring; they are not native Voice qualification.
+  writeFileSync(join(root,'scripts/prepare-voice-source.mjs'),`import {existsSync,mkdirSync,rmSync,writeFileSync} from 'node:fs';import {join} from 'node:path';
+export async function prepareVoiceSource({appRoot}){const scope=join(appRoot,'coverage/canary-voice-owner');mkdirSync(scope);return {root:scope,fixturePython:process.execPath,testEnvironment:{HOME:scope,APPDATA:scope,NLTK_DATA:scope},tokenizerArchive:join(scope,'synthetic-tokenizer.zip'),assertIdentity:async()=>{if(!existsSync(scope))throw new Error('Synthetic canary Voice owner missing')},retire:async()=>{if(existsSync(scope)){if(existsSync(join(scope,'retirement-failure')))throw new Error('Synthetic canary Voice retirement failed');rmSync(scope,{recursive:true});writeFileSync(join(appRoot,'canary-voice-retired.txt'),'retired')}}}}\n`)
+  writeFileSync(join(root,'tests/integration/sparra-voice-crypto.test.ts'),"import {expect,test} from 'vitest';test('synthetic runner Crypto wiring',()=>expect(process.env.SPARRA_VOICE_TEST_ROOT).toContain('canary-voice-owner'));\n")
+  const requestNames=[
+    'native owner reads absent state, actual Voice ciphertext and pinned configuration without inventing pending results',
+    'equal-millisecond pagination returns all 103 calls exactly once in tuple order',
+    'treat active preserves inventory and stamp, erase deletes native content and survives retention',
+    'treat closed preserves inventory and stamp, erase deletes native content and survives retention',
+    'expired content stays unreadable including a Workspace lock held across retention; queued receipt outlives fence deadline',
+    'native runtime UPDATE RETURNING cooperates with narrow definer, FORCE RLS and column grants',
+    'fence insertion failure and cancellation roll back; recorded COMMIT cancellation rejects completion and reload resolves',
+    'built native RPC enforces strict input, auth, missing and foreign Origin, bounded failures and no-store',
+  ]
+  writeFileSync(join(root,'tests/integration/sparra-requests.test.ts'),"import {expect,test} from 'vitest';// Synthetic runner selection canary only.\n"+requestNames.map(name=>'test('+JSON.stringify(name)+",()=>expect(process.env.SPARRA_VOICE_TEST_ROOT).toContain('canary-voice-owner'));\n").join(''))
   writeFileSync(join(root,'.output/server/index.mjs'),'export const build = 1\n')
   writeFileSync(join(root,'src/covered.ts'),'export function selectBranch(value: boolean): number {\n  if (value) return 7\n  return 9\n}\n')
   writeFileSync(join(root,'src/unexecuted.ts'),'export function unexecuted(): number {\n  return 13\n}\n')
@@ -254,6 +270,7 @@ test('native_blob_coverage_keeps_additive_counts_zero_entries_and_source_geometr
 function runCoverageConsumer(root:string,preload?:string) {
   writeFileSync(join(root,'scripts/test.mjs'),readFileSync(join(repositoryRoot,'scripts/test.mjs')))
   writeFileSync(join(root,'scripts/native-coverage-inputs.mjs'),readFileSync(join(repositoryRoot,'scripts/native-coverage-inputs.mjs')))
+  writeFileSync(join(root,'scripts/native-test-phase.mjs'),readFileSync(join(repositoryRoot,'scripts/native-test-phase.mjs')))
   writeFileSync(join(root,'coverage/coverage-final.json'),'{"stale":true}')
   const args=preload?['--import',pathToFileURL(preload).href,'scripts/test.mjs']:['scripts/test.mjs']
   return spawnSync(process.execPath,args,{cwd:root,encoding:'utf8',windowsHide:true,timeout:20000})
@@ -263,6 +280,8 @@ test('actual_coverage_runner_publishes_only_native_complete_map_after_retirement
   const root=nativeCoverageFixture(),result=runCoverageConsumer(root)
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   expect(readdirSync(join(root,'coverage'))).toEqual(['coverage-final.json'])
+  expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
+  expect(existsSync(join(root,'coverage/canary-voice-owner'))).toBe(false)
   const coverage=JSON.parse(readFileSync(join(root,'coverage/coverage-final.json'),'utf8'))
   expect(coverage.stale).toBeUndefined()
   expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].f).toEqual({'0':13})
@@ -305,6 +324,20 @@ test('actual_coverage_runner_preserves_foreign_pending_collision_marker',()=>{
   expect(pending).toHaveLength(1)
   expect(readFileSync(join(root,'coverage',pending[0]!),'utf8')).toBe('foreign pending marker')
 },25000)
+
+test('actual_coverage_runner_retains_its_producer_after_a_forced_phase_timeout',()=>{
+  const root=nativeCoverageFixture(),preload=join(root,'phase-timeout-preload.mjs')
+  writeFileSync(preload,"import {existsSync} from 'node:fs';const original=setTimeout;globalThis.setTimeout=(callback,delay,...args)=>{if(delay!==600000)return original(callback,delay,...args);const watcher=setInterval(()=>{if(existsSync('phase-owned-child.txt')){clearInterval(watcher);callback(...args)}},20);const deadline=original(()=>clearInterval(watcher),delay);deadline.unref();return watcher};\n")
+  writeFileSync(join(root,'tests/ordinary.test.ts'),"import {test} from 'vitest';import {spawn} from 'node:child_process';import {writeFileSync} from 'node:fs';test('owned blocked consumer',()=>{const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});writeFileSync('phase-owned-child.txt',String(child.pid));return new Promise(()=>{});},300000);\n")
+  const result=runCoverageConsumer(root,preload)
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
+  expect(result.stderr).toContain('consumer resource cleanup is unconfirmed')
+  expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
+  expect(existsSync(join(root,'coverage/canary-voice-owner'))).toBe(true)
+  expect(existsSync(join(root,'canary-voice-retired.txt'))).toBe(false)
+  const pid=Number(readFileSync(join(root,'phase-owned-child.txt'),'utf8'))
+  expect(()=>process.kill(pid,0)).toThrow()
+},10000)
 
 test('actual_coverage_runner_retires_owned_pending_after_partial_write_failure',()=>{
   const root=nativeCoverageFixture(),preload=join(root,'coverage/partial-write-preload.mjs')

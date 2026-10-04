@@ -1,0 +1,313 @@
+{
+  "repository": "LouisVannobel/projetV0-voice",
+  "commit": "9b79ddd69095e7d8c6995e0a88a4e78a16c166c3",
+  "tree": "e52035d2a8a68dfa9ae0c23a1266d830f286e07d",
+  "owned_ref": "refs/heads/z/sparra-voice-pilot",
+  "input_roots": [
+    ".python-version",
+    "pyproject.toml",
+    "uv.lock",
+    "README.md",
+    "src",
+    "scripts",
+    "agents",
+    "deployment-profiles"
+  ],
+  "archive_sha256": "f65128d7e53f9c2cd962f2665e22396082619f49a869db43dcd76c33787604da",
+  "archive_size": 249254,
+  "decoded_source_bytes": 1172185,
+  "members": [
+    {
+      "path": ".python-version",
+      "size": 8,
+      "git_blob": "4de75f8d77a3e872d8883636a5d65deefb47fbe6",
+      "sha256": "861b3dd8083d28f336ef70f6755bc399538ddad627b1d095820ca34cb953cf14"
+    },
+    {
+      "path": "README.md",
+      "size": 2608,
+      "git_blob": "82ea15af33ac6708fdff94973146f9ef130de87e",
+      "sha256": "9c4d02d7903f2320d200ae360763a4323b1cf4e91c454cfa9ce5d5903b03604a"
+    },
+    {
+      "path": "agents/agent-a/manifest.yaml",
+      "size": 741,
+      "git_blob": "fb1f5c2b635516bbb75550f151514a40ae7f5749",
+      "sha256": "4caad89fbd75035a38e68c7e26e22a50d7f008fdfded4c6f71fec25b34e22678"
+    },
+    {
+      "path": "agents/agent-a/prompt.md",
+      "size": 174,
+      "git_blob": "2d435bed465b8711b45b9031c72bd2b8a181080b",
+      "sha256": "210527fd576efb854ec35c675c8dccb8cae3431c413af42fbbbd9d1dbfe1882d"
+    },
+    {
+      "path": "deployment-profiles/qualification-candidate-v1.schema.json",
+      "size": 5292,
+      "git_blob": "f1be76c5966cb2325aca34ba357595cd9d41b9e3",
+      "sha256": "79887c54403d8671cca5b02b43aaed958037a87fa98d8905218ff79079f79a82"
+    },
+    {
+      "path": "deployment-profiles/qualification-override-v1.schema.json",
+      "size": 1100,
+      "git_blob": "9fab4783fbf69154641118e76725e1fcaa259f88",
+      "sha256": "5ca4ced638abc489319105c4e3e7421412f89b6359fdc74941901af85ff89030"
+    },
+    {
+      "path": "deployment-profiles/qualified-v1.schema.json",
+      "size": 5080,
+      "git_blob": "780f035cca2676f49a46bc1bf9e929b77f8b2b1d",
+      "sha256": "1e36b9e16406ae6b911c4db835487b894a197805068d49927a59a58b00e44cce"
+    },
+    {
+      "path": "pyproject.toml",
+      "size": 1275,
+      "git_blob": "5c18938377f672d5d3174f966df5aa90482c6133",
+      "sha256": "807388220bc8419b45c4667e494869e7e6c71941487c992e7bcd2c74c7b5c209"
+    },
+    {
+      "path": "scripts/export_runtime_contract.py",
+      "size": 20893,
+      "git_blob": "211109d59757377ee9c361f1134611bf0a54fe7b",
+      "sha256": "c323e55884798652beaf713bee81dbe37ad0d05f0df2f9960c59e4f474134c0e"
+    },
+    {
+      "path": "src/projetv0_voice/__init__.py",
+      "size": 39,
+      "git_blob": "aef308fc7b9c203d404c4c0dd8ef732c80591956",
+      "sha256": "dc3da728f0ace85fc342d3e34efa40723bf0b602c775475b31b81398ea5782b0"
+    },
+    {
+      "path": "src/projetv0_voice/admission.py",
+      "size": 163051,
+      "git_blob": "1f50a3e9aef5ed22bdddc679b44dd14f388e3dbf",
+      "sha256": "3bf88064a30aa9799b9a03fa3a638f9c7d01d5d263127fc23a4fee1f6cc1291c"
+    },
+    {
+      "path": "src/projetv0_voice/app.py",
+      "size": 8979,
+      "git_blob": "35c9360ac2d85fed8a32d6edf6cd88b93c3476a2",
+      "sha256": "b076717ff2e12af8766d8d0cdd32aea905816eb9de17866040d9e4e046fcce72"
+    },
+    {
+      "path": "src/projetv0_voice/config.py",
+      "size": 7676,
+      "git_blob": "7aee119fe5bb4df8be1940d4ae2095f16eb1a244",
+      "sha256": "b5babea8176a5b62fb4183f14b802e0b9a3d39907fa62f0871736186fb74ad57"
+    },
+    {
+      "path": "src/projetv0_voice/crypto.py",
+      "size": 4165,
+      "git_blob": "11b40d6e006f445f54e2f00b9fcb0e5c7aaa25f7",
+      "sha256": "2020b84706a2da870940e2b786a286ee823d73b8aade0752f59c868f7659499f"
+    },
+    {
+      "path": "src/projetv0_voice/dependency_logging.py",
+      "size": 6508,
+      "git_blob": "dc46d30776ed2887de607b63babb80355117fb13",
+      "sha256": "484db1568258f39169951b169ba403b3bb378684315d3e83d6bbcde33d29c36d"
+    },
+    {
+      "path": "src/projetv0_voice/discovery/__init__.py",
+      "size": 214,
+      "git_blob": "f97e1a619b33c4b3539e972483dd3b010b7af24a",
+      "sha256": "65e9b8bcbb13d1f0a6a57a56696ab240cfdf94137182b2a27bf4aec16c8e931d"
+    },
+    {
+      "path": "src/projetv0_voice/discovery/telnyx_contract.py",
+      "size": 5229,
+      "git_blob": "fc8a8f7eb0c6bf06161aa8dac09c8e2c8e9b161e",
+      "sha256": "fe6fc35a5ce80f1827171b3a3cd0f0b0b21d723233e69676bf66db5de3bea700"
+    },
+    {
+      "path": "src/projetv0_voice/inference/__init__.py",
+      "size": 57,
+      "git_blob": "aacf4aee4cec7693b2c8906e0d5b68ea8602026c",
+      "sha256": "27305bf7dd471faf5a855d8355d2006a916240298cdf9dba5523cd59ecffc1e2"
+    },
+    {
+      "path": "src/projetv0_voice/inference/openrouter_tts.py",
+      "size": 8445,
+      "git_blob": "79d72991388addf4f5b51fbe11feb37bd94a5180",
+      "sha256": "faca3febeb2d8098e5e4ba44ecb81c445d7ecc7f9062e59516adacd44cbb64e3"
+    },
+    {
+      "path": "src/projetv0_voice/inference/services.py",
+      "size": 3093,
+      "git_blob": "12757dddfbe1ba7f497881f7e5b1433d6a10dd62",
+      "sha256": "7f859fd16931102b48fae74bce4f6b6a7db58306f58d5838e0982da1bae2ed92"
+    },
+    {
+      "path": "src/projetv0_voice/lifecycle.py",
+      "size": 85676,
+      "git_blob": "8c20c8a9500026d9bb913d561baa6d27076078f0",
+      "sha256": "1130dc8c8bfbbb3c79e3f9aaffba1304d7d74caffca7e00ead87a36cf4bcd982"
+    },
+    {
+      "path": "src/projetv0_voice/metrics.py",
+      "size": 24227,
+      "git_blob": "f15309f413767dfe69cdd32f5a83124d941f8525",
+      "sha256": "bea76975d6ee3f6a053b740fb172db8bf2865a389bc1e5e432ba5c89a8a93c88"
+    },
+    {
+      "path": "src/projetv0_voice/models.py",
+      "size": 22538,
+      "git_blob": "bc5efb8a7c287392fe45ba39eb3a642b258bf47e",
+      "sha256": "beb4fdca2ec35f36ad99b932232f56d46c62f050c823841424af6dd262b70263"
+    },
+    {
+      "path": "src/projetv0_voice/observability_bootstrap.py",
+      "size": 3623,
+      "git_blob": "f0df81c1e26d30eeedc507310c1a639b3f7b934d",
+      "sha256": "c12a9432f61cc9dad6aaab37d77339d1f66dc0b185fbc8a571f47f9b93a1daa5"
+    },
+    {
+      "path": "src/projetv0_voice/persistence/__init__.py",
+      "size": 54,
+      "git_blob": "4f1617de8ebda6a12b0e69d28f4420f309bd26f1",
+      "sha256": "713537865c9e0b74435d5a526b1935041c1adcbc5468fe8dea91630d33a61847"
+    },
+    {
+      "path": "src/projetv0_voice/persistence/business_contract.py",
+      "size": 2270,
+      "git_blob": "3c2802d728444ef77539270c9ddc82dcad8613b2",
+      "sha256": "925280826159cc5f076a8474888548b60b93bbcdcec1aecbd3b46f5a362bff0a"
+    },
+    {
+      "path": "src/projetv0_voice/persistence/business_result.py",
+      "size": 4218,
+      "git_blob": "7beac66b02ff6d504f421f34a75f95648dc95963",
+      "sha256": "9ad3dbed7c5c99ba5ee99ad06471b63171935c9f32a37f9fdc13eedd68e3b49b"
+    },
+    {
+      "path": "src/projetv0_voice/persistence/commands.py",
+      "size": 4740,
+      "git_blob": "0bcdf6684db3a0eca7ce1f749862d4715cb1abd7",
+      "sha256": "4def8e79668b93240ac3fac6b4327df85ae7928b19ad0bd625df2780f4a48da4"
+    },
+    {
+      "path": "src/projetv0_voice/persistence/postgres_sink.py",
+      "size": 28986,
+      "git_blob": "03b3836b20c63ce2b97ee94c4716d753aca73a34",
+      "sha256": "da697ea6a9d1c38ca6cf6811778e66e130d59595da852d787fbfbbdcd0141f35"
+    },
+    {
+      "path": "src/projetv0_voice/persistence/relay.py",
+      "size": 14381,
+      "git_blob": "2cd57f23c460c3ae3cf4d549d24204c0b6e95568",
+      "sha256": "2e7eaf3fc1cc849ac9bf9702d6a539878583e42cac39bff77deafebeb46ba45b"
+    },
+    {
+      "path": "src/projetv0_voice/persistence/schema.py",
+      "size": 3914,
+      "git_blob": "749e129677630a659a4e81c025724ee2274c9946",
+      "sha256": "0d5089519ba4aa74317c1cf16c58840bca14d563594fbbe402bae97e2d791e57"
+    },
+    {
+      "path": "src/projetv0_voice/persistence/writer.py",
+      "size": 117647,
+      "git_blob": "fa3ed0a24324dd40940b283163792bb376da45d3",
+      "sha256": "3d7210ccae1dd3ae228f9b48d43260a280e3d222e7b2346fa374fd2a16f1c012"
+    },
+    {
+      "path": "src/projetv0_voice/pipeline.py",
+      "size": 30809,
+      "git_blob": "f062b4fe0298d6b9e741877d4428cfaca86bdf3e",
+      "sha256": "81d2c38e86ea6f21c34915aeb26d48d1221ba32a02e05d068bb137a95722cde7"
+    },
+    {
+      "path": "src/projetv0_voice/production_wiring.py",
+      "size": 24372,
+      "git_blob": "57262c3c48e90eb58a3dff65d6f0bded23b70c94",
+      "sha256": "9624b8bff816c880fb57f1a6aabc4507981b95ffec1f17c6fb789eb7734ffed5"
+    },
+    {
+      "path": "src/projetv0_voice/qualified_profile.py",
+      "size": 17204,
+      "git_blob": "ad93d659dd21f95adbdb41ae76298e0636fc7730",
+      "sha256": "d25295a9eb04861ab2bf486d6a77b0d2346d2189b645b284abc72d01e260bd85"
+    },
+    {
+      "path": "src/projetv0_voice/runtime_config.py",
+      "size": 21950,
+      "git_blob": "0c21b009f8f7a0a78c25f5fae6092fe129f8b938",
+      "sha256": "2cbdd00f220acec0d556fd0afe2429afc36078b3637b0b3ecf1d9ce80bba7dbe"
+    },
+    {
+      "path": "src/projetv0_voice/server.py",
+      "size": 11938,
+      "git_blob": "b1eedca99b5c4c9bac31edb19486f5d9c8de395f",
+      "sha256": "e87d2ace8a6de81b94642beb630e9428e2b5cd49e0063f1a9a852d347571e3a7"
+    },
+    {
+      "path": "src/projetv0_voice/session.py",
+      "size": 70729,
+      "git_blob": "bdfaf185d9bc5ac28e3f8256b82349d6a435f4f7",
+      "sha256": "d653dd0bce267696fe2744df2bbb8d7c5dfdd4bf6683966dcbc298b946e17015"
+    },
+    {
+      "path": "src/projetv0_voice/session_factory.py",
+      "size": 26468,
+      "git_blob": "e38f3886b7406d81af7811fdfb637f8365bd5824",
+      "sha256": "043a8580ede76e18f285dcc1a1c88e542bc5bcd2f148112de11a76513cea4be0"
+    },
+    {
+      "path": "src/projetv0_voice/telnyx/__init__.py",
+      "size": 51,
+      "git_blob": "3c0f44ffa551cb191e066cb9dab81ca60cfa5fcc",
+      "sha256": "ce97d60f2c83bff280f1e5d410f34c17cc7ded80e7c18bab26915f3ebf5de0f1"
+    },
+    {
+      "path": "src/projetv0_voice/telnyx/call_control.py",
+      "size": 26170,
+      "git_blob": "7351d05c056e59a9f7a624c5487b6760ba0b3a66",
+      "sha256": "4fba1489b23b0b4860225953026636aa7a439c146a470ebd76ab47e2d841991d"
+    },
+    {
+      "path": "src/projetv0_voice/telnyx/frames.py",
+      "size": 1065,
+      "git_blob": "6010d2a0a1be2e3f710afb7852249e1e3596e38e",
+      "sha256": "ef20764e573fb0cccd4cd814d750a0d458e5cdafa9e40b269c706b4de2f8a50a"
+    },
+    {
+      "path": "src/projetv0_voice/telnyx/handshake.py",
+      "size": 22309,
+      "git_blob": "e48e3a7b3af3cbaca2d755a578ded0022aec30bd",
+      "sha256": "f867a8d61f1aad4e930da610877d5c925ee6c5adf5defe1416b456d903b85537"
+    },
+    {
+      "path": "src/projetv0_voice/telnyx/recordings.py",
+      "size": 44167,
+      "git_blob": "a27c1b8fcc2793057b94ca369db890d2dd219043",
+      "sha256": "ee8fd83f547d880ef7b8d46ca9437bf4bb9b58e70553a8f46bbe1b250712fbd6"
+    },
+    {
+      "path": "src/projetv0_voice/telnyx/serializer.py",
+      "size": 7288,
+      "git_blob": "04634dd7a56de00bed270e524950a0e5ff71c37e",
+      "sha256": "ba456866b8dffe92f263f64cdba7cf421e14a00c87c933743b85b0b08acce118"
+    },
+    {
+      "path": "src/projetv0_voice/telnyx/webhooks.py",
+      "size": 35622,
+      "git_blob": "4b37b883ec76bc37b0822050e75762d39194deac",
+      "sha256": "c3356ffb5d2f990b68b39b8b37f2950714d1121daa5de7e242ad4661360cbba9"
+    },
+    {
+      "path": "uv.lock",
+      "size": 275142,
+      "git_blob": "a64586d4fb6c7177f891080833610f1d332eba66",
+      "sha256": "111f85fcd0c95e3dbd5e5a0d1700c1a22da57e60e71708b88db8c978d9536fa5"
+    }
+  ],
+  "source_scope": "selected complete native producer input closure, not full Git repository tree",
+  "decoded_secret_scan": {
+    "tool": "Gitleaks8.30.1",
+    "official_archive_sha256": "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb",
+    "decoded_tree_bytes": 1172185,
+    "report_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "findings": 0,
+    "scope": "import artifact decoded bytes; future CI enforcement stillrequired"
+  },
+  "linux_consumer_qualification": "unperformed"
+}
