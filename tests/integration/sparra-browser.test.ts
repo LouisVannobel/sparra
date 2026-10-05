@@ -104,6 +104,10 @@ test('compiled private inbox creates only by POST, saves knowledge across restar
     expect(await page.locator('[data-configuration-snapshot]').textContent()).toContain('Vidange sur rendez-vous')
     await page.getByText('Partial summary',{exact:true}).waitFor()
     await page.getByText('Partial transcript: 1 unavailable turns.',{exact:true}).waitFor()
+    await expect.poll(()=>page.getByRole('button',{name:'Mark as treated',exact:true}).isEnabled()).toBe(true)
+    await expect.poll(()=>page.getByRole('button',{name:'Erase this call',exact:true}).isEnabled()).toBe(true)
+    await expect.poll(()=>page.getByRole('button',{name:'Mark as treated',exact:true}).evaluate(button=>getComputedStyle(button).opacity)).toBe('1')
+    await expect.poll(()=>page.getByRole('button',{name:'Erase this call',exact:true}).evaluate(button=>getComputedStyle(button).opacity)).toBe('1')
     const detailAxe=await new AxeBuilder({page}).analyze();expect(detailAxe.violations).toEqual([])
     await page.screenshot({path:'.output/test-evidence/sparra/detail-en-320.png',fullPage:true})
     const treatPath=await authRpcPath('markRequestTreated'),erasePath=await authRpcPath('eraseRequest'),erasures:string[]=[]
