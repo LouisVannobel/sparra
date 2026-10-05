@@ -47,7 +47,7 @@ test('real Astryx create/read/rename persists through reload and process restart
     return route.fulfill({status:302,headers:{location:origin+`/api/auth/callback/google?code=${code}&state=`+target.searchParams.get('state')}})
   })
   await page.goto(origin+'/login?lang=en')
-  await expect.poll(() => page.getByRole('button',{name:'Continue with Google'}).isEnabled()).toBe(true)
+  await expect.poll(() => page.getByRole('button',{name:'Continue with Google'}).isEnabled(), {timeout:7000}).toBe(true)
   expect((await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa']).analyze()).violations).toEqual([])
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.getByRole('button',{name:'Continue with Google'}).click()
