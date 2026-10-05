@@ -204,6 +204,6 @@ export async function inspectMigrationArchive(path,imageId,expectedManifest,expe
   assertMigrationFiles(actualFiles,expectedManifest,expectedFiles)
   const subject=spdx.packages?.find(item=>item.primaryPackagePurpose==='CONTAINER')
   if(subject?.annotations?.some(item=>typeof item.comment!=='string'))fail()
-  bindWebSbom(spdx,configId,config.rootfs.diff_ids)
+  bindWebSbom(spdx,configId,config.rootfs.diff_ids,imageId)
   return {configId,diffIds:config.rootfs.diff_ids}
 }

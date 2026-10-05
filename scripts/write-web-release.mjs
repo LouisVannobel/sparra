@@ -19,7 +19,7 @@ try {
   const identity=webImageIdentity(await readFile(args[9]),await readFile(args[11]),local,reference,commit)
   const sbom=await readFile(join(directory,'sbom.spdx.json'))
   if(sbom.length>67108864)throw Error()
-  bindWebSbom(JSON.parse(sbom.toString('utf8')),identity.config_digest,identity.diff_ids)
+  bindWebSbom(JSON.parse(sbom.toString('utf8')),identity.config_digest,identity.diff_ids,reference.split('@')[1])
   const wanted=await webSourceManifest()
   container=await docker(['create','--name','sparra-web-source-'+run,'--label',label+'='+run,'--network','none','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges','--entrypoint','node',reference,'-e',"process.stdout.write(require('node:fs').readFileSync('/app/web-source-manifest.json','utf8'))"])
   if(!/^[0-9a-f]{64}$/.test(container))throw Error()
