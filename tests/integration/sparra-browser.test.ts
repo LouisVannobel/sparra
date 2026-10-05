@@ -76,7 +76,7 @@ test('compiled private inbox creates only by POST, saves knowledge across restar
     expect(await recording.isDisabled()).toBe(true)
     // Retained ON policies are seeded through the native owner RPC, never enabled by this pilot UI.
     expect((await rpc(context,'saveActivity',{expectedRevision:0,businessName:'Garage persisted',sector:'garage',knowledge:{openingHours:'',services:'Vidange sur rendez-vous',prices:'',faq:'',instructions:''},transferDestination:null,recordingEnabled:true})).status()).toBe(200)
-    await page.reload();expect(await recording.isChecked()).toBe(true);expect(await recording.isDisabled()).toBe(false)
+    await page.reload();expect(await recording.isChecked()).toBe(true);await expect.poll(()=>recording.isDisabled()).toBe(false)
     const editorAxe=await new AxeBuilder({page}).analyze();expect(editorAxe.violations).toEqual([])
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
     await page.screenshot({path:'.output/test-evidence/sparra/business-en-320.png',fullPage:true})
@@ -264,12 +264,12 @@ test('unknown and foreign receipts reveal no private data; revoked native sessio
 },30000)
 
 test('native loader and mutation cancellation witness blocked Workspace and reconcile cancelled committed completion in the editor',async()=>{
-  const {context,page}=await signedIn('sparra-owner'),blocker=new Client({connectionString:stores.directRuntimeUrl})
+  const {context,page}=await signedIn('sparra-cancellation-owner'),blocker=new Client({connectionString:stores.directRuntimeUrl})
   await page.goto(origin+'/app/entreprise?lang=en')
   if(await page.getByRole('button',{name:'Create my workspace'}).count()){
     await page.getByRole('button',{name:'Create my workspace'}).click();await page.getByRole('textbox',{name:/^Business name/}).fill('Cancellation fixture');await page.getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
   }
-  const workspace=(await stores.administrator.query('SELECT id FROM workspace WHERE owner_user_id=(SELECT id FROM "user" WHERE email=$1)',['sparra-owner@example.test'])).rows[0]
+  const workspace=(await stores.administrator.query('SELECT id FROM workspace WHERE owner_user_id=(SELECT id FROM "user" WHERE email=$1)',['sparra-cancellation-owner@example.test'])).rows[0]
   const savePath=await authRpcPath('saveActivity'),readPath=await authRpcPath('getActivity'),cancelled:string[]=[]
   page.on('requestfailed',r=>{if(r.url().includes('/_serverFn/'))cancelled.push(new URL(r.url()).pathname)})
   const blocked=()=>stores.administrator.query("SELECT pid FROM pg_stat_activity WHERE wait_event_type='Lock' AND (query LIKE 'SELECT app_private.resolve_personal_workspace%' OR query LIKE '%from \"workspace\"%for update')")
@@ -341,7 +341,7 @@ test('pilot audio prevents enabling OFF and lets a saved ON policy be corrected 
     expect((await rpc(context,'saveActivity',initial)).status()).toBe(200)
     await page.reload()
     expect(await recording.isChecked()).toBe(true)
-    expect(await recording.isDisabled()).toBe(false)
+    await expect.poll(()=>recording.isDisabled()).toBe(false)
     expect(await page.getByRole('button',{name:'Save',exact:true}).isDisabled()).toBe(true)
     await page.getByRole('alert').filter({hasText:'This audio setting prevents new calls'}).waitFor()
     const before=(await stores.administrator.query('SELECT max(revision)::int revision FROM sparra_knowledge_revision WHERE workspace_id=(SELECT id FROM workspace WHERE owner_user_id=(SELECT id FROM "user" WHERE email=$1))',['sparra-audio-presentation-guard@example.test'])).rows[0].revision
