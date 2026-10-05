@@ -18,7 +18,7 @@ type StartupProxyRequest = {
 let startupProxyCapture: { requests: StartupProxyRequest[]; droppedRequests: number; detach: (() => void)[] } | undefined
 beforeAll(async () => {
   stores = await startDisposableStores(); await stores.migrate()
-  const port = await unusedLoopbackPort(); origin = `http://localhost:${port}`
+  const port = await unusedLoopbackPort(); origin = `http://127.0.0.1:${port}`
   app = startWeb({ NODE_ENV: 'test', APP_ORIGIN: origin, DATABASE_URL: stores.runtimeUrl, REDIS_URL: stores.redisUrl,
     RATE_LIMIT_HMAC_SECRET: stores.hmac, RATE_LIMIT_KEY_ID: 'marketing-browser', TRUSTED_PROXY_IPS: '127.0.0.2',
     AUTH_SECRET: randomBytes(48).toString('hex'), REQUEST_TIMEOUT_MS: '10000' })
