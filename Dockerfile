@@ -14,7 +14,14 @@ COPY drizzle ./drizzle
 RUN pnpm run build && node scripts/migration-source-manifest.mjs --write && node scripts/web-source-manifest.mjs --write
 
 FROM builder AS migration-dependencies
-RUN --network=none sha256sum pnpm-lock.yaml > /tmp/lock.sha256 && pnpm prune --prod && sha256sum -c /tmp/lock.sha256
+# The native Node migrator never invokes Drizzle Kit's retained esbuild compilers.
+RUN --network=none sha256sum pnpm-lock.yaml > /tmp/lock.sha256 && pnpm prune --prod \
+    && rm -f \
+      /app/node_modules/.pnpm/@esbuild+linux-x64@0.18.20/node_modules/@esbuild/linux-x64/bin/esbuild \
+      /app/node_modules/.pnpm/esbuild@0.18.20/node_modules/esbuild/bin/esbuild \
+      /app/node_modules/.pnpm/@esbuild+linux-x64@0.25.12/node_modules/@esbuild/linux-x64/bin/esbuild \
+      /app/node_modules/.pnpm/esbuild@0.25.12/node_modules/esbuild/bin/esbuild \
+    && sha256sum -c /tmp/lock.sha256
 
 FROM node:24.14.0-bookworm-slim@sha256:4bd6219054c8bebcd26a66bfd8ca0bd6e1024b4b97474c59bb7ee3bbcbef4fe8 AS runtime-base
 RUN apt-get update \
