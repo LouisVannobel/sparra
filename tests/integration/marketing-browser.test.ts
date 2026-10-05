@@ -187,9 +187,7 @@ async function observeDemoStartup(page: Page): Promise<(emit?: boolean) => Promi
     if (!row) return
     row.completion = 'failed'
     const errorText = request.failure()?.errorText
-    row.failure = errorText === undefined ? null : ['net::ERR_ABORTED', 'net::ERR_FAILED', 'net::ERR_BLOCKED_BY_CLIENT', 'net::ERR_BLOCKED_BY_RESPONSE',
-      'net::ERR_CONNECTION_RESET', 'net::ERR_CONNECTION_CLOSED', 'net::ERR_CONNECTION_REFUSED', 'net::ERR_EMPTY_RESPONSE', 'net::ERR_TIMED_OUT',
-      'net::ERR_CONTENT_LENGTH_MISMATCH', 'net::ERR_TOO_MANY_RETRIES', 'net::ERR_INSUFFICIENT_RESOURCES'].find(value => value === errorText) ?? 'other'
+    row.failure = errorText === undefined ? null : /^net::ERR_[A-Z0-9_]{1,64}$/.exec(errorText)?.[0] === errorText ? errorText : 'other'
   }
   const pageError = (error: Error) => {
     if (errors.length >= 16) { droppedErrors++; return }
