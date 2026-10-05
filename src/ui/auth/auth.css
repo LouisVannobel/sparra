@@ -1,28 +1,38 @@
 @import '@astryxdesign/core/reset.css';
 @import '@astryxdesign/core/astryx.css';
 @import '@astryxdesign/theme-neutral/theme.css';
+@import '../sparra/sparra.css';
 
-html { font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color-scheme: light; }
-body { margin: 0; background: var(--color-background-body); color: var(--color-text-primary); font-family: inherit; }
-body, [data-astryx-theme] { --font-family-body: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; --font-family-heading: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
-.auth-language { display: flex; justify-content: flex-end; gap: 1rem; padding: 1.25rem; }
+html { font-family: 'Sparra UI', Arial, sans-serif; color-scheme: light; }
+body { margin: 0; background: #fff; color: #000; font-family: inherit; }
+body, [data-astryx-theme] { --font-family-body: 'Sparra UI', Arial, sans-serif; --font-family-heading: 'Sparra Display', Arial, sans-serif; }
+.auth-language { display: flex; justify-content: flex-end; gap: .5rem; padding: 1rem 1.5rem; border-bottom: 1px solid #e5e4e2; font-size: .8125rem; }
 .auth-language a { color: var(--color-text-primary); text-underline-offset: .25em; padding: .4rem; }
-.auth-language [aria-current] { font-weight: 700; }
-.auth-content { max-width: 28rem; margin: clamp(2rem, 12vh, 7rem) auto; padding: 0 1.25rem; display: flex; flex-direction: column; align-items: flex-start; gap: 1.5rem; overflow-wrap: anywhere; }
-.auth-content h1 { font-family: inherit; font-size: 2rem; line-height: 1.2; }
+.auth-language [aria-current] { font-weight: 600; text-decoration-color: #000; }
+.auth-content { --color-accent: #000; --color-on-accent: #fff; --color-neutral: #f2f1ef; --color-text-primary: #000; --color-text-secondary: #4d4d4d; --color-border-emphasized: #949494; --radius-element: 8px; box-sizing: border-box; width: 100%; max-width: 30rem; margin: clamp(2.5rem, 8vh, 6rem) auto; padding: 0 1.5rem 2.5rem; display: flex; flex-direction: column; align-items: flex-start; gap: 1.5rem; overflow-wrap: anywhere; font-size: .875rem; }
+.auth-content *, .auth-content *::before, .auth-content *::after { box-sizing: border-box; }
+.auth-content h1 { margin: 0; font: 500 clamp(2rem, 4vw, 2.5rem)/1.15 'Sparra Display', Arial, sans-serif; letter-spacing: -.03em; }
+.auth-heading { display: grid; gap: .75rem; width: 100%; margin-bottom: .5rem; }
+.auth-heading > p { color: #4d4d4d; }
+.auth-content .auth-brand { font: 600 2rem/1 'Sparra Display', Arial, sans-serif; letter-spacing: -.055em; text-decoration: none; margin-bottom: .5rem; }
 .auth-content p, .auth-content dl { line-height: 1.6; margin: 0; }
 .auth-content dd { margin: .25rem 0 0; }
-.auth-content button { min-height: 44px; max-width: 100%; white-space: normal; }
-.google-sign-in-row { display: flex; align-items: center; gap: .75rem; }
-.auth-content .google-sign-in { width: 44px; height: 44px; min-width: 44px; padding: 2px; border: 0; border-radius: 4px; background: none; box-shadow: none; }
-.google-sign-in img { display: block; max-width: none; }
+.auth-content button { min-height: 44px; height: auto; max-width: 100%; white-space: normal; font: 500 .875rem/1.5 'Sparra UI', Arial, sans-serif; padding: .7rem 1rem; }
+.auth-content .google-sign-in { width: 100%; min-height: 48px; padding: .65rem 1rem; border: 1px solid #949494; border-radius: 8px; background: #fff; color: #000; box-shadow: none; }
+.google-sign-in img { display: block; width: 28px; height: 28px; max-width: none; }
 .auth-content [role=alert] { color: var(--color-text-primary); border-inline-start: 3px solid currentColor; padding-inline-start: .75rem; }
 a:focus-visible, button:focus-visible { outline: 3px solid var(--color-text-primary); outline-offset: 4px; }
 .workspace-form { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 1.25rem; }
+.auth-content .astryx-text-input { min-height: 44px; }
 .auth-content a { color: var(--color-text-primary); text-underline-offset: .25em; }
 .auth-form { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 1.25rem; }
+.auth-screen > [role=status] { width: 100%; padding: 1rem; border-radius: 8px; background: #f7f6f5; color: #4d4d4d; }
+.auth-screen > .auth-form { border-top: 1px solid #e5e4e2; padding-top: 1.5rem; }
+.auth-screen > .auth-form > button { width: 100%; }
+.auth-login > .auth-form { border-top: 1px solid #e5e4e2; padding-top: 1.5rem; }
+.auth-login > .auth-form > button, .auth-login .passkey-sign-in > button { width: 100%; }
 .passkey-sign-in { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 1rem; }
-.passkey-sign-in h2 { margin: 0; font: inherit; font-weight: 700; }
+.passkey-sign-in h2 { margin: 0; font: inherit; font-weight: 600; }
 .auth-email-input { box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px; padding: .65rem .75rem; font: inherit; color: var(--color-text-primary); background: var(--color-background-surface); border: 1px solid var(--color-border-emphasized); border-radius: var(--radius-element); }
 .auth-email-input:focus-visible { outline: 3px solid var(--color-text-primary); outline-offset: 3px; }
 .auth-email-input[aria-invalid=true] { border-color: var(--color-text-primary); border-width: 2px; }
@@ -31,11 +41,11 @@ a:focus-visible, button:focus-visible { outline: 3px solid var(--color-text-prim
 .additional-passkey li { overflow-wrap: anywhere; }
 .additional-passkey time { white-space: nowrap; }
 .auth-google-account { display: grid; gap: 1rem; min-width: 0; width: 100%; }
-.auth-google-account h2 { margin: 0; font: inherit; font-weight: 700; }
+.auth-google-account h2 { margin: 0; font: inherit; font-weight: 600; }
 .auth-google-account-actions { display: flex; flex-wrap: wrap; gap: .75rem; }
 .auth-google-account [tabindex="-1"]:focus { outline: 2px solid var(--color-text-primary); outline-offset: 4px; }
 .auth-sessions { display: grid; gap: 1rem; min-width: 0; width: 100%; }
-.auth-sessions h2, .auth-sessions h3 { margin: 0; font: inherit; font-weight: 700; }
+.auth-sessions h2, .auth-sessions h3 { margin: 0; font: inherit; font-weight: 600; }
 .auth-session-actions { display: flex; flex-wrap: wrap; gap: .75rem; }
 .auth-session-list { display: grid; gap: 1.25rem; list-style: none; padding: 0; margin: 0; }
 .auth-session-list li { display: grid; gap: .75rem; min-width: 0; padding-block: 1rem; border-block-start: 1px solid var(--color-border-emphasized); }
@@ -44,3 +54,16 @@ a:focus-visible, button:focus-visible { outline: 3px solid var(--color-text-prim
 .auth-session-list dd { margin: 0; overflow-wrap: anywhere; }
 .auth-sessions [tabindex="-1"]:focus { outline: 2px solid var(--color-text-primary); outline-offset: 4px; }
 @media (max-width: 360px) { .auth-session-list dl > div { grid-template-columns: minmax(0, 1fr); gap: .125rem; } }
+.auth-account { max-width: 48rem; gap: 2rem; }
+.auth-account-summary { width: 100%; display: grid; gap: 1.5rem; }
+.auth-account-summary dt { color: #4d4d4d; font-size: .8125rem; }
+.auth-account > section { margin: 0; border-top: 1px solid #e5e4e2; padding-top: 2rem; }
+.auth-account > section h2 { margin: 0; font: 500 1.375rem/1.25 'Sparra Display', Arial, sans-serif; letter-spacing: -.015em; }
+.additional-passkey ul { padding-inline-start: 1.25rem; margin: 0; line-height: 1.7; }
+.auth-session-list li { border-color: #e5e4e2; }
+.auth-session-list dt { color: #4d4d4d; }
+.auth-back { font-size: .8125rem; }
+.auth-workspace [data-workspace-name] { width: 100%; border-left: 4px solid #edfc47; padding: .75rem 1rem; background: #f7f6f5; border-radius: 0 8px 8px 0; font-weight: 500; }
+@media (max-width: 600px) { .auth-language { padding: .75rem 1rem; } .auth-content { margin-block: 2rem; padding-inline: 1.25rem; } .auth-account { gap: 1.5rem; } .auth-account > section { padding-top: 1.5rem; } .auth-session-list dl > div { grid-template-columns: minmax(0, 1fr); gap: .125rem; } }
+.sparra-app-content > .auth-content { margin: 0; padding: 0; }
+.sparra-app .auth-session-list dl > div { padding: 0; border: 0; }

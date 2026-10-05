@@ -7,6 +7,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { chromium, type Browser } from 'playwright'
+import { assertAuthScreenAccessibility } from '../helpers/auth-screen-accessibility'
 import { startDisposableStores, startDisposableHatchet } from '../fixtures/db/disposable-stores'
 import { startMailHttpPeer } from '../fixtures/mail-http'
 import { startWeb, bounded, unusedLoopbackPort } from '../helpers/web-process'
@@ -348,6 +349,7 @@ for (const [mode, name] of [
     // Never pass a delivered URL/token into a Playwright command or error.
     await receivePage.goto(peer.mailboxUrl, { waitUntil: 'domcontentloaded' })
     await receivePage.getByRole('textbox', { name: /^Email address/ }).waitFor()
+    await assertAuthScreenAccessibility(receivePage)
     expect(await receivePage.evaluate(() => Reflect.get(window, '__magicFirstRouterClean') === true && location.hash === '' && location.pathname === '/auth/magic/confirm')).toBe(true)
     evidence.firstRouterClean = true
     expect(peer.hasMailFor(email)).toBe(false)
@@ -397,6 +399,8 @@ for (const [mode, name] of [
       expect((await stores.administrator.query("SELECT state='active' AND verifier_hash IS NOT NULL AS usable FROM email_delivery")).rows[0].usable).toBe(true)
       evidence.noIdentityBeforeEnrollment = true
       stage = 'explicit browser enrollment control'
+      await expect.poll(() => receivePage.getByRole('button', { name: 'Create a passkey', exact: true }).isEnabled()).toBe(true)
+      await assertAuthScreenAccessibility(receivePage)
       await receivePage.getByRole('button', { name: 'Create a passkey', exact: true }).click()
       if (mode === 'denial') {
         await receivePage.getByRole('alert').filter({ hasText: 'It may have been cancelled, declined, or timed out.' }).waitFor()
@@ -445,7 +449,7 @@ for (const [mode, name] of [
     }
     if (mode === 'signup') {
       stage = 'first personal Workspace consumer'
-      await receivePage.getByRole('link', { name: 'My personal workspace', exact: true }).click()
+      await receivePage.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Workspace', exact: true }).click()
       await receivePage.getByRole('button', { name: 'Create my workspace', exact: true }).click()
       await receivePage.getByRole('textbox', { name: /^Display name/ }).waitFor()
       expect((await stores.administrator.query('SELECT count(*)::int AS n FROM workspace')).rows[0].n).toBe(1)

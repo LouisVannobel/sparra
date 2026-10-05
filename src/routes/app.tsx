@@ -1,4 +1,5 @@
 import { createFileRoute, Outlet, redirect } from '@tanstack/react-router'
+import { Heading } from '@astryxdesign/core/Heading'
 import { getWorkspace } from '../modules/workspaces/workspace.functions'
 import { appMessages } from '../modules/sparra/messages'
 import { AppShell, PrivateUnavailable, privateResult } from '../ui/sparra/app-shell'
@@ -11,8 +12,8 @@ export const Route=createFileRoute('/app')({
     catch(error){if(error instanceof Response&&error.status===401)throw redirect({to:'/login',search:{lang:deps.lang,error:undefined}});throw new Error('Private workspace unavailable')}
   },
   head:()=>({links:[{rel:'stylesheet',href:stylesheet}]}),
-  component:()=>{const {lang}=Route.useSearch();return <AppShell locale={lang}><Outlet/></AppShell>},
-  errorComponent:()=>{const {lang}=Route.useSearch();return <AppShell locale={lang}><PrivateUnavailable locale={lang}/></AppShell>},
+  component:function App(){const {lang}=Route.useSearch();return <AppShell locale={lang}><Outlet/></AppShell>},
+  errorComponent:function AppUnavailable(){const {lang}=Route.useSearch();return <AppShell locale={lang}><PrivateUnavailable locale={lang}/></AppShell>},
   pendingMs:150,pendingMinMs:150,
-  pendingComponent:()=>{const {lang}=Route.useSearch();return <AppShell locale={lang}><p role="status">{appMessages[lang].loading}</p></AppShell>},
+  pendingComponent:function AppLoading(){const {lang}=Route.useSearch();return <AppShell locale={lang}><section className="sparra-app-state"><Heading level={1}>{appMessages[lang].inbox}</Heading><p role="status">{appMessages[lang].loading}</p></section></AppShell>},
 })

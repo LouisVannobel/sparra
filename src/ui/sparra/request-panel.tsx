@@ -54,12 +54,12 @@ function RequestSummary({locale,detail}:{locale:Locale;detail:RequestDetailDto})
 
 function RequestTranscript({locale,detail}:{locale:Locale;detail:RequestDetailDto}){
   const t=appMessages[locale]
-  return <section><Heading level={2}>{t.transcript}</Heading>{detail.transcriptAvailability==='unavailable'&&<p>{t.transcriptUnavailable}</p>}{detail.transcriptAvailability==='partial'&&<p>{t.transcriptPartial}: {detail.unavailableTurnCount} {t.unavailableTurns}.</p>}{detail.transcriptLossCount>0&&<p>{detail.transcriptLossCount} {t.lostTurns}.</p>}{detail.moreTurns&&<p>{t.moreTurns}</p>}<ol className="sparra-call-transcript">{detail.transcript.map(turn=><li key={turn.id}><p><strong>{turn.role==='user'?t.caller:t.assistant}</strong>{turn.interrupted?` — ${t.interrupted}`:''}</p><p>{turn.text}</p></li>)}</ol></section>
+  return <section className="sparra-request-conversation"><Heading level={2}>{t.transcript}</Heading>{detail.transcriptAvailability==='unavailable'&&<p>{t.transcriptUnavailable}</p>}{detail.transcriptAvailability==='partial'&&<p>{t.transcriptPartial}: {detail.unavailableTurnCount} {t.unavailableTurns}.</p>}{detail.transcriptLossCount>0&&<p>{detail.transcriptLossCount} {t.lostTurns}.</p>}{detail.moreTurns&&<p>{t.moreTurns}</p>}<ol className="sparra-call-transcript">{detail.transcript.map(turn=><li key={turn.id}><p><strong>{turn.role==='user'?t.caller:t.assistant}</strong>{turn.interrupted?` — ${t.interrupted}`:''}</p><p>{turn.text}</p></li>)}</ol></section>
 }
 
 function RequestConfigurationSnapshot({locale,configuration}:{locale:Locale;configuration:RequestDetailDto['configuration']}){
   const t=appMessages[locale],a=activityMessages[locale]
-  return <section data-configuration-snapshot><Heading level={2}>{t.snapshot}</Heading>{configuration?<><p>{configuration.businessName} — {t.version} {configuration.revision}</p><dl>{(['openingHours','services','prices','faq','instructions'] as const).map(field=><div key={field}><dt>{a[field]}</dt><dd>{configuration.knowledge[field]||'—'}</dd></div>)}</dl></>:<p>{t.noSnapshot}</p>}</section>
+  return <section className="sparra-request-knowledge" data-configuration-snapshot><Heading level={2}>{t.snapshot}</Heading>{configuration?<><p>{configuration.businessName} — {t.version} {configuration.revision}</p><dl>{(['openingHours','services','prices','faq','instructions'] as const).map(field=><div key={field}><dt>{a[field]}</dt><dd>{configuration.knowledge[field]||'—'}</dd></div>)}</dl></>:<p>{t.noSnapshot}</p>}</section>
 }
 
 export function RequestPanel({locale,loaded,onTreat,onErase,onRefused}:Props){
@@ -68,13 +68,15 @@ export function RequestPanel({locale,loaded,onTreat,onErase,onRefused}:Props){
   const [refused,setRefused]=useState(false)
   function mutate(kind:'treat'|'erase'){return performRequestAction(kind,current,begin,onTreat,onErase,{setCurrent,setPending,setFailed,setRefused,onRefused})}
   const detail=current.detail
-  if(refused)return <PrivateUnavailable locale={locale}/>
-  return <><a href={`/app?lang=${locale}`}>{t.inbox}</a><Heading level={1}>{t.details}</Heading>
+  if(refused)return <PrivateUnavailable locale={locale} title={t.details}/>
+  return <><a className="sparra-back-link" href={`/app?lang=${locale}`}>{t.inbox}</a><div className="sparra-page-heading"><Heading level={1}>{t.details}</Heading></div>
     {current.receipt?<p role="status">{current.receipt.state==='queued'?t.queued:t.completed}</p>:detail&&<>
-      <p>{t.status[detail.status]}</p><p>{t.admitted}: <time dateTime={detail.admittedAt}>{observedDate(detail.admittedAt,locale)}</time></p><p>{detail.endedAt?`${t.ended}: ${observedDate(detail.endedAt,locale)}`:t.noEnd}</p>
+      <div className="sparra-request-meta"><p>{t.status[detail.status]}</p><p>{t.admitted}: <time dateTime={detail.admittedAt}>{observedDate(detail.admittedAt,locale)}</time></p><p>{detail.endedAt?`${t.ended}: ${observedDate(detail.endedAt,locale)}`:t.noEnd}</p></div>
+      <div className="sparra-call-workspace">
       <RequestSummary locale={locale} detail={detail}/>
       <RequestTranscript locale={locale} detail={detail}/>
       <RequestConfigurationSnapshot locale={locale} configuration={detail.configuration}/>
+      </div>
       <div className="sparra-request-actions">{detail.treatedAt?<p role="status">{t.treated}</p>:<Button label={t.treat} isDisabled={!hydrated||pending} onClick={()=>void mutate('treat')}/>}
       {!confirm?<Button label={t.erase} isDisabled={!hydrated||pending} onClick={()=>setConfirm(true)}/>:<div><p>{t.eraseWarning}</p><Button label={t.confirmErase} isDisabled={pending} onClick={()=>void mutate('erase')}/><Button label={t.cancel} isDisabled={pending} onClick={()=>setConfirm(false)}/></div>}</div>
     </>}{pending&&<p role="status">{t.pending}</p>}{failed&&<p role="alert">{t.unavailable}</p>}

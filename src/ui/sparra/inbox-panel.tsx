@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useHydrated } from '@tanstack/react-router'
 import { Heading } from '@astryxdesign/core/Heading'
 import { Button } from '@astryxdesign/core/Button'
+import { Icon } from '@astryxdesign/core/Icon'
 import type { ActivityState, ListRequestsInput, ListRequestsPage } from '../../modules/sparra/sparra.functions'
 import { appMessages, requestMessages } from '../../modules/sparra/messages'
 import type { Locale } from '../auth/messages'
@@ -14,6 +15,7 @@ export function mergeInboxPage(current: ListRequestsPage, next: ListRequestsPage
 }
 
 type Props={locale:Locale;state:ActivityState;page:ListRequestsPage;onMore(data:ListRequestsInput,signal:AbortSignal):Promise<ListRequestsPage|Response>;onRefused():Promise<void>}
+const descriptions={fr:'Les demandes de vos appelants, au même endroit.',en:'Your callers’ requests, in one place.'} as const
 type InboxPageEffects={setCurrent(page:ListRequestsPage):void;setPending(value:boolean):void;setFailed(value:boolean):void;setRefused(value:boolean):void;onRefused():Promise<void>}
 
 async function settleInboxFailure(error:unknown,live:()=>boolean,{setFailed,setRefused,onRefused}:Pick<InboxPageEffects,'setFailed'|'setRefused'|'onRefused'>){
@@ -40,11 +42,13 @@ export function InboxPanel({locale,state,page,onMore,onRefused}:Props){
   function more(){return loadInboxPage(current,begin,onMore,{setCurrent,setPending,setFailed,setRefused,onRefused})}
   if(refused)return <PrivateUnavailable locale={locale}/>
   const labels=requestMessages[locale]
-  return <><Heading level={1}>{t.inbox}</Heading>{!state.configuration&&<p><a href={`/app/entreprise?lang=${locale}`}>{t.configure}</a></p>}
-    {current.requests.length===0?<p>{t.noCalls}</p>:<ul className="sparra-inbox">{current.requests.map(request=><li key={request.id}>
+  return <><div className="sparra-page-heading"><Heading level={1}>{t.inbox}</Heading><p>{descriptions[locale]}</p></div>{!state.configuration&&<p className="sparra-setup-note"><a href={`/app/entreprise?lang=${locale}`}>{t.configure}</a></p>}
+    {current.requests.length===0?<div className="sparra-inbox-empty"><span className="sparra-empty-icon"><Icon icon="microphone" aria-hidden="true"/></span><p>{t.noCalls}</p></div>:<ul className="sparra-inbox">{current.requests.map(request=><li key={request.id}>
+      <div className="sparra-inbox-row-heading">
       <a href={`/app/demandes/${request.id}?lang=${locale}`}>{request.summary??t.summaryUnavailable}</a>
       <p><time dateTime={request.admittedAt}>{observedDate(request.admittedAt,locale)}</time></p>
-      <p>{t.status[request.status]}{request.treatedAt?` — ${t.treated}`:''}</p>
+      </div>
+      <p className="sparra-inbox-status">{t.status[request.status]}{request.treatedAt?` — ${t.treated}`:''}</p>
       {request.category&&<><strong>{labels.reason}</strong><p>{labels.category[request.category]}</p></>}
       {request.contact&&<>
         {request.contact.callback_e164&&<p>{request.contact.callback_e164}</p>}

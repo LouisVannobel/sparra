@@ -9,7 +9,7 @@ test('configured activity SSR preserves the observed revision, editor values and
   const state:ActivityState={workspace:{id:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',displayName:'Observed workspace'},configuration:{workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',revision:7,savedAt:'2026-10-01T10:00:00.000Z',businessName:'Observed inspection centre',sector:'controle-technique',knowledge:{openingHours:'09:00–17:00',services:'Vehicle inspection',prices:'80 euros',faq:'Bring the vehicle papers',instructions:'Ask before proceeding'},transferDestination:null}}
   for(const locale of ['fr','en'] as const){
     const html=renderToStaticMarkup(<ActivityPanel locale={locale} state={state} onEnsure={unavailable} onSave={unavailable} onRead={unavailable} onRefused={unavailable}/> )
-    expect(html).toContain('<p>'+(locale==='fr'?'Version enregistrée':'Saved version')+': 7</p>')
+    expect(html).toMatch(new RegExp('<p\\b[^>]*>'+(locale==='fr'?'Version enregistrée':'Saved version')+': 7</p>'))
     expect(html).toContain('value="Observed inspection centre"')
     expect(html).toContain(locale==='fr'?'Contrôle technique':'Vehicle inspection')
     const inputs=[...html.matchAll(/<input\b([^>]*)>/g)]
@@ -82,7 +82,7 @@ test('request detail keeps observed metadata, ordered partial turns, pinned know
   for(const locale of ['fr','en'] as const){
     const html=renderToStaticMarkup(<RequestPanel locale={locale} loaded={{detail:requestDetail,receipt:null}} onTreat={unavailable} onErase={unavailable} onRefused={unavailable}/> )
     expect(html).toContain('<time dateTime="2026-10-01T10:00:00.000Z">')
-    expect(html).toContain(locale==='fr'?'Fin observée: 1 oct. 2026, 12:03':'Observed end: Oct 1, 2026, 12:03 PM')
+    expect(html).toContain(locale==='fr'?'Fin détectée: 1 oct. 2026, 12:03':'End detected: Oct 1, 2026, 12:03 PM')
     expect(html).toContain(locale==='fr'?'aria-label="Résumé"':'aria-label="Summary"')
     for(const text of ['Observed request text','Check the request','Camille — +33123456789 — Afternoon'])expect(html).toContain(text)
     expect(html).toContain(locale==='fr'?'Transcription partielle: 2 tours indisponibles.':'Partial transcript: 2 unavailable turns.')
@@ -107,7 +107,7 @@ test('request detail retains empty contact and absent snapshot fallbacks without
     const html=renderToStaticMarkup(<RequestPanel locale={locale} loaded={{detail,receipt:null}} onTreat={unavailable} onErase={unavailable} onRefused={unavailable}/> )
     expect(html).toContain(locale==='fr'?'Résumé indisponible':'Summary unavailable')
     expect(html).not.toContain(locale==='fr'?'Résumé partiel':'Partial summary')
-    expect(html).toContain('<h3>'+(locale==='fr'?'Contact observé':'Observed contact')+'</h3><p>—</p>')
+    expect(html).toContain('<h3>Contact</h3><p>—</p>')
     expect(html).toContain(locale==='fr'?'Aucun numéro disponible':'No number available')
     expect(html).toContain(locale==='fr'?'Configuration non associée à cet appel.':'No configuration is associated with this call.')
     expect(html).toContain('<ol class="sparra-call-transcript"></ol>')

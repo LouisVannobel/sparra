@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { chromium, type Browser, type Page } from 'playwright'
 import AxeBuilder from '@axe-core/playwright'
+import { magicMessages, messages } from '../../src/ui/auth/messages'
 import { startDisposableStores } from '../fixtures/db/disposable-stores'
 import { startWeb, bounded, unusedLoopbackPort } from '../helpers/web-process'
 
@@ -113,7 +114,7 @@ declare global {
 }
 
 // Inspect the first real startup without changing scripts, React, media or action timing.
-async function observeDemoStartup(page: Page): Promise<() => Promise<void>> {
+async function observeDemoStartup(page: Page): Promise<(emit?: boolean) => Promise<void>> {
   await page.addInitScript(() => {
     const started = performance.now()
     const snapshot = (event: string): StartupState => {
@@ -198,7 +199,7 @@ async function observeDemoStartup(page: Page): Promise<() => Promise<void>> {
     errors.push({ class: errorClass, code })
   }
   page.on('request', request); page.on('response', response); page.on('requestfinished', finished); page.on('requestfailed', failed); page.on('pageerror', pageError)
-  return async () => {
+  return async (emit = true) => {
     try {
       const startup = await page.evaluate(() => {
         const evidence = window.__sparraDemoStartup
@@ -207,9 +208,11 @@ async function observeDemoStartup(page: Page): Promise<() => Promise<void>> {
         evidence.stop()
         return { states: evidence.states, csp: evidence.csp, droppedStates: evidence.droppedStates, droppedCsp: evidence.droppedCsp, final }
       })
-      const diagnostic = JSON.stringify({ startup, assets: [...assets.values()], errors, droppedAssets, droppedErrors,
-        proxy: { requests: proxyCapture.requests, droppedRequests: proxyCapture.droppedRequests } })
-      console.error('MARKETING_STARTUP_DIAGNOSTIC ' + (diagnostic.length <= 32768 ? diagnostic : '{"diagnostic":"size-bound-exceeded"}'))
+      if (emit) {
+        const diagnostic = JSON.stringify({ startup, assets: [...assets.values()], errors, droppedAssets, droppedErrors,
+          proxy: { requests: proxyCapture.requests, droppedRequests: proxyCapture.droppedRequests } })
+        console.error('MARKETING_STARTUP_DIAGNOSTIC ' + (diagnostic.length <= 32768 ? diagnostic : '{"diagnostic":"size-bound-exceeded"}'))
+      }
     } finally {
       if (startupProxyCapture === proxyCapture) startupProxyCapture = undefined
       for (const detach of proxyCapture.detach) detach()
@@ -312,6 +315,39 @@ async function observeDemoMedia(page: Page): Promise<() => Promise<void>> {
     console.error('MARKETING_MEDIA_DIAGNOSTIC ' + (diagnostic.length <= 32768 ? diagnostic : '{"diagnostic":"size-bound-exceeded"}'))
   }
 }
+
+test.each(['fr', 'en'] as const)('missing email proof and unknown route have translated recovery, titles and accessible layout in %s', async locale => {
+  const page = await openPage()
+  let reportStartup: ((emit?: boolean) => Promise<void>) | undefined
+  let failed = false
+  try {
+    reportStartup = await observeDemoStartup(page)
+    for (const width of [320, 1280]) {
+      await page.setViewportSize({ width, height: 900 })
+      await page.goto(`${origin}/auth/magic/confirm?lang=${locale}`)
+      await page.getByRole('heading', { name: magicMessages[locale].confirm, exact: true }).waitFor()
+      await page.getByRole('alert').filter({ hasText: magicMessages[locale].missing }).waitFor()
+      expect(await page.getByRole('link', { name: 'sparra', exact: true }).getAttribute('href')).toBe('/')
+      expect(await page.getByRole('link', { name: magicMessages[locale].newLink, exact: true }).getAttribute('href')).toBe(`/login?lang=${locale}`)
+      expect(await page.title()).toBe(magicMessages[locale].confirm)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()).violations).toEqual([])
+      const response = await page.goto(`${origin}/missing-screen?lang=${locale}`)
+      expect(response?.status()).toBe(404)
+      await page.getByRole('heading', { name: messages[locale].notFound, exact: true }).waitFor()
+      expect(await page.getByRole('link', { name: 'sparra', exact: true }).getAttribute('href')).toBe('/')
+      expect(await page.title()).not.toBe('')
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()).violations).toEqual([])
+    }
+  } catch (error) {
+    failed = true
+    throw error
+  } finally {
+    try { await reportStartup?.(failed) } catch { if (failed) console.error('MARKETING_STARTUP_DIAGNOSTIC {"diagnostic":"unavailable"}') }
+    await page.context().close()
+  }
+}, 30000)
 
 test('no autoplay; real play, pause, restart and arrows keep audio, transcript and receipt paired', async () => {
   const page = await openPage()
@@ -533,7 +569,7 @@ test('compiled page keeps styles, CSP nonce, keyboard focus, accessible names an
     expect(await page.locator('script').evaluateAll(scripts => scripts.every(script => script.nonce !== '' && script.nonce === scripts[0]?.nonce))).toBe(true)
     expect(await page.locator('script').first().evaluate(script => script.nonce)).toBe(nonce)
     expect(await page.locator('link[rel="stylesheet"]').count()).toBeGreaterThan(0)
-    expect(await page.locator('.sparra').evaluate(element => getComputedStyle(element).fontFamily)).toContain('system-ui')
+    expect(await page.locator('.sparra').evaluate(element => getComputedStyle(element).fontFamily)).toContain('Sparra UI')
     expect(await page.getByRole('radiogroup', { name: 'Métier de l’exemple' }).count()).toBe(1)
     const garage = page.getByRole('radio', { name: 'Garage', exact: true })
     await garage.focus(); await page.keyboard.press('ArrowRight')

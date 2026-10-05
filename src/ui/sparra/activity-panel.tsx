@@ -28,17 +28,25 @@ export function classifyActivityFailure(mode:ActivityOperation,failure:unknown):
 }
 
 const sections=[['openingHours',1000],['services',2000],['prices',1500],['faq',3000],['instructions',2000]] as const
+const presentationMessages={
+  fr:{description:'Les informations qui guident les réponses de Sparra.',business:'Votre activité',knowledge:'Ce que Sparra connaît',handoff:'Le relais humain'},
+  en:{description:'The information that guides Sparra’s answers.',business:'Your business',knowledge:'What Sparra knows',handoff:'Human handoff'},
+} as const
 function draft(configuration:ActivityConfigurationDto|null):SaveActivityInput{return configuration?{businessName:configuration.businessName,sector:configuration.sector,knowledge:{...configuration.knowledge},transferDestination:configuration.transferDestination,recordingEnabled:configuration.recordingEnabled??false,expectedRevision:configuration.revision}:{businessName:'',sector:'garage',knowledge:{openingHours:'',services:'',prices:'',faq:'',instructions:''},transferDestination:null,recordingEnabled:false,expectedRevision:0}}
 
 function ActivityEditor({locale,editable,hydrated,pending,reconcile,onEdit,onSubmit}:{locale:Locale;editable:SaveActivityInput;hydrated:boolean;pending:boolean;reconcile:boolean;onEdit(next:SaveActivityInput):void;onSubmit():void}){
-  const t=activityMessages[locale],disabled=!hydrated||pending
+  const t=activityMessages[locale],presentation=presentationMessages[locale],disabled=!hydrated||pending
   return <form className="sparra-business-form" aria-busy={pending} onSubmit={event=>{event.preventDefault();if(!pending&&!reconcile)onSubmit()}}>
-    <TextInput label={t.businessName} value={editable.businessName} onChange={businessName=>onEdit({...editable,businessName})} htmlName="businessName" isRequired isDisabled={disabled} width="100%"/>
-    <Selector label={t.sector} value={editable.sector} options={[{value:'garage',label:t.garage},{value:'controle-technique',label:t.controleTechnique}]} onChange={sector=>{if(sector==='garage'||sector==='controle-technique')onEdit({...editable,sector})}} isDisabled={disabled} width="100%"/>
-    {sections.map(([field,limit])=><TextArea key={field} label={t[field]} description={`${limit} ${locale==='fr'?'caractères maximum':'characters maximum'}`} htmlName={field} value={editable.knowledge[field]} onChange={value=>onEdit({...editable,knowledge:{...editable.knowledge,[field]:value}})} rows={4} isDisabled={disabled} width="100%"/>)}
-    <TextInput label={t.transferDestination} description={t.transferHint} htmlName="transferDestination" value={editable.transferDestination??''} onChange={value=>onEdit({...editable,transferDestination:value||null})} isDisabled={disabled} width="100%"/>
+    <fieldset className="sparra-form-section"><legend>{presentation.business}</legend><div className="sparra-field-pair">
+    <TextInput size="lg" label={t.businessName} value={editable.businessName} onChange={businessName=>onEdit({...editable,businessName})} htmlName="businessName" isRequired isDisabled={disabled} width="100%"/>
+    <Selector size="lg" label={t.sector} value={editable.sector} options={[{value:'garage',label:t.garage},{value:'controle-technique',label:t.controleTechnique}]} onChange={sector=>{if(sector==='garage'||sector==='controle-technique')onEdit({...editable,sector})}} isDisabled={disabled} width="100%"/>
+    </div></fieldset>
+    <fieldset className="sparra-form-section"><legend>{presentation.knowledge}</legend><div className="sparra-knowledge-fields">{sections.map(([field,limit])=><TextArea key={field} label={t[field]} description={`${limit} ${locale==='fr'?'caractères maximum':'characters maximum'}`} htmlName={field} value={editable.knowledge[field]} onChange={value=>onEdit({...editable,knowledge:{...editable.knowledge,[field]:value}})} rows={4} isDisabled={disabled} width="100%"/>)}</div></fieldset>
+    <fieldset className="sparra-form-section"><legend>{presentation.handoff}</legend>
+    <TextInput size="lg" label={t.transferDestination} description={t.transferHint} htmlName="transferDestination" value={editable.transferDestination??''} onChange={value=>onEdit({...editable,transferDestination:value||null})} isDisabled={disabled} width="100%"/>
+    </fieldset>
     <CheckboxInput label={t.recordingEnabled} description={t.recordingHint} htmlName="recordingEnabled" value={editable.recordingEnabled??false} onChange={recordingEnabled=>onEdit({...editable,recordingEnabled})} isDisabled={disabled} width="100%"/>
-    <Button label={t.save} type="submit" isDisabled={!hydrated||reconcile} isLoading={pending}/>
+    <Button className="sparra-form-submit" label={t.save} type="submit" isDisabled={!hydrated||reconcile} isLoading={pending}/>
   </form>
 }
 
@@ -48,7 +56,7 @@ function ActivityReconciliation({locale,pending,latest,onCheckLatest,onReplaceLa
 }
 
 export function ActivityPanel({locale,state,onEnsure,onSave,onRead,onRefused}:Props){
-  const t=activityMessages[locale],a=appMessages[locale],hydrated=useHydrated()
+  const t=activityMessages[locale],a=appMessages[locale],presentation=presentationMessages[locale],hydrated=useHydrated()
   const [current,setCurrent]=useState(state),[editable,setEditable]=useState(()=>draft(state.configuration)),[pendingMode,setPendingMode]=useState<ActivityOperation|null>(null),[saved,setSaved]=useState(false),[error,setError]=useState(''),[conflict,setConflict]=useState(false),[uncertain,setUncertain]=useState(false),[latest,setLatest]=useState<ActivityState|null>(null)
   const pending=pendingMode!==null,reconcile=conflict||uncertain
   const attempt=useRef(0),controller=useRef<AbortController|null>(null)
@@ -86,8 +94,8 @@ export function ActivityPanel({locale,state,onEnsure,onSave,onRead,onRefused}:Pr
       else await saveDraft(owned.signal,live)
     }catch(failure){if(live())await interpretFailure(mode,failure)}finally{if(live())setPendingMode(null)}
   }
-  if(refused)return <PrivateUnavailable locale={locale}/>
-  return <><Heading level={1}>{a.business}</Heading>{current.configuration&&<p>{a.version}: {current.configuration.revision}</p>}
+  if(refused)return <PrivateUnavailable locale={locale} title={a.business}/>
+  return <><div className="sparra-page-heading"><Heading level={1}>{a.business}</Heading><p>{presentation.description}</p></div>{current.configuration&&<p className="sparra-version-note">{a.version}: {current.configuration.revision}</p>}
     {!current.workspace?<><p>{a.createHint}</p><Button label={a.create} isDisabled={!hydrated} isLoading={pending} onClick={()=>void persist('ensure')}/></>:<ActivityEditor locale={locale} editable={editable} hydrated={hydrated} pending={pending} reconcile={reconcile} onEdit={edit} onSubmit={()=>void persist('save')}/>}
     {pending&&<><p role="status">{t.saving}</p><Button label={a.cancel} onClick={()=>{attempt.current++;controller.current?.abort();if(pendingMode==='save'){setUncertain(true);setLatest(null)}setPendingMode(null)}}/></>}{uncertain&&<p role="alert">{t.outcomeUnknown}</p>}{error&&<p role="alert">{error}</p>}{saved&&<p role="status">{t.saved}</p>}
     {reconcile&&<ActivityReconciliation locale={locale} pending={pending} latest={latest} onCheckLatest={()=>void persist('latest')} onReplaceLatest={replaceDraft}/>}

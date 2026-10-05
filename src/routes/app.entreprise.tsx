@@ -15,7 +15,7 @@ export const Route=createFileRoute('/app/entreprise')({
   },
   head:({match})=>({meta:[{title:appMessages[match.search.lang].business}]}),
   component:Business,
-  errorComponent:()=>{const {lang}=Route.useSearch();return <PrivateUnavailable locale={lang}/>},
+  errorComponent:function BusinessUnavailable(){const {lang}=Route.useSearch();return <PrivateUnavailable locale={lang} title={appMessages[lang].business}/>},
 })
 function Business(){const {lang}=Route.useSearch(),state=Route.useLoaderData(),router=useRouter(),ensure=useServerFn(ensurePersonalWorkspace),save=useServerFn(saveActivity),read=useServerFn(getActivity)
   return <ActivityPanel key={`${state.workspace?.id??'absent'}:${state.configuration?.revision??0}:${lang}`} locale={lang} state={state} onEnsure={async signal=>{const result=await ensure({signal});if(!result)throw new Error('Workspace unavailable');return result}} onSave={(data,signal)=>save({data,signal})} onRead={signal=>read({data:{},signal})} onRefused={async()=>{await router.navigate({to:'/login',search:{lang,error:undefined}})}}/>

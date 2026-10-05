@@ -11,25 +11,24 @@ import { FirstGooglePasskeyPanel, type FirstGooglePasskeyPanelProps } from './fi
 import { GoogleAccountPanel, type GoogleAccountPanelProps } from './google-account-panel'
 import { SessionManagementPanel, type SessionManagementPanelProps } from './session-management-panel'
 import { useHydrated } from '@tanstack/react-router'
+import { AppShell } from '../sparra/app-shell'
+
+type MagicRequestResult = { accepted: true } | Response
 
 export function LoginPanel({ locale, enabled, pending, failed, onBegin, magic, magicSignup, onRequest,
   passkey, onPasskeyBegin, onPasskeyFinish }: {
   locale: Locale; enabled: boolean; pending: boolean; failed: boolean; onBegin(): void
-  magic?: boolean; magicSignup?: boolean; onRequest?(email: string, signal: AbortSignal): Promise<unknown>
+  magic?: boolean; magicSignup?: boolean; onRequest?(email: string, signal: AbortSignal): Promise<MagicRequestResult>
   passkey?: boolean
   onPasskeyBegin?(signal: AbortSignal): Promise<{ options: Parameters<typeof import('@simplewebauthn/browser').startAuthentication>[0]['optionsJSON'] } | Response>
   onPasskeyFinish?(response: Awaited<ReturnType<typeof import('@simplewebauthn/browser').startAuthentication>>, signal: AbortSignal): Promise<{ authenticated: true } | Response>
 }) {
   const t = messages[locale]
   const hydrated = useHydrated()
-  return <main className="auth-content"><Heading level={1}>{t.login}</Heading><Text>{t.intro}</Text>
+  return <main className="auth-content auth-login"><a className="auth-brand" href="/">sparra</a><header className="auth-heading"><Heading level={1}>{t.login}</Heading><Text>{t.intro}</Text></header>
     {passkey && onPasskeyBegin && onPasskeyFinish && <PasskeyLoginPanel locale={locale} onBegin={onPasskeyBegin} onFinish={onPasskeyFinish} />}
-    <div className="google-sign-in-row">
-      <Button label={t.google} variant="ghost" className="google-sign-in" isDisabled={!enabled || !hydrated} isLoading={pending} onClick={onBegin}>
-        <img src={googleSignInIcon} alt="" width={40} height={40} />
-      </Button>
-      <Text>{t.google}</Text>
-    </div>
+    <Button label={t.google} variant="secondary" size="lg" className="google-sign-in" isDisabled={!enabled || !hydrated} isLoading={pending} onClick={onBegin}
+      icon={<img src={googleSignInIcon} alt="" width={40} height={40} />} />
     {!enabled && <p role="status">{t.unavailable}</p>}
     {pending && <p role="status">{t.pending}</p>}
     {failed && <p role="alert">{t.failed}</p>}
@@ -37,7 +36,7 @@ export function LoginPanel({ locale, enabled, pending, failed, onBegin, magic, m
   </main>
 }
 
-function MagicRequestForm({ locale, signup, onRequest }: { locale: Locale; signup: boolean; onRequest(email: string, signal: AbortSignal): Promise<unknown> }) {
+function MagicRequestForm({ locale, signup, onRequest }: { locale: Locale; signup: boolean; onRequest(email: string, signal: AbortSignal): Promise<MagicRequestResult> }) {
   const t = magicMessages[locale]
   const hydrated = useHydrated()
   const [email, setEmail] = useState(''), [state, setState] = useState<'idle' | 'pending' | 'accepted'>('idle')
@@ -75,15 +74,15 @@ function MagicRequestForm({ locale, signup, onRequest }: { locale: Locale; signu
 export function AccountPanel({ locale, principal, pending, failed, onLogout, additional, firstGoogle, googleAccount, sessions }: { locale: Locale; principal: { userId: string; name: string; email: string }; pending: boolean; failed: boolean; onLogout(): void; additional?: AdditionalPasskeyPanelProps; firstGoogle?: FirstGooglePasskeyPanelProps; googleAccount?: GoogleAccountPanelProps; sessions?: SessionManagementPanelProps }) {
   const t = messages[locale]
   const hydrated = useHydrated()
-  return <main className="auth-content"><Heading level={1}>{t.account}</Heading><Text>{principal.name}</Text>
+  return <AppShell locale={locale}><section className="auth-content auth-account"><header className="auth-heading"><Heading level={1}>{t.account}</Heading><Text>{principal.name}</Text></header>
+    <div className="auth-account-summary">
     <dl><dt>{t.email}</dt><dd>{principal.email}</dd></dl>
-    <a href={`/app?lang=${locale}`}>{locale === 'fr' ? 'Boîte d’appels' : 'Call inbox'}</a>
-    <a href={`/workspace?lang=${locale}`}>{locale === 'fr' ? 'Mon espace personnel' : 'My personal workspace'}</a>
+    </div>
     {additional && <AdditionalPasskeyPanel {...additional} />}
     {firstGoogle && <FirstGooglePasskeyPanel {...firstGoogle} />}
     {googleAccount && <GoogleAccountPanel {...googleAccount} />}
     {sessions && <SessionManagementPanel {...sessions} />}
     <Button label={t.logout} variant="secondary" size="lg" isLoading={pending} isDisabled={!hydrated} onClick={onLogout} />
     {pending && <p role="status">{t.logoutPending}</p>}{failed && <p role="alert">{t.logoutFailed}</p>}
-  </main>
+  </section></AppShell>
 }

@@ -3,6 +3,7 @@ import { useServerFn } from '@tanstack/react-start'
 import { useState } from 'react'
 import { getWorkspace, ensurePersonalWorkspace, renameWorkspace } from '../modules/workspaces/workspace.functions'
 import { WorkspacePanel, workspaceMessages } from '../ui/workspaces/workspace-panel'
+import { AuthScreen } from '../ui/auth/auth-screen'
 
 export const Route = createFileRoute('/workspace')({
   loaderDeps: ({ search }) => ({ lang: search.lang }),
@@ -17,9 +18,10 @@ export const Route = createFileRoute('/workspace')({
       throw new Error('Workspace unavailable')
     }
   }, component: Workspace,
+  head: ({ match }) => ({ meta: [{ title: workspaceMessages[match.search.lang].title }] }),
   pendingMs: 150, pendingMinMs: 150,
-  pendingComponent: () => { const { lang } = Route.useSearch(); return <main className="auth-content"><p role="status">{workspaceMessages[lang].loading}</p></main> },
-  errorComponent: () => { const { lang } = Route.useSearch(); return <main className="auth-content"><p role="alert">{workspaceMessages[lang].unavailable}</p><a href={`/login?lang=${lang}`}>{workspaceMessages[lang].login}</a></main> },
+  pendingComponent: function WorkspaceLoading() { const { lang } = Route.useSearch(); return <AuthScreen title={workspaceMessages[lang].title}><p role="status">{workspaceMessages[lang].loading}</p></AuthScreen> },
+  errorComponent: function WorkspaceUnavailable() { const { lang } = Route.useSearch(); return <AuthScreen title={workspaceMessages[lang].title}><p role="alert">{workspaceMessages[lang].unavailable}</p><a href={`/login?lang=${lang}`}>{workspaceMessages[lang].login}</a></AuthScreen> },
 })
 function Workspace() {
   const { lang } = Route.useSearch(), workspace = Route.useLoaderData(), router = useRouter()

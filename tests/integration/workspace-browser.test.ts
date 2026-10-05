@@ -3,12 +3,13 @@ import { createServer, request as httpRequest } from 'node:http'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { chromium, type Browser } from 'playwright'
+import AxeBuilder from '@axe-core/playwright'
 import { startDisposableStores } from '../fixtures/db/disposable-stores'
 import { startWeb, bounded, unusedLoopbackPort } from '../helpers/web-process'
 import { authRpcPath, rpcBody } from '../helpers/auth-rpc'
 
 let stores: Awaited<ReturnType<typeof startDisposableStores>>, app: ReturnType<typeof startWeb>, proxy: ReturnType<typeof createServer>, browser: Browser
-let origin: string, upstreamPort: number, appEnv: Record<string,string>
+let origin: string, upstreamPort: number, appEnv: Parameters<typeof startWeb>[0]
 beforeAll(async () => {
   await mkdir('.output/test-evidence/google-browser', { recursive: true })
   stores = await startDisposableStores(); await stores.migrate()
@@ -45,16 +46,31 @@ test('real Astryx create/read/rename persists through reload and process restart
     const code = await app.registerGoogle(target.href, 'fixture-task6-browser')
     return route.fulfill({status:302,headers:{location:origin+`/api/auth/callback/google?code=${code}&state=`+target.searchParams.get('state')}})
   })
-  await page.goto(origin+'/login?lang=en'); await page.getByRole('button',{name:'Continue with Google'}).click()
+  await page.goto(origin+'/login?lang=en')
+  await expect.poll(() => page.getByRole('button',{name:'Continue with Google'}).isEnabled()).toBe(true)
+  expect((await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa']).analyze()).violations).toEqual([])
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.getByRole('button',{name:'Continue with Google'}).click()
   await page.waitForURL(origin+'/account?lang=en')
+  await page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'Workspace',exact:true}).waitFor()
+  expect(await page.getByRole('main').count()).toBe(1)
+  expect(await page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'Business',exact:true}).count()).toBe(1)
+  expect((await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa']).analyze()).violations).toEqual([])
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   const accountResponse = await context.request.get(origin+await authRpcPath('getAccount'),{headers:{'sec-fetch-site':'same-origin','x-tsr-serverFn':'true'}})
   expect(accountResponse.status()).toBe(200)
   const privateSession = (await stores.administrator.query('SELECT id,token,user_id FROM session')).rows[0]
   const accountBody = await accountResponse.text()
   expect(accountBody.includes(privateSession.id)).toBe(false); expect(accountBody.includes(privateSession.token)).toBe(false)
   expect(/sessionId|authState|recoveryGeneration|providerIdentity/.test(accountBody)).toBe(false)
-  await page.getByRole('link',{name:'My personal workspace'}).click()
+  const workspaceDocument = page.waitForResponse(response => response.request().isNavigationRequest() && new URL(response.url()).pathname === '/workspace')
+  await page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'Workspace',exact:true}).click()
+  expect((await workspaceDocument).status()).toBe(200)
   await page.getByRole('button',{name:'Create my workspace'}).waitFor()
+  expect(await page.getByRole('main').count()).toBe(1)
+  expect(await page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'Business',exact:true}).count()).toBe(1)
+  expect(await page.title()).toBe('Your personal workspace')
+  expect((await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa']).analyze()).violations).toEqual([])
   expect((await stores.administrator.query('SELECT count(*)::int AS n FROM workspace')).rows[0].n).toBe(0)
   let release = () => {}
   const held = new Promise<void>(resolve => { release=resolve })
@@ -76,11 +92,12 @@ test('real Astryx create/read/rename persists through reload and process restart
   await page.reload(); await page.getByRole('textbox',{name:'Display name'}).waitFor()
   expect(await page.locator('[data-workspace-name]').textContent()).toBe('My persisted space')
   await page.getByRole('link',{name:'Français'}).click(); await page.getByRole('textbox',{name:'Nom affiché'}).waitFor()
+  expect((await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa']).analyze()).violations).toEqual([])
   await page.getByRole('textbox',{name:'Nom affiché'}).fill('Mon espace privé')
   await page.getByRole('button',{name:'Enregistrer le nom'}).click(); await page.getByText('Nom enregistré.',{exact:true}).waitFor()
   expect(await page.locator('html').getAttribute('lang')).toBe('fr')
   const view = await page.evaluate(() => ({ fits:document.documentElement.scrollWidth<=innerWidth,font:getComputedStyle(document.querySelector('h1')!).fontFamily }))
-  expect(view.fits).toBe(true); expect(view.font).toContain('system-ui')
+  expect(view.fits).toBe(true); expect(view.font).toContain('Sparra Display')
   await page.screenshot({path:'.output/test-evidence/google-browser/task-6-workspace-fr-320.png',fullPage:true})
   await app.shutdown(); expect(await bounded(app.exit)).toBe(0)
   await app.cleanup()

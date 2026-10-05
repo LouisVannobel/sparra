@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from '@tanstack/react-router'
 import { Button } from '@astryxdesign/core/Button'
-import { Heading } from '@astryxdesign/core/Heading'
+import { AuthScreen } from './auth-screen'
 import { useAnnounce } from '@astryxdesign/core/hooks'
 import { AuthEmailInput } from './auth-email-input'
 import { readMagicFragment, forgetMagicFragment, getMagicFragmentRevision, isMagicFragmentBlocked, subscribeMagicFragment } from './magic-fragment'
@@ -141,7 +141,7 @@ export function MagicConfirmPanel({ locale }: { locale: Locale }) {
     pending.current?.abort(); pending.current = undefined
     helper.current?.WebAuthnAbortService.cancelCeremony(); setPhase('ready'); setError('ceremonyCancelled')
   }
-  return <main className="auth-content"><Heading level={1}>{t.confirm}</Heading>
+  return <AuthScreen title={t.confirm}>
     {arrived && <p>{t.linkChanged}</p>}
     {phase === 'loading' && <p role="status">{messages[locale].loading}</p>}
     {phase === 'missing' && <p role="alert">{t.missing}</p>}
@@ -171,5 +171,5 @@ export function MagicConfirmPanel({ locale }: { locale: Locale }) {
       {error && error !== 'invalidEmail' && error !== 'refused' && <p role="alert">{t[error]}</p>}
     </form>}
     <a href={`/login?lang=${locale}`}>{t.newLink}</a>
-  </main>
+  </AuthScreen>
 }
