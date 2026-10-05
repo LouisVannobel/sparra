@@ -383,10 +383,13 @@ test('native committed save delivery failure retains draft and requires reconcil
 },40000)
 
 test('inbox native cursor loads the remaining owned call shells exactly once',async()=>{
-  const {context,page}=await signedIn('sparra-owner')
+  const {context,page}=await signedIn('sparra-pagination-owner')
   try{
-    const workspace=(await stores.administrator.query('SELECT id FROM workspace WHERE owner_user_id=(SELECT id FROM "user" WHERE email=$1)',['sparra-owner@example.test'])).rows[0]
-    const ids=Array.from({length:51},()=>randomUUID())
+    await page.goto(origin+'/app/entreprise?lang=en');await page.getByRole('button',{name:'Create my workspace'}).click()
+    await page.getByRole('textbox',{name:/^Business name/}).waitFor()
+    const workspace=(await stores.administrator.query('SELECT id FROM workspace WHERE owner_user_id=(SELECT id FROM "user" WHERE email=$1)',['sparra-pagination-owner@example.test'])).rows[0]
+    expect((await stores.administrator.query('SELECT count(*)::int n FROM sparra_call WHERE workspace_id=$1',[workspace.id])).rows[0].n).toBe(0)
+    const ids=Array.from({length:52},()=>randomUUID())
     await stores.administrator.query(`INSERT INTO sparra_call(id,workspace_id,deployment_id,provider_call_control_id,admitted_at,retention_until,status) SELECT id,$2::uuid,'fixture','page-'||id::text,clock_timestamp(),clock_timestamp()+interval '30 days','pending' FROM unnest($1::uuid[]) AS id`,[ids,workspace.id])
     await page.goto(origin+'/app?lang=en');await page.getByRole('heading',{name:'Call inbox',exact:true}).waitFor()
     expect(await page.locator('.sparra-inbox > li').count()).toBe(50)
@@ -394,7 +397,7 @@ test('inbox native cursor loads the remaining owned call shells exactly once',as
     await expect.poll(()=>page.locator('.sparra-inbox > li').count()).toBe(52)
     expect(await page.getByRole('button',{name:'Show more calls',exact:true}).count()).toBe(0)
     const links=await page.locator('.sparra-inbox-row-heading > a').evaluateAll(elements=>elements.map(element=>element.getAttribute('href')))
-    expect(new Set(links).size).toBe(52);expect(await page.getByText('Partial summary',{exact:true}).count()).toBe(0)
+    expect(new Set(links).size).toBe(52);expect(new Set(links)).toEqual(new Set(ids.map(id=>`/app/demandes/${id}?lang=en`)));expect(await page.getByText('Partial summary',{exact:true}).count()).toBe(0)
   }finally{await context.close()}
 },20000)
 

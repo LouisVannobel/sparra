@@ -35,6 +35,7 @@
 .sparra-field-pair { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
 .sparra-knowledge-fields { display:grid; gap:28px; }
 .sparra-app .astryx-button { max-width:100%; white-space:normal; height:auto; min-height:44px; }
+.sparra-app .astryx-button[data-variant=secondary]:not(:disabled):not([aria-disabled=true]) { --color-text-primary:var(--sp-ink); }
 .sparra-form-submit { justify-self:start; min-width:144px; }
 .sparra-inbox,.sparra-call-transcript { padding:0; list-style:none; }
 .sparra-inbox { background:var(--sp-paper); border:1px solid #e5e4e2; border-radius:var(--sp-radius); overflow:hidden; }
