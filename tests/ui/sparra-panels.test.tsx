@@ -18,7 +18,7 @@ test('configured activity SSR preserves the observed revision, editor values and
     expect(inputs[1]?.[1]).toContain('value=""')
     const areas=[...html.matchAll(/<textarea\b([^>]*)>([\s\S]*?)<\/textarea>/g)]
     expect(areas.map(area=>area[2])).toEqual(['09:00–17:00','Vehicle inspection','80 euros','Bring the vehicle papers','Ask before proceeding'])
-    const labels=locale==='fr'?['Horaires','Services','Tarifs','Questions fréquentes','Consignes']:['Opening hours','Services','Prices','Frequently asked questions','Instructions']
+    const labels=locale==='fr'?['Horaires','Prestations','Tarifs','Questions fréquentes','Consignes de réponse']:['Opening hours','Services','Prices','Frequently asked questions','Response instructions']
     for(const label of labels)expect(html).toContain(label)
     const controls=[...html.matchAll(/<(?:input|textarea|button)\b([^>]*)>/g)]
     expect(controls).toHaveLength(10)
