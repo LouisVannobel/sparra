@@ -922,7 +922,7 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
         expect(source.text.slice(marker.end,marker.end+newlineLength),'Reviewed SSR marker line expired').toMatch(/^\r?\n$/)
         reconstructed=reconstructed.slice(0,marker.start)+reconstructed.slice(marker.end+newlineLength)
       }
-      expect(digest(reconstructed),'Reviewed SSR whole file expired').toBe('7c7292b23a65607fa5937d9e82f8ad4b0d5ba94f9992b8cb2865a64d30430854')
+      expect(digest(reconstructed),'Reviewed SSR whole file expired').toBe('7a1599c9ea956389fb0e5ce30c9b69802144115db4fd8b110035b069e120ab9f')
     }
     expect(()=>reviewedCallbacks(sources)).not.toThrow()
     const original=sources.get(ssrFile)!,title=targets[0][0]

@@ -57,7 +57,21 @@ $results = foreach ($case in $cases) {
 }
 ConvertTo-Json -InputObject @($results) -Compress
 `
-  const result = JSON.parse(execFileSync('pwsh', ['-NoProfile', '-Command', script], { encoding: 'utf8', input: JSON.stringify(cases), timeout: 10000, maxBuffer: 16384 }))
+  let output: string
+  try {
+    output = execFileSync('pwsh', ['-NoProfile', '-Command', script], { encoding: 'utf8', input: JSON.stringify(cases), timeout: 10000, maxBuffer: 16384 })
+  } catch (error) {
+    if (error instanceof Error && 'stderr' in error) {
+      const stderr = typeof error.stderr === 'string' ? error.stderr : Buffer.isBuffer(error.stderr) ? error.stderr.toString('utf8') : ''
+      const phases = stderr.split(/\r?\n/).filter(line => {
+        const match = /^(?:CONTAINMENT_STAGE (?:startup|cwd|parsed|loaded|input)|CONTAINMENT_CASE (?:descendant|trailing-parent|root|trailing-root|sibling-prefix|relative-escape|case-policy|hidden-ancestor|redirected-hidden-ancestor)) ([0-9]{1,5})$/.exec(line)
+        return match !== null && Number(match[1]) <= 15000
+      }).slice(0, 14)
+      error.message += '\nContainment phases: ' + (phases.join('; ') || 'none')
+    }
+    throw error
+  }
+  const result = JSON.parse(output)
   expect(result).toEqual(cases.map(({ name, accepted }) => ({ name, accepted, rejection: accepted ? null : name === 'redirected-hidden-ancestor' ? 'redirected' : 'escape' })))
   } finally {
     const cleanup = resolve(owned)
