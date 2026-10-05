@@ -57,7 +57,21 @@ $results = foreach ($case in $cases) {
 }
 ConvertTo-Json -InputObject @($results) -Compress
 `
-  const result = JSON.parse(execFileSync('pwsh', ['-NoProfile', '-Command', script], { encoding: 'utf8', input: JSON.stringify(cases), timeout: 10000, maxBuffer: 16384 }))
+  let output: string
+  try {
+    output = execFileSync('pwsh', ['-NoProfile', '-Command', script], { encoding: 'utf8', input: JSON.stringify(cases), timeout: 10000, maxBuffer: 16384 })
+  } catch (error) {
+    if (error instanceof Error && 'stderr' in error) {
+      const stderr = typeof error.stderr === 'string' ? error.stderr : Buffer.isBuffer(error.stderr) ? error.stderr.toString('utf8') : ''
+      const phases = stderr.split(/\r?\n/).filter(line => {
+        const match = /^(?:CONTAINMENT_STAGE (?:startup|cwd|parsed|loaded|input)|CONTAINMENT_CASE (?:descendant|trailing-parent|root|trailing-root|sibling-prefix|relative-escape|case-policy|hidden-ancestor|redirected-hidden-ancestor)) ([0-9]{1,5})$/.exec(line)
+        return match !== null && Number(match[1]) <= 15000
+      }).slice(0, 14)
+      error.message += '\nContainment phases: ' + (phases.join('; ') || 'none')
+    }
+    throw error
+  }
+  const result = JSON.parse(output)
   expect(result).toEqual(cases.map(({ name, accepted }) => ({ name, accepted, rejection: accepted ? null : name === 'redirected-hidden-ancestor' ? 'redirected' : 'escape' })))
   } finally {
     const cleanup = resolve(owned)
@@ -165,6 +179,19 @@ test('an uncertain synthesis attempt blocks preview until recover-only assessmen
   }
 }, 30000)
 
+function copyAvailableSuccessRecords(source: string, target: string) {
+  if (!existsSync(source)) return
+  mkdirSync(target, { recursive: true })
+  for (const name of readdirSync(source)) copyFileSync(resolve(source, name), resolve(target, name))
+}
+
+function generatorRejection(script: string, args: readonly string[]) {
+  try { execFileSync('pwsh', ['-NoProfile', '-File', script, ...args], { stdio: 'pipe', env: offlineEnv }) } catch (error) {
+    if (error && typeof error === 'object' && 'stderr' in error) return String(error.stderr)
+  }
+  return ''
+}
+
 test('lost successful requests remain fenced after current provenance changes model and then returns', () => {
   const relativePaths = ['src/modules/marketing/demo-scenarios.generated.ts', 'docs/demos/audio-provenance.json', 'public/demos/garage-revision.mp3', 'public/demos/controle-technique.mp3']
   const realBefore = relativePaths.map(path => readFileSync(path))
@@ -179,15 +206,8 @@ test('lost successful requests remain fenced after current provenance changes mo
     const delivered = JSON.parse(before[1]!.toString('utf8'))
     const recordsDirectory = resolve(fixture, '.demo-audio-cache/known-successes')
     mkdirSync(recordsDirectory, { recursive: true })
-    const historicalRecords = resolve('docs/demos/known-successes')
-    if (existsSync(historicalRecords)) {
-      const target = resolve(fixture, 'docs/demos/known-successes')
-      mkdirSync(target, { recursive: true })
-      for (const name of readdirSync(historicalRecords)) copyFileSync(resolve(historicalRecords, name), resolve(target, name))
-    }
-    if (existsSync('.demo-audio-cache/known-successes')) {
-      for (const name of readdirSync('.demo-audio-cache/known-successes')) copyFileSync(resolve('.demo-audio-cache/known-successes', name), resolve(recordsDirectory, name))
-    }
+    copyAvailableSuccessRecords(resolve('docs/demos/known-successes'), resolve(fixture, 'docs/demos/known-successes'))
+    copyAvailableSuccessRecords('.demo-audio-cache/known-successes', recordsDirectory)
     const prior = readdirSync(recordsDirectory).map(name => [name, readFileSync(resolve(recordsDirectory, name))] as const)
     const script = resolve(fixture, 'scripts/generate-demo-audio.ps1')
     let seedOutput = ''
@@ -205,10 +225,7 @@ test('lost successful requests remain fenced after current provenance changes mo
     expect(preview.recoveryRequired).toBe(10)
     expect(preview.uncachedCalls).toBe(0)
     expect(readdirSync(recordsDirectory).map(name => [name, readFileSync(resolve(recordsDirectory, name))])).toEqual(archiveBefore)
-    let rejection = ''
-    try { execFileSync('pwsh', ['-NoProfile', '-File', script], { stdio: 'pipe', env: offlineEnv }) } catch (error) {
-      if (error && typeof error === 'object' && 'stderr' in error) rejection = String(error.stderr)
-    }
+    const rejection = generatorRejection(script, [])
     expect(rejection).toMatch(/recover-only assessment required;\s*(?:\|\s*)?no request sent/)
     expect(rejection).not.toContain('process variable is required')
     expect(paths.filter(path => path !== paths[1]).map(path => readFileSync(path))).toEqual(before.filter((_, index) => index !== 1))
@@ -225,10 +242,7 @@ test('lost successful requests remain fenced after current provenance changes mo
     const conflict = JSON.parse(historicalRecord.toString('utf8'))
     conflict.model = 'offline-test/conflicting-success'
     writeFileSync(conflictPath, JSON.stringify(conflict))
-    let conflictRejection = ''
-    try { execFileSync('pwsh', ['-NoProfile', '-File', script, '-DryRun'], { stdio: 'pipe', env: offlineEnv }) } catch (error) {
-      if (error && typeof error === 'object' && 'stderr' in error) conflictRejection = String(error.stderr)
-    }
+    const conflictRejection = generatorRejection(script, ['-DryRun'])
     expect(conflictRejection).toContain('Conflicting known-success records; recover-only assessment required')
     expect(paths.map(path => readFileSync(path))).toEqual(before)
     writeFileSync(conflictPath, historicalRecord)

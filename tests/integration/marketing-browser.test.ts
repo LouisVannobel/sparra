@@ -18,7 +18,7 @@ type StartupProxyRequest = {
 let startupProxyCapture: { requests: StartupProxyRequest[]; droppedRequests: number; detach: (() => void)[] } | undefined
 beforeAll(async () => {
   stores = await startDisposableStores(); await stores.migrate()
-  const port = await unusedLoopbackPort(); origin = `http://localhost:${port}`
+  const port = await unusedLoopbackPort(); origin = `http://127.0.0.1:${port}`
   app = startWeb({ NODE_ENV: 'test', APP_ORIGIN: origin, DATABASE_URL: stores.runtimeUrl, REDIS_URL: stores.redisUrl,
     RATE_LIMIT_HMAC_SECRET: stores.hmac, RATE_LIMIT_KEY_ID: 'marketing-browser', TRUSTED_PROXY_IPS: '127.0.0.2',
     AUTH_SECRET: randomBytes(48).toString('hex'), REQUEST_TIMEOUT_MS: '10000' })
@@ -187,9 +187,7 @@ async function observeDemoStartup(page: Page): Promise<(emit?: boolean) => Promi
     if (!row) return
     row.completion = 'failed'
     const errorText = request.failure()?.errorText
-    row.failure = errorText === undefined ? null : ['net::ERR_ABORTED', 'net::ERR_FAILED', 'net::ERR_BLOCKED_BY_CLIENT', 'net::ERR_BLOCKED_BY_RESPONSE',
-      'net::ERR_CONNECTION_RESET', 'net::ERR_CONNECTION_CLOSED', 'net::ERR_CONNECTION_REFUSED', 'net::ERR_EMPTY_RESPONSE', 'net::ERR_TIMED_OUT',
-      'net::ERR_CONTENT_LENGTH_MISMATCH', 'net::ERR_TOO_MANY_RETRIES', 'net::ERR_INSUFFICIENT_RESOURCES'].find(value => value === errorText) ?? 'other'
+    row.failure = errorText === undefined ? null : /^net::ERR_[A-Z0-9_]{1,64}$/.exec(errorText)?.[0] === errorText ? errorText : 'other'
   }
   const pageError = (error: Error) => {
     if (errors.length >= 16) { droppedErrors++; return }

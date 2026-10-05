@@ -3,10 +3,12 @@ import { join } from 'node:path'
 import { prepareVoiceSource } from './prepare-voice-source.mjs'
 import { runNativePhase } from './native-test-phase.mjs'
 
-// Each group owns disposable stores; keep them sequential and retain every failure.
+// Each browser file owns a process and disposable stores; keep them sequential and retain every failure.
 const groups = [
   ['tests/integration/magic-browser.test.ts', '--testNamePattern', 'compiled_magic_mailbox_signup_requires_browser_uv_passkey'],
-  ['tests/integration/marketing-browser.test.ts', 'tests/integration/workspace-browser.test.ts', 'tests/integration/sparra-browser.test.ts'],
+  ['tests/integration/marketing-browser.test.ts'],
+  ['tests/integration/workspace-browser.test.ts'],
+  ['tests/integration/sparra-browser.test.ts'],
 ]
 let failed = false
 let voice, consumerCleanupUnknown = false
