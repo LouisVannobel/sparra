@@ -60,5 +60,11 @@ test('exact_schema_and_non_string_authority_cannot_be_coerced',async()=>{
 })
 test('invalid_spdx_header_is_refused',async()=>{const candidate=await fixture();candidate.sbom.dataLicense='wrong';await candidate.save();refused(invoke(candidate))})
 test('actual_config_digest_is_distinct_from_oci_index_and_subject_mismatch_is_refused',async()=>{const candidate=await fixture();candidate.qualification.config_digest='sha256:'+'b'.repeat(64);await candidate.save();refused(invoke(candidate))})
+test('containerd_root_image_id_is_bound_to_the_exact_web_reference_and_keeps_layer_checks',async()=>{
+  const candidate=await fixture();candidate.sbom.packages[0]!.annotations![0]!.comment='ImageID: '+image.split('@')[1];await candidate.save()
+  const accepted=invoke(candidate);expect(accepted.error).toBeUndefined();expect(accepted.status,accepted.stderr).toBe(0)
+  candidate.sbom.packages[0]!.annotations![0]!.comment='ImageID: sha256:'+'f'.repeat(64);await candidate.save();refused(invoke(candidate))
+  candidate.sbom.packages[0]!.annotations![0]!.comment='ImageID: '+image.split('@')[1];candidate.qualification.diff_ids=['sha256:'+'e'.repeat(64)];await candidate.save();refused(invoke(candidate))
+})
 test('different_diff_ids_or_sbom_bytes_cannot_reuse_qualification',async()=>{const candidate=await fixture();candidate.qualification.diff_ids=['sha256:'+'e'.repeat(64)];await candidate.save();refused(invoke(candidate));candidate.qualification.diff_ids=['sha256:'+'d'.repeat(64)];await candidate.save();await writeFile(join(candidate.directory,'sbom.spdx.json'),JSON.stringify({...candidate.sbom,name:'changed'}));refused(invoke(candidate))})
 test('downloaded_syft_or_header_only_document_is_not_the_final_trivy_subject_witness',async()=>{const candidate=await fixture();candidate.sbom.creationInfo.creators=['Tool: buildkit-syft-scanner'];await candidate.save();refused(invoke(candidate));await writeFile(join(candidate.directory,'sbom.spdx.json'),JSON.stringify({spdxVersion:'SPDX-2.3',dataLicense:'CC0-1.0',SPDXID:'SPDXRef-DOCUMENT',name:'synthetic',documentNamespace:'https://example.invalid/header'}));refused(invoke(candidate))})

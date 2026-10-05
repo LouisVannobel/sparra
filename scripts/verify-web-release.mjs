@@ -24,6 +24,6 @@ try {
   if(hashes.some(key=>typeof source[key]!=='string'||!/^[0-9a-f]{64}$/.test(source[key])||source[key]!==wanted[key]||qualification[key]!==wanted[key]))fail()
   const sbom=await readFile(join(directory,'sbom.spdx.json'))
   if(typeof qualification.sbom_sha256!=='string'||qualification.sbom_sha256!==createHash('sha256').update(sbom).digest('hex'))fail()
-  bindWebSbom(JSON.parse(sbom.toString('utf8')),qualification.config_digest,qualification.diff_ids)
+  bindWebSbom(JSON.parse(sbom.toString('utf8')),qualification.config_digest,qualification.diff_ids,reference.split('@')[1])
   process.stdout.write('Web artifact verified\n')
 }catch{process.stderr.write('Web artifact verification failed\n');process.exitCode=1}

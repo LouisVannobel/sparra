@@ -12,9 +12,10 @@ function subjectFor(spdx) {
   if(subjects.length!==1)fail()
   return subjects[0]
 }
-function imageAnnotations(subject,configDigest,diffIds) {
+function imageAnnotations(subject,configDigest,diffIds,rootDigest) {
   const annotations=subject.annotations?.map(item=>item.comment)??[]
-  if(annotations.filter(value=>typeof value==='string'&&value.startsWith('ImageID: ')).length!==1||!annotations.includes('ImageID: '+configDigest))fail()
+  const imageIds=annotations.filter(value=>typeof value==='string'&&value.startsWith('ImageID: '))
+  if(imageIds.length!==1||(imageIds[0]!=='ImageID: '+configDigest&&(rootDigest===undefined||imageIds[0]!=='ImageID: '+rootDigest)))fail()
   const differences=annotations.filter(value=>typeof value==='string'&&value.startsWith('DiffID: ')).map(value=>value.slice(8)).sort()
   if(JSON.stringify(differences)!==JSON.stringify([...diffIds].sort()))fail()
 }
@@ -23,10 +24,10 @@ function imageRelationships(spdx,subject) {
   if(!spdx.relationships.some(item=>item.spdxElementId===subject.SPDXID&&item.relationshipType==='CONTAINS'&&spdx.packages.some(pkg=>pkg.SPDXID===item.relatedSpdxElement&&pkg!==subject)))fail()
 }
 /** Exact native Trivy subject semantics, consumed by writer and offline validator. */
-export function bindWebSbom(spdx,configDigest,diffIds) {
-  if(!digest(configDigest)||!Array.isArray(diffIds)||!diffIds.length||diffIds.length>128||!diffIds.every(digest))fail()
+export function bindWebSbom(spdx,configDigest,diffIds,rootDigest) {
+  if(!digest(configDigest)||(rootDigest!==undefined&&!digest(rootDigest))||!Array.isArray(diffIds)||!diffIds.length||diffIds.length>128||!diffIds.every(digest))fail()
   spdxHeader(spdx)
   const subject=subjectFor(spdx)
-  imageAnnotations(subject,configDigest,diffIds)
+  imageAnnotations(subject,configDigest,diffIds,rootDigest)
   imageRelationships(spdx,subject)
 }
