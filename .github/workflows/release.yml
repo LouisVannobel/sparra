@@ -46,6 +46,24 @@ jobs:
     env:
       IMAGE_REFERENCE: ${{ needs.release.outputs.image-reference }}
     steps:
+      - name: Enable OCI image storage on this empty hosted runner
+        run: |
+          set -Eeuo pipefail
+          [[ "${RUNNER_ENVIRONMENT:-}" == github-hosted ]]
+          containers=$(docker --host unix:///var/run/docker.sock ps -aq)
+          [[ -z "$containers" ]]
+          sudo python3 - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path('/etc/docker/daemon.json')
+          config = json.loads(path.read_text()) if path.exists() else {}
+          if not isinstance(config, dict) or not isinstance(config.get('features', {}), dict):
+              raise SystemExit('Invalid Docker daemon configuration')
+          config.setdefault('features', {})['containerd-snapshotter'] = True
+          path.write_text(json.dumps(config) + '\n')
+          PY
+          sudo systemctl restart docker
+          docker --host unix:///var/run/docker.sock info --format '{{json .DriverStatus}}' | python3 -c 'import json,sys; status=json.load(sys.stdin); assert ["driver-type","io.containerd.snapshotter.v1"] in status; print("OCI containerd image storage verified")'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
@@ -166,6 +184,24 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Enable OCI image storage on this empty hosted runner
+        run: |
+          set -Eeuo pipefail
+          [[ "${RUNNER_ENVIRONMENT:-}" == github-hosted ]]
+          containers=$(docker --host unix:///var/run/docker.sock ps -aq)
+          [[ -z "$containers" ]]
+          sudo python3 - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path('/etc/docker/daemon.json')
+          config = json.loads(path.read_text()) if path.exists() else {}
+          if not isinstance(config, dict) or not isinstance(config.get('features', {}), dict):
+              raise SystemExit('Invalid Docker daemon configuration')
+          config.setdefault('features', {})['containerd-snapshotter'] = True
+          path.write_text(json.dumps(config) + '\n')
+          PY
+          sudo systemctl restart docker
+          docker --host unix:///var/run/docker.sock info --format '{{json .DriverStatus}}' | python3 -c 'import json,sys; status=json.load(sys.stdin); assert ["driver-type","io.containerd.snapshotter.v1"] in status; print("OCI containerd image storage verified")'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
