@@ -1,5 +1,5 @@
 import { sql, type SQLWrapper } from 'drizzle-orm'
-import { boolean, check, foreignKey, index, integer, jsonb, pgPolicy, pgTable, primaryKey, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
+import { bigint, boolean, check, customType, foreignKey, index, integer, jsonb, pgPolicy, pgTable, primaryKey, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
 import { workspace } from '../workspaces/schema.server'
 import type { NativeEncryptedTurn, EncryptedMessageResult } from './message-crypto.server'
 
@@ -45,11 +45,22 @@ export const sparraCall = pgTable('sparra_call', {
   status:text('status',{enum:['pending','active','closing','closed','failed']}).notNull().default('pending'),
   disclosureState:text('disclosure_state',{enum:['pending','completed','failed']}).notNull().default('pending'),disclosureStartedAt:timestamp('disclosure_started_at',{withTimezone:true,precision:3}),disclosureCompletedAt:timestamp('disclosure_completed_at',{withTimezone:true,precision:3}),disclosureFailedAt:timestamp('disclosure_failed_at',{withTimezone:true,precision:3}),inputGateOpenedAt:timestamp('input_gate_opened_at',{withTimezone:true,precision:3}),
   encryptedTurns:jsonb('encrypted_turns').$type<Record<string,NativeEncryptedTurn>>().notNull().default(sql`'{}'::jsonb`),encryptedMessageResult:jsonb('encrypted_message_result').$type<EncryptedMessageResult>(),
+  recordingId:uuid('recording_id'),
+  audioState:text('audio_state',{enum:['off','unavailable','pending','recording','ready','partial','declined','expired','deletion_pending','deleted']}).notNull().default('off'),
+  audioReservedBytes:integer('audio_reserved_bytes').notNull().default(0),audioChargedBytes:integer('audio_charged_bytes').notNull().default(0),
+  audioDeniedAt:timestamp('audio_denied_at',{withTimezone:true,precision:3}),
+  audioTotalSamples:integer('audio_total_samples'),audioLastSequence:integer('audio_last_sequence'),
+  audioFinishReason:text('audio_finish_reason',{enum:['complete','transfer','interrupted','limit','failure']}),
   treatedAt:timestamp('treated_at',{withTimezone:true,precision:3}),erasureRequestedAt:timestamp('erasure_requested_at',{withTimezone:true,precision:3}),
 },table=>[
   unique('sparra_call_provider_identity').on(table.deploymentId,table.providerCallControlId),
   foreignKey({name:'sparra_call_configuration_pin',columns:[table.workspaceId,table.configurationRevision],foreignColumns:[sparraKnowledgeRevision.workspaceId,sparraKnowledgeRevision.revision]}).onDelete('restrict'),
   index('sparra_call_inbox').on(table.workspaceId,table.admittedAt.desc(),table.id.desc()),
+  check('sparra_call_audio_state',sql.raw("audio_state in ('off','unavailable','pending','recording','ready','partial','declined','expired','deletion_pending','deleted')")),
+  check('sparra_call_audio_budget',sql.raw("audio_reserved_bytes >= 0 and audio_charged_bytes >= 0 and audio_reserved_bytes + audio_charged_bytes <= 20447648")),
+  check('sparra_call_audio_identity',sql.raw("recording_id is not null or (audio_reserved_bytes = 0 and audio_charged_bytes = 0 and audio_state in ('off','unavailable'))")),
+  check('sparra_call_audio_denied',sql.raw("audio_denied_at is null or isfinite(audio_denied_at)")),
+  check('sparra_call_audio_finish',sql.raw("(audio_finish_reason is null and audio_total_samples is null and audio_last_sequence is null) or (audio_finish_reason is not null and audio_finish_reason in ('complete','transfer','interrupted','limit','failure') and audio_total_samples is not null and audio_total_samples between 0 and 4800000 and ((audio_total_samples = 0 and audio_last_sequence is null) or (audio_total_samples > 0 and audio_last_sequence is not null and audio_last_sequence between 0 and 599 and audio_total_samples between audio_last_sequence + 1 and (audio_last_sequence + 1) * 8000)))")),
   check('sparra_call_nonzero_workspace',sql`${table.workspaceId} <> '00000000-0000-0000-0000-000000000000'::uuid`),
   check('sparra_call_identity',sql`length(${table.deploymentId}) between 1 and 256 and length(${table.providerCallControlId}) between 1 and 1024`),
   check('sparra_call_retention',sql`isfinite(${table.admittedAt}) and isfinite(${table.retentionUntil}) and ${table.retentionUntil} = ${table.admittedAt} + interval '2592000 seconds'`),
@@ -67,6 +78,37 @@ export const sparraCall = pgTable('sparra_call', {
   pgPolicy('sparra_call_erase_read',{to:'workspace_owner',for:'select',using:scoped(table.workspaceId)}),
   pgPolicy('sparra_call_erase_delete',{to:'workspace_owner',for:'delete',using:scoped(table.workspaceId)}),
 ]).enableRLS()
+const audioBytes=customType<{data:Buffer}>({dataType:()=> 'bytea'})
+export const sparraAudioChunk=pgTable('sparra_audio_chunk',{
+  workspaceId:uuid('workspace_id').notNull().references(()=>workspace.id,{onDelete:'restrict'}),
+  callId:uuid('call_id').notNull().references(()=>sparraCall.id,{onDelete:'cascade'}),recordingId:uuid('recording_id').notNull(),
+  deploymentId:text('deployment_id').notNull(),sequence:integer('sequence').notNull(),
+  configurationRevision:integer('configuration_revision').notNull(),retentionUntil:timestamp('retention_until',{withTimezone:true,precision:3}).notNull(),
+  sampleCount:integer('sample_count').notNull(),sampleRate:integer('sample_rate').notNull(),channels:integer('channels').notNull(),sampleFormat:text('sample_format').notNull(),
+  cryptoVersion:integer('crypto_version').notNull(),keyVersion:bigint('key_version',{mode:'number'}).notNull(),
+  nonce:audioBytes('nonce').notNull(),ciphertext:audioBytes('ciphertext').notNull(),chargedBytes:integer('charged_bytes').notNull(),
+},t=>[
+  primaryKey({columns:[t.workspaceId,t.callId,t.recordingId,t.sequence]}),
+  check('sparra_audio_chunk_sequence',sql.raw("sequence between 0 and 599")),
+  check('sparra_audio_chunk_samples',sql.raw("sample_count between 1 and 8000 and sample_rate = 8000 and channels = 2 and sample_format = 's16le'")),
+  check('sparra_audio_chunk_crypto',sql.raw("crypto_version = 1 and key_version between 1 and 9007199254740991 and octet_length(nonce) = 12 and octet_length(ciphertext) = sample_count * 4 + 16")),
+  check('sparra_audio_chunk_charge',sql.raw("charged_bytes - octet_length(nonce) - octet_length(ciphertext) between 0 and 2048")),
+  check('sparra_audio_chunk_pin',sql.raw("configuration_revision > 0 and isfinite(retention_until) and length(deployment_id) between 1 and 256 and deployment_id !~ '[[:cntrl:]]'")),
+  pgPolicy('sparra_audio_chunk_voice',{to:'sparra_voice_definer',for:'all',using:sql.raw("workspace_id = voice_private.bound_workspace() and deployment_id = voice_private.bound_deployment()"),withCheck:sql.raw("workspace_id = voice_private.bound_workspace() and deployment_id = voice_private.bound_deployment()")}),
+  pgPolicy('sparra_audio_chunk_erase_read',{to:'workspace_owner',for:'select',using:scoped(t.workspaceId)}),
+  pgPolicy('sparra_audio_chunk_erase_delete',{to:'workspace_owner',for:'delete',using:scoped(t.workspaceId)}),
+]).enableRLS()
+
+export const sparraAudioQuota=pgTable('sparra_audio_quota',{
+  workspaceId:uuid('workspace_id').primaryKey().references(()=>workspace.id,{onDelete:'restrict'}),
+  reservedBytes:integer('reserved_bytes').notNull().default(0),chargedBytes:integer('charged_bytes').notNull().default(0),
+},t=>[
+  check('sparra_audio_quota_budget',sql.raw("reserved_bytes >= 0 and charged_bytes >= 0 and reserved_bytes + charged_bytes <= 536870912")),
+  pgPolicy('sparra_audio_quota_voice',{to:'sparra_voice_definer',for:'all',using:sql.raw("workspace_id = voice_private.bound_workspace()"),withCheck:sql.raw("workspace_id = voice_private.bound_workspace()")}),
+  pgPolicy('sparra_audio_quota_owner_read',{to:'workspace_owner',for:'select',using:scoped(t.workspaceId)}),
+  pgPolicy('sparra_audio_quota_owner_update',{to:'workspace_owner',for:'update',using:scoped(t.workspaceId),withCheck:scoped(t.workspaceId)}),
+]).enableRLS()
+
 export const sparraErasure = pgTable('sparra_erasure',{
   workspaceId:uuid('workspace_id').notNull(),callId:uuid('call_id').notNull(),deploymentId:text('deployment_id').notNull(),providerCallControlId:text('provider_call_control_id').notNull(),
   requestedAt:timestamp('requested_at',{withTimezone:true,precision:3}).notNull(),originalRetentionUntil:timestamp('original_retention_until',{withTimezone:true,precision:3}).notNull(),fenceUntil:timestamp('fence_until',{withTimezone:true,precision:3}).notNull(),

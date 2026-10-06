@@ -53,6 +53,14 @@ test('0019 rolls back a real late DDL failure then preserves preexisting provide
   try {
     const prefix = await migratePrefix(stores); directory = prefix.directory
     const admin = (sql: string, values?: unknown[]) => stores.administrator.query(sql, values)
+    // Freeze this witness at0019 even when the repository has later migrations.
+    const journal = JSON.parse(await readFile('drizzle/meta/_journal.json', 'utf8'))
+    await cp('drizzle/0019_sparra_optional_audio_policy.sql', join(directory, '0019_sparra_optional_audio_policy.sql'))
+    await writeFile(join(directory, 'meta/_journal.json'), JSON.stringify({ ...journal, entries: journal.entries.slice(0, 20) }))
+    const apply0019 = async () => {
+      try { await migrate(drizzle(stores.administrator), { migrationsFolder: directory! }) }
+      catch { throw new Error('Owned policy migration failed') }
+    }
     await admin(`INSERT INTO "user"(id,name,email) VALUES('audio-history-owner','Historical owner','audio-history@example.test');
       INSERT INTO workspace(id,owner_user_id) VALUES('${workspaceId}','audio-history-owner');
       INSERT INTO sparra_knowledge_revision(workspace_id,revision,business_name,sector,opening_hours,services,prices,faq,instructions,recording_enabled)
@@ -77,7 +85,7 @@ test('0019 rolls back a real late DDL failure then preserves preexisting provide
     const schemaDump = async () => (await stores.command(stores.pg, ['pg_dump', '--schema-only', '--no-comments', '--username=migrator', 'auth']))
       .split('\n').filter(line => !line.startsWith('\\restrict ') && !line.startsWith('\\unrestrict ')).join('\n')
     const schemaBefore = await schemaDump()
-    await expect(stores.migrate()).rejects.toThrow('Disposable migration command failed')
+    await expect(apply0019()).rejects.toThrow('Owned policy migration failed')
     expect((await admin('SELECT is_called FROM fixture_audio_policy_late')).rows[0].is_called).toBe(true)
     expect(await schemaDump()).toBe(schemaBefore)
     expect(await historicalState(stores)).toEqual(before)
@@ -87,7 +95,7 @@ test('0019 rolls back a real late DDL failure then preserves preexisting provide
       OR (table_schema='voice_private' AND table_name='deployment_binding' AND column_name IN ('contract_version','local_audio_enabled'))`)).rows[0].n).toBe(0)
     expect((await admin("SELECT to_regprocedure('public.sparra_local_audio_available_v1()') IS NULL absent")).rows[0].absent).toBe(true)
     await admin('DROP EVENT TRIGGER fixture_audio_policy_fault; DROP FUNCTION public.fixture_audio_policy_fault(); DROP SEQUENCE public.fixture_audio_policy_late')
-    await stores.migrate()
+    await apply0019()
     expect(await historicalState(stores)).toEqual(before)
     expect((await admin('SELECT revision,recording_enabled,recording_policy,recording_contact_phone FROM sparra_knowledge_revision WHERE workspace_id=$1 ORDER BY revision', [workspaceId])).rows).toEqual([
       { revision: 1, recording_enabled: false, recording_policy: 'off', recording_contact_phone: null },

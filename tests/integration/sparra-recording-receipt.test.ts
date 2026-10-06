@@ -236,5 +236,10 @@ test('receipt columns retain FORCE RLS and execute-only native authority',async(
   expect((await admin(`SELECT c.relrowsecurity,c.relforcerowsecurity,r.rolname FROM pg_class c JOIN pg_roles r ON r.oid=c.relowner
     WHERE c.oid='voice_private.recording_purge'::regclass`)).rows[0]).toEqual({relrowsecurity:true,relforcerowsecurity:true,rolname:'workspace_owner'})
   for(const role of ['sparra_voice_a','sparra_voice_b'])expect((await admin("SELECT has_table_privilege($1,'voice_private.recording_purge','SELECT,INSERT,UPDATE,DELETE') allowed",[role])).rows[0].allowed).toBe(false)
-  expect((await admin("SELECT count(*)::int n FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='voice'")).rows[0].n).toBe(6)
+  const legacyCapabilities=['voice.begin_call_v1(text,uuid,jsonb)','voice.ingest_operation_v1(jsonb)','voice.lease_recording_purge_v1(text,integer,integer)','voice.ack_recording_purge_v1(uuid,uuid,text,timestamp with time zone)','voice.lease_call_erasure_v1(text,integer,integer)','voice.ack_call_erasure_v1(uuid,uuid,timestamp with time zone)'].sort()
+  for(const role of ['sparra_voice_a','sparra_voice_b']) {
+    const active=(await admin("SELECT p.oid::regprocedure::text signature FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='voice' AND has_function_privilege($1,p.oid,'EXECUTE') ORDER BY signature",[role])).rows.map(row=>row.signature)
+    expect(active).toEqual(legacyCapabilities)
+  }
+  expect((await admin("SELECT count(*)::int n FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) acl WHERE n.nspname='voice' AND acl.grantee=0 AND acl.privilege_type='EXECUTE'")).rows[0].n).toBe(0)
 })
