@@ -122,7 +122,9 @@ function nativeCoverageFixture(activityAfterAll = '',recordingAfterAll = '') {
   writeFileSync(packageFile,JSON.stringify({name:'native-coverage-canary',private:true,type:'module',engines:metadata.engines,devDependencies:{vitest:'4.1.11','@vitest/coverage-istanbul':'4.1.11'}}))
   writeFileSync(join(root,'pnpm-lock.yaml'),'lockfileVersion: 9.0\n')
   for(const config of ['vitest.config.ts','vitest.integration.config.ts'])writeFileSync(join(root,config),readFileSync(join(repositoryRoot,config)))
-  writeFileSync(join(root,'scripts/test-prerequisites.mjs'),readFileSync(join(repositoryRoot,'scripts/test-prerequisites.mjs')))
+  // Runner-wiring adapter only; the canonical prerequisite has separate native
+  // browser/decoder consumers and must not be repeated by each merger canary.
+  writeFileSync(join(root,'scripts/test-prerequisites.mjs'),"process.stdout.write('CANARY_PREREQUISITE_READY\\n');\n")
   // Test-only resource adapter for the miniature merger canary. These named
   // tests exercise runner wiring; they are not native Voice qualification.
   writeFileSync(join(root,'scripts/prepare-voice-source.mjs'),`import {existsSync,mkdirSync,rmSync,writeFileSync} from 'node:fs';import {join} from 'node:path';
@@ -451,6 +453,7 @@ function runCoverageConsumer(root:string,preload?:string) {
 test('actual_coverage_runner_publishes_only_native_complete_map_after_retirement',()=>{
   const root=nativeCoverageFixture(),result=runCoverageConsumer(root)
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
+  expect(result.stdout).toContain('[tests] prerequisites\nCANARY_PREREQUISITE_READY\n')
   expect(readdirSync(join(root,'coverage'))).toEqual(['coverage-final.json'])
   expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
   expect(existsSync(join(root,'coverage/canary-voice-owner'))).toBe(false)
