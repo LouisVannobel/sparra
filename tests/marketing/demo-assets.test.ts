@@ -59,7 +59,8 @@ ConvertTo-Json -InputObject @($results) -Compress
 `
   let output: string
   try {
-    output = execFileSync('pwsh', ['-NoProfile', '-Command', script], { encoding: 'utf8', input: JSON.stringify(cases), timeout: 10000, maxBuffer: 16384 })
+    // Startup telemetry takes a shared UUID mutex before the script can run.
+    output = execFileSync('pwsh', ['-NoProfile', '-Command', script], { encoding: 'utf8', input: JSON.stringify(cases), timeout: 10000, maxBuffer: 16384, env: { ...offlineEnv, POWERSHELL_TELEMETRY_OPTOUT: '1' } })
   } catch (error) {
     if (error instanceof Error && 'stderr' in error) {
       const stderr = typeof error.stderr === 'string' ? error.stderr : Buffer.isBuffer(error.stderr) ? error.stderr.toString('utf8') : ''
