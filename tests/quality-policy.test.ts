@@ -142,6 +142,22 @@ export async function prepareVoiceSource({appRoot}){const scope=join(appRoot,'co
     'built native RPC enforces strict input, auth, missing and foreign Origin, bounded failures and no-store',
   ]
   writeFileSync(join(root,'tests/integration/sparra-requests.test.ts'),"import {expect,test} from 'vitest';import {selectBranch} from '../../src/covered';// Synthetic runner selection canary only.\n"+requestNames.map(name=>'test('+JSON.stringify(name)+",()=>{expect(process.env.SPARRA_VOICE_TEST_ROOT).toContain('canary-voice-owner');expect(selectBranch(true)).toBe(7)});\n").join(''))
+  // Exact audio consumer paths exercise the native runner and owned environment,
+  // not browser, R1, SQL or process-retirement behavior.
+  for(const [index,file,phase] of [
+    [0,'sparra-audio-playback.test.ts','private audio playback qualification'],
+    [1,'sparra-audio-reader-store.test.ts','audio reader store qualification'],
+    [2,'sparra-audio-reader-retirement.test.ts','audio reader retirement qualification'],
+  ] as const)writeFileSync(join(root,'tests/integration',file),`import {expect,test} from 'vitest';import {appendFileSync,existsSync,lstatSync,readFileSync,realpathSync,writeFileSync} from 'node:fs';import {basename,dirname,isAbsolute,join} from 'node:path';
+test('synthetic ${phase} runner wiring',()=>{
+  const root=process.env.SPARRA_VOICE_TEST_ROOT!,screenshots=process.env.SPARRA_PLAYBACK_SCREENSHOT_DIR!,log=join(process.cwd(),'canary-audio-consumers.jsonl');
+  expect(root).toBe(join(process.cwd(),'coverage/canary-voice-owner'));expect(existsSync(root)).toBe(true);expect(existsSync('canary-voice-retired.txt')).toBe(false);
+  expect(process.env.SPARRA_VOICE_FIXTURE_PYTHON).toBe(process.execPath);expect(process.env.SPARRA_VOICE_NLTK_DATA).toBe(root);expect(process.env.SPARRA_VOICE_TEST_HOME).toBe(root);expect(process.env.SPARRA_VOICE_TOKENIZER_ARCHIVE).toBe(join(root,'synthetic-tokenizer.zip'));
+  expect(isAbsolute(screenshots)).toBe(true);expect(dirname(dirname(screenshots))).toBe(join(process.cwd(),'coverage'));expect(basename(dirname(screenshots))).toMatch(/^\\.native-[0-9a-f-]{36}$/);expect(basename(screenshots)).toBe('playback-screenshots');expect(lstatSync(screenshots).isDirectory()).toBe(true);expect(lstatSync(screenshots).isSymbolicLink()).toBe(false);expect(realpathSync(screenshots)).toBe(screenshots);
+  const previous=existsSync(log)?readFileSync(log,'utf8').trimEnd().split('\\n').map(line=>JSON.parse(line).phase):[];expect(previous).toEqual(${JSON.stringify(['private audio playback qualification','audio reader store qualification'].slice(0,index))});
+  ${index===0?"writeFileSync(join(screenshots,'synthetic-runner-output.txt'),'owned runner wiring witness');":"expect(readFileSync(join(screenshots,'synthetic-runner-output.txt'),'utf8')).toBe('owned runner wiring witness');"}
+  appendFileSync(log,JSON.stringify({phase:${JSON.stringify(phase)},screenshots})+'\\n');
+});\n`)
   writeFileSync(join(root,'.output/server/index.mjs'),'export const build = 1\n')
   writeFileSync(join(root,'src/covered.ts'),'export function selectBranch(value: boolean): number {\n  if (value) return 7\n  return 9\n}\n')
   writeFileSync(join(root,'src/unexecuted.ts'),'export function unexecuted(): number {\n  return 13\n}\n')
@@ -438,15 +454,39 @@ test('actual_coverage_runner_publishes_only_native_complete_map_after_retirement
   expect(readdirSync(join(root,'coverage'))).toEqual(['coverage-final.json'])
   expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
   expect(existsSync(join(root,'coverage/canary-voice-owner'))).toBe(false)
-  expect(result.stdout.split('\n').filter(line=>/^\[tests\] (voice-crypto qualification|recording receipt qualification|requests qualification|merge)$/.test(line.trim())).map(line=>line.trim())).toEqual([
-    '[tests] voice-crypto qualification','[tests] recording receipt qualification','[tests] requests qualification','[tests] merge',
+  expect(result.stdout.split('\n').filter(line=>/^\[tests\] (voice-crypto qualification|recording receipt qualification|requests qualification|private audio playback qualification|audio reader store qualification|audio reader retirement qualification|merge)$/.test(line.trim())).map(line=>line.trim())).toEqual([
+    '[tests] voice-crypto qualification','[tests] recording receipt qualification','[tests] requests qualification',
+    '[tests] private audio playback qualification','[tests] audio reader store qualification',
+    '[tests] audio reader retirement qualification','[tests] merge',
   ])
+  const audioConsumers: {phase:string;screenshots:string}[]=readFileSync(join(root,'canary-audio-consumers.jsonl'),'utf8').trimEnd().split('\n').map(line=>JSON.parse(line))
+  expect(audioConsumers.map(row=>row.phase)).toEqual(['private audio playback qualification','audio reader store qualification','audio reader retirement qualification'])
+  expect(new Set(audioConsumers.map(row=>row.screenshots)).size).toBe(1)
+  expect(existsSync(audioConsumers[0]!.screenshots)).toBe(false)
   const coverage=JSON.parse(readFileSync(join(root,'coverage/coverage-final.json'),'utf8'))
   expect(coverage.stale).toBeUndefined()
   expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].f).toEqual({'0':21})
   expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].s).toEqual({'0':21,'1':9,'2':12})
   expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].b).toEqual({'0':[9,12]})
   expect(coverage[join(root,'src/unexecuted.ts').replaceAll('\\','/')].f).toEqual({'0':0})
+},25000)
+
+test.each([
+  ['sparra-audio-playback.test.ts','private audio playback qualification','audio reader store qualification'],
+  ['sparra-audio-reader-store.test.ts','audio reader store qualification','audio reader retirement qualification'],
+  ['sparra-audio-reader-retirement.test.ts','audio reader retirement qualification','merge'],
+] as const)('actual_coverage_runner_retains_producer_on_audio_failure_%s',(file,phase,nextPhase)=>{
+  const root=nativeCoverageFixture(),path=join(root,'tests/integration',file)
+  writeFileSync(path,readFileSync(path,'utf8')+"import {afterAll} from 'vitest';afterAll(()=>{throw new Error('Owned audio consumer afterAll failure')});\n")
+  const result=runCoverageConsumer(root)
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
+  expect(result.stderr).toContain('Native coverage '+phase+' failed; consumer cleanup is unconfirmed')
+  expect(result.stderr).toContain('Native Voice scope retained: consumer resource cleanup is unconfirmed')
+  expect(result.stdout).not.toContain('[tests] '+nextPhase)
+  expect(result.stdout).not.toContain('[tests] merge')
+  expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
+  expect(readdirSync(join(root,'coverage'))).toEqual(['canary-voice-owner'])
+  expect(existsSync(join(root,'canary-voice-retired.txt'))).toBe(false)
 },25000)
 
 test.each(['missing','duplicate'] as const)('actual_coverage_runner_refuses_recording_%s_leaf_before_requests_and_publication',kind=>{
@@ -922,7 +962,7 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
         expect(source.text.slice(marker.end,marker.end+newlineLength),'Reviewed SSR marker line expired').toMatch(/^\r?\n$/)
         reconstructed=reconstructed.slice(0,marker.start)+reconstructed.slice(marker.end+newlineLength)
       }
-      expect(digest(reconstructed),'Reviewed SSR whole file expired').toBe('7a1599c9ea956389fb0e5ce30c9b69802144115db4fd8b110035b069e120ab9f')
+      expect(digest(reconstructed),'Reviewed SSR whole file expired').toBe('d20c5836d1fc916e84b4a6374ae98ebc10b76a294074dbf1287cad5444eaff6f')
     }
     expect(()=>reviewedCallbacks(sources)).not.toThrow()
     const original=sources.get(ssrFile)!,title=targets[0][0]
