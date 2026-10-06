@@ -460,6 +460,3 @@ BEGIN
  RETURN jsonb_build_object('schema_version',1,'call_id',call_id,'configuration_revision',k.revision,'recording_enabled',k.recording_enabled,'knowledge',jsonb_build_object('business_name',k.business_name,'sector',k.sector,'opening_hours',k.opening_hours,'services',k.services,'prices',k.prices,'faq',k.faq,'instructions',k.instructions),'transfer_destination',k.transfer_destination,'retention_until',voice_private.iso(admitted+interval '2592000 seconds'));
 EXCEPTION WHEN unique_violation THEN RAISE EXCEPTION 'Voice admission conflict' USING ERRCODE='PV202';
 END $$;
-
-
-
