@@ -19,6 +19,7 @@ import type { createApplicationAuth } from '../../src/modules/auth/auth.server'
 import { startWeb, bounded, unusedLoopbackPort } from '../helpers/web-process'
 import { authRpcPath, rpcBody } from '../helpers/auth-rpc'
 import { cryptoFixture, nativeVoiceTurn } from '../helpers/sparra-crypto-fixture'
+import type { sparraKnowledgeRevision } from '../../src/modules/sparra/schema.server'
 
 let stores: Awaited<ReturnType<typeof startDisposableStores>>,pool:Pool
 let requests:ReturnType<typeof createRequestOperations>,personal:ReturnType<typeof createPersonalWorkspaces>,activity:ReturnType<typeof createActivityOperations>
@@ -53,8 +54,23 @@ beforeAll(async()=>{
     expect(await dump()).toBe(ddl);expect(await snapshot()).toEqual(before)
     await stores.administrator.query('DROP EVENT TRIGGER fixture_inbox_ddl_seen; DROP FUNCTION app_private.fixture_inbox_ddl_seen(); DROP SEQUENCE fixture_inbox_ddl_marker; DROP FUNCTION app_private.sparra_erase_call()')
     await stores.migrate()
-    const after=await snapshot();expect(after[0].revisions).toEqual(before[0].revisions.map((revision:object)=>({...revision,recording_enabled:false})));expect(after[0].workspaces).toEqual(before[0].workspaces);expect(after[0].users).toEqual(before[0].users)
-    expect(await unchangedCatalog()).toEqual(catalogBefore)
+    const after=await snapshot();expect(after[0].revisions).toEqual(before[0].revisions.map((revision:typeof sparraKnowledgeRevision.$inferSelect)=>({...revision,recording_enabled:false,recording_policy:'off',recording_contact_phone:null})));expect(after[0].workspaces).toEqual(before[0].workspaces);expect(after[0].users).toEqual(before[0].users)
+    const catalogAfter=await unchangedCatalog()
+    const isAddedAudioPolicy=(policy:{schemaname:string;tablename:string;policyname:string})=>policy.schemaname==='public'&&policy.tablename==='workspace'&&['workspace_audio_reader_cleanup_select','workspace_audio_reader_cleanup_update','workspace_local_audio_read'].includes(policy.policyname)
+    expect(catalogBefore[0].policies.filter(isAddedAudioPolicy)).toEqual([])
+    // Compare every pre-existing policy and membership unchanged; admit only
+    // these three exact forward additions, including their native predicates.
+    expect(catalogAfter.map(row=>({...row,policies:row.policies.filter((policy:{schemaname:string;tablename:string;policyname:string})=>!isAddedAudioPolicy(policy))}))).toEqual(catalogBefore)
+    const normalizeExpression=(value:string|null)=>value===null?null:value.replace(/\s+/g,' ').trim()
+    expect(catalogAfter[0].policies.filter(isAddedAudioPolicy).map((policy:{qual:string|null;with_check:string|null})=>({...policy,qual:normalizeExpression(policy.qual),with_check:normalizeExpression(policy.with_check)}))).toEqual([
+      {schemaname:'public',tablename:'workspace',policyname:'workspace_audio_reader_cleanup_select',permissive:'PERMISSIVE',roles:['workspace_owner'],cmd:'SELECT',
+        qual:"(((id)::text = current_setting('app.tenant_id'::text, true)) AND (EXISTS ( SELECT 1 FROM sparra_audio_reader r WHERE (r.workspace_id = workspace.id))))",with_check:null},
+      {schemaname:'public',tablename:'workspace',policyname:'workspace_audio_reader_cleanup_update',permissive:'PERMISSIVE',roles:['workspace_owner'],cmd:'UPDATE',
+        qual:"(((id)::text = current_setting('app.tenant_id'::text, true)) AND (EXISTS ( SELECT 1 FROM sparra_audio_reader r WHERE (r.workspace_id = workspace.id))))",
+        with_check:"(((id)::text = current_setting('app.tenant_id'::text, true)) AND (EXISTS ( SELECT 1 FROM sparra_audio_reader r WHERE (r.workspace_id = workspace.id))))"},
+      {schemaname:'public',tablename:'workspace',policyname:'workspace_local_audio_read',permissive:'PERMISSIVE',roles:['workspace_owner'],cmd:'SELECT',
+        qual:"(((id)::text = current_setting('app.tenant_id'::text, true)) AND (current_setting('app.tenant_id'::text, true) <> '00000000-0000-0000-0000-000000000000'::text) AND (kind = 'personal'::text) AND (lifecycle = 'active'::text) AND (auth_organization_id IS NULL))",with_check:null},
+    ])
     expect(await Promise.all(entries.map(async e=>createHash('sha256').update(await readFile('drizzle/'+e.tag+'.sql')).digest('hex')))).toEqual(hashes)
   }finally{await rm(dir,{recursive:true,force:true})}
   await stores.administrator.query('GRANT USAGE ON SCHEMA public TO runtime; GRANT SELECT,INSERT,UPDATE,DELETE ON "user",account,session,verification TO runtime')
