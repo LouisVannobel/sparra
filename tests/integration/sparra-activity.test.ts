@@ -102,7 +102,7 @@ test('absent reads and saves never create a workspace; native ensure enables rev
   const workspace=await personal.ensurePersonalWorkspace(principal)
   expect(await activity.read(principal)).toEqual({workspace,configuration:null})
   const saved=await activity.save(principal,input())
-  expect(saved).toEqual({sector:input().sector,transferDestination:null,recordingEnabled:false,workspaceId:workspace!.id,revision:1,savedAt:expect.any(String),businessName:'Garage Dupont',knowledge:{...input().knowledge,openingHours:'Lundi\nVendredi'}})
+  expect(saved).toEqual({sector:input().sector,transferDestination:null,recordingEnabled:false,recordingPolicy:'off',recordingContactPhone:null,workspaceId:workspace!.id,revision:1,savedAt:expect.any(String),businessName:'Garage Dupont',knowledge:{...input().knowledge,openingHours:'Lundi\nVendredi'}})
   expect(await activity.read(principal)).toEqual({workspace,configuration:saved})
 })
 test('native company audio policy saves and reloads immutable ON then OFF revisions with strict validation',async()=>{

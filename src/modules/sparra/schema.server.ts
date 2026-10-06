@@ -14,6 +14,8 @@ export const sparraKnowledgeRevision = pgTable('sparra_knowledge_revision', {
   openingHours: text('opening_hours').notNull(), services: text('services').notNull(), prices: text('prices').notNull(), faq: text('faq').notNull(), instructions: text('instructions').notNull(),
   transferDestination: text('transfer_destination'),
   recordingEnabled: boolean('recording_enabled').notNull().default(false),
+  recordingPolicy: text('recording_policy', { enum: ['off', 'local_30d'] }).notNull().default('off'),
+  recordingContactPhone: text('recording_contact_phone'),
   savedAt: timestamp('saved_at', { withTimezone: true, precision: 3 }).notNull().default(sql`clock_timestamp()`),
 }, table => [
   primaryKey({ columns: [table.workspaceId, table.revision] }),
@@ -23,6 +25,9 @@ export const sparraKnowledgeRevision = pgTable('sparra_knowledge_revision', {
   check('sparra_revision_sector', sql`${table.sector} in ('garage','controle-technique')`),
   ...([['opening_hours',table.openingHours,1000],['services',table.services,2000],['prices',table.prices,1500],['faq',table.faq,3000],['instructions',table.instructions,2000]] as const).map(([name,column,limit]) => check('sparra_revision_'+name, sql`${utf16Length(column)} <= ${sql.raw(String(limit))} and ${column} !~ U&'[\\0001-\\0008\\000B\\000C\\000E-\\001F\\007F-\\009F]'`)),
   check('sparra_revision_transfer', sql`${table.transferDestination} is null or ${table.transferDestination} ~ '^\\+[1-9][0-9]{1,14}$'`),
+  check('sparra_revision_recording_policy', sql`${table.recordingPolicy} in ('off','local_30d')`),
+  check('sparra_revision_recording_contact', sql`${table.recordingContactPhone} is null or ${table.recordingContactPhone} ~ '^\\+[1-9][0-9]{1,14}$'`),
+  check('sparra_revision_local_recording', sql`${table.recordingPolicy} <> 'local_30d' or (${table.recordingContactPhone} is not null and not ${table.recordingEnabled})`),
   check('sparra_revision_saved_at', sql`isfinite(${table.savedAt})`),
   pgPolicy('sparra_revision_voice_read',{to:'sparra_voice_definer',for:'select',using:sql`workspace_id = voice_private.bound_workspace()`}),
   pgPolicy('sparra_revision_voice_delete',{to:'sparra_voice_definer',for:'delete',using:sql`workspace_id = voice_private.bound_workspace()`}),

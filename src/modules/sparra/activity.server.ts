@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { desc, eq } from 'drizzle-orm'
+import { desc, eq, sql } from 'drizzle-orm'
 import { Schema, SchemaGetter } from 'effect'
 import type { AuthTransactions } from '../../platform/db/transactions.server'
 import type { AdmittedPrincipal } from '../auth/session.server'
@@ -20,6 +20,8 @@ const saveInput = Schema.Struct({
   knowledge: Schema.Struct({ openingHours: section(1000), services: section(2000), prices: section(1500), faq: section(3000), instructions: section(2000) }),
   transferDestination: Schema.optional(Schema.NullOr(Schema.String.check(Schema.isPattern(/^\+[1-9][0-9]{1,14}$/)))),
   recordingEnabled: Schema.optionalKey(Schema.Boolean),
+  recordingPolicy: Schema.optionalKey(Schema.Literals(['off','local_30d'])),
+  recordingContactPhone: Schema.optionalKey(Schema.NullOr(Schema.String.check(Schema.isPattern(/^\+[1-9][0-9]{1,14}(?![\s\S])/)))),
 })
 export class InvalidActivityInput extends Error {
   constructor() { super('Invalid activity input'); this.name = 'InvalidActivityInput' }
@@ -27,22 +29,29 @@ export class InvalidActivityInput extends Error {
 class ActivityRevisionConflict extends Error {
   constructor() { super('Activity revision conflict'); this.name = 'ActivityRevisionConflict' }
 }
+export class ActivityRecordingUnavailable extends Error {
+  constructor() { super('Local audio unavailable'); this.name = 'ActivityRecordingUnavailable' }
+}
 export type SaveActivityInput = Readonly<{
   expectedRevision: number; businessName: string; sector: 'garage' | 'controle-technique'
   knowledge: Readonly<{ openingHours: string; services: string; prices: string; faq: string; instructions: string }>
   transferDestination?: string | null
   recordingEnabled?: boolean
+  recordingPolicy?: 'off' | 'local_30d'
+  recordingContactPhone?: string | null
 }>
-export type ActivityConfigurationDto = Readonly<Omit<SaveActivityInput,'expectedRevision' | 'transferDestination'> & { workspaceId: string; revision: number; savedAt: string; transferDestination: string | null }>
+export type ActivityConfigurationDto = Readonly<Omit<SaveActivityInput,'expectedRevision' | 'transferDestination' | 'recordingPolicy' | 'recordingContactPhone'> & { workspaceId: string; revision: number; savedAt: string; transferDestination: string | null; recordingPolicy: 'off' | 'local_30d'; recordingContactPhone: string | null }>
 export type ActivityState = Readonly<{ workspace: WorkspaceDto | null; configuration: ActivityConfigurationDto | null }>
 export function parseSaveActivityInput(input: unknown) {
   try {
     const value = Schema.decodeUnknownSync(saveInput,{ onExcessProperty: 'error' })(input)
-    return { ...value, transferDestination: value.transferDestination ?? null, recordingEnabled: value.recordingEnabled ?? false }
+    if(value.recordingPolicy !== undefined && value.recordingEnabled === true) throw new InvalidActivityInput()
+    if(value.recordingPolicy === 'local_30d' && value.recordingContactPhone == null) throw new InvalidActivityInput()
+    return { ...value, transferDestination: value.transferDestination ?? null, recordingEnabled: value.recordingEnabled ?? false, ...(value.recordingPolicy !== undefined || Object.hasOwn(value,'recordingContactPhone') ? {recordingContactPhone:value.recordingContactPhone ?? null} : {}) }
   } catch { throw new InvalidActivityInput() }
 }
 export function configuration(row: typeof sparraKnowledgeRevision.$inferSelect): ActivityConfigurationDto {
-  return { workspaceId:row.workspaceId,revision:row.revision,savedAt:row.savedAt.toISOString(),businessName:row.businessName,sector:row.sector,knowledge:{openingHours:row.openingHours,services:row.services,prices:row.prices,faq:row.faq,instructions:row.instructions},transferDestination:row.transferDestination,recordingEnabled:row.recordingEnabled }
+  return { workspaceId:row.workspaceId,revision:row.revision,savedAt:row.savedAt.toISOString(),businessName:row.businessName,sector:row.sector,knowledge:{openingHours:row.openingHours,services:row.services,prices:row.prices,faq:row.faq,instructions:row.instructions},transferDestination:row.transferDestination,recordingEnabled:row.recordingEnabled,recordingPolicy:row.recordingPolicy,recordingContactPhone:row.recordingContactPhone }
 }
 export function createActivityOperations(owner: AuthTransactions) {
   const options = (signal?: AbortSignal) => ({ deadlineAtMs: Date.now()+10000,statementTimeoutMs:1000,cleanupTimeoutMs:1000,correlationId:randomUUID(),signal })
@@ -60,9 +69,14 @@ export function createActivityOperations(owner: AuthTransactions) {
     return owner.withPersonalWorkspacePromise(options(signal),principal,false,async lease=>{
       if(!lease) return null
       // The native personal lease already holds the active Workspace FOR UPDATE.
-      const [latest]=await lease.db.select({revision:sparraKnowledgeRevision.revision}).from(sparraKnowledgeRevision).where(eq(sparraKnowledgeRevision.workspaceId,lease.workspaceId)).orderBy(desc(sparraKnowledgeRevision.revision)).limit(1)
+      const [latest]=await lease.db.select({revision:sparraKnowledgeRevision.revision,recordingPolicy:sparraKnowledgeRevision.recordingPolicy}).from(sparraKnowledgeRevision).where(eq(sparraKnowledgeRevision.workspaceId,lease.workspaceId)).orderBy(desc(sparraKnowledgeRevision.revision)).limit(1)
       if((latest?.revision ?? 0)!==value.expectedRevision) throw new ActivityRevisionConflict()
-      const [saved]=await lease.db.insert(sparraKnowledgeRevision).values({workspaceId:lease.workspaceId,revision:value.expectedRevision+1,businessName:value.businessName,sector:value.sector,...value.knowledge,transferDestination:value.transferDestination,recordingEnabled:value.recordingEnabled}).returning()
+      if(value.recordingPolicy === undefined && latest?.recordingPolicy === 'local_30d') throw new ActivityRecordingUnavailable()
+      if(value.recordingPolicy === 'local_30d') {
+        const [capability]=await lease.db.select({available:sql<boolean>`public.sparra_local_audio_available_v1()`}).from(sql`(select 1) AS local_audio_call`)
+        if(capability?.available !== true) throw new ActivityRecordingUnavailable()
+      }
+      const [saved]=await lease.db.insert(sparraKnowledgeRevision).values({workspaceId:lease.workspaceId,revision:value.expectedRevision+1,businessName:value.businessName,sector:value.sector,...value.knowledge,transferDestination:value.transferDestination,recordingEnabled:value.recordingPolicy === undefined ? value.recordingEnabled : false,recordingPolicy:value.recordingPolicy ?? 'off',recordingContactPhone:value.recordingContactPhone ?? null}).returning()
       if(!saved) throw new Error('Activity unavailable')
       return configuration(saved)
     })

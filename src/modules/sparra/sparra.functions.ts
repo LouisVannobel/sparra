@@ -19,6 +19,7 @@ function sparraErrors(kind: keyof typeof failures) {
     catch (error) {
       if (error instanceof Response) throw error
       const name = error instanceof Error ? error.name : ''
+      if(kind === 'activity' && name === 'ActivityRecordingUnavailable') throw new Response('Local audio unavailable',{status:409})
       const status = name === failure.special ? failure.status : name === failure.invalid || Schema.isSchemaError(error) ? 400 : 500
       throw new Response(failure.message, { status })
     }

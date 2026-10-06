@@ -37,7 +37,7 @@ test('activity equivalence compares editable information rather than saved times
   const {activityMatchesConfiguration}=await import('../../src/ui/sparra/activity-panel')
   expect(activityMatchesConfiguration,'latest-read comparison must use actual business information').toBeTypeOf('function')
   const {expectedRevision:_,...values}=validDraft()
-  const configuration:ActivityConfigurationDto={...values,workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',revision:99,savedAt:'2026-10-05T10:00:00.000Z',transferDestination:null}
+  const configuration:ActivityConfigurationDto={...values,workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',revision:99,savedAt:'2026-10-05T10:00:00.000Z',transferDestination:null,recordingPolicy:'off',recordingContactPhone:null}
   expect(activityMatchesConfiguration(validDraft(),configuration)).toBe(true)
   expect(activityMatchesConfiguration(validDraft(),null)).toBe(false)
   expect(activityMatchesConfiguration({...validDraft(),businessName:'Different'},configuration)).toBe(false)
