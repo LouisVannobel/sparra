@@ -37,6 +37,24 @@ export const sparraKnowledgeRevision = pgTable('sparra_knowledge_revision', {
 
 const scoped = (column:SQLWrapper) => sql`${column}::text = current_setting('app.tenant_id',true) and current_setting('app.tenant_id',true) <> '00000000-0000-0000-0000-000000000000'`
 const active = (column:SQLWrapper) => sql`${scoped(column)} and exists (select 1 from public.workspace where workspace.id = ${column} and workspace.lifecycle = 'active')`
+export const sparraAudioReader = pgTable('sparra_audio_reader', {
+  workspaceId: uuid('workspace_id').primaryKey().references(() => workspace.id, { onDelete: 'restrict' }),
+  callId: uuid('call_id').notNull(), recordingId: uuid('recording_id').notNull(),
+  leaseId: uuid('lease_id').notNull().unique(), tokenHash: text('token_hash').notNull(),
+  incarnation: uuid('incarnation').notNull(), containerId: text('container_id').notNull(),
+  readerDeploymentId: text('reader_deployment_id').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true, precision: 3 }).notNull(),
+  state: text('state', { enum: ['active', 'revoked', 'released'] }).notNull(),
+  releasedAt: timestamp('released_at', { withTimezone: true, precision: 3 }),
+}, table => [
+  check('sparra_audio_reader_container', sql.raw("container_id ~ '^[0-9a-f]{64}$'")),
+  check('sparra_audio_reader_token_hash', sql.raw("token_hash ~ '^[0-9a-f]{64}$'")),
+  check('sparra_audio_reader_deployment', sql.raw("length(reader_deployment_id) between 1 and 256 and reader_deployment_id !~ '[[:cntrl:]]'")),
+  check('sparra_audio_reader_state', sql.raw("state in ('active','revoked','released') and ((state='released') = (released_at is not null)) and isfinite(expires_at)")),
+  pgPolicy('sparra_audio_reader_runtime', { to: 'runtime', for: 'all', using: active(table.workspaceId), withCheck: active(table.workspaceId) }),
+  pgPolicy('sparra_audio_reader_cleanup', { to: 'workspace_owner', for: 'all', using: sql.raw('true'), withCheck: sql.raw('true') }),
+  pgPolicy('sparra_audio_reader_voice', { to: 'sparra_voice_definer', for: 'all', using: sql.raw('workspace_id = voice_private.bound_workspace()'), withCheck: sql.raw('workspace_id = voice_private.bound_workspace()') }),
+]).enableRLS()
 export const sparraCall = pgTable('sparra_call', {
   id:uuid('id').primaryKey(),workspaceId:uuid('workspace_id').notNull().references(()=>workspace.id,{onDelete:'restrict'}),
   configurationRevision:integer('configuration_revision'),deploymentId:text('deployment_id').notNull(),providerCallControlId:text('provider_call_control_id').notNull(),providerCallLegId:text('provider_call_leg_id'),providerCallSessionId:text('provider_call_session_id'),

@@ -5,6 +5,7 @@ import { createAuthRateLimiter, readRateLimitConfig } from '../modules/auth/rate
 import type { WebResources } from './resources.server'
 import { createApplicationAuth, readAuthConfig } from '../modules/auth/auth.server'
 import { createPersonalWorkspaces } from '../modules/workspaces/personal.server'
+import { createAudioReaderOwner, readAudioIncarnation } from '../modules/sparra/audio-reader.server'
 
 class Resources extends Context.Service<Resources, WebResources>()('app/web/resources') {}
 
@@ -17,6 +18,7 @@ export function createWebResources(env: Readonly<Record<string, string | undefin
   let disposal: Promise<void> | undefined
   let readiness: Promise<WebResources> | undefined
   let stopDatabase = () => {}
+  let audioReader: ReturnType<typeof createAudioReaderOwner> | undefined
   const layer = Layer.effect(Resources, Effect.gen(function* () {
     const databaseResource = yield* acquireDatabase(database)
     stopDatabase = databaseResource.stop
@@ -32,10 +34,22 @@ export function createWebResources(env: Readonly<Record<string, string | undefin
       auth => Effect.promise(() => auth.close()),
     ) : null
     const workspaces = createPersonalWorkspaces(transactions)
-    return Object.freeze({ transactions, limiter, auth, workspaces, isReady: () => !stopping && databaseResource.isReady() && limiter.isReady() })
+    audioReader = yield* Effect.acquireRelease(
+      Effect.tryPromise({ try: async () => createAudioReaderOwner(transactions, await readAudioIncarnation(env)),
+        catch: () => new Error('Audio reader unavailable') }),
+      reader => Effect.promise(() => reader.shutdown()),
+    )
+    return Object.freeze({ transactions, limiter, auth, workspaces, audioReader, isReady: () => !stopping && databaseResource.isReady() && limiter.isReady() })
   }))
   const runtime = ManagedRuntime.make(layer)
-  function dispose() { stopping = true; stopDatabase(); return disposal ??= runtime.dispose() }
+  function dispose() {
+    stopping = true
+    return disposal ??= (async () => {
+      await audioReader?.shutdown()
+      stopDatabase()
+      await runtime.dispose()
+    })()
+  }
   function ready() {
     return readiness ??= runtime.runPromise(Resources).catch(async () => {
       await dispose()

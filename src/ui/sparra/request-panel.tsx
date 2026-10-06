@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useHydrated } from '@tanstack/react-router'
 import { Heading } from '@astryxdesign/core/Heading'
 import { Button } from '@astryxdesign/core/Button'
@@ -62,6 +62,25 @@ function RequestConfigurationSnapshot({locale,configuration}:{locale:Locale;conf
   return <section className="sparra-request-knowledge" data-configuration-snapshot><Heading level={2}>{t.snapshot}</Heading>{configuration?<><p>{configuration.businessName} — {t.version} {configuration.revision}</p><dl>{(['openingHours','services','prices','faq','instructions'] as const).map(field=><div key={field}><dt>{a[field]}</dt><dd>{configuration.knowledge[field]||'—'}</dd></div>)}</dl></>:<p>{t.noSnapshot}</p>}</section>
 }
 
+export function RequestAudio({locale,detail,blocked}:{locale:Locale;detail:Pick<RequestDetailDto,'id'|'audio'>;blocked:boolean}){
+  const element=useRef<HTMLAudioElement>(null),[failed,setFailed]=useState(false),audio=detail.audio
+  const available=audio?.available===true&&!blocked&&!failed
+  useEffect(()=>{
+    const player=element.current
+    if(!available&&player){player.pause();player.removeAttribute('src');player.load()}
+    return()=>{if(player){player.pause();player.removeAttribute('src');player.load()}}
+  },[available,detail.id])
+  if(!audio)return null
+  return <section aria-label={locale==='fr'?'Conversation avec Sparra':'Conversation with Sparra'}>
+    <Heading level={2}>{locale==='fr'?'Conversation avec Sparra':'Conversation with Sparra'}</Heading>
+    <p>{locale==='fr'?'Enregistrement de l’échange avec l’assistant Sparra.':'Recording of the conversation with the Sparra assistant.'}</p>
+    {audio.durationSeconds!==null&&<p>{Math.round(audio.durationSeconds)} s · {locale==='fr'?'Échéance':'Expires'} : <time dateTime={audio.expiresAt}>{observedDate(audio.expiresAt,locale)}</time></p>}
+    {audio.state==='partial'&&<p>{locale==='fr'?'Cet extrait peut être incomplet.':'This excerpt may be incomplete.'}</p>}
+    {available?<audio ref={element} controls controlsList="nodownload" preload="none" src={'/api/sparra/audio/'+detail.id} onError={()=>setFailed(true)}/>
+      :<p role={failed?'status':undefined}>{locale==='fr'?audio.state==='declined'?'L’appelant a choisi de continuer sans enregistrement.':audio.state==='off'?'Aucun enregistrement pour cet appel.':'Conversation indisponible.': 'Conversation unavailable.'}</p>}
+  </section>
+}
+
 export function RequestPanel({locale,loaded,onTreat,onErase,onRefused}:Props){
   const t=appMessages[locale],hydrated=useHydrated(),[current,setCurrent]=useState(loaded),[pending,setPending]=useState(false),[failed,setFailed]=useState(false),[confirm,setConfirm]=useState(false)
   const begin=useRequestAttempt()
@@ -75,6 +94,7 @@ export function RequestPanel({locale,loaded,onTreat,onErase,onRefused}:Props){
       <div className="sparra-call-workspace">
       <RequestSummary locale={locale} detail={detail}/>
       <RequestTranscript locale={locale} detail={detail}/>
+      <RequestAudio locale={locale} detail={detail} blocked={pending&&confirm}/>
       <RequestConfigurationSnapshot locale={locale} configuration={detail.configuration}/>
       </div>
       <div className="sparra-request-actions">{detail.treatedAt?<p role="status">{t.treated}</p>:<Button label={t.treat} isDisabled={!hydrated||pending} onClick={()=>void mutate('treat')}/>}

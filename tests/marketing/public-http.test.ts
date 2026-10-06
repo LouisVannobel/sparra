@@ -84,6 +84,21 @@ test('private and missing routes keep their protected headers', async () => {
   }
 })
 
+test('anonymous raw audio route rejects before owner data access', async () => {
+  const base = await launch()
+  const response = await fetch(
+    `${base}/api/sparra/audio/11111111-1111-4111-8111-111111111111`,
+    { redirect: 'manual', signal: AbortSignal.timeout(3000) },
+  )
+  expect(response.status).toBe(401)
+  expect(response.headers.get('cache-control')).toBe('no-store')
+  expect(response.headers.get('x-content-type-options')).toBe('nosniff')
+  expect(response.headers.get('location')).toBeNull()
+  expect(response.headers.get('access-control-allow-origin')).toBeNull()
+  expect(response.headers.get('content-type')).not.toBe('audio/wav')
+  expect(await response.text()).not.toContain('RIFF')
+})
+
 test.each([
   { fixture: 'error', status: 500 },
   { fixture: 'json', status: 200 },

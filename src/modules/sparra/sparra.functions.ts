@@ -54,7 +54,8 @@ export const listRequests=createServerFn({method:'GET'}).middleware([requestErro
 })
 export const getRequestDetail=createServerFn({method:'GET'}).middleware([requestErrors]).validator(parseRequestInput).handler(async({data})=>{
   const {request,resources,principal}=await admittedRequest()
-  return createRequestOperations(resources.transactions).detail(principal,data.requestId,request.signal)
+  const detail=await createRequestOperations(resources.transactions).detail(principal,data.requestId,request.signal)
+  return {...detail,audio:detail.audio?{...detail.audio,available:detail.audio.available&&resources.audioReader?.isAvailable()===true}:undefined}
 })
 export const markRequestTreated=createServerFn({method:'POST'}).middleware([requestErrors]).validator(parseRequestInput).handler(async({data})=>{
   const {request,resources,principal}=await admittedRequest()

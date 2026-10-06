@@ -6,6 +6,7 @@ import type { AdmittedPrincipal } from '../auth/session.server'
 import { configuration, type ActivityConfigurationDto } from './activity.server'
 import { decodeMessageContent, readKeyring, type MessageContent, type MessageResultV1 } from './message-crypto.server'
 import { sparraCall, sparraErasure, sparraKnowledgeRevision } from './schema.server'
+import { audioDto, type AudioDto } from './audio.server'
 
 const idSchema=Schema.String.check(Schema.isUUID()).pipe(Schema.decode({decode:SchemaGetter.transform(value=>value.toLowerCase()),encode:SchemaGetter.transform(value=>value)}))
 const canonicalInstant=Schema.String.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),Schema.makeFilter(value=>Number.isFinite(Date.parse(value)) && new Date(value).toISOString()===value))
@@ -18,7 +19,7 @@ export function parseRequestInput(input:unknown){try{return Schema.decodeUnknown
 export type ListRequestsInput=typeof listInput.Type
 export type EraseReceipt=Readonly<{requestId:string;state:'queued'|'completed'}>
 export type RequestSummaryDto=Readonly<{id:string;admittedAt:string;endedAt:string|null;status:typeof sparraCall.$inferSelect.status;configurationRevision:number|null;treatedAt:string|null;resultAvailability:'available'|'unavailable';resultQuality:'partial'|'complete'|null;category:MessageResultV1['category']|null;summary:string|null;contact:MessageResultV1['contact']|null;nextAction:string|null}>
-export type RequestDetailDto=RequestSummaryDto & Readonly<{configuration:ActivityConfigurationDto|null;transcript:MessageContent['transcript'];transcriptAvailability:MessageContent['transcriptAvailability'];unavailableTurnCount:number;moreTurns:boolean;transcriptLossCount:number;erasureState:'queued'|'completed'|null}>
+export type RequestDetailDto=RequestSummaryDto & Readonly<{configuration:ActivityConfigurationDto|null;transcript:MessageContent['transcript'];transcriptAvailability:MessageContent['transcriptAvailability'];unavailableTurnCount:number;moreTurns:boolean;transcriptLossCount:number;erasureState:'queued'|'completed'|null;audio?:AudioDto}>
 export type ListRequestsPage=Readonly<{requests:RequestSummaryDto[];nextCursor:{admittedAt:string;id:string}|null}>
 function summary(row:typeof sparraCall.$inferSelect,content:MessageContent):RequestSummaryDto {
   const result=content.result
@@ -46,7 +47,7 @@ export function createRequestOperations(owner:AuthTransactions){
       if(!row)throw new RequestNotFound()
       const content=decodeMessageContent(row.id,row.encryptedTurns,row.encryptedMessageResult,hasContent(row)?await readKeyring():null,row.transcriptLossCount)
       const [pin]=row.configurationRevision===null?[]:await lease.db.select().from(sparraKnowledgeRevision).where(and(eq(sparraKnowledgeRevision.workspaceId,lease.workspaceId),eq(sparraKnowledgeRevision.revision,row.configurationRevision)))
-      return {...summary(row,content),configuration:pin?configuration(pin):null,transcript:content.transcript,transcriptAvailability:content.transcriptAvailability,unavailableTurnCount:content.unavailableTurnCount,moreTurns:content.moreTurns,transcriptLossCount:content.transcriptLossCount,erasureState:null}
+      return {...summary(row,content),configuration:pin?configuration(pin):null,transcript:content.transcript,transcriptAvailability:content.transcriptAvailability,unavailableTurnCount:content.unavailableTurnCount,moreTurns:content.moreTurns,transcriptLossCount:content.transcriptLossCount,erasureState:null,audio:audioDto(row)}
     })
   }
   async function treat(principal:AdmittedPrincipal,requestId:string,signal?:AbortSignal){
