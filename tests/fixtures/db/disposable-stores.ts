@@ -186,6 +186,14 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
     console.log('AUTH_STORE_EVIDENCE ' + JSON.stringify(evidence))
     if (failures.length) throw new Error(`Disposable fixture cleanup failed: ${failures.join(', ')}`)
   }
+  async function connectPostgresAdministrator(migrationUrl: string) {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const candidate = hatchet ? createHatchetAdministrator(migrationUrl) : new Client({ connectionString: migrationUrl, connectionTimeoutMillis: 500 })
+      candidate.on('error', () => {})
+      try { await candidate.connect(); administrator = candidate; break }
+      catch { await candidate.end().catch(() => {}); await new Promise(resolve => setTimeout(resolve, 100)) }
+    }
+  }
   try {
     await prepareFixtureImages(selectedImages)
     // Freeze the actual candidate before any integration-driven source change.
@@ -203,12 +211,7 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
     await docker(['start', pg])
     const pgPort = await port(pg, 5432)
     const migrationUrl = `postgresql://migrator:${migrationPassword}@127.0.0.1:${pgPort}/auth`
-    for (let attempt = 0; attempt < 100; attempt++) {
-      const candidate = hatchet ? createHatchetAdministrator(migrationUrl) : new Client({ connectionString: migrationUrl, connectionTimeoutMillis: 500 })
-      candidate.on('error', () => {})
-      try { await candidate.connect(); administrator = candidate; break }
-      catch { await candidate.end().catch(() => {}); await new Promise(resolve => setTimeout(resolve, 100)) }
-    }
+    await connectPostgresAdministrator(migrationUrl)
     if (!administrator) throw new Error('Disposable PostgreSQL did not become ready')
     if (hatchet) {
       const tenantId = randomUUID()

@@ -109,6 +109,11 @@ function RequestActions({locale,treatedAt,hydrated,pending,confirm,onMutate,onCo
   </div>
 }
 
+function RequestMetadata({locale,detail}:{locale:Locale;detail:Pick<RequestDetailDto,'status'|'admittedAt'|'endedAt'>}){
+  const t=appMessages[locale]
+  return <div className="sparra-request-meta"><p>{t.status[detail.status]}</p><p>{t.admitted}: <time dateTime={detail.admittedAt}>{observedDate(detail.admittedAt,locale)}</time></p><p>{detail.endedAt?`${t.ended}: ${observedDate(detail.endedAt,locale)}`:t.noEnd}</p></div>
+}
+
 export function RequestPanel({locale,loaded,onTreat,onErase,onRefused}:Props){
   const t=appMessages[locale],hydrated=useHydrated(),[current,setCurrent]=useState(loaded),[pending,setPending]=useState(false),[failed,setFailed]=useState(false),[confirm,setConfirm]=useState(false)
   const begin=useRequestAttempt()
@@ -118,7 +123,7 @@ export function RequestPanel({locale,loaded,onTreat,onErase,onRefused}:Props){
   if(refused)return <PrivateUnavailable locale={locale} title={t.details}/>
   return <><a className="sparra-back-link" href={`/app?lang=${locale}`}>{t.inbox}</a><div className="sparra-page-heading"><Heading level={1}>{t.details}</Heading></div>
     {current.receipt?<p role="status">{current.receipt.state==='queued'?t.queued:t.completed}</p>:detail&&<>
-      <div className="sparra-request-meta"><p>{t.status[detail.status]}</p><p>{t.admitted}: <time dateTime={detail.admittedAt}>{observedDate(detail.admittedAt,locale)}</time></p><p>{detail.endedAt?`${t.ended}: ${observedDate(detail.endedAt,locale)}`:t.noEnd}</p></div>
+      <RequestMetadata locale={locale} detail={detail}/>
       <div className="sparra-call-workspace">
       <RequestSummary locale={locale} detail={detail}/>
       <RequestTranscript locale={locale} detail={detail}/>

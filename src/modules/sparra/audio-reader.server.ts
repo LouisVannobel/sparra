@@ -95,6 +95,7 @@ export function createAudioReaderOwner(transactions: AuthTransactions, incarnati
     if (stopping) await releaseStoppedAdmission(exact)
     let output: ReadableStreamDefaultController<Uint8Array> | undefined, permitted = true, productionEnded = false
     let producer: Promise<void> | undefined, probe: Promise<void> | undefined
+    let authentication: Promise<void> = Promise.resolve()
     let timer: ReturnType<typeof setTimeout> | undefined, release: Promise<void> | undefined
     let retained: Buffer | undefined, sequence = 0, offset = 44, headerSent = false
     const header = wavHeader(pin.totalSamples)
@@ -108,7 +109,7 @@ export function createAudioReaderOwner(transactions: AuthTransactions, incarnati
     function settle(): Promise<void> {
       return release ??= (async () => {
         permitted = false; controller.abort(); if (timer) clearTimeout(timer)
-        await Promise.all([producer?.catch(() => {}), probe?.catch(() => {}), nativeDone])
+        await Promise.all([producer?.catch(() => {}), probe?.catch(() => {}), authentication, nativeDone])
         retained?.fill(0); retained = undefined
         const released = await cleanup.runInAsyncScope(() => operations.release(exact))
         if (!released) throw new AudioUnavailable()
@@ -125,9 +126,15 @@ export function createAudioReaderOwner(transactions: AuthTransactions, incarnati
       })
     }
     async function freshPrincipal() {
-      if (!permitted || !resources.auth || request.signal.aborted || response.destroyed || nativeTerminal
-        || Date.now() >= deadline) throw new AudioUnavailable()
-      return resources.auth.requirePrincipal(request)
+      // The native auth protocol owns one invocation cell on this Request.
+      // Producer and probe revalidate separately, after the preceding cell joins.
+      const admitted = authentication.then(() => {
+        if (!permitted || !resources.auth || request.signal.aborted || response.destroyed || nativeTerminal
+          || Date.now() >= deadline) throw new AudioUnavailable()
+        return resources.auth.requirePrincipal(request)
+      })
+      authentication = admitted.then(() => {}, stop)
+      return admitted
     }
     function armProbe() {
       if (!permitted) return

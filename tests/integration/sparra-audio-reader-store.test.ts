@@ -223,8 +223,8 @@ async function nativeBounded<T>(operation: Promise<T>, ms = 2000): Promise<T> {
     })])
   } finally { clearTimeout(timer) }
 }
-async function readerAuthorizationFixture() {
-  const signed = await ceremony(), workspace = await personal.ensurePersonalWorkspace(signed.principal)
+async function readerAuthorizationFixture(signIn = ceremony) {
+  const signed = await signIn(), workspace = await personal.ensurePersonalWorkspace(signed.principal)
   if (!workspace) throw new Error('Reader lifecycle Workspace missing')
   const callId = randomUUID(), recordingId = randomUUID(), admittedAt = new Date()
   const retentionUntil = new Date(admittedAt.getTime() + 2_592_000_000)
@@ -241,10 +241,10 @@ async function readerAuthorizationFixture() {
   const pin = await createAudioOperations(owner).read(signed.principal, callId)
   return { ...signed, pin }
 }
-async function nativeReaderSocket(transactions: typeof owner, pin: AudioMetadata, cookie: string) {
+async function nativeReaderSocket(transactions: typeof owner, pin: AudioMetadata, cookie: string, selectedAuth = auth) {
   const incarnation = { incarnation: randomUUID(), containerId: 'e'.repeat(64), deploymentId: 'reader-lifecycle-fixture' }
   const readerOwner = createAudioReaderOwner(transactions, incarnation)
-  const resources: WebResources = { transactions, auth, limiter, workspaces: personal, isReady: () => true }
+  const resources: WebResources = { transactions, auth: selectedAuth, limiter, workspaces: personal, isReady: () => true }
   const clients: ClientRequest[] = [], responses: ServerResponse[] = [], handlers: Promise<void>[] = []
   const bRegistered = deliveryBarrier(), closed = deliveryBarrier(), handled = deliveryBarrier()
   let bResponse: ServerResponse | undefined, bReader: ReadableStreamDefaultReader<Uint8Array> | undefined
@@ -274,7 +274,7 @@ async function nativeReaderSocket(transactions: typeof owner, pin: AudioMetadata
   if (!address || typeof address === 'string') throw new Error('Native reader address missing')
   peer.allowPort(address.port)
   return { owner: readerOwner, bRegistered: bRegistered.promise, closed: closed.promise, handled: handled.promise,
-    successor: () => ({ response: bResponse, reader: bReader }),
+    successor: () => ({ response: bResponse, reader: bReader }), response: () => responses.at(-1),
     connect(path: string) {
       const client = nodeRequest({ host: '127.0.0.1', port: address.port, path })
       client.on('error', () => {})
@@ -386,4 +386,72 @@ test('native R1 acquire COMMIT followed by early TCP close joins exact release w
     expect(enqueues).toBe(0); expect(releases).toBe(1)
     expect(await slot(target.pin.workspaceId)).toMatchObject({ lease_id: acceptedLeaseId, state: 'released' })
   } finally { resumeAcquire.resolve(); await native.close() }
+})
+
+test('native R1 reader serializes same Request auth while the producer SQL result is held', async () => {
+  const entered = deliveryBarrier(), resume = deliveryBarrier()
+  let hold = false, held = false, checks = 0, activeChecks = 0, peakChecks = 0
+  // This schedules a real native query result inside an active R1 invocation.
+  // The Google protocol cell remains attached to the actual shared Request;
+  // no principal, protocol lifetime or transaction acknowledgement is forged.
+  const observed: typeof owner = { ...owner, withAuthPromise: (invocation, use) =>
+    owner.withAuthPromise(invocation, async lease => {
+      const result = await use(lease)
+      if (hold && !held) { held = true; entered.resolve(); await resume.promise }
+      return result
+    }) }
+  const { createApplicationAuth, readAuthConfig } = await import('../../src/modules/auth/auth.server')
+  const actualAuth = createApplicationAuth(observed, readAuthConfig({
+    APP_ORIGIN: 'http://localhost:3000', NODE_ENV: 'test', AUTH_SECRET: randomBytes(48).toString('hex'),
+    GOOGLE_CLIENT_ID: 'fixture.apps.googleusercontent.com', GOOGLE_CLIENT_SECRET: 'fixture-only',
+  })!, limiter)
+  const readerAuth: typeof actualAuth = { ...actualAuth, requirePrincipal: async request => {
+    checks++; activeChecks++; peakChecks = Math.max(peakChecks, activeChecks)
+    if (checks === 2) hold = true
+    try { return await actualAuth.requirePrincipal(request) } finally { activeChecks-- }
+  } }
+  let native: Awaited<ReturnType<typeof nativeReaderSocket>> | undefined
+  try {
+    const target = await readerAuthorizationFixture(googleCeremony(actualAuth, observed, peer))
+    native = await nativeReaderSocket(owner, target.pin, target.cookie, readerAuth)
+    const client = native.connect('/shared-auth')
+    const wire = new Promise<{ bytes: Buffer; complete: boolean }>((resolve, reject) => {
+      client.once('error', () => reject(new Error('Native shared auth response terminated')))
+      client.once('response', response => {
+        const chunks: Buffer[] = []; let size = 0
+        response.on('data', chunk => {
+          size += chunk.length
+          if (size > 44) { reject(new Error('Native header-only response bound')); response.destroy(); return }
+          chunks.push(Buffer.from(chunk))
+        })
+        response.once('error', () => reject(new Error('Native shared auth body terminated')))
+        response.once('end', () => resolve({ bytes: Buffer.concat(chunks), complete: response.complete }))
+      })
+    }).then(value => ({ value, error: null }), error => ({ value: null, error }))
+    await nativeBounded(entered.promise)
+    const acquired = await slot(target.pin.workspaceId)
+    expect(acquired).toMatchObject({ state: 'active' })
+    // Cross the production probe's250ms boundary with the real callback held.
+    // This is bounded physical scheduling, not a fake request/auth clock.
+    await new Promise(resolve => setTimeout(resolve, 320))
+    expect(checks).toBe(2)
+    expect(peakChecks).toBe(1)
+    expect(native.response()?.destroyed).toBe(false)
+    resume.resolve()
+    const result = await nativeBounded(wire)
+    expect(result.error).toBeNull()
+    expect(result.value?.complete).toBe(true)
+    expect(result.value?.bytes.byteLength).toBe(44)
+    expect(result.value?.bytes.subarray(0, 4).toString()).toBe('RIFF')
+    await nativeBounded(native.owner.shutdown())
+    expect(activeChecks).toBe(0)
+    expect(peakChecks).toBe(1)
+    expect(await slot(target.pin.workspaceId)).toMatchObject({
+      lease_id: acquired.lease_id, state: 'released', released_at: expect.any(Date),
+    })
+  } finally {
+    resume.resolve()
+    await native?.close()
+    await actualAuth.close()
+  }
 })

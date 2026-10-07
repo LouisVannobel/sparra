@@ -109,14 +109,17 @@ test('actual crashed and removed reader proof releases only exact A through nati
   expect(proof.exclusivity_reference).toMatch(/^[0-9a-f]{64}$/)
   expect(new Date(proof.finished_at).toISOString()).toBe(proof.finished_at)
   await expect(stores.restartWebImage(app.id)).rejects.toThrow()
-  const result = await stores.runMigrationImage(migrator, 'valid', 'direct', { proof })
-  expect(result).toMatchObject({ exitCode: 0, stdout: 'Audio reader retirement applied\n', stderr: '' })
+  const result = await stores.runMigrationImage(migrator, 'valid', 'drop-commit-ack', { proof })
+  expect(result).toMatchObject({ exitCode: 1, stdout: '', stderr: 'Database migration failed; commit was not acknowledged\n' })
+  expect(stores.evidence.commitProxy).toEqual({ type: 'terminal', connections: 1, commits: 1,
+    upstreamCompletions: 1, accepting: false, activeSockets: 0 })
   const after = await slots()
   expect(after).toHaveLength(2)
   expect(after.find(row => row.workspace_id === workspaceA)).toMatchObject({
     incarnation: incarnationA, container_id: app.id, state: 'released', released_at: expect.any(Date),
   })
   expect(after.find(row => row.workspace_id === workspaceB)).toEqual(retainedB)
+  expect(await journal()).toEqual(beforeJournal)
   const replay = await stores.runMigrationImage(migrator, 'valid', 'direct', { proof })
   expect(replay).toMatchObject({ exitCode: 0, stdout: 'Audio reader retirement applied\n', stderr: '' })
   expect(await slots()).toEqual(after)

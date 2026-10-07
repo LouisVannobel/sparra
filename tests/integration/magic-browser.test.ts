@@ -13,6 +13,15 @@ import { startMailHttpPeer } from '../fixtures/mail-http'
 import { startWeb, bounded, unusedLoopbackPort } from '../helpers/web-process'
 import { authRpcPath, rpcBody } from '../helpers/auth-rpc'
 
+const proxyFailureCodes=['EADDRINUSE','EACCES','EADDRNOTAVAIL','EINVAL'] as const
+type ProxyFailureEvidence={proxySetupNativeCode?:typeof proxyFailureCodes[number]|'other'}
+
+function recordProxySetupFailure(evidence:ProxyFailureEvidence,stage:string,error:unknown){
+  if(stage!=='owned HTTPS proxy setup'||evidence.proxySetupNativeCode!==undefined)return
+  const code=typeof error==='object'&&error!==null&&'code' in error?error.code:undefined
+  evidence.proxySetupNativeCode=proxyFailureCodes.find(value=>value===code)??'other'
+}
+
 // Removing the request UI, bypassing the worker, clearing the fragment only
 // after Router construction, or publishing success before native commit breaks
 // this actual compiled journey. No source issuer or fabricated session is used.
@@ -56,6 +65,7 @@ for (const [mode, name] of [
     let accountConsolePath = '', accountConsoleActive = false, accountConsoleSignals = 0
   let clientIp = '192.0.2.83'
     const evidence: Record<string, unknown> = { runId }
+    const proxyFailure: ProxyFailureEvidence = {}
     let primaryFailed = false
   try {
     const port = await unusedLoopbackPort(), origin = `https://localhost:${port}`
@@ -102,8 +112,7 @@ for (const [mode, name] of [
     })
     await new Promise<void>((done, reject) => {
       proxy!.once('error', (error: unknown) => {
-        const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined
-        evidence.proxySetupNativeCode = ['EADDRINUSE', 'EACCES', 'EADDRNOTAVAIL', 'EINVAL'].find(value => value === code) ?? 'other'
+        recordProxySetupFailure(proxyFailure,'owned HTTPS proxy setup',error)
         reject(new Error('Owned HTTPS listen failed'))
       })
       proxy!.listen(port, '127.0.0.1', done)
@@ -470,10 +479,7 @@ for (const [mode, name] of [
   } catch (error) {
     primaryFailed = true
     evidence.primaryFailed = true
-    if (stage === 'owned HTTPS proxy setup' && evidence.proxySetupNativeCode === undefined) {
-      const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined
-      evidence.proxySetupNativeCode = ['EADDRINUSE', 'EACCES', 'EADDRNOTAVAIL', 'EINVAL'].find(value => value === code) ?? 'other'
-    }
+    recordProxySetupFailure(proxyFailure,stage,error)
     // Retain only a bounded source location from an actual known-helper frame.
     // Never serialize an error message, stack, cause, URL or assertion value.
     if (error instanceof Error && typeof error.stack === 'string') {
@@ -500,7 +506,7 @@ for (const [mode, name] of [
       ? '.superpowers/sdd/2026-09-10-functional-auth/task-9a-evidence'
       : '.superpowers/sdd/2026-09-10-functional-auth/task-8c-evidence'
     await mkdir(evidenceDirectory, { recursive: true })
-    await writeFile(resolve(evidenceDirectory, `browser-${runId}.json`), JSON.stringify({ ...evidence, stage, consumePosts, proofLeak, consoleFailures, cleanupFailures, stores: stores?.evidence, engine: engine?.evidence }, null, 2) + '\n', { flag: 'wx' })
+    await writeFile(resolve(evidenceDirectory, `browser-${runId}.json`), JSON.stringify({ ...evidence, ...proxyFailure, stage, consumePosts, proofLeak, consoleFailures, cleanupFailures, stores: stores?.evidence, engine: engine?.evidence }, null, 2) + '\n', { flag: 'wx' })
     if (!primaryFailed) expect(cleanupFailures).toEqual([])
   }
 }, mode === 'expired' ? 750000 : mode === 'additional-passkey' ? 540000 : mode === 'browser-states' ? 300000 : 180000)
