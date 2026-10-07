@@ -70,16 +70,30 @@ export function createHatchetAdministrator(connectionString: string) {
   return new Client({ connectionString, connectionTimeoutMillis: 500 })
 }
 
-async function startAuthFixture(artifactDirectory: string | undefined) {
-  const hatchet = artifactDirectory === undefined
-  const endpoint = fixtureDockerEndpoint(process.platform)
-  const privateFileUser = hatchet ? [] : fixtureDockerFileUser(process.platform, process.getuid?.(), process.getgid?.())
+async function inspectFixtureEngine(endpoint: ReturnType<typeof fixtureDockerEndpoint>) {
   const actualEndpoint = process.platform === 'win32'
     ? JSON.parse(await docker(['context', 'inspect', 'desktop-linux']))[0]?.Endpoints?.docker?.Host
     : endpoint.endpoint
   await assertFixtureDockerEndpoint(process.platform, actualEndpoint)
   const engine = JSON.parse(await docker(['version', '--format', '{{json .Server}}']))
   if (engine.Os !== 'linux' || engine.Arch !== 'amd64') throw new Error('Fixture requires Linux amd64 engine')
+  return engine
+}
+
+async function prepareFixtureImages(selectedImages: Readonly<Record<string, string>>) {
+  for (const image of Object.values(selectedImages)) {
+    try { await docker(['image', 'inspect', image, '--format', '{{.Id}}']) }
+    catch { await docker(['pull', image]) }
+    const platform = await docker(['image', 'inspect', image, '--format', '{{.Os}}/{{.Architecture}}'])
+    if (platform !== 'linux/amd64') throw new Error('Fixture image platform mismatch')
+  }
+}
+
+async function startAuthFixture(artifactDirectory: string | undefined) {
+  const hatchet = artifactDirectory === undefined
+  const endpoint = fixtureDockerEndpoint(process.platform)
+  const privateFileUser = hatchet ? [] : fixtureDockerFileUser(process.platform, process.getuid?.(), process.getgid?.())
+  const engine = await inspectFixtureEngine(endpoint)
   const before = await inventory()
   const runId = randomUUID()
   const prefix = `template-auth-${runId}`
@@ -173,12 +187,7 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
     if (failures.length) throw new Error(`Disposable fixture cleanup failed: ${failures.join(', ')}`)
   }
   try {
-    for (const image of Object.values(selectedImages)) {
-      try { await docker(['image', 'inspect', image, '--format', '{{.Id}}']) }
-      catch { await docker(['pull', image]) }
-      const platform = await docker(['image', 'inspect', image, '--format', '{{.Os}}/{{.Architecture}}'])
-      if (platform !== 'linux/amd64') throw new Error('Fixture image platform mismatch')
-    }
+    await prepareFixtureImages(selectedImages)
     // Freeze the actual candidate before any integration-driven source change.
     if (artifactDirectory) {
       await cp(artifactDirectory, join(directory, 'artifact'), { recursive: true, dereference: true })
@@ -356,17 +365,34 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
       deployment_id: string; restart_policy: 'no'; container_state: 'removed'
       finished_at: string; exit_code: number; exclusivity_reference: string
     }>
+    async function webImagePublication(selectedPort?: number) {
+      const webPort=selectedPort??await unusedLoopbackPort(),url='http://localhost:'+webPort
+      if(!Number.isInteger(webPort)||webPort<1||webPort>65535)throw new Error('Owned image port invalid')
+      const gateway=JSON.parse(await docker(['network','inspect',network!,'--format','{{json .IPAM.Config}}']))[0].Gateway
+      if(typeof gateway!=='string'||!/^[0-9.]+$/.test(gateway))throw new Error('Owned network gateway missing')
+      return {webPort,url,gateway}
+    }
+    function webImageEnvironment(url: string, gateway: string, directServe: boolean, keyring?: string) {
+      return {NODE_ENV:'test',APP_ORIGIN:directServe?'https://image.example':url,HOST:'0.0.0.0',PORT:'3000',SHUTDOWN_TIMEOUT_MS:'1000',REQUEST_TIMEOUT_MS:'10000',RATE_LIMIT_KEY_ID:'image',TRUSTED_PROXY_IPS:directServe?'127.0.0.1':gateway,...(directServe?{SPARRA_INGRESS_PROFILE:'direct-serve'}:{}),...(keyring?{SPARRA_AEAD_KEYRING_PATH:'/run/secrets/aead_keyring_v1.json'}:{})}
+    }
+    async function awaitWebImageReady(id: string, url: string, directServe: boolean) {
+      let lastStatus=0
+      const deadline=Date.now()+10000
+      while(Date.now()<deadline){
+        if(await docker(['inspect',id,'--format','{{.State.Status}}'])==='exited')throw new Error('Native image startup failed')
+        try{lastStatus=directServe?await directImageStatus(id,'/health/ready'):(await imageFetch(url+'/health/ready',{signal:AbortSignal.timeout(500)})).status;if(lastStatus===200)return}catch{}
+        await new Promise(resolve=>setTimeout(resolve,100))
+      }
+      throw new Error('Native web image not ready: response-'+lastStatus)
+    }
     async function startWebImage(imageReference:string,mutation:CredentialMutation='valid',auth:Readonly<{secret:string;googleClientId:string;googleClientSecret:string}>={secret:secret(),googleClientId:'fixture.apps.googleusercontent.com',googleClientSecret:secret()},keyring?:string,directServe=false,selectedPort?:number,reader?:AudioReaderImage) {
       await assertImage(imageReference)
       if(reader&&(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(reader.incarnation)
         ||reader.deploymentId.length<1||reader.deploymentId.length>256||/[\u0000-\u001f\u007f]/.test(reader.deploymentId)))throw new Error('Reader image identity invalid')
       const volume=await credentialVolume({...webCredentialValues(auth),...(keyring?{'aead_keyring_v1.json':keyring}: {})},mutation)
       const readerVolume=reader?await credentialVolume({},'valid'):undefined
-      const webPort=selectedPort??await unusedLoopbackPort(),url='http://localhost:'+webPort
-      if(!Number.isInteger(webPort)||webPort<1||webPort>65535)throw new Error('Owned image port invalid')
-      const gateway=JSON.parse(await docker(['network','inspect',network!,'--format','{{json .IPAM.Config}}']))[0].Gateway
-      if(typeof gateway!=='string'||!/^[0-9.]+$/.test(gateway))throw new Error('Owned network gateway missing')
-      const env={NODE_ENV:'test',APP_ORIGIN:directServe?'https://image.example':url,HOST:'0.0.0.0',PORT:'3000',SHUTDOWN_TIMEOUT_MS:'1000',REQUEST_TIMEOUT_MS:'10000',RATE_LIMIT_KEY_ID:'image',TRUSTED_PROXY_IPS:directServe?'127.0.0.1':gateway,...(directServe?{SPARRA_INGRESS_PROFILE:'direct-serve'}:{}),...(keyring?{SPARRA_AEAD_KEYRING_PATH:'/run/secrets/aead_keyring_v1.json'}:{}),...(reader?{SPARRA_AUDIO_READER_INCARNATION:reader.incarnation,SPARRA_AUDIO_READER_DEPLOYMENT_ID:reader.deploymentId}:{}),...(mutation==='empty-env'?{DATABASE_URL:''}:{})}
+      const {webPort,url,gateway}=await webImagePublication(selectedPort)
+      const env={...webImageEnvironment(url,gateway,directServe,keyring),...(reader?{SPARRA_AUDIO_READER_INCARNATION:reader.incarnation,SPARRA_AUDIO_READER_DEPLOYMENT_ID:reader.deploymentId}:{}),...(mutation==='empty-env'?{DATABASE_URL:''}:{})}
       const readerArgs=reader&&readerVolume?['--restart','no','--label','sparra.audio-reader.incarnation='+reader.incarnation,
         '--label','sparra.audio-reader.deployment='+reader.deploymentId,'--mount','type=volume,source='+readerVolume+',target=/run/sparra,readonly']:[]
       const id=await create('web-image-'+owned.length,imageReference,['-p','127.0.0.1:'+webPort+':3000','--read-only','--tmpfs','/tmp','--cap-drop','ALL','--security-opt','no-new-privileges','--mount','type=volume,source='+volume+',target=/run/secrets,readonly',...readerArgs,...Object.keys(env).flatMap(key=>['-e',key])],env)
@@ -378,14 +404,8 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
       }
       webVolumes.set(id,volume);await docker(['start',id])
       if(mutation!=='valid')return {id,url}
-      let lastStatus=0
-      const deadline=Date.now()+10000
-      while(Date.now()<deadline){
-        if(await docker(['inspect',id,'--format','{{.State.Status}}'])==='exited')throw new Error('Native image startup failed')
-        try{lastStatus=directServe?await directImageStatus(id,'/health/ready'):(await imageFetch(url+'/health/ready',{signal:AbortSignal.timeout(500)})).status;if(lastStatus===200)return {id,url}}catch{}
-        await new Promise(resolve=>setTimeout(resolve,100))
-      }
-      throw new Error('Native web image not ready: response-'+lastStatus)
+      await awaitWebImageReady(id,url,directServe)
+      return {id,url}
     }
     async function retireReaderImage(id: string): Promise<AudioReaderRetirementProof> {
       await assertOwned(id)
@@ -422,15 +442,24 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
       evidence.readerRetirement = { ...proof, native_finished_at: terminal.finished }
       return proof
     }
+    async function startCommitProxy() {
+      const proxy=await create('commit-proxy-'+owned.length,images.node,['--network-alias','commit-proxy','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges','--mount','type=bind,source='+resolve('tests/helpers/migration-commit-proxy.mjs')+',target=/proxy.mjs,readonly'],{},['node','/proxy.mjs'])
+      await docker(['start',proxy])
+      for(let attempt=0;attempt<50;attempt++){if((await docker(['logs',proxy])).includes('READY'))break;await new Promise(resolve=>setTimeout(resolve,100))}
+      return proxy
+    }
+    async function retireCommitProxy(proxy: string) {
+      await assertOwned(proxy);await docker(['stop','--time','2',proxy])
+      if(Number(await docker(['wait',proxy]))!==0)throw new Error('Proxy retirement failed')
+      const terminal=JSON.parse((await docker(['logs',proxy])).split('\n').filter(line=>line.startsWith('{')).at(-1)??'{}')
+      if(terminal.type!=='terminal'||terminal.accepting!==false||terminal.activeSockets!==0)throw new Error('Proxy terminal evidence missing')
+      evidence.commitProxy=terminal
+    }
     async function runMigrationImage(imageId:string,mutation:CredentialMutation='valid',transport:'direct'|'drop-commit-ack'='direct',
       retirement?: Readonly<{ proof?: AudioReaderRetirementProof }>) {
       await assertImage(imageId)
       let proxy:string|undefined
-      if(transport==='drop-commit-ack'){
-        proxy=await create('commit-proxy-'+owned.length,images.node,['--network-alias','commit-proxy','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges','--mount','type=bind,source='+resolve('tests/helpers/migration-commit-proxy.mjs')+',target=/proxy.mjs,readonly'],{},['node','/proxy.mjs'])
-        await docker(['start',proxy])
-        for(let attempt=0;attempt<50;attempt++){if((await docker(['logs',proxy])).includes('READY'))break;await new Promise(resolve=>setTimeout(resolve,100))}
-      }
+      if(transport==='drop-commit-ack')proxy=await startCommitProxy()
       const volume=await credentialVolume({migration_database_url:'postgresql://migrator:'+migrationPassword+'@'+(proxy?'commit-proxy':'pg')+':5432/auth'},mutation)
       const proofVolume=retirement?.proof?await credentialVolume({
         'audio-retirement-proof.json':JSON.stringify(retirement.proof),
@@ -440,13 +469,7 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
         ...(mutation==='empty-env'?['-e','MIGRATION_DATABASE_URL=']:[])],{},retirement?['retire-audio-readers']:[])
       await docker(['start',id]);const exitCode=Number(await docker(['wait',id]))
       const result=await exec('docker',[...endpoint.args,'logs',id],{env:essentials(),windowsHide:true,timeout:10000})
-      if(proxy){
-        await assertOwned(proxy);await docker(['stop','--time','2',proxy])
-        if(Number(await docker(['wait',proxy]))!==0)throw new Error('Proxy retirement failed')
-        const terminal=JSON.parse((await docker(['logs',proxy])).split('\n').filter(line=>line.startsWith('{')).at(-1)??'{}')
-        if(terminal.type!=='terminal'||terminal.accepting!==false||terminal.activeSockets!==0)throw new Error('Proxy terminal evidence missing')
-        evidence.commitProxy=terminal
-      }
+      if(proxy)await retireCommitProxy(proxy)
       return {id,exitCode,stdout:String(result.stdout),stderr:String(result.stderr)}
     }
     return {

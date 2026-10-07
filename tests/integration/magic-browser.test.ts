@@ -88,6 +88,7 @@ for (const [mode, name] of [
       AUTH_MAIL_PROFILE_JSON: mode === 'unavailable' ? undefined : JSON.stringify({ appOrigin: origin, apiOrigin: peer.origin, projectId: 'fixture', credentialId: 'browser',
         from: { name: 'Fixture', email: 'auth@example.test' }, reply: 'support@example.test', replayWindowSeconds: null }), REQUEST_TIMEOUT_MS: '10000' })
     const upstreamPort = (await bounded(app.ready)).port
+    evidence.proxyPortMatchesUpstream = upstreamPort === port
     const certificate = await readFile(peer.certificate)
     stage = 'owned HTTPS proxy setup'
     proxy = createServer({ cert: certificate, key: await readFile(peer.privateKey) }, (incoming, outgoing) => {
@@ -99,7 +100,14 @@ for (const [mode, name] of [
       response => { outgoing.writeHead(response.statusCode!, response.headers); response.pipe(outgoing) })
       call.on('error', () => { outgoing.writeHead(502); outgoing.end() }); incoming.pipe(call)
     })
-    await new Promise<void>((done, reject) => { proxy!.once('error', () => reject(new Error('Owned HTTPS listen failed'))); proxy!.listen(port, '127.0.0.1', done) })
+    await new Promise<void>((done, reject) => {
+      proxy!.once('error', (error: unknown) => {
+        const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined
+        evidence.proxySetupNativeCode = ['EADDRINUSE', 'EACCES', 'EADDRNOTAVAIL', 'EINVAL'].find(value => value === code) ?? 'other'
+        reject(new Error('Owned HTTPS listen failed'))
+      })
+      proxy!.listen(port, '127.0.0.1', done)
+    })
     stage = 'compiled worker setup'
     if (engine) {
     worker = spawn(process.execPath, ['--import', pathToFileURL(resolve('tests/helpers/mail-process.mjs')).href, resolve('.output/worker/index.mjs')], {
@@ -462,6 +470,10 @@ for (const [mode, name] of [
   } catch (error) {
     primaryFailed = true
     evidence.primaryFailed = true
+    if (stage === 'owned HTTPS proxy setup' && evidence.proxySetupNativeCode === undefined) {
+      const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined
+      evidence.proxySetupNativeCode = ['EADDRINUSE', 'EACCES', 'EADDRNOTAVAIL', 'EINVAL'].find(value => value === code) ?? 'other'
+    }
     // Retain only a bounded source location from an actual known-helper frame.
     // Never serialize an error message, stack, cause, URL or assertion value.
     if (error instanceof Error && typeof error.stack === 'string') {

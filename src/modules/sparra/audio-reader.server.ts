@@ -1,5 +1,5 @@
 import { AsyncResource } from 'node:async_hooks'
-import { constants } from 'node:fs'
+import { constants, type Stats } from 'node:fs'
 import { lstat, open, realpath } from 'node:fs/promises'
 import { ServerResponse } from 'node:http'
 import { hostname } from 'node:os'
@@ -16,14 +16,23 @@ import { AudioUnavailable, audioRange, createAudioOperations, decryptAudioChunk,
 const manifest = Schema.Struct({ schema_version: Schema.Literal(1), incarnation: Schema.String.check(Schema.isUUID()),
   container_id: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)),
   deployment_id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)) })
+function trustedReaderManifestFile(stat: Stats): boolean {
+  return stat.isFile() && !stat.isSymbolicLink() && stat.size <= 4096 && stat.uid === 0 && (stat.mode & 0o022) === 0
+}
+function readerManifestIdentityMatches(value: { container_id: string; incarnation: string; deployment_id: string },
+  env: Readonly<Record<string, string | undefined>>, nativeHostname: string): boolean {
+  return /^[0-9a-f]{12}$/.test(nativeHostname) && value.container_id.slice(0,12) === nativeHostname
+    && value.incarnation === env.SPARRA_AUDIO_READER_INCARNATION
+    && value.deployment_id === env.SPARRA_AUDIO_READER_DEPLOYMENT_ID
+    && (env.SPARRA_AUDIO_READER_CONTAINER_ID === undefined || value.container_id === env.SPARRA_AUDIO_READER_CONTAINER_ID)
+}
 export async function readAudioIncarnation(env: Readonly<Record<string, string | undefined>>): Promise<AudioIncarnation | null> {
   if (!env.SPARRA_AUDIO_READER_INCARNATION || !env.SPARRA_AUDIO_READER_DEPLOYMENT_ID) return null
   const path = '/run/sparra/audio-reader-incarnation.json'
   let file: Awaited<ReturnType<typeof open>> | undefined
   try {
     const before = await lstat(path)
-    if (!before.isFile() || before.isSymbolicLink() || before.size > 4096 || before.uid !== 0 || before.mode & 0o022
-      || await realpath(path) !== path) return null
+    if (!trustedReaderManifestFile(before) || await realpath(path) !== path) return null
     file = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
     const opened = await file.stat(), buffer = Buffer.alloc(4097)
     if (opened.ino !== before.ino || opened.dev !== before.dev) return null
@@ -31,10 +40,7 @@ export async function readAudioIncarnation(env: Readonly<Record<string, string |
     if (bytesRead > 4096 || bytesRead !== before.size) return null
     const value = Schema.decodeUnknownSync(manifest, { onExcessProperty: 'error' })(JSON.parse(buffer.subarray(0, bytesRead).toString('utf8')))
     const nativeHostname = hostname()
-    if (!/^[0-9a-f]{12}$/.test(nativeHostname) || value.container_id.slice(0,12) !== nativeHostname
-      || value.incarnation !== env.SPARRA_AUDIO_READER_INCARNATION
-      || value.deployment_id !== env.SPARRA_AUDIO_READER_DEPLOYMENT_ID
-      || env.SPARRA_AUDIO_READER_CONTAINER_ID !== undefined && value.container_id !== env.SPARRA_AUDIO_READER_CONTAINER_ID) return null
+    if (!readerManifestIdentityMatches(value,env,nativeHostname)) return null
     return { incarnation: value.incarnation, containerId: value.container_id, deploymentId: value.deployment_id }
   } catch { return null } finally { await file?.close() }
 }
@@ -53,6 +59,12 @@ export function createAudioReaderOwner(transactions: AuthTransactions, incarnati
   let reservations = 0
   const pending = new Set<Promise<void>>()
   let shutdownPromise: Promise<void> | undefined, cleanupUnconfirmed = false
+  async function releaseStoppedAdmission(exact: AudioReadLease): Promise<never> {
+    try {
+      if (!await cleanup.runInAsyncScope(() => operations.release(exact))) cleanupUnconfirmed = true
+    } catch { cleanupUnconfirmed = true }
+    throw new AudioUnavailable()
+  }
   async function stream(request: Request, resources: WebResources, pin: AudioMetadata, range: AudioRange) {
     if (stopping || !incarnation || reservations >= 8) throw new AudioUnavailable()
     reservations++
@@ -80,12 +92,7 @@ export function createAudioReaderOwner(transactions: AuthTransactions, incarnati
     let exact: AudioReadLease
     try { exact = await operations.acquire(principal, pin, incarnation, deadline, request.signal) }
     catch (error) { if (error instanceof PgTransactionError && error.outcome === 'unknown') cleanupUnconfirmed = true; throw error }
-    if (stopping) {
-      try {
-        if (!await cleanup.runInAsyncScope(() => operations.release(exact))) cleanupUnconfirmed = true
-      } catch { cleanupUnconfirmed = true }
-      throw new AudioUnavailable()
-    }
+    if (stopping) await releaseStoppedAdmission(exact)
     let output: ReadableStreamDefaultController<Uint8Array> | undefined, permitted = true, productionEnded = false
     let producer: Promise<void> | undefined, probe: Promise<void> | undefined
     let timer: ReturnType<typeof setTimeout> | undefined, release: Promise<void> | undefined

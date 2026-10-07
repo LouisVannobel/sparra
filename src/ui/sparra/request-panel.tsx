@@ -62,23 +62,51 @@ function RequestConfigurationSnapshot({locale,configuration}:{locale:Locale;conf
   return <section className="sparra-request-knowledge" data-configuration-snapshot><Heading level={2}>{t.snapshot}</Heading>{configuration?<><p>{configuration.businessName} — {t.version} {configuration.revision}</p><dl>{(['openingHours','services','prices','faq','instructions'] as const).map(field=><div key={field}><dt>{a[field]}</dt><dd>{configuration.knowledge[field]||'—'}</dd></div>)}</dl></>:<p>{t.noSnapshot}</p>}</section>
 }
 
+type RequestAudioMetadata=NonNullable<RequestDetailDto['audio']>
+
+function stopRequestAudio(player:HTMLAudioElement|null){
+  if(!player)return
+  player.pause();player.removeAttribute('src');player.load()
+}
+
+function unavailableAudioMessage(locale:Locale,state:RequestAudioMetadata['state']){
+  if(locale!=='fr')return 'Conversation unavailable.'
+  if(state==='declined')return 'L’appelant a choisi de continuer sans enregistrement.'
+  if(state==='off')return 'Aucun enregistrement pour cet appel.'
+  return 'Conversation indisponible.'
+}
+
+function RequestAudioDetails({locale,audio}:{locale:Locale;audio:RequestAudioMetadata}){
+  return <>
+    {audio.durationSeconds!==null&&<p>{Math.round(audio.durationSeconds)} s · {locale==='fr'?'Échéance':'Expires'} : <time dateTime={audio.expiresAt}>{observedDate(audio.expiresAt,locale)}</time></p>}
+    {audio.state==='partial'&&<p>{locale==='fr'?'Cet extrait peut être incomplet.':'This excerpt may be incomplete.'}</p>}
+  </>
+}
+
 export function RequestAudio({locale,detail,blocked}:{locale:Locale;detail:Pick<RequestDetailDto,'id'|'audio'>;blocked:boolean}){
   const element=useRef<HTMLAudioElement>(null),[failed,setFailed]=useState(false),audio=detail.audio
   const available=audio?.available===true&&!blocked&&!failed
   useEffect(()=>{
     const player=element.current
-    if(!available&&player){player.pause();player.removeAttribute('src');player.load()}
-    return()=>{if(player){player.pause();player.removeAttribute('src');player.load()}}
+    if(!available)stopRequestAudio(player)
+    return()=>stopRequestAudio(player)
   },[available,detail.id])
   if(!audio)return null
   return <section aria-label={locale==='fr'?'Conversation avec Sparra':'Conversation with Sparra'}>
     <Heading level={2}>{locale==='fr'?'Conversation avec Sparra':'Conversation with Sparra'}</Heading>
     <p>{locale==='fr'?'Enregistrement de l’échange avec l’assistant Sparra.':'Recording of the conversation with the Sparra assistant.'}</p>
-    {audio.durationSeconds!==null&&<p>{Math.round(audio.durationSeconds)} s · {locale==='fr'?'Échéance':'Expires'} : <time dateTime={audio.expiresAt}>{observedDate(audio.expiresAt,locale)}</time></p>}
-    {audio.state==='partial'&&<p>{locale==='fr'?'Cet extrait peut être incomplet.':'This excerpt may be incomplete.'}</p>}
+    <RequestAudioDetails locale={locale} audio={audio}/>
     {available?<audio ref={element} controls controlsList="nodownload" preload="none" src={'/api/sparra/audio/'+detail.id} onError={()=>setFailed(true)}/>
-      :<p role={failed?'status':undefined}>{locale==='fr'?audio.state==='declined'?'L’appelant a choisi de continuer sans enregistrement.':audio.state==='off'?'Aucun enregistrement pour cet appel.':'Conversation indisponible.': 'Conversation unavailable.'}</p>}
+      :<p role={failed?'status':undefined}>{unavailableAudioMessage(locale,audio.state)}</p>}
   </section>
+}
+
+function RequestActions({locale,treatedAt,hydrated,pending,confirm,onMutate,onConfirm}:{locale:Locale;treatedAt:RequestDetailDto['treatedAt'];hydrated:boolean;pending:boolean;confirm:boolean;onMutate(kind:'treat'|'erase'):Promise<void>;onConfirm(value:boolean):void}){
+  const t=appMessages[locale]
+  return <div className="sparra-request-actions">
+    {treatedAt?<p role="status">{t.treated}</p>:<Button label={t.treat} isDisabled={!hydrated||pending} onClick={()=>void onMutate('treat')}/>}
+    {!confirm?<Button label={t.erase} isDisabled={!hydrated||pending} onClick={()=>onConfirm(true)}/>:<div><p>{t.eraseWarning}</p><Button label={t.confirmErase} isDisabled={pending} onClick={()=>void onMutate('erase')}/><Button label={t.cancel} isDisabled={pending} onClick={()=>onConfirm(false)}/></div>}
+  </div>
 }
 
 export function RequestPanel({locale,loaded,onTreat,onErase,onRefused}:Props){
@@ -97,8 +125,7 @@ export function RequestPanel({locale,loaded,onTreat,onErase,onRefused}:Props){
       <RequestAudio locale={locale} detail={detail} blocked={pending&&confirm}/>
       <RequestConfigurationSnapshot locale={locale} configuration={detail.configuration}/>
       </div>
-      <div className="sparra-request-actions">{detail.treatedAt?<p role="status">{t.treated}</p>:<Button label={t.treat} isDisabled={!hydrated||pending} onClick={()=>void mutate('treat')}/>}
-      {!confirm?<Button label={t.erase} isDisabled={!hydrated||pending} onClick={()=>setConfirm(true)}/>:<div><p>{t.eraseWarning}</p><Button label={t.confirmErase} isDisabled={pending} onClick={()=>void mutate('erase')}/><Button label={t.cancel} isDisabled={pending} onClick={()=>setConfirm(false)}/></div>}</div>
+      <RequestActions locale={locale} treatedAt={detail.treatedAt} hydrated={hydrated} pending={pending} confirm={confirm} onMutate={mutate} onConfirm={setConfirm}/>
     </>}{pending&&<p role="status">{t.pending}</p>}{failed&&<p role="alert">{t.unavailable}</p>}
   </>
 }

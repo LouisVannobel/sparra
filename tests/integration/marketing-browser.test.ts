@@ -207,7 +207,9 @@ async function observeDemoStartup(page: Page): Promise<(emit?: boolean) => Promi
         return { states: evidence.states, csp: evidence.csp, droppedStates: evidence.droppedStates, droppedCsp: evidence.droppedCsp, final }
       })
       if (emit) {
-        const diagnostic = JSON.stringify({ startup, assets: [...assets.values()], errors, droppedAssets, droppedErrors,
+        const diagnostic = JSON.stringify({ startup, assets: [...assets.values()], errors,
+          assetRequests: assets.size + droppedAssets, trackedAssets: assets.size,
+          assetObservationComplete: droppedAssets === 0, droppedAssets, droppedErrors,
           proxy: { requests: proxyCapture.requests, droppedRequests: proxyCapture.droppedRequests } })
         console.error('MARKETING_STARTUP_DIAGNOSTIC ' + (diagnostic.length <= 32768 ? diagnostic : '{"diagnostic":"size-bound-exceeded"}'))
       }
@@ -318,11 +320,15 @@ test.each(['fr', 'en'] as const)('missing email proof and unknown route have tra
   const page = await openPage()
   let reportStartup: ((emit?: boolean) => Promise<void>) | undefined
   let failed = false
+  let viewport = 320, documentStatus: number | null = null
+  let stage: 'confirmation' | 'unknown-route' = 'confirmation'
   try {
     reportStartup = await observeDemoStartup(page)
     for (const width of [320, 1280]) {
+      viewport = width; stage = 'confirmation'; documentStatus = null
       await page.setViewportSize({ width, height: 900 })
-      await page.goto(`${origin}/auth/magic/confirm?lang=${locale}`)
+      const confirmation = await page.goto(`${origin}/auth/magic/confirm?lang=${locale}`)
+      documentStatus = confirmation?.status() ?? null
       await page.getByRole('heading', { name: magicMessages[locale].confirm, exact: true }).waitFor()
       await page.getByRole('alert').filter({ hasText: magicMessages[locale].missing }).waitFor()
       expect(await page.getByRole('link', { name: 'sparra', exact: true }).getAttribute('href')).toBe('/')
@@ -330,7 +336,9 @@ test.each(['fr', 'en'] as const)('missing email proof and unknown route have tra
       expect(await page.title()).toBe(magicMessages[locale].confirm)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
       expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()).violations).toEqual([])
+      stage = 'unknown-route'; documentStatus = null
       const response = await page.goto(`${origin}/missing-screen?lang=${locale}`)
+      documentStatus = response?.status() ?? null
       expect(response?.status()).toBe(404)
       await page.getByRole('heading', { name: messages[locale].notFound, exact: true }).waitFor()
       expect(await page.getByRole('link', { name: 'sparra', exact: true }).getAttribute('href')).toBe('/')
@@ -342,6 +350,34 @@ test.each(['fr', 'en'] as const)('missing email proof and unknown route have tra
     failed = true
     throw error
   } finally {
+    if (failed) {
+      try {
+        const recovery = await bounded(page.evaluate(({ missing, clearFailed, loading }) => {
+          const alerts = [...document.querySelectorAll('[role="alert"]')].slice(0, 8)
+          const missingAlert = alerts.find(element => element.textContent?.includes(missing))
+          const clearingAlert = alerts.find(element => element.textContent?.includes(clearFailed))
+          const visible = (element: Element | undefined) => element !== undefined
+            && element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden'
+          const bootstrap = window.$_TSR
+          return { path: location.pathname === '/auth/magic/confirm' ? 'confirmation'
+            : location.pathname === '/missing-screen' ? 'unknown-route' : 'other',
+            emptyFragment: location.hash === '', documentComplete: document.readyState === 'complete',
+            loading: [...document.querySelectorAll('main [role="status"]')].some(element => element.textContent?.trim() === loading),
+            missingPresent: missingAlert !== undefined, missingVisible: visible(missingAlert),
+            clearFailedPresent: clearingAlert !== undefined, clearFailedVisible: visible(clearingAlert),
+            emailFormPresent: document.querySelector('main form input[type="email"]') !== null,
+            startOptionsPresent: '__TSS_START_OPTIONS__' in window,
+            bootstrapPresent: typeof bootstrap === 'object' && bootstrap !== null,
+            coreHydrationFinalized: bootstrap?.hydrated === true, streamEnded: bootstrap?.streamEnded === true }
+        }, { missing: magicMessages[locale].missing, clearFailed: magicMessages[locale].clearFailed,
+          loading: messages[locale].loading }), 1000)
+        console.error('MARKETING_RECOVERY_DIAGNOSTIC ' + JSON.stringify({ locale, viewport, stage, documentStatus, recovery }))
+        if (recovery.path !== 'other' && recovery.emptyFragment) {
+          await bounded(mkdir('.output/test-evidence/marketing', { recursive: true }), 1000)
+          await page.screenshot({ path: `.output/test-evidence/marketing/recovery-${locale}-${viewport}-${stage}.png`, fullPage: true, timeout: 1000 })
+        }
+      } catch { console.error('MARKETING_RECOVERY_DIAGNOSTIC {"diagnostic":"unavailable"}') }
+    }
     try { await reportStartup?.(failed) } catch { if (failed) console.error('MARKETING_STARTUP_DIAGNOSTIC {"diagnostic":"unavailable"}') }
     await page.context().close()
   }

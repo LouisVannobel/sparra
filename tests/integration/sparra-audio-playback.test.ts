@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, expect, test } from 'vitest'
-import { randomBytes, randomUUID } from 'node:crypto'
+import { afterAll, beforeAll, expect, test, vi } from 'vitest'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { mkdir } from 'node:fs/promises'
@@ -19,6 +19,9 @@ import { createActivityOperations } from '../../src/modules/sparra/activity.serv
 import { createRequestOperations, type EraseReceipt } from '../../src/modules/sparra/requests.server'
 import { createAuthRateLimiter, readRateLimitConfig } from '../../src/modules/auth/rate-limit.server'
 import type { createApplicationAuth } from '../../src/modules/auth/auth.server'
+import type { WebResources } from '../../src/platform/resources.server'
+import { audioResponse } from '../../src/modules/sparra/audio-reader.server'
+import { AudioUnavailable, createAudioOperations, decryptAudioChunk } from '../../src/modules/sparra/audio.server'
 
 // Real Google owner/PG/PgBouncer/Voice codec/compiled HTTP consumers. PCM and
 // disclosure facts are synthetic fixture inputs, not native/live caller proof.
@@ -29,6 +32,7 @@ type PlaybackProducerResult = { call_id: string; recording_id: string; retention
 let stores: Awaited<ReturnType<typeof startDisposableStores>>, pool: Pool
 let peer: Awaited<ReturnType<typeof startGoogleProtocolPeer>>
 let auth: ReturnType<typeof createApplicationAuth>, limiter: ReturnType<typeof createAuthRateLimiter>
+let transactions: ReturnType<typeof createTransactions>, sourceResources: WebResources
 let crypto: Awaited<ReturnType<typeof cryptoFixture>>
 let app: Awaited<ReturnType<Awaited<ReturnType<typeof startDisposableStores>>['startWebImage']>>
 let ownerCookie: string, callId: string, origin: string
@@ -99,7 +103,7 @@ beforeAll(async () => {
   peer = await startGoogleProtocolPeer({ ports: [port, ...[stores.runtimeUrl, stores.directRuntimeUrl, stores.redisUrl].map(url => Number(new URL(url).port))] })
   const { createApplicationAuth, readAuthConfig } = await import('../../src/modules/auth/auth.server')
   pool = new Pool({ connectionString: stores.directRuntimeUrl, max: 4 })
-  const transactions = createTransactions(pool, { maxStatementTimeoutMs: 1000, maxCleanupTimeoutMs: 1000 })
+  transactions = createTransactions(pool, { maxStatementTimeoutMs: 1000, maxCleanupTimeoutMs: 1000 })
   const secret = randomBytes(48).toString('hex')
   limiter = createAuthRateLimiter(readRateLimitConfig({ REDIS_URL: stores.redisUrl, RATE_LIMIT_HMAC_SECRET: stores.hmac,
     RATE_LIMIT_KEY_ID: 'playback', TRUSTED_PROXY_IPS: '127.0.0.1', NODE_ENV: 'test' }))
@@ -112,6 +116,10 @@ beforeAll(async () => {
   const owner = await ceremony()
   ownerCookie = owner.cookie
   const personal = createPersonalWorkspaces(transactions)
+  // These are the actual owned auth/SQL primitives. This source-only fixture has
+  // no native response body owner; the compiled image owns playback separately.
+  sourceResources = { transactions, auth, limiter, workspaces: personal,
+    isReady: () => !pool.ending && !pool.ended && limiter.isReady() }
   eraseOwnedRequest = id => createRequestOperations(transactions).erase(owner.principal,id)
   createForeignOwner = async () => {
     const foreign = await ceremony()
@@ -152,7 +160,37 @@ function playback(cookie: string, method: 'GET' | 'HEAD' = 'GET', range?: string
     headers: { cookie, ...(range === undefined ? {} : { range }) }, signal: AbortSignal.timeout(10000) })
 }
 
+function sourceRequest(cookie: string, method: 'GET' | 'HEAD' = 'HEAD', range?: string, id = callId) {
+  const request = new Request('http://localhost:3000/api/sparra/audio/' + id, { method,
+    headers: { cookie, ...(range === undefined ? {} : { range }) }, signal: AbortSignal.timeout(10000) })
+  Object.defineProperty(request, 'appAuthDeadlineAtMs', { value: Date.now() + 10000 })
+  return request
+}
+
 test('compiled private GET returns the actual Voice PCM in the exact WAV44 representation', async () => {
+  const principal = await auth.requirePrincipal(sourceRequest(ownerCookie))
+  const operations = createAudioOperations(transactions), pin = await operations.read(principal, callId)
+  // Opaque metadata fixture for source SQL/crypto checks, not a startup or
+  // container attestation. No native response or plaintext holder is created.
+  const exact = await operations.acquire(principal, pin, { incarnation: randomUUID(),
+    containerId: 'a'.repeat(64), deploymentId: 'source-playback-metadata-fixture' },
+  Date.now() + 10000, new AbortController().signal)
+  let plaintext: Buffer | undefined
+  vi.stubEnv('SPARRA_AEAD_KEYRING_PATH', crypto.path)
+  try {
+    const signal = new AbortController().signal
+    const chunk = await operations.page(principal, pin, exact, 0, signal)
+    plaintext = await decryptAudioChunk(chunk)
+    expect(createHash('sha256').update(plaintext).digest('hex')).toBe(createHash('sha256').update(pcm).digest('hex'))
+    expect(plaintext).toEqual(pcm)
+    await expect(operations.page(principal, pin, exact, 1, signal)).rejects.toBeInstanceOf(AudioUnavailable)
+    await expect(operations.page(principal, { ...pin, deploymentId: 'foreign-deployment' }, exact, 0, signal)).rejects.toBeInstanceOf(AudioUnavailable)
+    await expect(decryptAudioChunk({ ...chunk, recordingId: randomUUID() })).rejects.toBeInstanceOf(AudioUnavailable)
+    await expect(decryptAudioChunk({ ...chunk, keyVersion: chunk.keyVersion + 1 })).rejects.toBeInstanceOf(AudioUnavailable)
+  } finally {
+    plaintext?.fill(0); vi.unstubAllEnvs()
+    expect(await operations.release(exact)).toBe(true)
+  }
   const response = await playback(ownerCookie)
   expect(response.status).toBe(200)
   expect(response.headers.get('content-type')).toBe('audio/wav')
@@ -167,6 +205,9 @@ test('compiled private GET returns the actual Voice PCM in the exact WAV44 repre
 test('raw playback refuses anonymous and cross-Workspace callers without exposing PCM', async () => {
   for (const [caller, status] of [['anonymous', 401], ['foreign', 404]] as const) {
     const cookie = caller === 'foreign' ? await createForeignOwner() : ''
+    const source = await audioResponse(sourceRequest(cookie), callId, sourceResources)
+    expect(source.status).toBe(status)
+    expect(Buffer.from(await source.arrayBuffer()).includes(pcm)).toBe(false)
     const response = await playback(cookie)
     expect(response.status).toBe(status)
     expect(Buffer.from(await response.arrayBuffer()).includes(pcm)).toBe(false)
@@ -174,9 +215,20 @@ test('raw playback refuses anonymous and cross-Workspace callers without exposin
   const malformed = await playback(ownerCookie, 'GET', undefined, 'not-a-uuid')
   expect(malformed.status).toBe(400)
   await malformed.arrayBuffer()
+  const malformedSource = await audioResponse(sourceRequest(ownerCookie, 'HEAD', undefined, 'not-a-uuid'), 'not-a-uuid', sourceResources)
+  expect(malformedSource.status).toBe(400)
+  await malformedSource.arrayBuffer()
 })
 
 test('authenticated HEAD returns WAV metadata and no binary body', async () => {
+  const source = await audioResponse(sourceRequest(ownerCookie), callId, sourceResources)
+  expect(source.status).toBe(200)
+  expect(source.headers.get('content-type')).toBe('audio/wav')
+  expect(source.headers.get('content-length')).toBe(String(expectedWave().length))
+  expect((await source.arrayBuffer()).byteLength).toBe(0)
+  const unavailableSourceBody = await audioResponse(sourceRequest(ownerCookie, 'GET'), callId, sourceResources)
+  expect(unavailableSourceBody.status).toBe(409)
+  expect(Buffer.from(await unavailableSourceBody.arrayBuffer()).includes(pcm)).toBe(false)
   const response = await playback(ownerCookie, 'HEAD')
   expect(response.status).toBe(200)
   expect(response.headers.get('content-type')).toBe('audio/wav')
@@ -187,6 +239,11 @@ test('authenticated HEAD returns WAV metadata and no binary body', async () => {
 test('native single Range returns exact bytes and rejects malformed or multipart ranges', async () => {
   const wave = expectedWave()
   for (const [start, end] of [[0, 43], [44, 47]]) {
+    const source = await audioResponse(sourceRequest(ownerCookie, 'HEAD', 'bytes=' + start + '-' + end), callId, sourceResources)
+    expect(source.status).toBe(206)
+    expect(source.headers.get('content-range')).toBe('bytes ' + start + '-' + end + '/' + wave.length)
+    expect(source.headers.get('content-length')).toBe(String(end - start + 1))
+    expect((await source.arrayBuffer()).byteLength).toBe(0)
     const response = await playback(ownerCookie, 'GET', 'bytes=' + start + '-' + end)
     expect(response.status).toBe(206)
     expect(response.headers.get('content-range')).toBe('bytes ' + start + '-' + end + '/' + wave.length)
@@ -194,6 +251,9 @@ test('native single Range returns exact bytes and rejects malformed or multipart
     expect(Buffer.from(await response.arrayBuffer())).toEqual(wave.subarray(start, end + 1))
   }
   for (const range of ['bytes=' + wave.length + '-', 'bytes=0-1,3-4', 'bytes=none']) {
+    const source = await audioResponse(sourceRequest(ownerCookie, 'HEAD', range), callId, sourceResources)
+    expect(source.status).toBe(416)
+    await source.arrayBuffer()
     const response = await playback(ownerCookie, 'GET', range)
     expect(response.status).toBe(416)
     await response.arrayBuffer()

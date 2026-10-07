@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, test } from 'vitest'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 import { eq, sql } from 'drizzle-orm'
+import { readMigrationFiles } from 'drizzle-orm/migrator'
 import { createServer, request as nodeRequest, type ClientRequest, type ServerResponse } from 'node:http'
 import { once } from 'node:events'
 import { startDisposableStores } from '../fixtures/db/disposable-stores'
@@ -67,7 +68,17 @@ async function seedSlot(target: Awaited<ReturnType<typeof ownerFixture>>): Promi
 
 beforeAll(async () => {
   stores = await startDisposableStores()
+  const hashes = readMigrationFiles({ migrationsFolder: 'drizzle' }).map(migration => migration.hash)
+  const journal = async () => (await admin('SELECT hash FROM drizzle.__drizzle_migrations ORDER BY created_at')).rows.map(row => row.hash)
+  expect((await admin("SELECT to_regclass('drizzle.__drizzle_migrations') AS journal")).rows).toEqual([{ journal: null }])
+  await stores.migrateGoogleAccountPrefix()
+  expect(await journal()).toEqual(hashes.slice(0, 10))
+  await stores.migrateSessionManagementPrefix()
+  expect(await journal()).toEqual(hashes.slice(0, 11))
+  await stores.migrateRecoveryAdmissionPrefix()
+  expect(await journal()).toEqual(hashes.slice(0, 12))
   await stores.migrate()
+  expect(await journal()).toEqual(hashes)
   await admin('GRANT USAGE ON SCHEMA public TO runtime; GRANT SELECT,INSERT,UPDATE,DELETE ON "user",account,session,verification TO runtime')
   peer = await startGoogleProtocolPeer({
     ports: [3000, ...[stores.runtimeUrl, stores.directRuntimeUrl, stores.redisUrl].map(url => Number(new URL(url).port))],
