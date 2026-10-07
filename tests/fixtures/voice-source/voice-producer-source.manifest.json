@@ -1,7 +1,7 @@
 {
   "repository": "LouisVannobel/projetV0-voice",
-  "commit": "0114bb9eccf4fbbb96ec9042b1d72dc632f6d17d",
-  "tree": "c208b76939d69baa87c1990fbe6f3312718872dd",
+  "commit": "c141ad06b5b834bb801661b39c16b1e8b92331da",
+  "tree": "ac1eb089e411cd040d8ca1c0a80fb06f0824bb83",
   "owned_ref": "refs/heads/z/sparra-local-audio",
   "input_roots": [
     ".python-version",
@@ -14,9 +14,9 @@
     "deployment-profiles",
     "tests/integration/sparra_connected_scenario.py"
   ],
-  "archive_sha256": "c9f81e48e7d7b776624715281b5a349c345cfdbd572e7614069d70d2c9e7a00a",
-  "archive_size": 321237,
-  "decoded_source_bytes": 1571821,
+  "archive_sha256": "91381d0c6c8b5bfdc17dd531a4913772ae8061430de22e209e7fda37f3d48fee",
+  "archive_size": 322889,
+  "decoded_source_bytes": 1583307,
   "members": [
     {
       "path": ".python-version",
@@ -320,9 +320,9 @@
     },
     {
       "path": "tests/integration/sparra_connected_scenario.py",
-      "size": 149468,
-      "git_blob": "ff56d284b417e56316243c2220ddcc00ecfeab80",
-      "sha256": "7a0082f36eb6711dfb48a7331ee12550566aefb5c9bfa28f968205de5ff14386"
+      "size": 160954,
+      "git_blob": "df324593fc3e95727cba825c290c450a860d0209",
+      "sha256": "63e820a7aee4e680c4c1a217d5deb422088104c7eaece7007083cdb236f81399"
     },
     {
       "path": "uv.lock",
