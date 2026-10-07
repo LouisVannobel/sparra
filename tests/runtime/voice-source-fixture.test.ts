@@ -72,14 +72,14 @@ test('reviewed native Voice source fixture exposes exact authenticated members w
   const archive=readFileSync(join(fixture,'voice-producer-source.tar.gz'))
   const manifest=JSON.parse(readFileSync(join(fixture,'voice-producer-source.manifest.json'),'utf8'))
   const result=await source.readVoiceSourceFixture(archive,manifest,pythonExecutable)
-  expect(result.commit).toBe('c141ad06b5b834bb801661b39c16b1e8b92331da')
-  expect(result.tree).toBe('ac1eb089e411cd040d8ca1c0a80fb06f0824bb83')
+  expect(result.commit).toBe('c270d4418f20848a0d5c31d8056fdb1f19a08998')
+  expect(result.tree).toBe('32d5377ccbb0e802b7a1531af16e78205107459a')
   expect(result.members).toBeInstanceOf(Map)
   expect(result.members.size).toBe(52)
   expect(result.members.has('src/projetv0_voice/recording_archive.py')).toBe(true)
   expect(result.members.has('src/projetv0_voice/audio_contract.py')).toBe(true)
   expect([...result.members.keys()].filter(path=>path.startsWith('tests/'))).toEqual(['tests/integration/sparra_connected_scenario.py'])
-  expect(createHash('sha256').update(result.members.get('tests/integration/sparra_connected_scenario.py')).digest('hex')).toBe('63e820a7aee4e680c4c1a217d5deb422088104c7eaece7007083cdb236f81399')
+  expect(createHash('sha256').update(result.members.get('tests/integration/sparra_connected_scenario.py')).digest('hex')).toBe('94041385bb13ee895e587b205b0059314c6b53a38bc7163fc498d542555070c5')
   expect(createHash('sha256').update(result.members.get('src/projetv0_voice/models.py')).digest('hex')).toBe('4c5827d20279ad573f3237e41e547bba32162970111d353d80b9b762ae968ec6')
   expect([...result.members.keys()].sort()).toEqual(manifest.members.map((row:{path:string})=>row.path).sort())
   for(const row of manifest.members){
@@ -97,7 +97,7 @@ test.each(['archive-byte','commit','superseded-commit','tree','member-digest','m
   const manifest=JSON.parse(readFileSync(join(fixture,'voice-producer-source.manifest.json'),'utf8'))
   if(kind==='archive-byte')archive[archive.length-1]^=1
   else if(kind==='commit')manifest.commit='0'.repeat(40)
-  else if(kind==='superseded-commit')manifest.commit='0114bb9eccf4fbbb96ec9042b1d72dc632f6d17d'
+  else if(kind==='superseded-commit')manifest.commit='c141ad06b5b834bb801661b39c16b1e8b92331da'
   else if(kind==='tree')manifest.tree='0'.repeat(40)
   else if(kind==='member-digest')manifest.members[0].sha256='0'.repeat(64)
   else if(kind==='member-blob')manifest.members[0].git_blob='0'.repeat(40)

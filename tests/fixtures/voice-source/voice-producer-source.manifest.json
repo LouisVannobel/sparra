@@ -1,7 +1,7 @@
 {
   "repository": "LouisVannobel/projetV0-voice",
-  "commit": "c141ad06b5b834bb801661b39c16b1e8b92331da",
-  "tree": "ac1eb089e411cd040d8ca1c0a80fb06f0824bb83",
+  "commit": "c270d4418f20848a0d5c31d8056fdb1f19a08998",
+  "tree": "32d5377ccbb0e802b7a1531af16e78205107459a",
   "owned_ref": "refs/heads/z/sparra-local-audio",
   "input_roots": [
     ".python-version",
@@ -14,9 +14,9 @@
     "deployment-profiles",
     "tests/integration/sparra_connected_scenario.py"
   ],
-  "archive_sha256": "91381d0c6c8b5bfdc17dd531a4913772ae8061430de22e209e7fda37f3d48fee",
-  "archive_size": 322889,
-  "decoded_source_bytes": 1583307,
+  "archive_sha256": "d45436d62906fe4ee2d28e0f07eca953d9aef9373b6297c9a5bce6f3868653e7",
+  "archive_size": 325320,
+  "decoded_source_bytes": 1599042,
   "members": [
     {
       "path": ".python-version",
@@ -86,9 +86,9 @@
     },
     {
       "path": "src/projetv0_voice/admission.py",
-      "size": 172123,
-      "git_blob": "09efb897a97de09f953d9859bddc385fe20ec643",
-      "sha256": "1ab22f4502b6621eda4b9680ee25fd78a293425134486101d3b0e6c02f563007"
+      "size": 175114,
+      "git_blob": "969f37516ba03b36de5cb7d8473130688284f351",
+      "sha256": "9e21994a30f77d3d8fb1835eb340c980b8fb3214b5d4ea6b4a79a2b949ec9dff"
     },
     {
       "path": "src/projetv0_voice/app.py",
@@ -98,9 +98,9 @@
     },
     {
       "path": "src/projetv0_voice/audio_capture.py",
-      "size": 26799,
-      "git_blob": "3bb040550d555394732cc13f2108590722e87e68",
-      "sha256": "1341d124a20c637f5f6ac0b3f60273ad4b18de8e06ee92738ecd5910d79b5b40"
+      "size": 27446,
+      "git_blob": "5a0f8805a9a3159f4b149405c32894851a17c944",
+      "sha256": "f6ed4aabaeabea182088a76d8e4a84a20abc3023174e9050bd16ecb8d0e6fa65"
     },
     {
       "path": "src/projetv0_voice/audio_contract.py",
@@ -266,9 +266,9 @@
     },
     {
       "path": "src/projetv0_voice/session.py",
-      "size": 93998,
-      "git_blob": "ccbbd52502a7b20204ae7578826443e3ff2b6214",
-      "sha256": "a316bf2c75e99853c8439bac0abadb40c19fedb7d118b951244e74ac6f2705df"
+      "size": 97881,
+      "git_blob": "6155bfa9f33250181d6df8ff59ab7a09a411d589",
+      "sha256": "a6b3c9201098c18d148057c64b62949baa7720a8eb78895025aa929a45c790c1"
     },
     {
       "path": "src/projetv0_voice/session_factory.py",
@@ -320,9 +320,9 @@
     },
     {
       "path": "tests/integration/sparra_connected_scenario.py",
-      "size": 160954,
-      "git_blob": "df324593fc3e95727cba825c290c450a860d0209",
-      "sha256": "63e820a7aee4e680c4c1a217d5deb422088104c7eaece7007083cdb236f81399"
+      "size": 169168,
+      "git_blob": "053c8cdaeef19c9502c09bc413a74b0aee19fc71",
+      "sha256": "94041385bb13ee895e587b205b0059314c6b53a38bc7163fc498d542555070c5"
     },
     {
       "path": "uv.lock",
