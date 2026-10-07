@@ -30,7 +30,7 @@ export function nativeVoice<A extends keyof FixtureRequests>(request:{action:A}&
 }
 
 /** Test-only persistent transport; Python owns the native graph and validates facts. */
-export function startConnectedVoice(input:{url:string;keyring_path:string;evidence_path:string;state_path:string;resume_call_id?:string;recovery_case?:string;audio_candidate?:true;workspace_id?:string},producer?:Readonly<{pythonExecutable:string;sourceRoot:string}>) {
+export function startConnectedVoice(input:{url:string;keyring_path:string;evidence_path:string;state_path:string;resume_call_id?:string;recovery_case?:string;audio_candidate?:true;workspace_id?:string;audio_transfer_fixture?:true},producer?:Readonly<{pythonExecutable:string;sourceRoot:string}>) {
   const phaseEpoch=performance.now()
   const audioCommands=new Set(['audio-admit','audio-finish','audio-complete','audio-hold-ack','audio-erasure-held','audio-release-ack','audio-off-admit','audio-off-replay','audio-decline-admit','audio-decline-check','audio-opposition-prime','audio-opposition-revoke','audio-opposition-late','stop'])
   const child=spawn(producer?.pythonExecutable??voice+'/.venv/Scripts/python.exe',[...(producer?['-I']:[]),'-B',resolve('tests/helpers/sparra-voice-driver.py')],{windowsHide:true,cwd:producer?dirname(producer.sourceRoot):undefined,env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,TEMP:process.env.TEMP,TMP:process.env.TMP,PYTHONPATH:voice+'/src',PYTHONDONTWRITEBYTECODE:'1',...(producer?{HOME:process.env.SPARRA_VOICE_TEST_HOME,APPDATA:process.env.SPARRA_VOICE_TEST_HOME,NLTK_DATA:process.env.SPARRA_VOICE_NLTK_DATA}:{})}})
@@ -68,6 +68,13 @@ export function startConnectedVoice(input:{url:string;keyring_path:string;eviden
       const line=text.slice(0,newline);text=text.slice(newline+1)
       try{
         const value:Reply&{phase?:string;peak_rss_kib?:number;elapsed_ms?:number;admission_guard?:Record<string,boolean>;audio_terminal_guard?:Record<string,boolean>;audio_ack_refusal?:{condition:string;error_class:string};server_join_guard?:{connections:number;tasks:number;owner_present:boolean;owner_closed:boolean;owner_task_done:boolean;owner_phase:string;stacks:Array<{done:boolean;frames:Array<{file:string;function:string;line:number}>}>;connection_states:Array<{protocol:string;closing:boolean;write_buffer_bytes:number;tls:boolean}>}}=JSON.parse(line)
+        if('transfer_boundary' in value){
+          const boundary=value.transfer_boundary
+          if(!input.audio_candidate||!input.audio_transfer_fixture||!boundary||typeof boundary!=='object'||!('before_intent' in boundary)||!('sdk_entry' in boundary)||Object.keys(boundary).length!==2)throw new Error('Invalid transfer boundary')
+          const names=['admission_closed','event_joined','receipt_joined','tail_committed','submitted_committed','finish_transfer_committed','original_retention']
+          for(const at of ['before_intent','sdk_entry'] as const){const facts=boundary[at];const keys=at==='sdk_entry'?[...names,'intent_committed','fixed_target']:names;if(!facts||typeof facts!=='object'||Object.keys(facts).length!==keys.length||keys.some(name=>!(name in facts))||Object.values(facts).some(fact=>typeof fact!=='boolean'))throw new Error('Invalid transfer boundary')}
+          console.log('PAIRED_TRANSFER_BOUNDARY '+JSON.stringify(boundary));continue
+        }
         if(value.server_join_guard!==undefined){
           const guard=value.server_join_guard
           const phases=new Set(['absent','gated','constructing','preactivated','finishing','done','other'])

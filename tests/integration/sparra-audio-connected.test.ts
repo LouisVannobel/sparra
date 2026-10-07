@@ -21,6 +21,7 @@ let voice: ReturnType<typeof startConnectedVoice>
 let web: Awaited<ReturnType<Awaited<ReturnType<typeof startDisposableStores>>['startWebImage']>>
 let cookie: string, origin: string, workspaceId: string
 let expectedVoiceExit = 0
+const TRANSFER_CAPTURE_TEST = 'native accepted local capture joins before real request_human transfer intent and SDK dispatch'
 const startRequire = createRequire(import.meta.resolve('@tanstack/react-start'))
 const nativeRequire = createRequire(startRequire.resolve('@tanstack/start-client-core/package.json'))
 // Use the selected transitive package's actual declaration, including its
@@ -71,7 +72,8 @@ function issuedCookies(headers: Readonly<{ getSetCookie(): string[] }>) {
   return headers.getSetCookie().map(value => value.split(';')[0]).filter(value => !value.endsWith('=')).join('; ')
 }
 
-beforeEach(async () => {
+beforeEach(async context => {
+  const transferFixture = context.task.name === TRANSFER_CAPTURE_TEST
   expectedVoiceExit = 0
   phase('stores-start')
   stores = await startDisposableStores(); await stores.migrate()
@@ -111,7 +113,7 @@ beforeEach(async () => {
   await stores.administrator.query('GRANT USAGE ON SCHEMA voice TO sparra_voice_a; GRANT EXECUTE ON FUNCTION voice.begin_call_v2(text,uuid,jsonb),voice.ingest_operation_v2(jsonb),voice.lease_call_erasure_v1(text,integer,integer),voice.ack_call_erasure_v1(uuid,uuid,timestamptz),voice.lease_recording_purge_v1(text,integer,integer),voice.ack_recording_purge_v1(uuid,uuid,text,timestamptz) TO sparra_voice_a')
   const saved = await nativeRpc('saveActivity', { expectedRevision: 0,
     businessName: 'Native capture fixture', sector: 'garage', knowledge: { openingHours: '', services: '', prices: '', faq: '', instructions: '' },
-    transferDestination: null, recordingEnabled: false, recordingPolicy: 'local_30d', recordingContactPhone: '+33123456789' })
+    transferDestination: transferFixture ? '+33102030406' : null, recordingEnabled: false, recordingPolicy: 'local_30d', recordingContactPhone: '+33123456789' })
   expect(saved.status).toBe(200); await saved.body?.cancel()
   phase('policy-ready')
   expect(await issuer.googleEvidence()).toMatchObject({ activeClientSockets: 0, activeRequests: 0, disallowed: 0 })
@@ -124,7 +126,8 @@ beforeEach(async () => {
   const producer = await resolveVoiceProducer()
   phase('voice-start')
   voice = startConnectedVoice({ url: stores.voiceUrlA, keyring_path: crypto.path,
-    evidence_path: evidence, state_path: join(crypto.directory, 'voice-state'), audio_candidate: true, workspace_id: workspaceId }, producer)
+    evidence_path: evidence, state_path: join(crypto.directory, 'voice-state'), audio_candidate: true, workspace_id: workspaceId,
+    ...(transferFixture ? { audio_transfer_fixture: true } : {}) }, producer)
   expect(await voice.ready).toMatchObject({ ready: true, candidate: true })
   phase('voice-ready')
   web = await stores.startWebImage(await nativeImage('web'), 'valid',
@@ -408,3 +411,16 @@ test('native candidate CLI refuses stopped success after post-close fixture fail
   expect(await voice.cleanup()).toEqual({ code: 1, signal: null })
   expectedVoiceExit = 1
 })
+
+test(TRANSFER_CAPTURE_TEST, async () => {
+  const transferred = await voice.command('audio-transfer-boundary')
+  expect(transferred).toMatchObject({ capture_joined: true, phone_live: true,
+    checks: ['native-transfer-real-tool-tail-joined-before-intent-and-sdk'] })
+  if (!transferred.call_id || !transferred.retention_until) throw new Error('Native transfer admission facts missing')
+  const call = (await stores.administrator.query<{
+    admitted_at: Date; retention_until: Date; status: string; ended_at: Date | null
+  }>('SELECT admitted_at,retention_until,status,ended_at FROM sparra_call WHERE id=$1', [transferred.call_id])).rows[0]
+  expect(call).toMatchObject({ status: 'active', ended_at: null })
+  expect(call.retention_until.toISOString()).toBe(transferred.retention_until)
+  expect(call.retention_until.getTime() - call.admitted_at.getTime()).toBe(2_592_000_000)
+}, 20000)
