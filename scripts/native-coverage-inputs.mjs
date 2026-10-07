@@ -117,7 +117,7 @@ function admitCoverageEntries(table, coverage, root) {
 function requestsBlobFile(table,file,fileCount,root,seen) {
   const filepath=resolve(blobValue(table,file.filepath))
   const consumer=requestConsumers.find(([path])=>filepath===join(root,path))
-  if(fileCount!==4||!consumer||seen.has(filepath))throw new Error('Native requests blob has an unexpected consumer')
+  if(fileCount!==5||!consumer||seen.has(filepath))throw new Error('Native requests blob has an unexpected consumer')
   seen.add(filepath)
   const names=[],count=passedTests(table,file,names)
   if(count!==consumer[1].length)throw new Error('Native coverage test cardinality mismatch')
@@ -146,7 +146,7 @@ export function readNativeBlob(filePath, name, root, startedAt, version) {
   for (const reference of files) {
     count += admitTestFile(table, blobValue(table, reference), name, files.length, root, startedAt, seen)
   }
-  if (!count || (name === 'activity' && count !== 12) || (name === 'requests' && count !== 26)) throw new Error('Native coverage test cardinality mismatch')
+  if (!count || (name === 'activity' && count !== 12) || (name === 'requests' && count !== 29)) throw new Error('Native coverage test cardinality mismatch')
   const coverage = blobValue(table, envelope[3])
   admitCoverageEntries(table, coverage, root)
   return { table, coverage, digest }
@@ -214,10 +214,15 @@ const requestConsumers=[
     'active owned reader cannot issue retirement proof and missing proof leaves unknown slots occupied',
     'actual crashed and removed reader proof releases only exact A through native migrator and replays idempotently',
   ]],
+  ['tests/integration/sparra-audio-connected.test.ts',[
+    'native PARTIAL hangup capture and private reader join erase after the real Voice ACK',
+    'native ON capture reaches ready through normal EndFrame and serves its original 30-day WAV',
+    'native candidate CLI refuses stopped success after post-close fixture failure (protocol only)',
+  ]],
 ]
 
 function requestsSummaryPassed(report) {
-  const counters = {numTotalTests:26,numPassedTests:26,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
+  const counters = {numTotalTests:29,numPassedTests:29,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
   return report?.success === true && Object.entries(counters).every(([key,wanted])=>report[key]===wanted)
 }
 
@@ -237,9 +242,9 @@ function requestsConsumerPassed(report,path,names,root) {
 }
 
 export function assertRequestsReport(report,root) {
-  if(!requestsSummaryPassed(report) || !Array.isArray(report.testResults) || report.testResults.length!==4
+  if(!requestsSummaryPassed(report) || !Array.isArray(report.testResults) || report.testResults.length!==5
     || !requestConsumers.every(([path,names])=>requestsConsumerPassed(report,path,names,root))) {
-    throw new Error('Native Requests requires its exact four consumers and 26 passing leaves')
+    throw new Error('Native Requests requires its exact five consumers and 29 passing leaves')
   }
 }
 

@@ -112,6 +112,7 @@ try {
   await runPhase('requests qualification', [vitestCli, 'run', '--config', 'vitest.integration.config.ts',
     'tests/integration/sparra-requests.test.ts','tests/integration/sparra-audio-reader-store.test.ts',
     'tests/integration/sparra-audio-playback.test.ts','tests/integration/sparra-audio-reader-retirement.test.ts',
+    'tests/integration/sparra-audio-connected.test.ts',
     '--maxWorkers=1', '--coverage', '--reporter=default', '--reporter=json', '--reporter=blob', '--outputFile.json=' + requestsReport,
     '--outputFile.blob='+join(blobs,'requests.json'),'--coverage.reportsDirectory='+join(runDirectory,'requests')], 600000)
   assertRequestsQualification(requestsReport,root,startedAt)

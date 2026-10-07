@@ -150,6 +150,11 @@ const requestConsumerNames=[
     'active owned reader cannot issue retirement proof and missing proof leaves unknown slots occupied',
     'actual crashed and removed reader proof releases only exact A through native migrator and replays idempotently',
   ]],
+  ['sparra-audio-connected.test.ts',[
+    'native PARTIAL hangup capture and private reader join erase after the real Voice ACK',
+    'native ON capture reaches ready through normal EndFrame and serves its original 30-day WAV',
+    'native candidate CLI refuses stopped success after post-close fixture failure (protocol only)',
+  ]],
 ] as const
 const requestConsumerPaths=requestConsumerNames.map(([file])=>'tests/integration/'+file)
 
@@ -233,14 +238,14 @@ test('native_activity_blob_admits_twelve_complete_pass_cases_and_refuses_missing
   expect(readFileSync(blob)).toEqual(bytes)
 },25000)
 
-test('native_requests_blob_admits_exact_four_consumers_and_26_leaves_without_losing_original_eight',()=>{
+test('native_requests_blob_admits_exact_five_consumers_and_29_leaves_without_losing_original_eight',()=>{
   const root=nativeCoverageFixture(),blob=join(root,'coverage/requests.json'),startedAt=Date.now()
   const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...requestConsumerPaths,'--maxWorkers=1','--coverage','--reporter=blob','--outputFile.blob='+blob,'--coverage.reportsDirectory='+join(root,'coverage/requests')],requestCanaryEnvironment(root))
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   const bytes=readFileSync(blob),table=JSON.parse(bytes.toString('utf8'))
   expect(()=>readNativeBlob(blob,'requests',root,startedAt,'4.1.11')).not.toThrow()
   const files=table[Number(table[0][1])]
-  expect(files).toHaveLength(4)
+  expect(files).toHaveLength(5)
   for(const [filename,names] of requestConsumerNames){
     const file=table[Number(files.find((reference:string)=>table[Number(table[Number(reference)].filepath)]===join(root,'tests/integration',filename).replaceAll('\\','/')))]
     const tasksIndex=Number(file.tasks),tasks=table[tasksIndex]
@@ -279,9 +284,9 @@ test('native_requests_report_preserves_exact_summary_consumer_and_leaf_admission
   const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...requestConsumerPaths,'--maxWorkers=1','--reporter=json','--outputFile.json='+reportPath],requestCanaryEnvironment(root))
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   const report=JSON.parse(readFileSync(reportPath,'utf8'))
-  expect(report.numTotalTests).toBe(26);expect(report.numPassedTests).toBe(26)
+  expect(report.numTotalTests).toBe(29);expect(report.numPassedTests).toBe(29)
   expect(()=>assertRequestsReport(report,root)).not.toThrow()
-  const refusal='Native Requests requires its exact four consumers and 26 passing leaves'
+  const refusal='Native Requests requires its exact five consumers and 29 passing leaves'
   for(const field of ['success','numTotalTests','numPassedTests','numPendingTests','numTodoTests','numFailedTests','numFailedTestSuites','numPendingTestSuites']){
     const wrong={...report,[field]:field==='success'?false:report[field]+1}
     expect(()=>assertRequestsReport(wrong,root)).toThrow(refusal)
@@ -350,7 +355,7 @@ test('native_requests_file_admission_requires_a_current_bounded_regular_report_w
   writeFileSync(refused,'{')
   expect(()=>assertRequestsQualification(refused,root,startedAt)).toThrow(SyntaxError)
   for(const [kind,mutate] of [
-    ['summary',(value:typeof report)=>{value.numPassedTests=25}],
+    ['summary',(value:typeof report)=>{value.numPassedTests=28}],
     ['consumer',(value:typeof report)=>{value.testResults[0].name=join(root,'tests/foreign.ts')}],
     ['missing-leaf',(value:typeof report)=>{value.testResults[0].assertionResults.pop()}],
     ['extra-leaf',(value:typeof report)=>{value.testResults[0].assertionResults.push({...value.testResults[0].assertionResults[0],fullName:'extra leaf'})}],
@@ -359,7 +364,7 @@ test('native_requests_file_admission_requires_a_current_bounded_regular_report_w
     const wrong=structuredClone(report)
     mutate(wrong)
     writeFileSync(refused,JSON.stringify(wrong))
-    expect(()=>assertRequestsQualification(refused,root,startedAt),kind).toThrow('Native Requests requires its exact four consumers and 26 passing leaves')
+    expect(()=>assertRequestsQualification(refused,root,startedAt),kind).toThrow('Native Requests requires its exact five consumers and 29 passing leaves')
   }
 },25000)
 
@@ -553,12 +558,13 @@ test('actual_coverage_runner_publishes_only_native_complete_map_after_retirement
   expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].s).toEqual({'0':21,'1':9,'2':12})
   expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].b).toEqual({'0':[9,12]})
   expect(coverage[join(root,'src/unexecuted.ts').replaceAll('\\','/')].f).toEqual({'0':0})
-  expect(coverage[join(root,'src/audio-covered.ts').replaceAll('\\','/')].f).toEqual({'0':18})
-  expect(coverage[join(root,'src/audio-covered.ts').replaceAll('\\','/')].b).toEqual({'0':[18,0]})
+  expect(coverage[join(root,'src/audio-covered.ts').replaceAll('\\','/')].f).toEqual({'0':21})
+  expect(coverage[join(root,'src/audio-covered.ts').replaceAll('\\','/')].b).toEqual({'0':[21,0]})
 },25000)
 
 test.each([
   'sparra-audio-playback.test.ts','sparra-audio-reader-store.test.ts','sparra-audio-reader-retirement.test.ts',
+  'sparra-audio-connected.test.ts',
 ] as const)('actual_coverage_runner_retains_producer_on_audio_failure_%s',file=>{
   const root=nativeCoverageFixture(),path=join(root,'tests/integration',file)
   writeFileSync(path,readFileSync(path,'utf8')+"import {afterAll} from 'vitest';afterAll(()=>{throw new Error('Owned audio consumer afterAll failure')});\n")
@@ -609,9 +615,25 @@ test('actual_coverage_runner_refuses_requests_missing_or_extra_leaves_before_pub
     writeFileSync(path,lines.join('\n')+'\n')
     const result=runCoverageConsumer(root)
     expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
-    expect(result.stderr).toContain('Native Requests requires its exact four consumers and 26 passing leaves')
+    expect(result.stderr).toContain('Native Requests requires its exact five consumers and 29 passing leaves')
     expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
   }
+},25000)
+
+test.each(['missing','extra'] as const)('actual_coverage_runner_refuses_connected_%s_leaf_before_publication',kind=>{
+  const root=nativeCoverageFixture(),path=join(root,'tests/integration/sparra-audio-connected.test.ts')
+  const lines=readFileSync(path,'utf8').trimEnd().split('\n')
+  if(kind==='missing')lines.pop()
+  else lines.push(lines.at(-1)!.replace('native candidate CLI','extra native candidate CLI'))
+  writeFileSync(path,lines.join('\n')+'\n')
+  const result=runCoverageConsumer(root)
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
+  expect(result.stderr).toContain('Native Requests requires its exact five consumers and 29 passing leaves')
+  expect(result.stdout).toContain('[tests] requests qualification')
+  expect(result.stdout).not.toContain('[tests] merge')
+  expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
+  expect(readdirSync(join(root,'coverage'))).toEqual([])
+  expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
 },25000)
 
 test('actual_coverage_runner_accepts_native_coverage_bearing_requests_json_above_one_MiB',()=>{
