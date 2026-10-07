@@ -109,22 +109,13 @@ try {
   ], 180000)
   assertRecordingReceiptQualification(recordingReport, root, startedAt)
   const requestsReport = join(runDirectory, 'requests-qualification.json')
-  await runPhase('requests qualification', [vitestCli, 'run', '--config', 'vitest.integration.config.ts', 'tests/integration/sparra-requests.test.ts', '--maxWorkers=1', '--coverage', '--reporter=default', '--reporter=json', '--reporter=blob', '--outputFile.json=' + requestsReport,
+  await runPhase('requests qualification', [vitestCli, 'run', '--config', 'vitest.integration.config.ts',
+    'tests/integration/sparra-requests.test.ts','tests/integration/sparra-audio-reader-store.test.ts',
+    'tests/integration/sparra-audio-playback.test.ts','tests/integration/sparra-audio-reader-retirement.test.ts',
+    '--maxWorkers=1', '--coverage', '--reporter=default', '--reporter=json', '--reporter=blob', '--outputFile.json=' + requestsReport,
     '--outputFile.blob='+join(blobs,'requests.json'),'--coverage.reportsDirectory='+join(runDirectory,'requests')], 600000)
   assertRequestsQualification(requestsReport,root,startedAt)
   admitBlob('requests')
-  await runPhase('private audio playback qualification', [
-    vitestCli, 'run', '--config', 'vitest.integration.config.ts',
-    'tests/integration/sparra-audio-playback.test.ts', '--maxWorkers=1',
-  ], 180000)
-  await runPhase('audio reader store qualification', [
-    vitestCli, 'run', '--config', 'vitest.integration.config.ts',
-    'tests/integration/sparra-audio-reader-store.test.ts', '--maxWorkers=1',
-  ], 180000)
-  await runPhase('audio reader retirement qualification', [
-    vitestCli, 'run', '--config', 'vitest.integration.config.ts',
-    'tests/integration/sparra-audio-reader-retirement.test.ts', '--maxWorkers=1',
-  ], 180000)
   admitBlobs()
   await runPhase('merge', [vitestCli, '--config', 'vitest.config.ts', '--coverage', '--mergeReports=' + blobs, '--reporter=default',
     '--coverage.reportsDirectory=' + join(runDirectory, 'final')], 120000)

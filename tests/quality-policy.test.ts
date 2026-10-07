@@ -2,7 +2,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { join, relative, resolve, dirname, basename } from 'node:path'
 import { tmpdir } from 'node:os'
 import { spawnSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 import { API, type Snapshot } from 'typescript/unstable/sync'
 import type { FileChangeSummary } from 'typescript/unstable/proto'
@@ -114,6 +114,44 @@ const recordingReceiptNames=[
   'receipt columns retain FORCE RLS and execute-only native authority',
 ]
 
+// These fixed canary titles test report admission, not the named product behavior.
+const requestConsumerNames=[
+  ['sparra-requests.test.ts',[
+    'native owner reads absent state, actual Voice ciphertext and pinned configuration without inventing pending results',
+    'equal-millisecond pagination returns all 103 calls exactly once in tuple order',
+    'treat active preserves inventory and stamp, erase deletes native content and survives retention',
+    'treat closed preserves inventory and stamp, erase deletes native content and survives retention',
+    'expired content stays unreadable including a Workspace lock held across retention; queued receipt outlives fence deadline',
+    'native runtime UPDATE RETURNING cooperates with narrow definer, FORCE RLS and column grants',
+    'fence insertion failure and cancellation roll back; recorded COMMIT cancellation rejects completion and reload resolves',
+    'built native RPC enforces strict input, auth, missing and foreign Origin, bounded failures and no-store',
+  ]],
+  ['sparra-audio-reader-store.test.ts',[
+    'exact release uses auth sentinel and waits for the physical Workspace lock',
+    'cleanup releases the exact slot after auth loss and Workspace becomes deleting',
+    'stale A capability cannot release replacement B or a foreign Workspace slot',
+    'final enqueue waits for the physical Workspace lock and emits nothing after denial commits',
+    'native R1 COMMIT handoff keeps successor and held release joined (unknown return: false)',
+    'native R1 COMMIT handoff keeps successor and held release joined (unknown return: true)',
+    'native R1 acquire COMMIT followed by early TCP close joins exact release without enqueue',
+  ]],
+  ['sparra-audio-playback.test.ts',[
+    'compiled private GET returns the actual Voice PCM in the exact WAV44 representation',
+    'raw playback refuses anonymous and cross-Workspace callers without exposing PCM',
+    'authenticated HEAD returns WAV metadata and no binary body',
+    'native single Range returns exact bytes and rejects malformed or multipart ranges',
+    'native audio revoke leaves the exact released slot and truncates the paused client response',
+    'native owner erase terminates a paused reader without completing unacknowledged Voice cleanup',
+    'actual private browser player clears its native source on owner erase at 320 and 1280',
+    'compiled R1 session loss releases the exact paused reader without erasing audio or ending the phone call',
+  ]],
+  ['sparra-audio-reader-retirement.test.ts',[
+    'active owned reader cannot issue retirement proof and missing proof leaves unknown slots occupied',
+    'actual crashed and removed reader proof releases only exact A through native migrator and replays idempotently',
+  ]],
+] as const
+const requestConsumerPaths=requestConsumerNames.map(([file])=>'tests/integration/'+file)
+
 function nativeCoverageFixture(activityAfterAll = '',recordingAfterAll = '') {
   const {root}=qualityFixture()
   for(const name of ['App.tsx','main.tsx','unused.ts'])rmSync(join(root,'src',name))
@@ -133,36 +171,23 @@ export async function prepareVoiceSource({appRoot}){const scope=join(appRoot,'co
   // The nine private named leaves qualify report admission and environment
   // forwarding only; they do not qualify native SQL or the real Voice source.
   writeFileSync(join(root,'tests/integration/sparra-recording-receipt.test.ts'),"import {afterAll,expect,test} from 'vitest';import {join} from 'node:path';\n"+recordingReceiptNames.map(name=>'test('+JSON.stringify(name)+",()=>{const root=process.env.SPARRA_VOICE_TEST_ROOT;expect(root).toContain('canary-voice-owner');expect(process.env.SPARRA_VOICE_FIXTURE_PYTHON).toBe(process.execPath);expect(process.env.SPARRA_VOICE_NLTK_DATA).toBe(root);expect(process.env.SPARRA_VOICE_TEST_HOME).toBe(root);expect(process.env.SPARRA_VOICE_TOKENIZER_ARCHIVE).toBe(join(root!,'synthetic-tokenizer.zip'))});\n").join('')+'afterAll(()=>{'+recordingAfterAll+'});\n')
-  const requestNames=[
-    'native owner reads absent state, actual Voice ciphertext and pinned configuration without inventing pending results',
-    'equal-millisecond pagination returns all 103 calls exactly once in tuple order',
-    'treat active preserves inventory and stamp, erase deletes native content and survives retention',
-    'treat closed preserves inventory and stamp, erase deletes native content and survives retention',
-    'expired content stays unreadable including a Workspace lock held across retention; queued receipt outlives fence deadline',
-    'native runtime UPDATE RETURNING cooperates with narrow definer, FORCE RLS and column grants',
-    'fence insertion failure and cancellation roll back; recorded COMMIT cancellation rejects completion and reload resolves',
-    'built native RPC enforces strict input, auth, missing and foreign Origin, bounded failures and no-store',
-  ]
-  writeFileSync(join(root,'tests/integration/sparra-requests.test.ts'),"import {expect,test} from 'vitest';import {selectBranch} from '../../src/covered';// Synthetic runner selection canary only.\n"+requestNames.map(name=>'test('+JSON.stringify(name)+",()=>{expect(process.env.SPARRA_VOICE_TEST_ROOT).toContain('canary-voice-owner');expect(selectBranch(true)).toBe(7)});\n").join(''))
+  writeFileSync(join(root,'tests/integration/sparra-requests.test.ts'),"import {expect,test} from 'vitest';import {selectBranch} from '../../src/covered';// Synthetic runner selection canary only.\n"+requestConsumerNames[0][1].map(name=>'test('+JSON.stringify(name)+",()=>{expect(process.env.SPARRA_VOICE_TEST_ROOT).toContain('canary-voice-owner');expect(selectBranch(true)).toBe(7)});\n").join(''))
   // Exact audio consumer paths exercise the native runner and owned environment,
   // not browser, R1, SQL or process-retirement behavior.
-  for(const [index,file,phase] of [
-    [0,'sparra-audio-playback.test.ts','private audio playback qualification'],
-    [1,'sparra-audio-reader-store.test.ts','audio reader store qualification'],
-    [2,'sparra-audio-reader-retirement.test.ts','audio reader retirement qualification'],
-  ] as const)writeFileSync(join(root,'tests/integration',file),`import {expect,test} from 'vitest';import {appendFileSync,existsSync,lstatSync,readFileSync,realpathSync,writeFileSync} from 'node:fs';import {basename,dirname,isAbsolute,join} from 'node:path';
-test('synthetic ${phase} runner wiring',()=>{
+  for(const [file,names] of requestConsumerNames.slice(1))writeFileSync(join(root,'tests/integration',file),`import {beforeAll,expect,test} from 'vitest';import {appendFileSync,existsSync,lstatSync,realpathSync,writeFileSync} from 'node:fs';import {basename,dirname,isAbsolute,join} from 'node:path';import {coveredAudioBranch} from '../../src/audio-covered';
+beforeAll(()=>{
   const root=process.env.SPARRA_VOICE_TEST_ROOT!,screenshots=process.env.SPARRA_PLAYBACK_SCREENSHOT_DIR!,log=join(process.cwd(),'canary-audio-consumers.jsonl');
   expect(root).toBe(join(process.cwd(),'coverage/canary-voice-owner'));expect(existsSync(root)).toBe(true);expect(existsSync('canary-voice-retired.txt')).toBe(false);
   expect(process.env.SPARRA_VOICE_FIXTURE_PYTHON).toBe(process.execPath);expect(process.env.SPARRA_VOICE_NLTK_DATA).toBe(root);expect(process.env.SPARRA_VOICE_TEST_HOME).toBe(root);expect(process.env.SPARRA_VOICE_TOKENIZER_ARCHIVE).toBe(join(root,'synthetic-tokenizer.zip'));
   expect(isAbsolute(screenshots)).toBe(true);expect(dirname(dirname(screenshots))).toBe(join(process.cwd(),'coverage'));expect(basename(dirname(screenshots))).toMatch(/^\\.native-[0-9a-f-]{36}$/);expect(basename(screenshots)).toBe('playback-screenshots');expect(lstatSync(screenshots).isDirectory()).toBe(true);expect(lstatSync(screenshots).isSymbolicLink()).toBe(false);expect(realpathSync(screenshots)).toBe(screenshots);
-  const previous=existsSync(log)?readFileSync(log,'utf8').trimEnd().split('\\n').map(line=>JSON.parse(line).phase):[];expect(previous).toEqual(${JSON.stringify(['private audio playback qualification','audio reader store qualification'].slice(0,index))});
-  ${index===0?"writeFileSync(join(screenshots,'synthetic-runner-output.txt'),'owned runner wiring witness');":"expect(readFileSync(join(screenshots,'synthetic-runner-output.txt'),'utf8')).toBe('owned runner wiring witness');"}
-  appendFileSync(log,JSON.stringify({phase:${JSON.stringify(phase)},screenshots})+'\\n');
-});\n`)
+  writeFileSync(join(screenshots,${JSON.stringify(file+'.txt')}),'owned runner wiring witness');
+  appendFileSync(log,JSON.stringify({file:${JSON.stringify(file)},screenshots})+'\\n');
+});
+${names.map(name=>'test('+JSON.stringify(name)+',()=>expect(coveredAudioBranch(true)).toBe(3));').join('\n')}\n`)
   writeFileSync(join(root,'.output/server/index.mjs'),'export const build = 1\n')
   writeFileSync(join(root,'src/covered.ts'),'export function selectBranch(value: boolean): number {\n  if (value) return 7\n  return 9\n}\n')
   writeFileSync(join(root,'src/unexecuted.ts'),'export function unexecuted(): number {\n  return 13\n}\n')
+  writeFileSync(join(root,'src/audio-covered.ts'),'export function coveredAudioBranch(value: boolean): number {\n  if (value) return 3\n  return 5\n}\n')
   writeFileSync(join(root,'tests/ordinary.test.ts'),"import {expect,test} from 'vitest';import {selectBranch} from '../src/covered';test('ordinary true branch',()=>expect(selectBranch(true)).toBe(7));\n")
   writeFileSync(join(root,'tests/integration/sparra-activity.test.ts'),"import {afterAll,expect,test} from 'vitest';import {selectBranch} from '../../src/covered';import {appendFileSync,readFileSync,readdirSync,rmSync,symlinkSync,writeFileSync} from 'node:fs';import {join} from 'node:path';test.each(Array.from({length:12},(_,index)=>index))('activity false branch %i',()=>expect(selectBranch(false)).toBe(9));afterAll(()=>{"+activityAfterAll+'});\n')
   return root
@@ -170,6 +195,13 @@ test('synthetic ${phase} runner wiring',()=>{
 
 function runNativeCoverage(root:string,args:string[],env=process.env) {
   return spawnSync(process.execPath,[join(repositoryRoot,'node_modules/vitest/vitest.mjs'),...args],{cwd:root,env,encoding:'utf8',windowsHide:true,timeout:12000})
+}
+
+function requestCanaryEnvironment(root:string){
+  const voice=join(root,'coverage/canary-voice-owner'),screenshots=join(root,'coverage','.native-'+randomUUID(),'playback-screenshots')
+  mkdirSync(voice);mkdirSync(screenshots,{recursive:true})
+  return {...process.env,SPARRA_VOICE_TEST_ROOT:voice,SPARRA_VOICE_FIXTURE_PYTHON:process.execPath,
+    SPARRA_VOICE_NLTK_DATA:voice,SPARRA_VOICE_TEST_HOME:voice,SPARRA_VOICE_TOKENIZER_ARCHIVE:join(voice,'synthetic-tokenizer.zip'),SPARRA_PLAYBACK_SCREENSHOT_DIR:screenshots}
 }
 
 test('native_activity_blob_admits_twelve_complete_pass_cases_and_refuses_missing_or_extra',()=>{
@@ -200,55 +232,100 @@ test('native_activity_blob_admits_twelve_complete_pass_cases_and_refuses_missing
   expect(readFileSync(blob)).toEqual(bytes)
 },25000)
 
-test('native_requests_blob_admits_eight_passes_and_refuses_missing_extra_or_foreign_consumers',()=>{
+test('native_requests_blob_admits_exact_four_consumers_and_25_leaves_without_losing_original_eight',()=>{
   const root=nativeCoverageFixture(),blob=join(root,'coverage/requests.json'),startedAt=Date.now()
-  const fixture=join(root,'tests/integration/sparra-requests.test.ts')
-  writeFileSync(fixture,readFileSync(fixture,'utf8').replaceAll("expect(process.env.SPARRA_VOICE_TEST_ROOT).toContain('canary-voice-owner');",''))
-  const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts','tests/integration/sparra-requests.test.ts','--maxWorkers=1','--coverage','--reporter=blob','--outputFile.blob='+blob,'--coverage.reportsDirectory='+join(root,'coverage/requests')])
+  const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...requestConsumerPaths,'--maxWorkers=1','--coverage','--reporter=blob','--outputFile.blob='+blob,'--coverage.reportsDirectory='+join(root,'coverage/requests')],requestCanaryEnvironment(root))
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   const bytes=readFileSync(blob),table=JSON.parse(bytes.toString('utf8'))
   expect(()=>readNativeBlob(blob,'requests',root,startedAt,'4.1.11')).not.toThrow()
-  const files=table[Number(table[0][1])],file=table[Number(files[0])],tasksIndex=Number(file.tasks)
-  for(const count of [7,9]){
-    const changed=JSON.parse(bytes.toString('utf8')),tasks=changed[tasksIndex]
-    if(count===7)tasks.pop();else tasks.push(tasks[0])
-    const path=join(root,'coverage/requests-'+count+'.json');writeFileSync(path,JSON.stringify(changed))
-    expect(()=>readNativeBlob(path,'requests',root,startedAt,'4.1.11')).toThrow('Native coverage test cardinality mismatch')
+  const files=table[Number(table[0][1])]
+  expect(files).toHaveLength(4)
+  for(const [filename,names] of requestConsumerNames){
+    const file=table[Number(files.find((reference:string)=>table[Number(table[Number(reference)].filepath)]===join(root,'tests/integration',filename).replaceAll('\\','/')))]
+    const tasksIndex=Number(file.tasks),tasks=table[tasksIndex]
+    expect(tasks.map((reference:string)=>table[Number(table[Number(reference)].name)])).toEqual(names)
+    for(const delta of [-1,1]){
+      const changed=JSON.parse(bytes.toString('utf8')),cases=changed[tasksIndex]
+      if(delta<0)cases.pop();else cases.push(cases[0])
+      const path=join(root,'coverage/requests-refused.json');writeFileSync(path,JSON.stringify(changed))
+      expect(()=>readNativeBlob(path,'requests',root,startedAt,'4.1.11')).toThrow('Native coverage test cardinality mismatch')
+    }
+    for(const [kind,mutate] of [
+      ['duplicate',(changed:typeof table)=>{const cases=changed[tasksIndex];cases[1]=cases[0]}],
+      ['renamed',(changed:typeof table)=>{const cases=changed[tasksIndex];changed[Number(table[Number(cases[0])].name)]='Unreviewed leaf'}],
+      ['reordered',(changed:typeof table)=>{changed[tasksIndex].reverse()}],
+      ['skipped',(changed:typeof table)=>{const cases=changed[tasksIndex];changed[Number(table[Number(table[Number(cases[0])].result)].state)]='skip'}],
+    ] as const){
+      const changed=JSON.parse(bytes.toString('utf8'))
+      mutate(changed)
+      const path=join(root,'coverage/requests-refused.json');writeFileSync(path,JSON.stringify(changed))
+      expect(()=>readNativeBlob(path,'requests',root,startedAt,'4.1.11'),filename+':'+kind).toThrow()
+    }
   }
-  const changed=JSON.parse(bytes.toString('utf8'));changed[Number(file.filepath)]=join(root,'tests/integration/sparra-activity.test.ts').replaceAll('\\','/')
-  const foreign=join(root,'coverage/requests-foreign.json');writeFileSync(foreign,JSON.stringify(changed))
-  expect(()=>readNativeBlob(foreign,'requests',root,startedAt,'4.1.11')).toThrow('Native requests blob has an unexpected consumer')
+  for(const kind of ['missing','duplicate','foreign'] as const){
+    const changed=JSON.parse(bytes.toString('utf8')),consumers=changed[Number(table[0][1])]
+    if(kind==='missing')consumers.pop()
+    else if(kind==='duplicate')consumers[1]=consumers[0]
+    else changed[Number(table[Number(consumers[0])].filepath)]=join(root,'tests/integration/sparra-activity.test.ts').replaceAll('\\','/')
+    const path=join(root,'coverage/requests-refused.json');writeFileSync(path,JSON.stringify(changed))
+    expect(()=>readNativeBlob(path,'requests',root,startedAt,'4.1.11'),kind).toThrow('Native requests blob has an unexpected consumer')
+  }
+  expect(readFileSync(blob)).toEqual(bytes)
 },25000)
 
 test('native_requests_report_preserves_exact_summary_consumer_and_leaf_admission',()=>{
   const root=nativeCoverageFixture(),reportPath=join(root,'coverage/native-requests.json')
-  const fixture=join(root,'tests/integration/sparra-requests.test.ts')
-  writeFileSync(fixture,readFileSync(fixture,'utf8').replaceAll("expect(process.env.SPARRA_VOICE_TEST_ROOT).toContain('canary-voice-owner');",''))
-  const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts','tests/integration/sparra-requests.test.ts','--maxWorkers=1','--reporter=json','--outputFile.json='+reportPath])
+  const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...requestConsumerPaths,'--maxWorkers=1','--reporter=json','--outputFile.json='+reportPath],requestCanaryEnvironment(root))
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   const report=JSON.parse(readFileSync(reportPath,'utf8'))
+  expect(report.numTotalTests).toBe(25);expect(report.numPassedTests).toBe(25)
   expect(()=>assertRequestsReport(report,root)).not.toThrow()
+  const refusal='Native Requests requires its exact four consumers and 25 passing leaves'
   for(const field of ['success','numTotalTests','numPassedTests','numPendingTests','numTodoTests','numFailedTests','numFailedTestSuites','numPendingTestSuites']){
     const wrong={...report,[field]:field==='success'?false:report[field]+1}
-    expect(()=>assertRequestsReport(wrong,root)).toThrow('Native Requests requires its exact eight passing leaves')
+    expect(()=>assertRequestsReport(wrong,root)).toThrow(refusal)
   }
   for(const mutate of [
     (value:typeof report)=>{value.testResults=[]},
-    (value:typeof report)=>{value.testResults[0].name=join(root,'tests/foreign.ts')},
-    (value:typeof report)=>{value.testResults[0].status='failed'},
-    (value:typeof report)=>{value.testResults[0].message='failure'},
-    (value:typeof report)=>{value.testResults[0].assertionResults.pop()},
-    (value:typeof report)=>{value.testResults[0].assertionResults[0].fullName='wrong leaf'},
-    (value:typeof report)=>{value.testResults[0].assertionResults[0].status='skipped'},
-    (value:typeof report)=>{value.testResults[0].assertionResults[0].failureMessages=['failure']},
-  ]){const wrong=structuredClone(report);mutate(wrong);expect(()=>assertRequestsReport(wrong,root)).toThrow('Native Requests requires its exact eight passing leaves')}
+    (value:typeof report)=>{value.testResults.pop()},
+    (value:typeof report)=>{value.testResults[1]=structuredClone(value.testResults[0])},
+    (value:typeof report)=>{value.testResults.push(structuredClone(value.testResults[0]))},
+  ]){const wrong=structuredClone(report);mutate(wrong);expect(()=>assertRequestsReport(wrong,root)).toThrow(refusal)}
+  for(const [filename,names] of requestConsumerNames){
+    const index=report.testResults.findIndex((file:{name:string})=>file.name===join(root,'tests/integration',filename).replaceAll('\\','/'))
+    expect(index).toBeGreaterThanOrEqual(0)
+    expect(report.testResults[index].assertionResults.map((leaf:{fullName:string})=>leaf.fullName)).toEqual(names)
+    type ReportFile=(typeof report.testResults)[number]
+    for(const [kind,mutate] of [
+      ['foreign',(file:ReportFile)=>{file.name=join(root,'tests/foreign.ts')}],
+      ['failed-file',(file:ReportFile)=>{file.status='failed'}],
+      ['message',(file:ReportFile)=>{file.message='failure'}],
+      ['missing',(file:ReportFile)=>{file.assertionResults.pop()}],
+      ['extra',(file:ReportFile)=>{file.assertionResults.push(structuredClone(file.assertionResults[0]))}],
+      ['duplicate',(file:ReportFile)=>{file.assertionResults[1]=structuredClone(file.assertionResults[0])}],
+      ['renamed',(file:ReportFile)=>{file.assertionResults[0].fullName='wrong leaf'}],
+      ['reordered',(file:ReportFile)=>{file.assertionResults.reverse()}],
+      ['skipped',(file:ReportFile)=>{file.assertionResults[0].status='skipped'}],
+      ['failed-leaf',(file:ReportFile)=>{file.assertionResults[0].status='failed'}],
+      ['failure',(file:ReportFile)=>{file.assertionResults[0].failureMessages=['failure']}],
+      ['missing-failure',(file:ReportFile)=>{delete file.assertionResults[0].failureMessages}],
+    ] as const){
+      const wrong=structuredClone(report),file=wrong.testResults[index]
+      mutate(file)
+      expect(()=>assertRequestsReport(wrong,root),filename+':'+kind).toThrow(refusal)
+    }
+  }
+  // Same-count original/playback batches cannot be exchanged by renaming paths.
+  const misbound=structuredClone(report),request=misbound.testResults.find((file:{name:string})=>file.name.endsWith('/sparra-requests.test.ts')),
+    playback=misbound.testResults.find((file:{name:string})=>file.name.endsWith('/sparra-audio-playback.test.ts'))
+  const originalRequestName=request.name
+  request.name=playback.name;playback.name=originalRequestName
+  expect(()=>assertRequestsReport(misbound,root)).toThrow(refusal)
 },25000)
 
 test('native_requests_file_admission_requires_a_current_bounded_regular_report_with_exact_leaves',()=>{
   const root=nativeCoverageFixture(),reportPath=join(root,'coverage/native-requests.json'),startedAt=Date.now()
-  const fixture=join(root,'tests/integration/sparra-requests.test.ts')
-  writeFileSync(fixture,readFileSync(fixture,'utf8').replaceAll("expect(process.env.SPARRA_VOICE_TEST_ROOT).toContain('canary-voice-owner');",''))
-  const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts','tests/integration/sparra-requests.test.ts','--maxWorkers=1','--reporter=json','--outputFile.json='+reportPath])
+  const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...requestConsumerPaths,'--maxWorkers=1','--reporter=json','--outputFile.json='+reportPath],requestCanaryEnvironment(root))
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   expect(()=>assertRequestsQualification(reportPath,root,startedAt)).not.toThrow()
   const bytes=readFileSync(reportPath),report=JSON.parse(bytes.toString('utf8'))
@@ -267,7 +344,7 @@ test('native_requests_file_admission_requires_a_current_bounded_regular_report_w
   writeFileSync(refused,'{')
   expect(()=>assertRequestsQualification(refused,root,startedAt)).toThrow(SyntaxError)
   for(const [kind,mutate] of [
-    ['summary',(value:typeof report)=>{value.numPassedTests=7}],
+    ['summary',(value:typeof report)=>{value.numPassedTests=24}],
     ['consumer',(value:typeof report)=>{value.testResults[0].name=join(root,'tests/foreign.ts')}],
     ['missing-leaf',(value:typeof report)=>{value.testResults[0].assertionResults.pop()}],
     ['extra-leaf',(value:typeof report)=>{value.testResults[0].assertionResults.push({...value.testResults[0].assertionResults[0],fullName:'extra leaf'})}],
@@ -276,7 +353,7 @@ test('native_requests_file_admission_requires_a_current_bounded_regular_report_w
     const wrong=structuredClone(report)
     mutate(wrong)
     writeFileSync(refused,JSON.stringify(wrong))
-    expect(()=>assertRequestsQualification(refused,root,startedAt),kind).toThrow('Native Requests requires its exact eight passing leaves')
+    expect(()=>assertRequestsQualification(refused,root,startedAt),kind).toThrow('Native Requests requires its exact four consumers and 25 passing leaves')
   }
 },25000)
 
@@ -458,12 +535,10 @@ test('actual_coverage_runner_publishes_only_native_complete_map_after_retirement
   expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
   expect(existsSync(join(root,'coverage/canary-voice-owner'))).toBe(false)
   expect(result.stdout.split('\n').filter(line=>/^\[tests\] (voice-crypto qualification|recording receipt qualification|requests qualification|private audio playback qualification|audio reader store qualification|audio reader retirement qualification|merge)$/.test(line.trim())).map(line=>line.trim())).toEqual([
-    '[tests] voice-crypto qualification','[tests] recording receipt qualification','[tests] requests qualification',
-    '[tests] private audio playback qualification','[tests] audio reader store qualification',
-    '[tests] audio reader retirement qualification','[tests] merge',
+    '[tests] voice-crypto qualification','[tests] recording receipt qualification','[tests] requests qualification','[tests] merge',
   ])
-  const audioConsumers: {phase:string;screenshots:string}[]=readFileSync(join(root,'canary-audio-consumers.jsonl'),'utf8').trimEnd().split('\n').map(line=>JSON.parse(line))
-  expect(audioConsumers.map(row=>row.phase)).toEqual(['private audio playback qualification','audio reader store qualification','audio reader retirement qualification'])
+  const audioConsumers: {file:string;screenshots:string}[]=readFileSync(join(root,'canary-audio-consumers.jsonl'),'utf8').trimEnd().split('\n').map(line=>JSON.parse(line))
+  expect(audioConsumers.map(row=>row.file).sort()).toEqual(requestConsumerNames.slice(1).map(([file])=>file).sort())
   expect(new Set(audioConsumers.map(row=>row.screenshots)).size).toBe(1)
   expect(existsSync(audioConsumers[0]!.screenshots)).toBe(false)
   const coverage=JSON.parse(readFileSync(join(root,'coverage/coverage-final.json'),'utf8'))
@@ -472,20 +547,19 @@ test('actual_coverage_runner_publishes_only_native_complete_map_after_retirement
   expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].s).toEqual({'0':21,'1':9,'2':12})
   expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].b).toEqual({'0':[9,12]})
   expect(coverage[join(root,'src/unexecuted.ts').replaceAll('\\','/')].f).toEqual({'0':0})
+  expect(coverage[join(root,'src/audio-covered.ts').replaceAll('\\','/')].f).toEqual({'0':17})
+  expect(coverage[join(root,'src/audio-covered.ts').replaceAll('\\','/')].b).toEqual({'0':[17,0]})
 },25000)
 
 test.each([
-  ['sparra-audio-playback.test.ts','private audio playback qualification','audio reader store qualification'],
-  ['sparra-audio-reader-store.test.ts','audio reader store qualification','audio reader retirement qualification'],
-  ['sparra-audio-reader-retirement.test.ts','audio reader retirement qualification','merge'],
-] as const)('actual_coverage_runner_retains_producer_on_audio_failure_%s',(file,phase,nextPhase)=>{
+  'sparra-audio-playback.test.ts','sparra-audio-reader-store.test.ts','sparra-audio-reader-retirement.test.ts',
+] as const)('actual_coverage_runner_retains_producer_on_audio_failure_%s',file=>{
   const root=nativeCoverageFixture(),path=join(root,'tests/integration',file)
   writeFileSync(path,readFileSync(path,'utf8')+"import {afterAll} from 'vitest';afterAll(()=>{throw new Error('Owned audio consumer afterAll failure')});\n")
   const result=runCoverageConsumer(root)
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
-  expect(result.stderr).toContain('Native coverage '+phase+' failed; consumer cleanup is unconfirmed')
+  expect(result.stderr).toContain('Native coverage requests qualification failed; consumer cleanup is unconfirmed')
   expect(result.stderr).toContain('Native Voice scope retained: consumer resource cleanup is unconfirmed')
-  expect(result.stdout).not.toContain('[tests] '+nextPhase)
   expect(result.stdout).not.toContain('[tests] merge')
   expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
   expect(readdirSync(join(root,'coverage'))).toEqual(['canary-voice-owner'])
@@ -529,7 +603,7 @@ test('actual_coverage_runner_refuses_requests_missing_or_extra_leaves_before_pub
     writeFileSync(path,lines.join('\n')+'\n')
     const result=runCoverageConsumer(root)
     expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
-    expect(result.stderr).toContain('Native Requests requires its exact eight passing leaves')
+    expect(result.stderr).toContain('Native Requests requires its exact four consumers and 25 passing leaves')
     expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
   }
 },25000)
