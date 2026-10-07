@@ -4,10 +4,10 @@ import { fileURLToPath } from 'node:url'
 import { isAbsolute, join, resolve } from 'node:path'
 import { realpath, stat } from 'node:fs/promises'
 
-const commit='4086d81d88aba2e9ab6ebc0258ad0178fe5f63a7'
-const tree='64ce7bf5f2e853a35ffa9e09fc40df407aeee6fc'
-const archiveHash='50ae2f3becb9df5f786d64a0b9dacdaff7d32bd9454316c368847b36e46ed574'
-const inputRoots=['.python-version','pyproject.toml','uv.lock','README.md','src','scripts','agents','deployment-profiles']
+const commit='571b7d38b2c9c36b6682021008b81497aa83f93e'
+const tree='b005704a1435a021f46930874c56a76bb956c7a1'
+const archiveHash='6cf0e46ebb4cc233772f370551f2a8cce81bc179158a1766ecf0dfaaf12b6223'
+const inputRoots=['.python-version','pyproject.toml','uv.lock','README.md','src','scripts','agents','deployment-profiles','tests/integration/sparra_connected_scenario.py']
 const invalid=()=>new Error('Invalid native Voice source fixture')
 
 async function assertFixtureInterpreter(pythonExecutable){
@@ -21,12 +21,12 @@ function assertFixtureProvenance(manifest){
 }
 
 function assertFixtureArchive(archive,manifest){
-  if(!Buffer.isBuffer(archive)||archive.length!==293683||createHash('sha256').update(archive).digest('hex')!==archiveHash
-    ||manifest.archive_sha256!==archiveHash||manifest.archive_size!==archive.length||manifest.decoded_source_bytes!==1420273)throw invalid()
+  if(!Buffer.isBuffer(archive)||archive.length!==319861||createHash('sha256').update(archive).digest('hex')!==archiveHash
+    ||manifest.archive_sha256!==archiveHash||manifest.archive_size!==archive.length||manifest.decoded_source_bytes!==1562160)throw invalid()
 }
 
 function assertFixtureMembers(manifest){
-  if(!Array.isArray(manifest.members)||manifest.members.length!==51)throw invalid()
+  if(!Array.isArray(manifest.members)||manifest.members.length!==52)throw invalid()
   if(manifest.members.some(row=>!row||typeof row.path!=='string'||typeof row.sha256!=='string'||!/^([0-9a-f]{64})$/.test(row.sha256)||typeof row.git_blob!=='string'||!/^([0-9a-f]{40})$/.test(row.git_blob)||!Number.isSafeInteger(row.size)||row.size<0||row.size>1048576))throw invalid()
 }
 
@@ -68,10 +68,10 @@ function admitDecodedMember(row,expected){
 function admitVerifierResult(result,manifest){
   let decoded
   try{decoded=JSON.parse(result)}catch{throw invalid()}
-  if(decoded.commit!==commit||decoded.tree!==tree||!Array.isArray(decoded.members)||decoded.members.length!==51)throw invalid()
+  if(decoded.commit!==commit||decoded.tree!==tree||!Array.isArray(decoded.members)||decoded.members.length!==52)throw invalid()
   const expected=new Map(manifest.members.map(row=>[row.path,row]))
   const members=new Map(decoded.members.map(row=>admitDecodedMember(row,expected)))
-  if(members.size!==51)throw invalid()
+  if(members.size!==52)throw invalid()
   return {commit,tree,members}
 }
 

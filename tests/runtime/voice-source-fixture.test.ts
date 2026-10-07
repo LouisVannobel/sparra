@@ -72,12 +72,14 @@ test('reviewed native Voice source fixture exposes exact authenticated members w
   const archive=readFileSync(join(fixture,'voice-producer-source.tar.gz'))
   const manifest=JSON.parse(readFileSync(join(fixture,'voice-producer-source.manifest.json'),'utf8'))
   const result=await source.readVoiceSourceFixture(archive,manifest,pythonExecutable)
-  expect(result.commit).toBe('4086d81d88aba2e9ab6ebc0258ad0178fe5f63a7')
-  expect(result.tree).toBe('64ce7bf5f2e853a35ffa9e09fc40df407aeee6fc')
+  expect(result.commit).toBe('571b7d38b2c9c36b6682021008b81497aa83f93e')
+  expect(result.tree).toBe('b005704a1435a021f46930874c56a76bb956c7a1')
   expect(result.members).toBeInstanceOf(Map)
-  expect(result.members.size).toBe(51)
+  expect(result.members.size).toBe(52)
   expect(result.members.has('src/projetv0_voice/recording_archive.py')).toBe(true)
   expect(result.members.has('src/projetv0_voice/audio_contract.py')).toBe(true)
+  expect([...result.members.keys()].filter(path=>path.startsWith('tests/'))).toEqual(['tests/integration/sparra_connected_scenario.py'])
+  expect(createHash('sha256').update(result.members.get('tests/integration/sparra_connected_scenario.py')).digest('hex')).toBe('1788a79dfd1120faf95c63427bd204eeec362026652600fd1d71e347e1a23352')
   expect(createHash('sha256').update(result.members.get('src/projetv0_voice/models.py')).digest('hex')).toBe('4c5827d20279ad573f3237e41e547bba32162970111d353d80b9b762ae968ec6')
   expect([...result.members.keys()].sort()).toEqual(manifest.members.map((row:{path:string})=>row.path).sort())
   for(const row of manifest.members){
@@ -95,7 +97,7 @@ test.each(['archive-byte','commit','superseded-commit','tree','member-digest','m
   const manifest=JSON.parse(readFileSync(join(fixture,'voice-producer-source.manifest.json'),'utf8'))
   if(kind==='archive-byte')archive[archive.length-1]^=1
   else if(kind==='commit')manifest.commit='0'.repeat(40)
-  else if(kind==='superseded-commit')manifest.commit='9b79ddd69095e7d8c6995e0a88a4e78a16c166c3'
+  else if(kind==='superseded-commit')manifest.commit='4086d81d88aba2e9ab6ebc0258ad0178fe5f63a7'
   else if(kind==='tree')manifest.tree='0'.repeat(40)
   else if(kind==='member-digest')manifest.members[0].sha256='0'.repeat(64)
   else if(kind==='member-blob')manifest.members[0].git_blob='0'.repeat(40)

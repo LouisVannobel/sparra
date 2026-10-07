@@ -174,6 +174,8 @@ async function environmentIdentity(root,sourceOnly=false){
   const sourceRoots=['.python-version','pyproject.toml','uv.lock','README.md','src','scripts','agents','deployment-profiles']
   function selected(name,logical){
     if(!sourceOnly)return true
+    const path=logical?logical+'/'+name:name
+    if(path==='tests'||path.startsWith('tests/'))return path==='tests'||path==='tests/integration'||path==='tests/integration/sparra_connected_scenario.py'
     if(!logical&&!sourceRoots.includes(name))return false
     return name!=='__pycache__'
   }
