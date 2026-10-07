@@ -236,6 +236,44 @@ test('native caller two before acceptance keeps the call active without retainin
   // ciphertext fields; acoustic transcription remains a separate gate.
 })
 
+test('native caller two during capture rejects reactivation after processing late caller one and PCM', async () => {
+  const admitted = await voice.command('audio-opposition-prime')
+  expect(admitted.total_samples).toBeGreaterThanOrEqual(8000)
+  expect(admitted.audio_chunks).toBeGreaterThanOrEqual(1)
+  if (!admitted.call_id || !admitted.recording_id || !admitted.retention_until) {
+    throw new Error('Native opposition admission facts missing')
+  }
+  const callId = admitted.call_id
+  const pin = (await stores.administrator.query('SELECT configuration_revision,recording_id,admitted_at,retention_until,status,ended_at,from_e164 FROM sparra_call WHERE id=$1', [callId])).rows[0]
+  expect(pin).toMatchObject({ configuration_revision: 1, recording_id: admitted.recording_id,
+    status: 'active', ended_at: null, from_e164: null })
+  expect(pin.retention_until.toISOString()).toBe(admitted.retention_until)
+  expect(pin.retention_until.getTime() - pin.admitted_at.getTime()).toBe(2_592_000_000)
+  expect((await stores.administrator.query('SELECT audio_state FROM sparra_call WHERE id=$1', [callId])).rows[0].audio_state).toBe('recording')
+  expect((await stores.administrator.query('SELECT count(*)::integer AS count FROM sparra_audio_chunk WHERE call_id=$1', [callId])).rows[0].count).toBeGreaterThanOrEqual(1)
+  expect(await voice.command('audio-opposition-revoke')).toEqual({
+    choice_off: true, capture_joined: true, phone_live: true,
+  })
+  const denied = (await stores.administrator.query('SELECT audio_state,audio_denied_at,audio_reserved_bytes FROM sparra_call WHERE id=$1', [callId])).rows[0]
+  expect(denied).toEqual({ audio_state: 'declined', audio_denied_at: expect.any(Date), audio_reserved_bytes: 0 })
+  expect((await stores.administrator.query('SELECT count(*)::integer AS count FROM sparra_audio_chunk WHERE call_id=$1', [callId])).rows[0].count).toBe(0)
+  expect((await stores.administrator.query('SELECT configuration_revision,recording_id,admitted_at,retention_until,status,ended_at,from_e164 FROM sparra_call WHERE id=$1', [callId])).rows[0]).toEqual(pin)
+  const waveform = await loopbackFetch(origin + '/api/sparra/audio/' + callId,
+    { headers: { cookie }, signal: AbortSignal.timeout(10000) })
+  expect(waveform.status).toBe(409); await waveform.body?.cancel()
+  expect(await voice.command('audio-opposition-late')).toEqual({
+    late_dtmf_handled: true, late_pcm_processed: 8, choice_off: true, capture_joined: true, phone_live: true,
+  })
+  expect((await stores.administrator.query('SELECT audio_state,audio_denied_at,audio_reserved_bytes FROM sparra_call WHERE id=$1', [callId])).rows[0]).toEqual(denied)
+  expect((await stores.administrator.query('SELECT count(*)::integer AS count FROM sparra_audio_chunk WHERE call_id=$1', [callId])).rows[0].count).toBe(0)
+  expect((await stores.administrator.query('SELECT configuration_revision,recording_id,admitted_at,retention_until,status,ended_at,from_e164 FROM sparra_call WHERE id=$1', [callId])).rows[0]).toEqual(pin)
+  expect(await voice.stop()).toEqual({ code: 0, signal: null })
+  expect(voice.nativeCloseCompleted()).toBe(true)
+  // Actual native serializer/frame IDs and pass-through tap/keypad consumers
+  // prove late input processing. This does not assert acoustic transcription,
+  // a second admission, transfer, capture cutoff, expiry or all B1-B5 races.
+})
+
 test('native PARTIAL hangup capture and private reader join erase after the real Voice ACK', async () => {
   phase('test-entered')
   const admitted = await voice.command('audio-admit')
