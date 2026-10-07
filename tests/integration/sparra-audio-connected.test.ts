@@ -170,6 +170,72 @@ async function pausedPrivateReader(callId: string) {
   }), 2000)
 }
 
+async function saveRecordingPolicy(policy: 'off' | 'local_30d', expectedRevision: number) {
+  const saved = await nativeRpc('saveActivity', { expectedRevision,
+    businessName: 'Native capture fixture', sector: 'garage', knowledge: { openingHours: '', services: '', prices: '', faq: '', instructions: '' },
+    transferDestination: null, recordingEnabled: false, recordingPolicy: policy,
+    recordingContactPhone: policy === 'local_30d' ? '+33123456789' : null })
+  expect(saved.status).toBe(200); await saved.body?.cancel()
+  const revision = (await stores.administrator.query<{ revision: number; recording_policy: string }>(
+    'SELECT revision,recording_policy FROM sparra_knowledge_revision WHERE workspace_id=$1 ORDER BY revision DESC LIMIT 1',
+    [workspaceId])).rows[0]
+  expect(revision).toEqual({ revision: expectedRevision + 1, recording_policy: policy })
+}
+
+test('native OFF call keeps its original pin when the owner saves ON during the call', async () => {
+  await saveRecordingPolicy('off', 1)
+  const admitted = await voice.command('audio-off-admit')
+  expect(admitted).toMatchObject({ revision: 2, recording_policy: 'off', audio_available: false, recording_id: null })
+  if (!admitted.call_id || !admitted.retention_until) throw new Error('Native OFF admission facts missing')
+  const callId = admitted.call_id
+  const pin = (await stores.administrator.query<{
+    configuration_revision: number; recording_id: null; audio_state: string; audio_reserved_bytes: number;
+    audio_charged_bytes: number; admitted_at: Date; retention_until: Date; status: string; ended_at: Date | null
+  }>('SELECT configuration_revision,recording_id,audio_state,audio_reserved_bytes,audio_charged_bytes,admitted_at,retention_until,status,ended_at FROM sparra_call WHERE id=$1', [callId])).rows[0]
+  expect(pin).toMatchObject({ configuration_revision: 2, recording_id: null, audio_state: 'off',
+    audio_reserved_bytes: 0, audio_charged_bytes: 0, status: 'active', ended_at: null })
+  expect(pin.retention_until.toISOString()).toBe(admitted.retention_until)
+  expect(pin.retention_until.getTime() - pin.admitted_at.getTime()).toBe(2_592_000_000)
+  await saveRecordingPolicy('local_30d', 2)
+  expect(await voice.command('audio-off-replay')).toEqual({
+    original_pin: true, capture_owned: false, audio_chunks: 0, phone_live: true,
+  })
+  expect((await stores.administrator.query('SELECT configuration_revision,recording_id,audio_state,audio_reserved_bytes,audio_charged_bytes,admitted_at,retention_until,status,ended_at FROM sparra_call WHERE id=$1', [callId])).rows[0]).toEqual(pin)
+  expect((await stores.administrator.query('SELECT count(*)::integer AS count FROM sparra_audio_chunk WHERE call_id=$1', [callId])).rows[0].count).toBe(0)
+  const waveform = await loopbackFetch(origin + '/api/sparra/audio/' + callId,
+    { headers: { cookie }, signal: AbortSignal.timeout(10000) })
+  expect(waveform.status).toBe(409); await waveform.body?.cancel()
+  expect(await voice.stop()).toEqual({ code: 0, signal: null })
+  expect(voice.nativeCloseCompleted()).toBe(true)
+  // A subsequent ON call requires a fresh candidate/graph. This one-call
+  // witness proves the saved preference never rewrites the admitted OFF pin.
+})
+
+test('native caller two before acceptance keeps the call active without retaining audio', async () => {
+  const admitted = await voice.command('audio-decline-admit')
+  expect(admitted).toMatchObject({ revision: 1, recording_id: expect.stringMatching(/^[0-9a-f-]{36}$/) })
+  if (!admitted.call_id || !admitted.retention_until) throw new Error('Native declined admission facts missing')
+  const callId = admitted.call_id
+  const original = (await stores.administrator.query('SELECT configuration_revision,admitted_at,retention_until,status,ended_at,from_e164,encrypted_turns,encrypted_message_result FROM sparra_call WHERE id=$1', [callId])).rows[0]
+  expect(original).toMatchObject({ configuration_revision: 1, status: 'active', ended_at: null, from_e164: null })
+  expect(original.retention_until.toISOString()).toBe(admitted.retention_until)
+  expect(original.retention_until.getTime() - original.admitted_at.getTime()).toBe(2_592_000_000)
+  expect(await voice.command('audio-decline-check')).toEqual({
+    choice_off: true, audio_chunks: 0, phone_live: true, capture_joined: true,
+  })
+  const audio = (await stores.administrator.query('SELECT audio_state,audio_denied_at,audio_reserved_bytes FROM sparra_call WHERE id=$1', [callId])).rows[0]
+  expect(audio).toMatchObject({ audio_state: 'declined', audio_denied_at: expect.any(Date), audio_reserved_bytes: 0 })
+  expect((await stores.administrator.query('SELECT count(*)::integer AS count FROM sparra_audio_chunk WHERE call_id=$1', [callId])).rows[0].count).toBe(0)
+  expect((await stores.administrator.query('SELECT configuration_revision,admitted_at,retention_until,status,ended_at,from_e164,encrypted_turns,encrypted_message_result FROM sparra_call WHERE id=$1', [callId])).rows[0]).toEqual(original)
+  const waveform = await loopbackFetch(origin + '/api/sparra/audio/' + callId,
+    { headers: { cookie }, signal: AbortSignal.timeout(10000) })
+  expect(waveform.status).toBe(409); await waveform.body?.cancel()
+  expect(await voice.stop()).toEqual({ code: 0, signal: null })
+  expect(voice.nativeCloseCompleted()).toBe(true)
+  // No caller transcript is fabricated. This compares the actual stored
+  // ciphertext fields; acoustic transcription remains a separate gate.
+})
+
 test('native PARTIAL hangup capture and private reader join erase after the real Voice ACK', async () => {
   phase('test-entered')
   const admitted = await voice.command('audio-admit')
