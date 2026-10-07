@@ -208,10 +208,53 @@ test('native OFF call keeps its original pin when the owner saves ON during the 
   const waveform = await loopbackFetch(origin + '/api/sparra/audio/' + callId,
     { headers: { cookie }, signal: AbortSignal.timeout(10000) })
   expect(waveform.status).toBe(409); await waveform.body?.cancel()
+  const restarted = await voice.command('audio-next-candidate')
+  expect(restarted).toMatchObject({
+    previous_run_id: expect.stringMatching(/^[0-9a-f-]{36}$/),
+    run_id: expect.stringMatching(/^[0-9a-f-]{36}$/),
+    previous_consumed: true, current_consumed: false,
+    previous_run_preserved: true, previous_closed: true,
+  })
+  expect(restarted.run_id).not.toBe(restarted.previous_run_id)
+  // This existing consumer admits with native caller1 and waits for an actual
+  // audio.chunk ACK. Its separate revoke action is deliberately never invoked.
+  const next = await voice.command('audio-opposition-prime')
+  expect(next).toMatchObject({ revision: 3, recording_id: expect.stringMatching(/^[0-9a-f-]{36}$/) })
+  expect(next.total_samples).toBeGreaterThanOrEqual(8000)
+  expect(next.audio_chunks).toBeGreaterThanOrEqual(1)
+  if (!next.call_id || !next.recording_id || !next.retention_until) {
+    throw new Error('Native post-toggle ON admission facts missing')
+  }
+  expect(next.call_id).not.toBe(callId)
+  const nextPin = (await stores.administrator.query<{
+    configuration_revision: number; recording_id: string; audio_state: string;
+    admitted_at: Date; retention_until: Date; status: string; ended_at: Date | null; recording_policy: string
+  }>(`SELECT c.configuration_revision,c.recording_id,c.audio_state,c.admitted_at,c.retention_until,c.status,c.ended_at,r.recording_policy
+    FROM sparra_call c JOIN sparra_knowledge_revision r ON r.workspace_id=c.workspace_id AND r.revision=c.configuration_revision
+    WHERE c.id=$1`, [next.call_id])).rows[0]
+  expect(nextPin).toMatchObject({ configuration_revision: 3, recording_id: next.recording_id,
+    recording_policy: 'local_30d', audio_state: 'recording', status: 'active', ended_at: null })
+  expect(nextPin.admitted_at.getTime()).toBeGreaterThanOrEqual(pin.admitted_at.getTime())
+  expect(nextPin.retention_until.toISOString()).toBe(next.retention_until)
+  expect(nextPin.retention_until.getTime() - nextPin.admitted_at.getTime()).toBe(2_592_000_000)
+  const nextChunks = (await stores.administrator.query<{
+    count: number; samples: number; original_pin: boolean
+  }>(`SELECT count(*)::integer AS count,coalesce(sum(sample_count),0)::integer AS samples,
+    bool_and(recording_id=$2 AND configuration_revision=3 AND retention_until=$3) AS original_pin
+    FROM sparra_audio_chunk WHERE workspace_id=$4 AND call_id=$1`,
+  [next.call_id, next.recording_id, next.retention_until, workspaceId])).rows[0]
+  expect(nextChunks.count).toBeGreaterThanOrEqual(1)
+  expect(nextChunks.samples).toBeGreaterThanOrEqual(8000)
+  expect(nextChunks.original_pin).toBe(true)
+  const immutablePin = { configuration_revision: pin.configuration_revision, recording_id: pin.recording_id,
+    audio_state: pin.audio_state, audio_reserved_bytes: pin.audio_reserved_bytes,
+    audio_charged_bytes: pin.audio_charged_bytes, admitted_at: pin.admitted_at, retention_until: pin.retention_until }
+  expect((await stores.administrator.query('SELECT configuration_revision,recording_id,audio_state,audio_reserved_bytes,audio_charged_bytes,admitted_at,retention_until FROM sparra_call WHERE id=$1', [callId])).rows[0]).toEqual(immutablePin)
+  expect((await stores.administrator.query('SELECT count(*)::integer AS count FROM sparra_audio_chunk WHERE call_id=$1', [callId])).rows[0].count).toBe(0)
   expect(await voice.stop()).toEqual({ code: 0, signal: null })
   expect(voice.nativeCloseCompleted()).toBe(true)
-  // A subsequent ON call requires a fresh candidate/graph. This one-call
-  // witness proves the saved preference never rewrites the admitted OFF pin.
+  // The normal ON consumer separately retains its full512000-sample WAV gate.
+  // This chain proves the actual next admission uses the newly saved revision.
 })
 
 test('native caller two before acceptance keeps the call active without retaining audio', async () => {
