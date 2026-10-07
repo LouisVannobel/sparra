@@ -10,7 +10,7 @@ import { startGoogleProtocolPeer } from '../helpers/google-protocol-peer.mjs'
 import { googleCeremony } from '../helpers/google-ceremony'
 import { createTransactions } from '../../src/platform/db/transactions.server'
 import { createPersonalWorkspaces } from '../../src/modules/workspaces/personal.server'
-import { createAuthRateLimiter, readRateLimitConfig } from '../../src/modules/auth/rate-limit.server'
+import { createAuthRateLimiter, readRateLimitConfig, RedisUnavailable } from '../../src/modules/auth/rate-limit.server'
 import type { createApplicationAuth } from '../../src/modules/auth/auth.server'
 import { AudioUnavailable, createAudioOperations, type AudioReadLease, type AudioMetadata } from '../../src/modules/sparra/audio.server'
 import { createAudioReaderOwner } from '../../src/modules/sparra/audio-reader.server'
@@ -86,6 +86,24 @@ beforeAll(async () => {
   pool = new Pool({ connectionString: stores.directRuntimeUrl, max: 3 })
   owner = createTransactions(pool, { maxStatementTimeoutMs: 1000, maxCleanupTimeoutMs: 1000 })
   const { createApplicationAuth, readAuthConfig } = await import('../../src/modules/auth/auth.server')
+  // Real owned Redis availability/recovery prerequisite before auth construction.
+  const recoveryConfig = readRateLimitConfig({ REDIS_URL: stores.redisUrl, RATE_LIMIT_HMAC_SECRET: stores.hmac,
+    RATE_LIMIT_KEY_ID: 'audio-reader-store-recovery', TRUSTED_PROXY_IPS: '127.0.0.1', NODE_ENV: 'test' })
+  const interrupted = createAuthRateLimiter(recoveryConfig)
+  try {
+    await interrupted.connect()
+    await stores.restartRedis(async () => {
+      const failure = await interrupted.customStorage.consume(randomUUID(), { window: 10, max: 3 }).catch(error => error)
+      expect(failure).toBeInstanceOf(RedisUnavailable)
+      expect(interrupted.errorResponse(failure)?.status).toBe(503)
+      expect(interrupted.isReady()).toBe(false)
+    })
+  } finally { await interrupted.close() }
+  const resumed = createAuthRateLimiter(recoveryConfig)
+  try {
+    await resumed.connect()
+    expect((await resumed.customStorage.consume(randomUUID(), { window: 10, max: 3 })).allowed).toBe(true)
+  } finally { await resumed.close() }
   limiter = createAuthRateLimiter(readRateLimitConfig({
     REDIS_URL: stores.redisUrl, RATE_LIMIT_HMAC_SECRET: stores.hmac,
     RATE_LIMIT_KEY_ID: 'audio-reader-store', TRUSTED_PROXY_IPS: '127.0.0.1', NODE_ENV: 'test',
