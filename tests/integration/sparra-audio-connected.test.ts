@@ -1,4 +1,4 @@
-// One paired native PARTIAL hangup candidate: actual CallSession/Pipecat/SQLite/PgBouncer/PG
+// Separate normal ON and PARTIAL hangup candidates: actual CallSession/Pipecat/SQLite/PgBouncer/PG
 // and compiled private reader. Controlled media/inference is synthetic, not a
 // qualified release, live carrier call or full Task4/B1–B5 acceptance.
 import { afterEach, beforeEach, expect, test } from 'vitest'
@@ -235,6 +235,65 @@ test('native PARTIAL hangup capture and private reader join erase after the real
     expect(await exactReader(callId, 'released')).toBe(leaseId)
     expect(await voice.stop()).toEqual({ code: 0, signal: null })
   } finally { held.close() }
+})
+
+test('native ON capture reaches ready through normal EndFrame and serves its original 30-day WAV', async () => {
+  const admitted = await voice.command('audio-admit')
+  expect(admitted.call_id).toMatch(/^[0-9a-f-]{36}$/)
+  expect(admitted.recording_id).toMatch(/^[0-9a-f-]{36}$/)
+  if (!admitted.call_id || !admitted.recording_id || !admitted.retention_until || admitted.revision === undefined) {
+    throw new Error('Native normal admission facts missing')
+  }
+  const callId = admitted.call_id
+  const completed = await voice.command('audio-complete')
+  expect(completed.total_samples).toBeGreaterThanOrEqual(512000)
+  expect(completed.pcm_sha256).toMatch(/^[0-9a-f]{64}$/)
+  if (completed.total_samples === undefined || completed.pcm_sha256 === undefined) {
+    throw new Error('Native normal capture facts missing')
+  }
+  const audio = (await stores.administrator.query<{
+    audio_state: string; audio_finish_reason: string | null; audio_total_samples: number;
+    audio_last_sequence: number | null; audio_reserved_bytes: number; retention_until: Date; admitted_at: Date
+  }>('SELECT audio_state,audio_finish_reason,audio_total_samples,audio_last_sequence,audio_reserved_bytes,retention_until,admitted_at FROM sparra_call WHERE id=$1', [callId])).rows[0]
+  expect(audio).toMatchObject({ audio_state: 'ready', audio_finish_reason: 'complete',
+    audio_total_samples: completed.total_samples, audio_reserved_bytes: 0 })
+  if (audio.audio_last_sequence === null) throw new Error('Native normal final sequence missing')
+  expect(audio.retention_until.toISOString()).toBe(admitted.retention_until)
+  expect(audio.retention_until.getTime() - audio.admitted_at.getTime()).toBe(2_592_000_000)
+  const chunks = (await stores.administrator.query<{
+    count: number; samples: number; first_sequence: number; last_sequence: number; original_pin: boolean
+  }>(`SELECT count(*)::integer AS count,coalesce(sum(sample_count),0)::integer AS samples,
+    min(sequence) AS first_sequence,max(sequence) AS last_sequence,
+    bool_and(recording_id=$2 AND configuration_revision=$3 AND retention_until=$4) AS original_pin
+    FROM sparra_audio_chunk WHERE workspace_id=$5 AND call_id=$1`,
+  [callId, admitted.recording_id, admitted.revision, admitted.retention_until, workspaceId])).rows[0]
+  expect(chunks).toEqual({ count: audio.audio_last_sequence + 1, samples: completed.total_samples,
+    first_sequence: 0, last_sequence: audio.audio_last_sequence, original_pin: true })
+  const waveform = await loopbackFetch(origin + '/api/sparra/audio/' + callId,
+    { headers: { cookie }, signal: AbortSignal.timeout(10000) })
+  expect(waveform.status).toBe(200)
+  const bytes = Buffer.from(await waveform.arrayBuffer())
+  try {
+    expect(bytes.length).toBe(44 + completed.total_samples * 4)
+    expect(bytes.subarray(0, 4).toString()).toBe('RIFF')
+    expect(bytes.readUInt32LE(4)).toBe(bytes.length - 8)
+    expect(bytes.subarray(8, 12).toString()).toBe('WAVE')
+    expect(bytes.subarray(12, 16).toString()).toBe('fmt ')
+    expect(bytes.readUInt32LE(16)).toBe(16)
+    expect(bytes.readUInt16LE(20)).toBe(1)
+    expect(bytes.readUInt16LE(22)).toBe(2)
+    expect(bytes.readUInt32LE(24)).toBe(8000)
+    expect(bytes.readUInt32LE(28)).toBe(32000)
+    expect(bytes.readUInt16LE(32)).toBe(4)
+    expect(bytes.readUInt16LE(34)).toBe(16)
+    expect(bytes.subarray(36, 40).toString()).toBe('data')
+    expect(bytes.readUInt32LE(40)).toBe(completed.total_samples * 4)
+    expect(createHash('sha256').update(bytes.subarray(44)).digest('hex')).toBe(completed.pcm_sha256)
+  } finally { bytes.fill(0) }
+  expect(await exactReader(callId, 'released')).toMatch(/^[0-9a-f-]{36}$/)
+  expect((await stores.administrator.query('SELECT count(*)::integer AS count FROM voice_private.recording_purge WHERE call_id=$1', [callId])).rows[0].count).toBe(0)
+  expect(await voice.stop()).toEqual({ code: 0, signal: null })
+  expect(voice.nativeCloseCompleted()).toBe(true)
 })
 
 test('native candidate CLI refuses stopped success after post-close fixture failure (protocol only)', async () => {
