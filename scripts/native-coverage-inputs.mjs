@@ -146,7 +146,7 @@ export function readNativeBlob(filePath, name, root, startedAt, version) {
   for (const reference of files) {
     count += admitTestFile(table, blobValue(table, reference), name, files.length, root, startedAt, seen)
   }
-  if (!count || (name === 'activity' && count !== 12) || (name === 'requests' && count !== 29)) throw new Error('Native coverage test cardinality mismatch')
+  if (!count || (name === 'activity' && count !== 12) || (name === 'requests' && count !== 31)) throw new Error('Native coverage test cardinality mismatch')
   const coverage = blobValue(table, envelope[3])
   admitCoverageEntries(table, coverage, root)
   return { table, coverage, digest }
@@ -215,6 +215,8 @@ const requestConsumers=[
     'actual crashed and removed reader proof releases only exact A through native migrator and replays idempotently',
   ]],
   ['tests/integration/sparra-audio-connected.test.ts',[
+    'native OFF call keeps its original pin when the owner saves ON during the call',
+    'native caller two before acceptance keeps the call active without retaining audio',
     'native PARTIAL hangup capture and private reader join erase after the real Voice ACK',
     'native ON capture reaches ready through normal EndFrame and serves its original 30-day WAV',
     'native candidate CLI refuses stopped success after post-close fixture failure (protocol only)',
@@ -222,7 +224,7 @@ const requestConsumers=[
 ]
 
 function requestsSummaryPassed(report) {
-  const counters = {numTotalTests:29,numPassedTests:29,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
+  const counters = {numTotalTests:31,numPassedTests:31,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
   return report?.success === true && Object.entries(counters).every(([key,wanted])=>report[key]===wanted)
 }
 
@@ -244,7 +246,7 @@ function requestsConsumerPassed(report,path,names,root) {
 export function assertRequestsReport(report,root) {
   if(!requestsSummaryPassed(report) || !Array.isArray(report.testResults) || report.testResults.length!==5
     || !requestConsumers.every(([path,names])=>requestsConsumerPassed(report,path,names,root))) {
-    throw new Error('Native Requests requires its exact five consumers and 29 passing leaves')
+    throw new Error('Native Requests requires its exact five consumers and 31 passing leaves')
   }
 }
 

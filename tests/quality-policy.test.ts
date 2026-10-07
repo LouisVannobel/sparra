@@ -151,6 +151,8 @@ const requestConsumerNames=[
     'actual crashed and removed reader proof releases only exact A through native migrator and replays idempotently',
   ]],
   ['sparra-audio-connected.test.ts',[
+    'native OFF call keeps its original pin when the owner saves ON during the call',
+    'native caller two before acceptance keeps the call active without retaining audio',
     'native PARTIAL hangup capture and private reader join erase after the real Voice ACK',
     'native ON capture reaches ready through normal EndFrame and serves its original 30-day WAV',
     'native candidate CLI refuses stopped success after post-close fixture failure (protocol only)',
@@ -238,7 +240,7 @@ test('native_activity_blob_admits_twelve_complete_pass_cases_and_refuses_missing
   expect(readFileSync(blob)).toEqual(bytes)
 },25000)
 
-test('native_requests_blob_admits_exact_five_consumers_and_29_leaves_without_losing_original_eight',()=>{
+test('native_requests_blob_admits_exact_five_consumers_and_31_leaves_without_losing_original_eight',()=>{
   const root=nativeCoverageFixture(),blob=join(root,'coverage/requests.json'),startedAt=Date.now()
   const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...requestConsumerPaths,'--maxWorkers=1','--coverage','--reporter=blob','--outputFile.blob='+blob,'--coverage.reportsDirectory='+join(root,'coverage/requests')],requestCanaryEnvironment(root))
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
@@ -284,9 +286,9 @@ test('native_requests_report_preserves_exact_summary_consumer_and_leaf_admission
   const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...requestConsumerPaths,'--maxWorkers=1','--reporter=json','--outputFile.json='+reportPath],requestCanaryEnvironment(root))
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   const report=JSON.parse(readFileSync(reportPath,'utf8'))
-  expect(report.numTotalTests).toBe(29);expect(report.numPassedTests).toBe(29)
+  expect(report.numTotalTests).toBe(31);expect(report.numPassedTests).toBe(31)
   expect(()=>assertRequestsReport(report,root)).not.toThrow()
-  const refusal='Native Requests requires its exact five consumers and 29 passing leaves'
+  const refusal='Native Requests requires its exact five consumers and 31 passing leaves'
   for(const field of ['success','numTotalTests','numPassedTests','numPendingTests','numTodoTests','numFailedTests','numFailedTestSuites','numPendingTestSuites']){
     const wrong={...report,[field]:field==='success'?false:report[field]+1}
     expect(()=>assertRequestsReport(wrong,root)).toThrow(refusal)
@@ -355,7 +357,7 @@ test('native_requests_file_admission_requires_a_current_bounded_regular_report_w
   writeFileSync(refused,'{')
   expect(()=>assertRequestsQualification(refused,root,startedAt)).toThrow(SyntaxError)
   for(const [kind,mutate] of [
-    ['summary',(value:typeof report)=>{value.numPassedTests=28}],
+    ['summary',(value:typeof report)=>{value.numPassedTests=30}],
     ['consumer',(value:typeof report)=>{value.testResults[0].name=join(root,'tests/foreign.ts')}],
     ['missing-leaf',(value:typeof report)=>{value.testResults[0].assertionResults.pop()}],
     ['extra-leaf',(value:typeof report)=>{value.testResults[0].assertionResults.push({...value.testResults[0].assertionResults[0],fullName:'extra leaf'})}],
@@ -364,7 +366,7 @@ test('native_requests_file_admission_requires_a_current_bounded_regular_report_w
     const wrong=structuredClone(report)
     mutate(wrong)
     writeFileSync(refused,JSON.stringify(wrong))
-    expect(()=>assertRequestsQualification(refused,root,startedAt),kind).toThrow('Native Requests requires its exact five consumers and 29 passing leaves')
+    expect(()=>assertRequestsQualification(refused,root,startedAt),kind).toThrow('Native Requests requires its exact five consumers and 31 passing leaves')
   }
 },25000)
 
@@ -558,8 +560,8 @@ test('actual_coverage_runner_publishes_only_native_complete_map_after_retirement
   expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].s).toEqual({'0':21,'1':9,'2':12})
   expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].b).toEqual({'0':[9,12]})
   expect(coverage[join(root,'src/unexecuted.ts').replaceAll('\\','/')].f).toEqual({'0':0})
-  expect(coverage[join(root,'src/audio-covered.ts').replaceAll('\\','/')].f).toEqual({'0':21})
-  expect(coverage[join(root,'src/audio-covered.ts').replaceAll('\\','/')].b).toEqual({'0':[21,0]})
+  expect(coverage[join(root,'src/audio-covered.ts').replaceAll('\\','/')].f).toEqual({'0':23})
+  expect(coverage[join(root,'src/audio-covered.ts').replaceAll('\\','/')].b).toEqual({'0':[23,0]})
 },25000)
 
 test.each([
@@ -615,7 +617,7 @@ test('actual_coverage_runner_refuses_requests_missing_or_extra_leaves_before_pub
     writeFileSync(path,lines.join('\n')+'\n')
     const result=runCoverageConsumer(root)
     expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
-    expect(result.stderr).toContain('Native Requests requires its exact five consumers and 29 passing leaves')
+    expect(result.stderr).toContain('Native Requests requires its exact five consumers and 31 passing leaves')
     expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
   }
 },25000)
@@ -628,7 +630,7 @@ test.each(['missing','extra'] as const)('actual_coverage_runner_refuses_connecte
   writeFileSync(path,lines.join('\n')+'\n')
   const result=runCoverageConsumer(root)
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
-  expect(result.stderr).toContain('Native Requests requires its exact five consumers and 29 passing leaves')
+  expect(result.stderr).toContain('Native Requests requires its exact five consumers and 31 passing leaves')
   expect(result.stdout).toContain('[tests] requests qualification')
   expect(result.stdout).not.toContain('[tests] merge')
   expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
