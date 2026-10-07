@@ -18,7 +18,7 @@ def main():
     envelope=json.loads(incoming)
     archive=base64.b64decode(envelope['archive'],validate=True)
     manifest=envelope['manifest']
-    if len(archive)!=325852 or hashlib.sha256(archive).hexdigest()!='cdf6596e87415ef01fb831c7c6bf2991f7c7e15d0a07bc280b466b622f8bd7a4':
+    if len(archive)!=326272 or hashlib.sha256(archive).hexdigest()!='e0624b6d196f9cb314bf87c638b939e181622ddf4d443d20671694ffac7a610d':
         fail()
     expected={}
     total=0
@@ -30,7 +30,7 @@ def main():
             fail()
         total+=row['size']
         expected[path]=row
-    if len(expected)!=52 or total!=1602560:
+    if len(expected)!=52 or total!=1605632:
         fail()
     result=[]
     seen=set()

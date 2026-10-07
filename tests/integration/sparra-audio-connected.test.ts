@@ -466,4 +466,67 @@ test(TRANSFER_CAPTURE_TEST, async () => {
   expect(call).toMatchObject({ status: 'active', ended_at: null })
   expect(call.retention_until.toISOString()).toBe(transferred.retention_until)
   expect(call.retention_until.getTime() - call.admitted_at.getTime()).toBe(2_592_000_000)
+  const callId = transferred.call_id
+  // Capture/transfer authority commits to SQLite before SDK dispatch; the
+  // private reader consumes the separate real PG delivery of that finish.
+  await expect.poll(async () => (await stores.administrator.query(`SELECT audio_state,
+    audio_finish_reason,audio_total_samples > 0 AS has_samples FROM sparra_call WHERE id=$1`,
+  [callId])).rows[0], { timeout: 2000, interval: 20 }).toEqual({ audio_state: 'partial',
+    audio_finish_reason: 'transfer', has_samples: true })
+  async function persistedCallState() {
+    const calls = await stores.administrator.query(`SELECT id,configuration_revision,recording_id,
+      deployment_id,provider_call_control_id,provider_call_leg_id,provider_call_session_id,
+      admitted_at,retention_until,status,ended_at,encrypted_turns::text,
+      encrypted_message_result::text,transcript_loss_count,audio_state,audio_total_samples,
+      audio_last_sequence,audio_finish_reason,audio_reserved_bytes,audio_charged_bytes
+      FROM sparra_call WHERE workspace_id=$1 ORDER BY id`, [workspaceId])
+    const revisions = await stores.administrator.query(`SELECT revision,recording_policy,
+      recording_enabled,recording_contact_phone FROM sparra_knowledge_revision
+      WHERE workspace_id=$1 ORDER BY revision`, [workspaceId])
+    return { calls: calls.rows, revisions: revisions.rows }
+  }
+  const original = await persistedCallState()
+  expect(original.calls).toHaveLength(1)
+  expect(original.calls[0]).toMatchObject({ id: callId, audio_state: 'partial',
+    audio_finish_reason: 'transfer', audio_reserved_bytes: 0, status: 'active', ended_at: null })
+  expect(original.calls[0].audio_total_samples).toBeGreaterThan(0)
+  const waveform = await loopbackFetch(origin + '/api/sparra/audio/' + callId,
+    { headers: { cookie }, signal: AbortSignal.timeout(10000) })
+  expect(waveform.status).toBe(200)
+  const baseline = Buffer.from(await waveform.arrayBuffer())
+  try {
+    expect(baseline.subarray(0, 4).toString()).toBe('RIFF')
+    expect(baseline.subarray(8, 12).toString()).toBe('WAVE')
+    const baselineLease = await exactReader(callId, 'released')
+    expect(baselineLease).toMatch(/^[0-9a-f-]{36}$/)
+    const leases = new Set([baselineLease])
+    expect(baseline.length).toBe(44 + original.calls[0].audio_total_samples * 4)
+    expect(await persistedCallState()).toEqual(original)
+    // The same original phone remains live after capture ends. Each compiled
+    // GET consumes its own exact native lease, including non-aligned PCM bytes.
+    for (const [start, end] of [[0, 43], [44, 73], [45, 98], [baseline.length - 32, baseline.length - 1]]) {
+      const ranged = await loopbackFetch(origin + '/api/sparra/audio/' + callId,
+        { headers: { cookie, range: 'bytes=' + start + '-' + end }, signal: AbortSignal.timeout(10000) })
+      expect(ranged.status).toBe(206)
+      expect(ranged.headers.get('content-range')).toBe('bytes ' + start + '-' + end + '/' + baseline.length)
+      expect(ranged.headers.get('content-length')).toBe(String(end - start + 1))
+      const bytes = Buffer.from(await ranged.arrayBuffer())
+      try { expect(bytes).toEqual(baseline.subarray(start, end + 1)) }
+      finally { bytes.fill(0) }
+      const lease = await exactReader(callId, 'released')
+      expect(lease).toMatch(/^[0-9a-f-]{36}$/)
+      expect(leases.has(lease)).toBe(false)
+      leases.add(lease)
+      expect((await stores.administrator.query(`SELECT call_id,lease_id,state,released_at
+        FROM sparra_audio_reader WHERE workspace_id=$1`, [workspaceId])).rows).toEqual([
+        { call_id: callId, lease_id: lease, state: 'released', released_at: expect.any(Date) },
+      ])
+      expect(await persistedCallState()).toEqual(original)
+    }
+    expect(leases.size).toBe(5)
+    expect(await voice.command('audio-transfer-reader-live')).toEqual({ call_id: callId,
+      live_call_count: 1, answer_actions: 1, transfer_actions: 1, hangup_actions: 0,
+      bridge_seen: false, original_end_seen: false, provider_actions_unchanged: true })
+    expect(await persistedCallState()).toEqual(original)
+  } finally { baseline.fill(0) }
 }, 20000)
