@@ -93,6 +93,7 @@ test.each([
   expect(rejection).toBeInstanceOf(Response)
   if(!(rejection instanceof Response))throw new Error('Native mapper did not return its bounded refusal')
   expect(rejection.status).toBe(status)
+  expect(rejection.headers.get('x-sparra-activity-error')).toBe(message==='Local audio unavailable'?'recording-unavailable':null)
   expect(await rejection.text()).toBe(message)
   expect(observed.header).toHaveBeenCalledExactlyOnceWith('cache-control','no-store')
 })

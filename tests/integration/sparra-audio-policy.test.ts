@@ -150,6 +150,26 @@ test('qualified local ON saves and reloads the explicit contact while provider r
   expect(await available(qualified.workspace.id)).toBe(true)
 })
 
+test('activity exposes only its native tenant capability including absence and withdrawal without rewriting saved ON', async () => {
+  const absent = await ceremony()
+  expect(await activity.read(absent.principal)).toEqual({ workspace: null, configuration: null, localAudioAvailable: false })
+  expect(await activity.read(qualified.principal)).toMatchObject({ workspace: qualified.workspace, localAudioAvailable: true })
+  for (const target of [foreign, oldContract, disabledLocal]) {
+    expect(await activity.read(target.principal)).toMatchObject({ workspace: target.workspace, localAudioAvailable: false })
+  }
+  const on = await qualifiedOn()
+  await admin("UPDATE voice_private.deployment_binding SET admission_enabled=false WHERE service_login='sparra_voice_a'")
+  try {
+    expect(await activity.read(qualified.principal)).toEqual({ workspace: qualified.workspace, configuration: on, localAudioAvailable: false })
+    await expect(activity.save(qualified.principal, localInput(on.revision))).rejects.toMatchObject({ name: 'ActivityRecordingUnavailable' })
+    const off = await activity.save(qualified.principal, { ...input(on.revision), recordingEnabled: false, recordingPolicy: 'off', recordingContactPhone: null })
+    expect(off).toMatchObject({ revision: on.revision + 1, recordingPolicy: 'off', recordingContactPhone: null, recordingEnabled: false })
+    expect((await admin('SELECT recording_policy,recording_contact_phone FROM sparra_knowledge_revision WHERE workspace_id=$1 AND revision=$2', [qualified.workspace.id, on.revision])).rows[0]).toEqual({ recording_policy: 'local_30d', recording_contact_phone: '+33123456789' })
+  } finally {
+    await admin("UPDATE voice_private.deployment_binding SET admission_enabled=true WHERE service_login='sparra_voice_a'")
+  }
+})
+
 test('legacy saves cannot silently replace local ON and explicit OFF preserves its old immutable revision', async () => {
   const on = await qualifiedOn(), before = await revisions(qualified.workspace.id)
   await expect(activity.save(qualified.principal, { ...input(on.revision), recordingEnabled: false })).rejects.toMatchObject({ name: 'ActivityRecordingUnavailable' })

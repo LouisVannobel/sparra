@@ -6,14 +6,14 @@ import type { ActivityState, RequestDetailDto } from '../../src/modules/sparra/s
 const unavailable=async():Promise<never>=>{throw new Error('SSR must not mutate')}
 test('configured activity SSR preserves the observed revision, editor values and disabled actions in both locales',async()=>{
   const {ActivityPanel}=await import('../../src/ui/sparra/activity-panel')
-  const state:ActivityState={workspace:{id:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',displayName:'Observed workspace'},configuration:{workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',revision:7,savedAt:'2026-10-01T10:00:00.000Z',businessName:'Observed inspection centre',sector:'controle-technique',knowledge:{openingHours:'09:00–17:00',services:'Vehicle inspection',prices:'80 euros',faq:'Bring the vehicle papers',instructions:'Ask before proceeding'},transferDestination:null,recordingPolicy:'off',recordingContactPhone:null}}
+  const state:ActivityState={workspace:{id:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',displayName:'Observed workspace'},localAudioAvailable:false,configuration:{workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',revision:7,savedAt:'2026-10-01T10:00:00.000Z',businessName:'Observed inspection centre',sector:'controle-technique',knowledge:{openingHours:'09:00–17:00',services:'Vehicle inspection',prices:'80 euros',faq:'Bring the vehicle papers',instructions:'Ask before proceeding'},transferDestination:null,recordingPolicy:'off',recordingContactPhone:null}}
   for(const locale of ['fr','en'] as const){
     const html=renderToStaticMarkup(<ActivityPanel locale={locale} state={state} onEnsure={unavailable} onSave={unavailable} onRead={unavailable} onRefused={unavailable}/> )
     expect(html).toMatch(new RegExp('<p\\b[^>]*>'+(locale==='fr'?'Version enregistrée':'Saved version')+': 7</p>'))
     expect(html).toContain('value="Observed inspection centre"')
     expect(html).toContain(locale==='fr'?'Contrôle technique':'Vehicle inspection')
     const inputs=[...html.matchAll(/<input\b([^>]*)>/g)]
-    expect(inputs).toHaveLength(3)
+    expect(inputs).toHaveLength(4)
     expect(inputs[0]?.[1]).toContain('aria-required="true"')
     expect(inputs[1]?.[1]).toContain('value=""')
     const areas=[...html.matchAll(/<textarea\b([^>]*)>([\s\S]*?)<\/textarea>/g)]
@@ -21,7 +21,7 @@ test('configured activity SSR preserves the observed revision, editor values and
     const labels=locale==='fr'?['Horaires','Prestations','Tarifs','Questions fréquentes','Consignes de réponse']:['Opening hours','Services','Prices','Frequently asked questions','Response instructions']
     for(const label of labels)expect(html).toContain(label)
     const controls=[...html.matchAll(/<(?:input|textarea|button)\b([^>]*)>/g)]
-    expect(controls).toHaveLength(10)
+    expect(controls).toHaveLength(11)
     for(const control of controls)expect(control[1]).toContain('disabled=""')
     expect(html).not.toContain(locale==='fr'?'Configuration enregistrée.':'Configuration saved.')
     expect(html).not.toContain(locale==='fr'?'Créer mon espace':'Create my workspace')
@@ -35,10 +35,10 @@ test('private panels render truthful empty and partial states in FR/EN without i
   const {RequestPanel}=await import('../../src/ui/sparra/request-panel')
   const detail:RequestDetailDto={id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',admittedAt:'2026-10-01T10:00:00.000Z',endedAt:null,status:'pending',configurationRevision:null,treatedAt:null,resultAvailability:'unavailable',resultQuality:null,category:null,summary:null,contact:null,nextAction:null,configuration:null,transcript:[],transcriptAvailability:'unavailable',unavailableTurnCount:0,moreTurns:false,transcriptLossCount:0,erasureState:null}
   for(const locale of ['fr','en'] as const){
-    const activity=renderToStaticMarkup(<ActivityPanel locale={locale} state={{workspace:null,configuration:null}} onEnsure={unavailable} onSave={unavailable} onRead={unavailable} onRefused={unavailable}/> )
+    const activity=renderToStaticMarkup(<ActivityPanel locale={locale} state={{workspace:null,configuration:null,localAudioAvailable:false}} onEnsure={unavailable} onSave={unavailable} onRead={unavailable} onRefused={unavailable}/> )
     expect(activity).toContain(locale==='fr'?'Créer mon espace':'Create my workspace')
     expect(activity).not.toContain('textarea')
-    const inbox=renderToStaticMarkup(<InboxPanel locale={locale} state={{workspace:null,configuration:null}} page={{requests:[],nextCursor:null}} onMore={unavailable} onRefused={unavailable}/> )
+    const inbox=renderToStaticMarkup(<InboxPanel locale={locale} state={{workspace:null,configuration:null,localAudioAvailable:false}} page={{requests:[],nextCursor:null}} onMore={unavailable} onRefused={unavailable}/> )
     expect(inbox).toContain(locale==='fr'?'Configurez votre entreprise':'Configure your business')
     const request=renderToStaticMarkup(<RequestPanel locale={locale} loaded={{detail,receipt:null}} onTreat={unavailable} onErase={unavailable} onRefused={unavailable}/> )
     expect(request).toContain(locale==='fr'?'Transcription indisponible':'Transcript unavailable')
@@ -62,7 +62,7 @@ test('detail and inbox preserve the translated native category and observed numb
   for(const locale of ['fr','en'] as const)for(const [category,frCategory,enCategory] of categories)for(const [source,number,frSource,enSource] of sources){
     const detail:RequestDetailDto={id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',admittedAt:'2026-10-01T10:00:00.000Z',endedAt:null,status:'closing',configurationRevision:null,treatedAt:null,resultAvailability:'available',resultQuality:'partial',category,summary:'Demande fictive',contact:{name:null,callback_e164:number,preference:null,callback_source:source,callback_confirmed:false},nextAction:'Vérifier la demande',configuration:null,transcript:[],transcriptAvailability:'unavailable',unavailableTurnCount:0,moreTurns:false,transcriptLossCount:0,erasureState:null}
     const request=renderToStaticMarkup(<RequestPanel locale={locale} loaded={{detail,receipt:null}} onTreat={unavailable} onErase={unavailable} onRefused={unavailable}/> )
-    const inbox=renderToStaticMarkup(<InboxPanel locale={locale} state={{workspace:null,configuration:null}} page={{requests:[detail],nextCursor:null}} onMore={unavailable} onRefused={unavailable}/> )
+    const inbox=renderToStaticMarkup(<InboxPanel locale={locale} state={{workspace:null,configuration:null,localAudioAvailable:false}} page={{requests:[detail],nextCursor:null}} onMore={unavailable} onRefused={unavailable}/> )
     for(const html of [request,inbox]){
       expect(html).toContain(locale==='fr'?frCategory:enCategory)
       expect(html).toContain(locale==='fr'?frSource:enSource)

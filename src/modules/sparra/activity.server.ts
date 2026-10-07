@@ -41,7 +41,7 @@ export type SaveActivityInput = Readonly<{
   recordingContactPhone?: string | null
 }>
 export type ActivityConfigurationDto = Readonly<Omit<SaveActivityInput,'expectedRevision' | 'transferDestination' | 'recordingPolicy' | 'recordingContactPhone'> & { workspaceId: string; revision: number; savedAt: string; transferDestination: string | null; recordingPolicy: 'off' | 'local_30d'; recordingContactPhone: string | null }>
-export type ActivityState = Readonly<{ workspace: WorkspaceDto | null; configuration: ActivityConfigurationDto | null }>
+export type ActivityState = Readonly<{ workspace: WorkspaceDto | null; configuration: ActivityConfigurationDto | null; localAudioAvailable: boolean }>
 export function parseSaveActivityInput(input: unknown) {
   try {
     const value = Schema.decodeUnknownSync(saveInput,{ onExcessProperty: 'error' })(input)
@@ -57,11 +57,12 @@ export function createActivityOperations(owner: AuthTransactions) {
   const options = (signal?: AbortSignal) => ({ deadlineAtMs: Date.now()+10000,statementTimeoutMs:1000,cleanupTimeoutMs:1000,correlationId:randomUUID(),signal })
   async function read(principal: AdmittedPrincipal,signal?: AbortSignal): Promise<ActivityState> {
     return owner.withPersonalWorkspacePromise(options(signal),principal,false,async lease=>{
-      if(!lease) return {workspace:null,configuration:null}
+      if(!lease) return {workspace:null,configuration:null,localAudioAvailable:false}
       const [current] = await lease.db.select({id:workspace.id,displayName:workspace.displayName}).from(workspace).where(eq(workspace.id,lease.workspaceId))
-      if(!current) return {workspace:null,configuration:null}
+      if(!current) return {workspace:null,configuration:null,localAudioAvailable:false}
       const [row] = await lease.db.select().from(sparraKnowledgeRevision).where(eq(sparraKnowledgeRevision.workspaceId,lease.workspaceId)).orderBy(desc(sparraKnowledgeRevision.revision)).limit(1)
-      return {workspace:current,configuration:row ? configuration(row) : null}
+      const [capability]=await lease.db.select({available:sql<boolean>`public.sparra_local_audio_available_v1()`}).from(sql`(select 1) AS local_audio_call`)
+      return {workspace:current,configuration:row ? configuration(row) : null,localAudioAvailable:capability?.available===true}
     })
   }
   async function save(principal: AdmittedPrincipal,input: unknown,signal?: AbortSignal): Promise<ActivityConfigurationDto | null> {
