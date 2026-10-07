@@ -29,7 +29,7 @@ export class InvalidActivityInput extends Error {
 class ActivityRevisionConflict extends Error {
   constructor() { super('Activity revision conflict'); this.name = 'ActivityRevisionConflict' }
 }
-export class ActivityRecordingUnavailable extends Error {
+class ActivityRecordingUnavailable extends Error {
   constructor() { super('Local audio unavailable'); this.name = 'ActivityRecordingUnavailable' }
 }
 export type SaveActivityInput = Readonly<{

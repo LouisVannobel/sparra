@@ -35,16 +35,26 @@ export function wavHeader(samples: number): Buffer {
   header.writeUInt16LE(16, 34); header.write('data', 36); header.writeUInt32LE(samples * 4, 40)
   return header
 }
-export function audioRange(value: string | null, length: number): AudioRange {
-  if (value === null) return { start: 0, end: length - 1, partial: false }
+function rangeNumber(value: string): number | null {
+  if (value === '') return null
+  const number = Number(value)
+  if (!Number.isSafeInteger(number)) throw new AudioUnavailable(416)
+  return number
+}
+function rangeBounds(value: string) {
   const match = /^bytes=([0-9]*)-([0-9]*)$/.exec(value)
   if (value.length > 80 || !match || (!match[1] && !match[2])) throw new AudioUnavailable(416)
-  const first = match[1] ? Number(match[1]) : null, last = match[2] ? Number(match[2]) : null
-  if (first !== null && !Number.isSafeInteger(first) || last !== null && !Number.isSafeInteger(last)) throw new AudioUnavailable(416)
-  const start = first ?? Math.max(0, length - (last ?? 0))
-  const end = first === null ? length - 1 : Math.min(last ?? length - 1, length - 1, start + 1_048_576 - 1)
-  if (start < 0 || start >= length || end < start || last === 0 && first === null) throw new AudioUnavailable(416)
-  return { start, end: Math.min(end, start + 1_048_576 - 1), partial: true }
+  return { first: rangeNumber(match[1]), last: rangeNumber(match[2]) }
+}
+export function audioRange(value: string | null, length: number): AudioRange {
+  if (value === null) return { start: 0, end: length - 1, partial: false }
+  const { first, last } = rangeBounds(value)
+  if (first === null && last === 0) throw new AudioUnavailable(416)
+  const start = first === null ? Math.max(0, length - (last ?? 0)) : first
+  const requestedEnd = first === null ? length - 1 : last ?? length - 1
+  const end = Math.min(requestedEnd, length - 1, start + 1_048_576 - 1)
+  if (start >= length || end < start) throw new AudioUnavailable(416)
+  return { start, end, partial: true }
 }
 function metadata(row: typeof sparraCall.$inferSelect): AudioMetadata {
   if (!audioDto(row).available || !row.recordingId || row.configurationRevision === null
