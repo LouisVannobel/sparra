@@ -72,7 +72,6 @@ function childBoundary(startup = '{"ready":true}\n'): ChildBoundary {
 }
 beforeEach(() => {
   vi.stubEnv('SPARRA_VOICE_TEST_ROOT', join(tmpdir(), 'controlled-voice-boundary'))
-  vi.stubEnv('SPARRA_VOICE_NLTK_DATA', join(tmpdir(), 'controlled-nltk-boundary'))
   vi.stubEnv('SPARRA_VOICE_TEST_HOME', join(tmpdir(), 'controlled-home-boundary'))
   external.producer.mockResolvedValue({ pythonExecutable: join(tmpdir(), 'controlled-python-boundary'), sourceRoot: join(tmpdir(), 'controlled-voice-boundary', 'src') })
 })

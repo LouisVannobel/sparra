@@ -37,13 +37,13 @@ function decodeArchive(value:DriverValue):ArchivedFixture {
 
 /** A persistent fixture avoids repeated cold graph imports; selected producer stays owned by the caller. */
 export async function startRecordingArchiveFixture() {
-  const root=process.env.SPARRA_VOICE_TEST_ROOT,nltk=process.env.SPARRA_VOICE_NLTK_DATA,home=process.env.SPARRA_VOICE_TEST_HOME
-  if(!root||!nltk||!home)throw new Error('Recording receipt requires the prepared actual Voice source scope')
+  const root=process.env.SPARRA_VOICE_TEST_ROOT,home=process.env.SPARRA_VOICE_TEST_HOME
+  if(!root||!home)throw new Error('Recording receipt requires the prepared actual Voice source scope')
   const producer=await resolveVoiceProducer(root)
   const prefix='sparra-recording-native-',directory=await mkdtemp(join(tmpdir(),prefix))
   const child=spawn(producer.pythonExecutable,['-I','-B',resolve('tests/helpers/sparra-recording-archive-driver.py'),producer.sourceRoot,directory],{
     windowsHide:true,stdio:['pipe','pipe','pipe'],env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,TEMP:process.env.TEMP,TMP:process.env.TMP,
-      PYTHONDONTWRITEBYTECODE:'1',HOME:home,APPDATA:home,NLTK_DATA:nltk},
+      PYTHONDONTWRITEBYTECODE:'1',HOME:home,APPDATA:home},
   })
   let buffer='',terminal=false,failed=false
   const queued:DriverReply[]=[]

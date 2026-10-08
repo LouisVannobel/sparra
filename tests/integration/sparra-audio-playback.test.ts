@@ -64,13 +64,13 @@ function expectedWave(): Buffer {
 
 async function nativePlayback(request: PlaybackProducerRequest): Promise<PlaybackProducerResult> {
   const producer = await resolveVoiceProducer()
-  const home = process.env.SPARRA_VOICE_TEST_HOME, nltk = process.env.SPARRA_VOICE_NLTK_DATA
-  if (!home || !nltk || !isAbsolute(home) || !isAbsolute(nltk)) throw new Error('Voice playback prerequisite missing')
+  const home = process.env.SPARRA_VOICE_TEST_HOME
+  if (!home || !isAbsolute(home)) throw new Error('Voice playback prerequisite missing')
   return new Promise((accept, reject) => {
     const child = spawn(producer.pythonExecutable, ['-I', '-B', resolve('tests/helpers/sparra-audio-playback-driver.py')], {
       cwd: dirname(producer.sourceRoot), windowsHide: true,
       env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, TEMP: process.env.TEMP,
-        TMP: process.env.TMP, HOME: home, APPDATA: home, NLTK_DATA: nltk, PYTHONDONTWRITEBYTECODE: '1' },
+        TMP: process.env.TMP, HOME: home, APPDATA: home, PYTHONDONTWRITEBYTECODE: '1' },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     const timer = setTimeout(() => { child.kill(); reject(new Error('Voice playback fixture deadline')) }, 15000)

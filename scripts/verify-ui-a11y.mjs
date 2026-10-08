@@ -15,7 +15,7 @@ let voice, consumerCleanupUnknown = false
 try {
   const root = realpathSync(process.cwd())
   voice = await prepareVoiceSource({ appRoot: root })
-  const env = { ...process.env, SPARRA_VOICE_TEST_ROOT: voice.root, SPARRA_VOICE_FIXTURE_PYTHON: voice.fixturePython, SPARRA_VOICE_NLTK_DATA: voice.testEnvironment.NLTK_DATA, SPARRA_VOICE_TEST_HOME: voice.testEnvironment.HOME, SPARRA_VOICE_TOKENIZER_ARCHIVE: voice.tokenizerArchive }
+  const env = { ...process.env, SPARRA_VOICE_TEST_ROOT: voice.root, SPARRA_VOICE_FIXTURE_PYTHON: voice.fixturePython, SPARRA_VOICE_TEST_HOME: voice.testEnvironment.HOME }
   for (const group of groups) {
     await voice.assertIdentity()
     const result = await runNativePhase(process.execPath, [join(root, 'node_modules/vitest/vitest.mjs'), 'run', '--config', 'vitest.integration.config.ts', ...group, '--maxWorkers=1'], { cwd: root, env, timeout: 600000 })
