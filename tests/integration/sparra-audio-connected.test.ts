@@ -1,7 +1,7 @@
 // Separate normal ON and PARTIAL hangup candidates: actual CallSession/Pipecat/SQLite/PgBouncer/PG
 // and compiled private reader. Controlled media/inference is synthetic, not a
 // qualified release, live carrier call or full Task4/B1–B5 acceptance.
-import { afterEach, beforeEach, expect, test } from 'vitest'
+import { afterEach, beforeAll, beforeEach, expect, test } from 'vitest'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -19,6 +19,7 @@ let stores: Awaited<ReturnType<typeof startDisposableStores>>, crypto: Awaited<R
 let issuer: ReturnType<typeof startWeb>
 let voice: ReturnType<typeof startConnectedVoice>
 let web: Awaited<ReturnType<Awaited<ReturnType<typeof startDisposableStores>>['startWebImage']>>
+let webImage: Awaited<ReturnType<typeof nativeImage>>
 let cookie: string, origin: string, workspaceId: string
 let expectedVoiceExit = 0
 const TRANSFER_CAPTURE_TEST = 'native accepted local capture joins before real request_human transfer intent and SDK dispatch'
@@ -71,6 +72,10 @@ async function nativeRpc(name: Parameters<typeof authRpcPath>[0], data: unknown,
 function issuedCookies(headers: Readonly<{ getSetCookie(): string[] }>) {
   return headers.getSetCookie().map(value => value.split(';')[0]).filter(value => !value.endsWith('=')).join('; ')
 }
+
+// Cold image construction must finish before any per-call disposable ownership
+// starts: a timed-out hook cannot cancel a pending build or its continuation.
+beforeAll(async () => { webImage = await nativeImage('web') })
 
 beforeEach(async context => {
   const transferFixture = context.task.name === TRANSFER_CAPTURE_TEST
@@ -130,7 +135,7 @@ beforeEach(async context => {
     ...(transferFixture ? { audio_transfer_fixture: true } : {}) }, producer)
   expect(await voice.ready).toMatchObject({ ready: true, candidate: true })
   phase('voice-ready')
-  web = await stores.startWebImage(await nativeImage('web'), 'valid',
+  web = await stores.startWebImage(webImage, 'valid',
     { secret, googleClientId: 'fixture.apps.googleusercontent.com', googleClientSecret: 'fixture-only' },
     JSON.stringify(crypto.keyring), false, port, { incarnation: randomUUID(), deploymentId: 'native-capture-app' })
   origin = web.url
