@@ -19,14 +19,14 @@ function nativeContainmentFailure(error: unknown) {
   return new Error('Native containment failed: ' + reason + '\nContainment phases: ' + (phases.join('; ') || 'none'))
 }
 
-function readNativeContainmentResults(output: string): unknown {
+function assertNativeContainmentOutput(output: string, cases: readonly { name: string; accepted: boolean }[]): void {
   let result: unknown
   try { result = JSON.parse(output) } catch { throw new Error('Native containment failed: stdout') }
   if (!result || typeof result !== 'object' || Array.isArray(result) || Object.keys(result).length !== 2 || !('processingElapsedMs' in result) || !('results' in result)) throw new Error('Native containment failed: measurement')
   const elapsed = result.processingElapsedMs
   if (typeof elapsed !== 'number' || !Number.isSafeInteger(elapsed) || elapsed < 0) throw new Error('Native containment failed: measurement')
   if (elapsed > 10000) throw new Error('Native containment failed: processing-budget')
-  return result.results
+  assertNativeContainmentResults(result.results, cases)
 }
 
 function assertNativeContainmentResults(results: unknown, cases: readonly { name: string; accepted: boolean }[]) {
@@ -101,7 +101,7 @@ $timer.Stop()
   } catch (error) {
     throw nativeContainmentFailure(error)
   }
-  assertNativeContainmentResults(readNativeContainmentResults(output), cases)
+  assertNativeContainmentOutput(output, cases)
   } finally {
     const cleanup = resolve(owned)
     if (dirname(cleanup) !== resolve('.output') || !basename(cleanup).startsWith('demo-containment-')) throw new Error('Non-owned containment fixture cleanup')
