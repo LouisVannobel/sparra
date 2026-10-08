@@ -102,6 +102,10 @@ async function interpreterIdentity(executable){
   return canonical+'\0'+current.dev+'\0'+current.ino+'\0'+sha(await readFile(canonical))
 }
 
+async function assertVoiceRuntimeIdentity(root,descriptor,identity){
+  if(JSON.stringify(await resolveVoiceProducer(root))!==JSON.stringify(descriptor)||await interpreterIdentity(descriptor.pythonExecutable)!==identity)throw invalid()
+}
+
 export async function createVoiceTestHome(scope){
   const owner=await directory(scope),home=join(scope,'home')
   await mkdir(home,{mode:0o700})
@@ -216,7 +220,7 @@ async function prepareExternalVoiceSource(explicitRoot,scopeParent){
     const producerRoot=dirname(descriptor.sourceRoot),identity=await interpreterIdentity(descriptor.pythonExecutable),source=await environmentIdentity(producerRoot,true)
     let retired=false
     return {root:producerRoot,descriptor,fixturePython:descriptor.pythonExecutable,testEnvironment:home.environment,
-      assertIdentity:async()=>{await directory(owned.directory,scopeOwner);await home.assertIdentity();if(retired||JSON.stringify(await resolveVoiceProducer(explicitRoot))!==JSON.stringify(descriptor)||await interpreterIdentity(descriptor.pythonExecutable)!==identity||await environmentIdentity(producerRoot,true)!==source)throw invalid()},
+      assertIdentity:async()=>{await directory(owned.directory,scopeOwner);await home.assertIdentity();if(retired)throw invalid();await assertVoiceRuntimeIdentity(explicitRoot,descriptor,identity);if(await environmentIdentity(producerRoot,true)!==source)throw invalid()},
       retire:async()=>{await owned.retire();retired=true}}
   }catch(error){try{await owned.retire()}catch(cleanup){throw new AggregateError([error,cleanup],'Native Voice preparation and retirement failed')}throw error}
 }
@@ -231,6 +235,16 @@ async function scanVoiceSource(appRoot,producerRoot,tools,env){
     args.push('--config',config)
   }
   await run(scanner,args,{env,timeout:30000})
+}
+
+async function assertUvVersion(uv,env){
+  if((await run(uv,['--version'],{env})).toString().trim()!=='uv 0.12.4 (x86_64-unknown-linux-gnu)')throw invalid()
+}
+
+async function findManagedPython(uv,python,env){
+  const bootstrap=(await run(uv,['python','find','--no-project','3.13.15'],{env})).toString().trim()
+  if(!safeAbsolute(bootstrap)||!bootstrap.startsWith(python+'/'))throw invalid()
+  return bootstrap
 }
 
 async function prepareLinuxVoiceSource(appRoot,scopeParent){
@@ -248,12 +262,11 @@ async function prepareLinuxVoiceSource(appRoot,scopeParent){
     stage='uv archive extraction'
     await tool(uvArchive,uv,'uv-x86_64-unknown-linux-gnu/uv')
     stage='uv executable version'
-    if((await run(uv,['--version'],{env})).toString().trim()!=='uv 0.12.4 (x86_64-unknown-linux-gnu)')throw invalid()
+    await assertUvVersion(uv,env)
     stage='Python installation'
     await run(uv,['python','install','3.13.15','--no-bin'],{env,timeout:180000})
     stage='Python lookup'
-    const bootstrap=(await run(uv,['python','find','--no-project','3.13.15'],{env})).toString().trim()
-    if(!safeAbsolute(bootstrap)||!bootstrap.startsWith(python+'/'))throw invalid()
+    const bootstrap=await findManagedPython(uv,python,env)
     const fixture=join(appRoot,'tests/fixtures/voice-source')
     const archive=await readFile(join(fixture,'voice-producer-source.tar.gz')),manifest=JSON.parse(await readFile(join(fixture,'voice-producer-source.manifest.json'),'utf8'))
     stage='source archive verification'
@@ -276,7 +289,8 @@ async function prepareLinuxVoiceSource(appRoot,scopeParent){
     const assertIdentity=async()=>{
       await owned.assertIdentity()
       await home.assertIdentity()
-      if(JSON.stringify(await resolveVoiceProducer(producerRoot))!==JSON.stringify(descriptor)||await interpreterIdentity(descriptor.pythonExecutable)!==identity||await environmentIdentity(join(producerRoot,'.venv'))!==environment)throw invalid()
+      await assertVoiceRuntimeIdentity(producerRoot,descriptor,identity)
+      if(await environmentIdentity(join(producerRoot,'.venv'))!==environment)throw invalid()
     }
     await assertIdentity()
     return {root:producerRoot,descriptor,fixturePython:descriptor.pythonExecutable,testEnvironment:home.environment,assertIdentity,retire}
