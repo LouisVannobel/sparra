@@ -7,6 +7,36 @@ import { demoScenarios } from '../../src/modules/marketing/demo-scenarios.genera
 
 const offlineEnv = Object.fromEntries(Object.keys(process.env).filter(name => name.toUpperCase() !== 'OPENROUTER_API_KEY').map(name => [name, process.env[name]]))
 
+function nativeContainmentFailure(error: unknown) {
+  const stderr = error && typeof error === 'object' && 'stderr' in error
+    ? typeof error.stderr === 'string' ? error.stderr : Buffer.isBuffer(error.stderr) ? error.stderr.toString('utf8') : '' : ''
+  // Eight fixed stages and nine fixed cases, bounded by the requested child budget.
+  const phases = stderr.split(/\r?\n/).filter(line => {
+    const match = /^(?:CONTAINMENT_STAGE (?:startup|cwd|parsed|found|loaded|read|read_done|json)|CONTAINMENT_CASE (?:descendant|trailing-parent|root|trailing-root|sibling-prefix|relative-escape|case-policy|hidden-ancestor|redirected-hidden-ancestor)) ([0-9]{1,5})$/.exec(line)
+    return match !== null && Number(match[1]) <= 30000
+  }).slice(0, 17)
+  const reason = error && typeof error === 'object' && 'code' in error && error.code === 'ETIMEDOUT' ? 'timeout' : 'child'
+  return new Error('Native containment failed: ' + reason + '\nContainment phases: ' + (phases.join('; ') || 'none'))
+}
+
+function readNativeContainmentResults(output: string): unknown {
+  let result: unknown
+  try { result = JSON.parse(output) } catch { throw new Error('Native containment failed: stdout') }
+  if (!result || typeof result !== 'object' || Array.isArray(result) || Object.keys(result).length !== 2 || !('processingElapsedMs' in result) || !('results' in result)) throw new Error('Native containment failed: measurement')
+  const elapsed = result.processingElapsedMs
+  if (typeof elapsed !== 'number' || !Number.isSafeInteger(elapsed) || elapsed < 0) throw new Error('Native containment failed: measurement')
+  if (elapsed > 10000) throw new Error('Native containment failed: processing-budget')
+  return result.results
+}
+
+function assertNativeContainmentResults(results: unknown, cases: readonly { name: string; accepted: boolean }[]) {
+  if (!Array.isArray(results) || results.length !== cases.length || !results.every((row, index) =>
+    row !== null && typeof row === 'object' && !Array.isArray(row) && Object.keys(row).length === 3 &&
+    row.name === cases[index]!.name && row.accepted === cases[index]!.accepted &&
+    row.rejection === (cases[index]!.accepted ? null : cases[index]!.name === 'redirected-hidden-ancestor' ? 'redirected' : 'escape'),
+  )) throw new Error('Native containment failed: results')
+}
+
 test('native generator containment admits only descendants with the host path case policy', () => {
   const owned = mkdtempSync(resolve('.output/demo-containment-'))
   try {
@@ -69,28 +99,9 @@ $timer.Stop()
     // Requested child deadline includes startup; processing keeps its own 10 s gate.
     output = execFileSync('pwsh', ['-NoProfile', '-Command', script], { encoding: 'utf8', stdio: 'pipe', input: JSON.stringify(cases), timeout: 30000, maxBuffer: 16384, env: { ...offlineEnv, POWERSHELL_TELEMETRY_OPTOUT: '1' } })
   } catch (error) {
-    const stderr = error && typeof error === 'object' && 'stderr' in error
-      ? typeof error.stderr === 'string' ? error.stderr : Buffer.isBuffer(error.stderr) ? error.stderr.toString('utf8') : '' : ''
-    // Eight fixed stages and nine fixed cases, bounded by the requested child budget.
-    const phases = stderr.split(/\r?\n/).filter(line => {
-      const match = /^(?:CONTAINMENT_STAGE (?:startup|cwd|parsed|found|loaded|read|read_done|json)|CONTAINMENT_CASE (?:descendant|trailing-parent|root|trailing-root|sibling-prefix|relative-escape|case-policy|hidden-ancestor|redirected-hidden-ancestor)) ([0-9]{1,5})$/.exec(line)
-      return match !== null && Number(match[1]) <= 30000
-    }).slice(0, 17)
-    const reason = error && typeof error === 'object' && 'code' in error && error.code === 'ETIMEDOUT' ? 'timeout' : 'child'
-    throw new Error('Native containment failed: ' + reason + '\nContainment phases: ' + (phases.join('; ') || 'none'))
+    throw nativeContainmentFailure(error)
   }
-  let result: unknown
-  try { result = JSON.parse(output) } catch { throw new Error('Native containment failed: stdout') }
-  if (!result || typeof result !== 'object' || Array.isArray(result) || Object.keys(result).length !== 2 || !('processingElapsedMs' in result) || !('results' in result)) throw new Error('Native containment failed: measurement')
-  const elapsed = result.processingElapsedMs
-  if (typeof elapsed !== 'number' || !Number.isSafeInteger(elapsed) || elapsed < 0) throw new Error('Native containment failed: measurement')
-  if (elapsed > 10000) throw new Error('Native containment failed: processing-budget')
-  const results = result.results
-  if (!Array.isArray(results) || results.length !== cases.length || !results.every((row, index) =>
-    row !== null && typeof row === 'object' && !Array.isArray(row) && Object.keys(row).length === 3 &&
-    row.name === cases[index]!.name && row.accepted === cases[index]!.accepted &&
-    row.rejection === (cases[index]!.accepted ? null : cases[index]!.name === 'redirected-hidden-ancestor' ? 'redirected' : 'escape'),
-  )) throw new Error('Native containment failed: results')
+  assertNativeContainmentResults(readNativeContainmentResults(output), cases)
   } finally {
     const cleanup = resolve(owned)
     if (dirname(cleanup) !== resolve('.output') || !basename(cleanup).startsWith('demo-containment-')) throw new Error('Non-owned containment fixture cleanup')
