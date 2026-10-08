@@ -633,6 +633,46 @@ test('compiled page keeps styles, CSP nonce, keyboard focus, accessible names an
   } finally { await page.context().close() }
 })
 
+test.each([1280, 390])('public app entries remain visible, keyboard accessible and protected at %ipx', async width => {
+  const page = await openPage()
+  try {
+    await page.setViewportSize({ width, height: 900 })
+    for (const landmark of ['header', 'footer']) {
+      await page.goto(origin)
+      await page.getByRole('button', { name: 'Écouter l’exemple', exact: true }).waitFor()
+      const link = page.locator(landmark).getByRole('link', { name: 'Mon espace', exact: true })
+      expect(await link.count()).toBe(1)
+      expect(await link.isVisible()).toBe(true)
+      expect(await link.getAttribute('href')).toBe('/app?lang=fr')
+      expect(await page.getByRole('link', { name: 'Mon espace', exact: true }).count()).toBe(2)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      expect(await page.getByText('Exemple enregistré — scénario fictif', { exact: true }).count()).toBe(1)
+      expect(await page.getByText('Fiche illustrative — aucune demande réelle envoyée.', { exact: true }).count()).toBe(1)
+      expect(await page.getByText('Exemple fictif de connaissances. Lecture seule.', { exact: true }).count()).toBe(1)
+      expect(await page.locator('.sparra-steps > li').count()).toBe(4)
+      expect(await page.getByRole('heading', { name: 'Ce que votre client entend', exact: true }).count()).toBe(1)
+      expect(await page.getByRole('complementary', { name: 'Ce que vous recevez', exact: true }).count()).toBe(1)
+      for (let step = 0; step < 32 && !await link.evaluate(element => element === document.activeElement); step++) {
+        await page.keyboard.press('Tab')
+      }
+      expect(await link.evaluate(element => element === document.activeElement)).toBe(true)
+      expect(await link.evaluate(element => element.matches(':focus-visible'))).toBe(true)
+      expect(await link.evaluate(element => getComputedStyle(element).outlineStyle)).toBe('solid')
+      expect(await link.evaluate(element => parseFloat(getComputedStyle(element).outlineWidth))).toBeGreaterThanOrEqual(3)
+      expect(await link.evaluate(element => {
+        const bounds = element.getBoundingClientRect()
+        return bounds.left >= 0 && bounds.right <= innerWidth && bounds.top >= 0 && bounds.bottom <= innerHeight
+      })).toBe(true)
+      await mkdir('.output/test-evidence/marketing', { recursive: true })
+      await page.screenshot({ path: `.output/test-evidence/marketing/public-entry-${landmark}-${width}.png` })
+      await page.keyboard.press('Enter')
+      await page.waitForURL(origin + '/login')
+      await page.getByRole('heading', { name: 'Connexion', exact: true }).waitFor()
+      expect(await page.locator('html').getAttribute('lang')).toBe('fr')
+    }
+  } finally { await page.context().close() }
+}, 30000)
+
 test.each([1280, 640, 320])('axe and reflow on the compiled page at %ipx (viewport approximation, not manual zoom)', async width => {
   const page = await openPage()
   try {
