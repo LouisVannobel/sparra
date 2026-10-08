@@ -59,31 +59,44 @@ $results = foreach ($case in $cases) {
   }
   @{ name = $case.name; accepted = $accepted; rejection = $rejection }
 }
-ConvertTo-Json -InputObject @($results) -Compress
+$resultsJson = ConvertTo-Json -InputObject @($results) -Compress
+$timer.Stop()
+# Only the tiny measurement envelope formatting/emission is outside processing.
+'{"processingElapsedMs":' + $timer.ElapsedMilliseconds + ',"results":' + $resultsJson + '}'
 `
   let output: string
   try {
-    // Startup telemetry takes a shared UUID mutex before the script can run.
-    output = execFileSync('pwsh', ['-NoProfile', '-Command', script], { encoding: 'utf8', input: JSON.stringify(cases), timeout: 10000, maxBuffer: 16384, env: { ...offlineEnv, POWERSHELL_TELEMETRY_OPTOUT: '1' } })
+    // Requested child deadline includes startup; processing keeps its own 10 s gate.
+    output = execFileSync('pwsh', ['-NoProfile', '-Command', script], { encoding: 'utf8', stdio: 'pipe', input: JSON.stringify(cases), timeout: 30000, maxBuffer: 16384, env: { ...offlineEnv, POWERSHELL_TELEMETRY_OPTOUT: '1' } })
   } catch (error) {
-    if (error instanceof Error && 'stderr' in error) {
-      const stderr = typeof error.stderr === 'string' ? error.stderr : Buffer.isBuffer(error.stderr) ? error.stderr.toString('utf8') : ''
-      const phases = stderr.split(/\r?\n/).filter(line => {
-        const match = /^(?:CONTAINMENT_STAGE (?:startup|cwd|parsed|found|loaded|read|read_done|json)|CONTAINMENT_CASE (?:descendant|trailing-parent|root|trailing-root|sibling-prefix|relative-escape|case-policy|hidden-ancestor|redirected-hidden-ancestor)) ([0-9]{1,5})$/.exec(line)
-        return match !== null && Number(match[1]) <= 15000
-      }).slice(0, 17)
-      error.message += '\nContainment phases: ' + (phases.join('; ') || 'none')
-    }
-    throw error
+    const stderr = error && typeof error === 'object' && 'stderr' in error
+      ? typeof error.stderr === 'string' ? error.stderr : Buffer.isBuffer(error.stderr) ? error.stderr.toString('utf8') : '' : ''
+    // Eight fixed stages and nine fixed cases, bounded by the requested child budget.
+    const phases = stderr.split(/\r?\n/).filter(line => {
+      const match = /^(?:CONTAINMENT_STAGE (?:startup|cwd|parsed|found|loaded|read|read_done|json)|CONTAINMENT_CASE (?:descendant|trailing-parent|root|trailing-root|sibling-prefix|relative-escape|case-policy|hidden-ancestor|redirected-hidden-ancestor)) ([0-9]{1,5})$/.exec(line)
+      return match !== null && Number(match[1]) <= 30000
+    }).slice(0, 17)
+    const reason = error && typeof error === 'object' && 'code' in error && error.code === 'ETIMEDOUT' ? 'timeout' : 'child'
+    throw new Error('Native containment failed: ' + reason + '\nContainment phases: ' + (phases.join('; ') || 'none'))
   }
-  const result = JSON.parse(output)
-  expect(result).toEqual(cases.map(({ name, accepted }) => ({ name, accepted, rejection: accepted ? null : name === 'redirected-hidden-ancestor' ? 'redirected' : 'escape' })))
+  let result: unknown
+  try { result = JSON.parse(output) } catch { throw new Error('Native containment failed: stdout') }
+  if (!result || typeof result !== 'object' || Array.isArray(result) || Object.keys(result).length !== 2 || !('processingElapsedMs' in result) || !('results' in result)) throw new Error('Native containment failed: measurement')
+  const elapsed = result.processingElapsedMs
+  if (typeof elapsed !== 'number' || !Number.isSafeInteger(elapsed) || elapsed < 0) throw new Error('Native containment failed: measurement')
+  if (elapsed > 10000) throw new Error('Native containment failed: processing-budget')
+  const results = result.results
+  if (!Array.isArray(results) || results.length !== cases.length || !results.every((row, index) =>
+    row !== null && typeof row === 'object' && !Array.isArray(row) && Object.keys(row).length === 3 &&
+    row.name === cases[index]!.name && row.accepted === cases[index]!.accepted &&
+    row.rejection === (cases[index]!.accepted ? null : cases[index]!.name === 'redirected-hidden-ancestor' ? 'redirected' : 'escape'),
+  )) throw new Error('Native containment failed: results')
   } finally {
     const cleanup = resolve(owned)
     if (dirname(cleanup) !== resolve('.output') || !basename(cleanup).startsWith('demo-containment-')) throw new Error('Non-owned containment fixture cleanup')
     rmSync(cleanup, { recursive: true })
   }
-}, 15000)
+}, 35000)
 
 test('both real MP3 illustrations decode and match their cues, text, receipt and provenance', () => {
   const source = JSON.parse(readFileSync('docs/demos/scenarios.fr.json', 'utf8'))
