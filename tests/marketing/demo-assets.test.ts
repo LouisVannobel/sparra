@@ -36,10 +36,14 @@ if ($parseErrors.Count) { throw 'Generator parse failed' }
 [Console]::Error.WriteLine('CONTAINMENT_STAGE parsed ' + $timer.ElapsedMilliseconds)
 $function = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Assert-Contained' }, $false)
 if (-not $function) { throw 'Missing containment consumer' }
+[Console]::Error.WriteLine('CONTAINMENT_STAGE found ' + $timer.ElapsedMilliseconds)
 Invoke-Expression $function.Extent.Text
 [Console]::Error.WriteLine('CONTAINMENT_STAGE loaded ' + $timer.ElapsedMilliseconds)
-$cases = [Console]::In.ReadToEnd() | ConvertFrom-Json
-[Console]::Error.WriteLine('CONTAINMENT_STAGE input ' + $timer.ElapsedMilliseconds)
+[Console]::Error.WriteLine('CONTAINMENT_STAGE read ' + $timer.ElapsedMilliseconds)
+$caseInput = [Console]::In.ReadToEnd()
+[Console]::Error.WriteLine('CONTAINMENT_STAGE read_done ' + $timer.ElapsedMilliseconds)
+$cases = $caseInput | ConvertFrom-Json
+[Console]::Error.WriteLine('CONTAINMENT_STAGE json ' + $timer.ElapsedMilliseconds)
 if ($IsWindows) {
   $hidden = [IO.Path]::GetDirectoryName(($cases | Where-Object name -CEQ 'hidden-ancestor').path)
   [IO.File]::SetAttributes($hidden, ([IO.File]::GetAttributes($hidden) -bor [IO.FileAttributes]::Hidden))
@@ -65,9 +69,9 @@ ConvertTo-Json -InputObject @($results) -Compress
     if (error instanceof Error && 'stderr' in error) {
       const stderr = typeof error.stderr === 'string' ? error.stderr : Buffer.isBuffer(error.stderr) ? error.stderr.toString('utf8') : ''
       const phases = stderr.split(/\r?\n/).filter(line => {
-        const match = /^(?:CONTAINMENT_STAGE (?:startup|cwd|parsed|loaded|input)|CONTAINMENT_CASE (?:descendant|trailing-parent|root|trailing-root|sibling-prefix|relative-escape|case-policy|hidden-ancestor|redirected-hidden-ancestor)) ([0-9]{1,5})$/.exec(line)
+        const match = /^(?:CONTAINMENT_STAGE (?:startup|cwd|parsed|found|loaded|read|read_done|json)|CONTAINMENT_CASE (?:descendant|trailing-parent|root|trailing-root|sibling-prefix|relative-escape|case-policy|hidden-ancestor|redirected-hidden-ancestor)) ([0-9]{1,5})$/.exec(line)
         return match !== null && Number(match[1]) <= 15000
-      }).slice(0, 14)
+      }).slice(0, 17)
       error.message += '\nContainment phases: ' + (phases.join('; ') || 'none')
     }
     throw error

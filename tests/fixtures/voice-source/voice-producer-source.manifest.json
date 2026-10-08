@@ -1,8 +1,8 @@
 {
   "repository": "LouisVannobel/projetV0-voice",
-  "commit": "548805d73203e9020a71af3df30817a063858925",
-  "tree": "38cc1f1e3b5670a23dcfcbe70f428003d7bc3113",
-  "owned_ref": "refs/heads/z/sparra-local-audio",
+  "commit": "630dce2dac1c5976f02e8b73b7d4b150eebc5bea",
+  "tree": "360e55845f970ec0e31ea7d35a5a8d048ab63d2a",
+  "owned_ref": "refs/heads/z/sparra-voice-fixture-pacing",
   "input_roots": [
     ".python-version",
     "pyproject.toml",
@@ -14,9 +14,9 @@
     "deployment-profiles",
     "tests/integration/sparra_connected_scenario.py"
   ],
-  "archive_sha256": "e0624b6d196f9cb314bf87c638b939e181622ddf4d443d20671694ffac7a610d",
-  "archive_size": 326272,
-  "decoded_source_bytes": 1605632,
+  "archive_sha256": "eedca1031e2c9be67d16311884e6a88f9aea7935fe8c7d93395ba03a53a07e83",
+  "archive_size": 326635,
+  "decoded_source_bytes": 1607778,
   "members": [
     {
       "path": ".python-version",
@@ -320,9 +320,9 @@
     },
     {
       "path": "tests/integration/sparra_connected_scenario.py",
-      "size": 175758,
-      "git_blob": "750cfc5ab01d4f489db7dd58d4215c54d6f89db3",
-      "sha256": "2fcc736a3f03a8889c86fc12093f960458e301f8f72b91ddac6f0db327cea40c"
+      "size": 177904,
+      "git_blob": "c4c1077941448292a466c05c0bdd141789167bbf",
+      "sha256": "abc28c538e1e543db9f9bd9a86b379df860a633de8e54ce3340379dccd18ca9c"
     },
     {
       "path": "uv.lock",
