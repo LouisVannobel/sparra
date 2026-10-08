@@ -37,7 +37,7 @@ async function runPhase(name, args, timeout) {
   await voice?.assertIdentity()
   process.stdout.write('[tests] ' + name + '\n')
   const env = { ...process.env, SPARRA_PLAYBACK_SCREENSHOT_DIR: playbackScreenshots,
-    ...(voice ? { SPARRA_VOICE_TEST_ROOT: voice.root, SPARRA_VOICE_FIXTURE_PYTHON: voice.fixturePython, SPARRA_VOICE_NLTK_DATA: voice.testEnvironment.NLTK_DATA, SPARRA_VOICE_TEST_HOME: voice.testEnvironment.HOME, SPARRA_VOICE_TOKENIZER_ARCHIVE: voice.tokenizerArchive } : {}) }
+    ...(voice ? { SPARRA_VOICE_TEST_ROOT: voice.root, SPARRA_VOICE_FIXTURE_PYTHON: voice.fixturePython, SPARRA_VOICE_TEST_HOME: voice.testEnvironment.HOME } : {}) }
   const result = await runNativePhase(process.execPath, args, { cwd: root, env, timeout })
   if (!result.cleanExit) {
     consumerCleanupUnknown=true

@@ -1,8 +1,8 @@
 {
   "repository": "LouisVannobel/projetV0-voice",
-  "commit": "630dce2dac1c5976f02e8b73b7d4b150eebc5bea",
-  "tree": "360e55845f970ec0e31ea7d35a5a8d048ab63d2a",
-  "owned_ref": "refs/heads/z/sparra-voice-fixture-pacing",
+  "commit": "86011f3c81f98fda629334363236d0a554e9ba33",
+  "tree": "53c7abf1beb3e30624a5e0fbc70d6ec368ebb57a",
+  "owned_ref": "refs/heads/z/sparra-v2-fixture-pacing",
   "input_roots": [
     ".python-version",
     "pyproject.toml",
@@ -14,9 +14,9 @@
     "deployment-profiles",
     "tests/integration/sparra_connected_scenario.py"
   ],
-  "archive_sha256": "eedca1031e2c9be67d16311884e6a88f9aea7935fe8c7d93395ba03a53a07e83",
-  "archive_size": 326635,
-  "decoded_source_bytes": 1607778,
+  "archive_sha256": "eb8a5f93fe954cbe5cc3baf45c9252af8196de4285a20bf29cbc3b93eb54c006",
+  "archive_size": 355339,
+  "decoded_source_bytes": 1715494,
   "members": [
     {
       "path": ".python-version",
@@ -26,9 +26,9 @@
     },
     {
       "path": "README.md",
-      "size": 2608,
-      "git_blob": "82ea15af33ac6708fdff94973146f9ef130de87e",
-      "sha256": "9c4d02d7903f2320d200ae360763a4323b1cf4e91c454cfa9ce5d5903b03604a"
+      "size": 3230,
+      "git_blob": "489b7e4629b48d8a02d37cc8031d3461feec7bfa",
+      "sha256": "3920ad07571067a68238d2598f1c81b24120032e956e5f6405dd970940a64321"
     },
     {
       "path": "agents/agent-a/manifest.yaml",
@@ -44,9 +44,9 @@
     },
     {
       "path": "deployment-profiles/qualification-candidate-v1.schema.json",
-      "size": 5292,
-      "git_blob": "f1be76c5966cb2325aca34ba357595cd9d41b9e3",
-      "sha256": "79887c54403d8671cca5b02b43aaed958037a87fa98d8905218ff79079f79a82"
+      "size": 5738,
+      "git_blob": "cd97f7fc316443ee4df101f63ae0dbb56a86023c",
+      "sha256": "f2fb9a54455e24733e62d518b298222c1d4f9fa9c6512c325b9829fff3897cfa"
     },
     {
       "path": "deployment-profiles/qualification-override-v1.schema.json",
@@ -56,27 +56,21 @@
     },
     {
       "path": "deployment-profiles/qualified-v1.schema.json",
-      "size": 5080,
-      "git_blob": "780f035cca2676f49a46bc1bf9e929b77f8b2b1d",
-      "sha256": "1e36b9e16406ae6b911c4db835487b894a197805068d49927a59a58b00e44cce"
+      "size": 5538,
+      "git_blob": "6809c5bd965176f571e3d39e9ae1c8b642f6137e",
+      "sha256": "97e33500bd026042dedf0f6e52418ac85e40001568333fd24ab29c7f07a6e47a"
     },
     {
       "path": "pyproject.toml",
-      "size": 1275,
-      "git_blob": "5c18938377f672d5d3174f966df5aa90482c6133",
-      "sha256": "807388220bc8419b45c4667e494869e7e6c71941487c992e7bcd2c74c7b5c209"
+      "size": 1277,
+      "git_blob": "e75f37de8d6c8b10e8d3f4de4a066609eb0155fc",
+      "sha256": "dbc31f417e2ec7d7388be3cedf5f3846d7c45f4a3ac640db8f172556eaeb8514"
     },
     {
       "path": "scripts/export_runtime_contract.py",
-      "size": 20893,
-      "git_blob": "211109d59757377ee9c361f1134611bf0a54fe7b",
-      "sha256": "c323e55884798652beaf713bee81dbe37ad0d05f0df2f9960c59e4f474134c0e"
-    },
-    {
-      "path": "scripts/prepare_tokenizers.py",
-      "size": 3049,
-      "git_blob": "5f0fb8e90d35b278989a6bfcb207bd1b76828350",
-      "sha256": "92bf28f6b309bc169cf6f75784e17b81cccc1b122a75262c5281d5fd4d2cd966"
+      "size": 20928,
+      "git_blob": "9fb31bb83ef18a000e5fda40c55333605bf84722",
+      "sha256": "3b0684a4ed3081afc5ddd697934c226ff79381768c6f1dfb8447c22164418600"
     },
     {
       "path": "src/projetv0_voice/__init__.py",
@@ -86,9 +80,9 @@
     },
     {
       "path": "src/projetv0_voice/admission.py",
-      "size": 175114,
-      "git_blob": "969f37516ba03b36de5cb7d8473130688284f351",
-      "sha256": "9e21994a30f77d3d8fb1835eb340c980b8fb3214b5d4ea6b4a79a2b949ec9dff"
+      "size": 175431,
+      "git_blob": "40c310433bfb78d499eb7ee1e264c4e258d286f5",
+      "sha256": "cdb158361e8d7c62a9598df58ff6d38fa6776fd2a4f492190786daefbc37c094"
     },
     {
       "path": "src/projetv0_voice/app.py",
@@ -145,28 +139,34 @@
       "sha256": "27305bf7dd471faf5a855d8355d2006a916240298cdf9dba5523cd59ecffc1e2"
     },
     {
+      "path": "src/projetv0_voice/inference/completion_strategy.py",
+      "size": 4389,
+      "git_blob": "97f6b11209585a5a216137821b00515ea631c0a4",
+      "sha256": "f00dceb7ad80951bd887929d8014952567e2b06c331b149fef13070621fd06cb"
+    },
+    {
       "path": "src/projetv0_voice/inference/openrouter_tts.py",
-      "size": 9068,
-      "git_blob": "f834a6d8c525e75d68c6f65c162e47e751d34db3",
-      "sha256": "a3bdfcad237ecb5d91f9a2cd6809d8370b21a2f9efd853196865cc41093484ce"
+      "size": 9724,
+      "git_blob": "2e483b8e3fce8b0b6432f0937738c651e7318bd4",
+      "sha256": "3be67ceca069f4f58d46806f26f14f7e351db5b4896f4463b9cbe79426b14307"
     },
     {
       "path": "src/projetv0_voice/inference/services.py",
-      "size": 4368,
-      "git_blob": "edfc9f8be1f1b99626bb0a840fb9ffeab13f3975",
-      "sha256": "d601b05e4fcac3d242d24dd02332f901d7f0a39c4915a4e1cf5461569f0b2381"
+      "size": 10998,
+      "git_blob": "0e7220342146c96d777c58e2ad3292d1ad0696a4",
+      "sha256": "7c67891cdbf977c961d444ee0ec35a29aa05a2f71728cf8ea8602064f455b2ac"
     },
     {
       "path": "src/projetv0_voice/lifecycle.py",
-      "size": 89099,
-      "git_blob": "1a14e7be5e8b61a75ab9133d718eab8853979f5c",
-      "sha256": "a422511b44bf6e22c01c8488de0b635baa2a4abaaf74676ea0e54f467442627a"
+      "size": 90736,
+      "git_blob": "0b7a1cdd99b81c420f7daad971cdf65fd58b4918",
+      "sha256": "6b827d0c1f2331efcc05a70dcb664d2997e377edbc2eb7997bd6fda8fb489af4"
     },
     {
       "path": "src/projetv0_voice/metrics.py",
-      "size": 24227,
-      "git_blob": "f15309f413767dfe69cdd32f5a83124d941f8525",
-      "sha256": "bea76975d6ee3f6a053b740fb172db8bf2865a389bc1e5e432ba5c89a8a93c88"
+      "size": 24709,
+      "git_blob": "47aabea005ec599855ad4090a510df55eb7d57ef",
+      "sha256": "4588437f222649a74848df9d2643fa1902c1170d22562b0ff152957aa0572488"
     },
     {
       "path": "src/projetv0_voice/models.py",
@@ -218,21 +218,21 @@
     },
     {
       "path": "src/projetv0_voice/persistence/schema.py",
-      "size": 10656,
-      "git_blob": "3aba0daa4ddc30aeb93ee50f82258c0afe61f982",
-      "sha256": "47adfaa6db0cdb408b692857c45abaf30cff414ab9c8df1ef11e78cd37215d70"
+      "size": 11976,
+      "git_blob": "db595ec23d070dfb6a7dde784cd50a6efadd1a10",
+      "sha256": "9f8fbfd38f171686e78fbb8f4bf22568741220452083edb6cafef48f45aca1a4"
     },
     {
       "path": "src/projetv0_voice/persistence/writer.py",
-      "size": 216354,
-      "git_blob": "6cb32dccc19fbba8f9b3dac5e559dd9382fb5064",
-      "sha256": "5acc31213f6896dcce9bae2727df51e035f750a98141ad1c8275618a39e2a99b"
+      "size": 221820,
+      "git_blob": "cc1dd2bd7d5bf541150f22515768ffb1b99c2351",
+      "sha256": "a2d12f2ac7b52bdc474cc1712f2444c7c919102e521d3f8144f74ba5dd6bb08c"
     },
     {
       "path": "src/projetv0_voice/pipeline.py",
-      "size": 35511,
-      "git_blob": "e8ef094624cd945971f0a20f71cc59a863653d09",
-      "sha256": "dbd0e1c8e9a764f1907ebb9bcac6811c3ba5f1df5529f275fc877af84fd78b85"
+      "size": 47040,
+      "git_blob": "9b27cbd7d7ccb05b2b668e6b03067673a51c563a",
+      "sha256": "9a25f3289945a8aa2efc36c92078d4496727881919185c5fc69a70ec13d1dba9"
     },
     {
       "path": "src/projetv0_voice/production_wiring.py",
@@ -242,9 +242,9 @@
     },
     {
       "path": "src/projetv0_voice/qualified_profile.py",
-      "size": 17204,
-      "git_blob": "ad93d659dd21f95adbdb41ae76298e0636fc7730",
-      "sha256": "d25295a9eb04861ab2bf486d6a77b0d2346d2189b645b284abc72d01e260bd85"
+      "size": 18070,
+      "git_blob": "20e602e9ab7cf66bd31becc39b2810703a49579b",
+      "sha256": "d8e664702a67c50dd35b17fcb67cbeee8747a2c6bf31a07c71807f66cf534bab"
     },
     {
       "path": "src/projetv0_voice/recording_archive.py",
@@ -266,15 +266,15 @@
     },
     {
       "path": "src/projetv0_voice/session.py",
-      "size": 97881,
-      "git_blob": "6155bfa9f33250181d6df8ff59ab7a09a411d589",
-      "sha256": "a6b3c9201098c18d148057c64b62949baa7720a8eb78895025aa929a45c790c1"
+      "size": 101072,
+      "git_blob": "f57841cebef6ab2b4ae08673b14dda75243be16f",
+      "sha256": "9223a07c3f28015f76460152ef19491a9d02dbfc67848dd75d9c9729bd7d0982"
     },
     {
       "path": "src/projetv0_voice/session_factory.py",
-      "size": 28579,
-      "git_blob": "3b94b1930182b38cd8aeee1e05b16213210797f5",
-      "sha256": "e57adfeb035e422bda8d7a0f7ec0e51603da569ec252ac4123f97a7d9c37a976"
+      "size": 28580,
+      "git_blob": "fd797ac7ddcaeca7574f8434d1d287b0aa1fab39",
+      "sha256": "e1f6fc1eeb788ccd37abfbf739a61d3892e3d85e2ac183d45c8b9292663fea5d"
     },
     {
       "path": "src/projetv0_voice/telnyx/__init__.py",
@@ -296,9 +296,9 @@
     },
     {
       "path": "src/projetv0_voice/telnyx/handshake.py",
-      "size": 22309,
-      "git_blob": "e48e3a7b3af3cbaca2d755a578ded0022aec30bd",
-      "sha256": "f867a8d61f1aad4e930da610877d5c925ee6c5adf5defe1416b456d903b85537"
+      "size": 22618,
+      "git_blob": "59f6d1b478d26755ee168ab9887496ef5167745d",
+      "sha256": "9221750df79f117962afbb88db181a00f2c7d6e17bdb51ff4f8962ef8937366c"
     },
     {
       "path": "src/projetv0_voice/telnyx/recordings.py",
@@ -308,9 +308,9 @@
     },
     {
       "path": "src/projetv0_voice/telnyx/serializer.py",
-      "size": 10376,
-      "git_blob": "99f9ca65232d2ba265e35628ee76ecc70978050d",
-      "sha256": "4f71daa67a839fd29075b441934e82bbec8a3b3f47688b93ac16b40a0b6f4032"
+      "size": 10701,
+      "git_blob": "d8efa8cafb0205b0f3a399330b95ca2dab596958",
+      "sha256": "f74c907b6a2582220e27bbc7a0891f42444bd2dae0e010699032694ded3b4cf6"
     },
     {
       "path": "src/projetv0_voice/telnyx/webhooks.py",
@@ -326,9 +326,9 @@
     },
     {
       "path": "uv.lock",
-      "size": 275142,
-      "git_blob": "a64586d4fb6c7177f891080833610f1d332eba66",
-      "sha256": "111f85fcd0c95e3dbd5e5a0d1700c1a22da57e60e71708b88db8c978d9536fa5"
+      "size": 347226,
+      "git_blob": "4c253572328e43c791e61ecedc4fbe8f0ce8893c",
+      "sha256": "0df071f1297d7b4fb40a106d851647aedcfce90256fce6809ccfb692fee50e43"
     }
   ]
 }

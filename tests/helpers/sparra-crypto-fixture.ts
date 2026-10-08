@@ -73,8 +73,8 @@ export async function resolveVoiceProducer(root?:string):Promise<VoiceProducer>{
 export async function nativeVoiceTurn(fixture: Awaited<ReturnType<typeof cryptoFixture>>, producer?:VoiceProducer) {
   const selected=producer?await resolveVoiceProducer(dirname(producer.sourceRoot)):await resolveVoiceProducer()
   if(producer&&(!absoluteProducerPath(producer.sourceRoot)||!absoluteProducerPath(producer.pythonExecutable)||!sameProducerPath(resolve(producer.sourceRoot),selected.sourceRoot)||!sameProducerPath(resolve(producer.pythonExecutable),selected.pythonExecutable)))throw new Error('Voice producer descriptor refused')
-  const nltkData=process.env.SPARRA_VOICE_NLTK_DATA,home=process.env.SPARRA_VOICE_TEST_HOME
-  if(typeof nltkData!=='string'||typeof home!=='string'||!absoluteProducerPath(nltkData)||!absoluteProducerPath(home))throw new Error('Voice tokenizer prerequisite refused')
+  const home=process.env.SPARRA_VOICE_TEST_HOME
+  if(typeof home!=='string'||!absoluteProducerPath(home))throw new Error('Voice owned home prerequisite refused')
   const script=String.raw`
 import sys, base64, inspect
 from pathlib import Path
@@ -87,9 +87,6 @@ import cryptography, pydantic
 assert cryptography.__version__ == '50.0.0' and pydantic.__version__ == '2.13.4'
 assert Path(cryptography.__file__).resolve().is_relative_to(venv)
 assert Path(pydantic.__file__).resolve().is_relative_to(venv)
-import nltk, os
-nltk.data.path[:]=[os.environ['NLTK_DATA']]
-nltk.data.find('tokenizers/punkt_tab')
 sys.path.insert(0, str(source))
 from projetv0_voice import models, production_wiring, crypto
 for module, name in [(models, 'models.py'), (production_wiring, 'production_wiring.py'), (crypto, 'crypto.py')]:
@@ -107,7 +104,7 @@ Path(sys.argv[3]).write_text(turn.model_dump_json(), encoding='utf-8')
 `
   const output=join(fixture.directory,'native-turn.json')
   try{
-    await promisify(execFile)(selected.pythonExecutable,['-I','-B','-c',script,fixture.path,fixture.turnId,output,selected.sourceRoot,fixture.turn.started_at,fixture.turn.ended_at],{cwd:dirname(selected.sourceRoot),windowsHide:true,timeout:60000,env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,TEMP:process.env.TEMP,TMP:process.env.TMP,PYTHONDONTWRITEBYTECODE:'1',HOME:home,APPDATA:home,NLTK_DATA:nltkData}})
+    await promisify(execFile)(selected.pythonExecutable,['-I','-B','-c',script,fixture.path,fixture.turnId,output,selected.sourceRoot,fixture.turn.started_at,fixture.turn.ended_at],{cwd:dirname(selected.sourceRoot),windowsHide:true,timeout:60000,env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,TEMP:process.env.TEMP,TMP:process.env.TMP,PYTHONDONTWRITEBYTECODE:'1',HOME:home,APPDATA:home}})
   }catch{
     throw new Error('Voice producer runtime refused')
   }

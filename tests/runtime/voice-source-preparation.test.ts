@@ -3,22 +3,36 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
 import { readVoiceSourceFixture } from '../../scripts/voice-source-fixture.mjs'
-import { installVoiceTokenizer } from '../../scripts/prepare-voice-source.mjs'
 
 const modulePath='../../scripts/prepare-voice-source.mjs'
 
-test('native tokenizer preparation verifies the public corpus and keeps it inside its owner',async()=>{
-  const parent=await mkdtemp(join(tmpdir(),'sparra-tokenizer-test-'))
+test('native Voice preparation owns an isolated HOME and APPDATA and refuses inventory drift',async()=>{
+  const parent=await mkdtemp(join(tmpdir(),'sparra-home-test-'))
   try{
-    const executable=process.env.SPARRA_VOICE_FIXTURE_PYTHON??(process.platform==='win32'?'C:/Users/louis/Documents/ChatGPT/.worktrees/sparra-voice-pilot/.venv/Scripts/python.exe':undefined)
-    if(typeof executable!=='string')throw new Error('Missing qualified Voice fixture interpreter')
-    const archive=await readFile(process.env.SPARRA_VOICE_TOKENIZER_ARCHIVE??'C:/Users/louis/.codex/artifacts/sparra/2026-10-04/public-test-prerequisites/punkt_tab.zip')
-    const prepared=await installVoiceTokenizer(parent,executable,archive)
-    expect(await readdir(join(prepared.NLTK_DATA,'tokenizers/punkt_tab'))).toEqual(['english','french'])
-    expect(prepared.HOME).toBe(join(parent,'home'))
-    const before=await readdir(parent),damaged=Buffer.from(archive);damaged[0]^=1
-    await expect(installVoiceTokenizer(parent,executable,damaged)).rejects.toThrow('Native Voice preparation failed')
-    expect(await readdir(parent)).toEqual(before)
+    const {createVoiceTestHome}=await import('../../scripts/prepare-voice-source.mjs')
+    const prepared=await createVoiceTestHome(parent)
+    expect(prepared.environment).toEqual({HOME:join(parent,'home'),APPDATA:join(parent,'home')})
+    expect(await readdir(prepared.environment.HOME)).toEqual([])
+    await prepared.assertIdentity()
+    await writeFile(join(prepared.environment.HOME,'changed.txt'),'owned drift')
+    await expect(prepared.assertIdentity()).rejects.toThrow('Native Voice preparation failed')
+  }finally{await rm(parent,{recursive:true,force:true})}
+})
+
+test.each(['missing','replacement','link'] as const)('owned Voice HOME identity refuses %s without following foreign contents',async kind=>{
+  const parent=await mkdtemp(join(tmpdir(),'sparra-home-drift-')),outside=join(parent,'outside')
+  try{
+    const {createVoiceTestHome}=await import('../../scripts/prepare-voice-source.mjs')
+    await mkdir(outside);await writeFile(join(outside,'owner.txt'),'external')
+    const prepared=await createVoiceTestHome(parent),home=prepared.environment.HOME
+    if(kind==='missing')await rm(home,{recursive:true})
+    else{
+      await rename(home,home+'-original')
+      if(kind==='replacement')await mkdir(home)
+      else await symlink(outside,home,process.platform==='win32'?'junction':'dir')
+    }
+    await expect(prepared.assertIdentity()).rejects.toThrow()
+    expect(await readFile(join(outside,'owner.txt'),'utf8')).toBe('external')
   }finally{await rm(parent,{recursive:true,force:true})}
 })
 

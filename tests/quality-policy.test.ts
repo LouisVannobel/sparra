@@ -176,11 +176,11 @@ function nativeCoverageFixture(activityAfterAll = '',recordingAfterAll = '') {
   // Test-only resource adapter for the miniature merger canary. These named
   // tests exercise runner wiring; they are not native Voice qualification.
   writeFileSync(join(root,'scripts/prepare-voice-source.mjs'),`import {existsSync,mkdirSync,rmSync,writeFileSync} from 'node:fs';import {join} from 'node:path';
-export async function prepareVoiceSource({appRoot}){const scope=join(appRoot,'coverage/canary-voice-owner');mkdirSync(scope);return {root:scope,fixturePython:process.execPath,testEnvironment:{HOME:scope,APPDATA:scope,NLTK_DATA:scope},tokenizerArchive:join(scope,'synthetic-tokenizer.zip'),assertIdentity:async()=>{if(!existsSync(scope))throw new Error('Synthetic canary Voice owner missing')},retire:async()=>{if(existsSync(scope)){if(existsSync(join(scope,'retirement-failure')))throw new Error('Synthetic canary Voice retirement failed');rmSync(scope,{recursive:true});writeFileSync(join(appRoot,'canary-voice-retired.txt'),'retired')}}}}\n`)
+export async function prepareVoiceSource({appRoot}){const scope=join(appRoot,'coverage/canary-voice-owner');mkdirSync(scope);return {root:scope,fixturePython:process.execPath,testEnvironment:{HOME:scope,APPDATA:scope},assertIdentity:async()=>{if(!existsSync(scope))throw new Error('Synthetic canary Voice owner missing')},retire:async()=>{if(existsSync(scope)){if(existsSync(join(scope,'retirement-failure')))throw new Error('Synthetic canary Voice retirement failed');rmSync(scope,{recursive:true});writeFileSync(join(appRoot,'canary-voice-retired.txt'),'retired')}}}}\n`)
   writeFileSync(join(root,'tests/integration/sparra-voice-crypto.test.ts'),"import {expect,test} from 'vitest';test('synthetic runner Crypto wiring',()=>expect(process.env.SPARRA_VOICE_TEST_ROOT).toContain('canary-voice-owner'));\n")
   // The nine private named leaves qualify report admission and environment
   // forwarding only; they do not qualify native SQL or the real Voice source.
-  writeFileSync(join(root,'tests/integration/sparra-recording-receipt.test.ts'),"import {afterAll,expect,test} from 'vitest';import {join} from 'node:path';\n"+recordingReceiptNames.map(name=>'test('+JSON.stringify(name)+",()=>{const root=process.env.SPARRA_VOICE_TEST_ROOT;expect(root).toContain('canary-voice-owner');expect(process.env.SPARRA_VOICE_FIXTURE_PYTHON).toBe(process.execPath);expect(process.env.SPARRA_VOICE_NLTK_DATA).toBe(root);expect(process.env.SPARRA_VOICE_TEST_HOME).toBe(root);expect(process.env.SPARRA_VOICE_TOKENIZER_ARCHIVE).toBe(join(root!,'synthetic-tokenizer.zip'))});\n").join('')+'afterAll(()=>{'+recordingAfterAll+'});\n')
+  writeFileSync(join(root,'tests/integration/sparra-recording-receipt.test.ts'),"import {afterAll,expect,test} from 'vitest';import {join} from 'node:path';\n"+recordingReceiptNames.map(name=>'test('+JSON.stringify(name)+",()=>{const root=process.env.SPARRA_VOICE_TEST_ROOT;expect(root).toContain('canary-voice-owner');expect(process.env.SPARRA_VOICE_FIXTURE_PYTHON).toBe(process.execPath);expect(process.env.SPARRA_VOICE_TEST_HOME).toBe(root);});\n").join('')+'afterAll(()=>{'+recordingAfterAll+'});\n')
   writeFileSync(join(root,'tests/integration/sparra-requests.test.ts'),"import {expect,test} from 'vitest';import {selectBranch} from '../../src/covered';// Synthetic runner selection canary only.\n"+requestConsumerNames[0][1].map(name=>'test('+JSON.stringify(name)+",()=>{expect(process.env.SPARRA_VOICE_TEST_ROOT).toContain('canary-voice-owner');expect(selectBranch(true)).toBe(7)});\n").join(''))
   // Exact audio consumer paths exercise the native runner and owned environment,
   // not browser, R1, SQL or process-retirement behavior.
@@ -188,7 +188,7 @@ export async function prepareVoiceSource({appRoot}){const scope=join(appRoot,'co
 beforeAll(()=>{
   const root=process.env.SPARRA_VOICE_TEST_ROOT!,screenshots=process.env.SPARRA_PLAYBACK_SCREENSHOT_DIR!,log=join(process.cwd(),'canary-audio-consumers.jsonl');
   expect(root).toBe(join(process.cwd(),'coverage/canary-voice-owner'));expect(existsSync(root)).toBe(true);expect(existsSync('canary-voice-retired.txt')).toBe(false);
-  expect(process.env.SPARRA_VOICE_FIXTURE_PYTHON).toBe(process.execPath);expect(process.env.SPARRA_VOICE_NLTK_DATA).toBe(root);expect(process.env.SPARRA_VOICE_TEST_HOME).toBe(root);expect(process.env.SPARRA_VOICE_TOKENIZER_ARCHIVE).toBe(join(root,'synthetic-tokenizer.zip'));
+  expect(process.env.SPARRA_VOICE_FIXTURE_PYTHON).toBe(process.execPath);expect(process.env.SPARRA_VOICE_TEST_HOME).toBe(root);
   expect(isAbsolute(screenshots)).toBe(true);expect(dirname(dirname(screenshots))).toBe(join(process.cwd(),'coverage'));expect(basename(dirname(screenshots))).toMatch(/^\\.native-[0-9a-f-]{36}$/);expect(basename(screenshots)).toBe('playback-screenshots');expect(lstatSync(screenshots).isDirectory()).toBe(true);expect(lstatSync(screenshots).isSymbolicLink()).toBe(false);expect(realpathSync(screenshots)).toBe(screenshots);
   writeFileSync(join(screenshots,${JSON.stringify(file+'.txt')}),'owned runner wiring witness');
   appendFileSync(log,JSON.stringify({file:${JSON.stringify(file)},screenshots})+'\\n');
@@ -211,7 +211,7 @@ function requestCanaryEnvironment(root:string){
   const voice=join(root,'coverage/canary-voice-owner'),screenshots=join(root,'coverage','.native-'+randomUUID(),'playback-screenshots')
   mkdirSync(voice);mkdirSync(screenshots,{recursive:true})
   return {...process.env,SPARRA_VOICE_TEST_ROOT:voice,SPARRA_VOICE_FIXTURE_PYTHON:process.execPath,
-    SPARRA_VOICE_NLTK_DATA:voice,SPARRA_VOICE_TEST_HOME:voice,SPARRA_VOICE_TOKENIZER_ARCHIVE:join(voice,'synthetic-tokenizer.zip'),SPARRA_PLAYBACK_SCREENSHOT_DIR:screenshots}
+    SPARRA_VOICE_TEST_HOME:voice,SPARRA_PLAYBACK_SCREENSHOT_DIR:screenshots}
 }
 
 test('native_activity_blob_admits_twelve_complete_pass_cases_and_refuses_missing_or_extra',()=>{
@@ -377,7 +377,7 @@ test('native_recording_report_admission_requires_exact_summary_consumer_leaves_a
   const voiceRoot=join(root,'coverage/canary-voice-owner')
   const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts','tests/integration/sparra-recording-receipt.test.ts','--maxWorkers=1','--reporter=json','--outputFile.json='+reportPath],{
     ...process.env,SPARRA_VOICE_TEST_ROOT:voiceRoot,SPARRA_VOICE_FIXTURE_PYTHON:process.execPath,
-    SPARRA_VOICE_NLTK_DATA:voiceRoot,SPARRA_VOICE_TEST_HOME:voiceRoot,SPARRA_VOICE_TOKENIZER_ARCHIVE:join(voiceRoot,'synthetic-tokenizer.zip'),
+    SPARRA_VOICE_TEST_HOME:voiceRoot,
   })
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   const bytes=readFileSync(reportPath),report=JSON.parse(bytes.toString('utf8'))
