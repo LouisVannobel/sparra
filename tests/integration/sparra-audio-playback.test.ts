@@ -294,10 +294,11 @@ async function observedReaderState(id:string,state:'active'|'released') {
 }
 test('native audio revoke leaves the exact released slot and truncates the paused client response',async()=>{
   const call=await largeNativeCall(),held=await pausedNativeResponse(call.call_id)
+  let leaseId:string|undefined
   try{
     expect(held.response.statusCode).toBe(200)
     expect(held.response.complete).toBe(false)
-    const leaseId=await observedReaderState(call.call_id,'active')
+    leaseId=await observedReaderState(call.call_id,'active')
     await nativePlayback({url:stores.voiceUrlA,deployment_id:deployment,call_id:call.call_id,
       keyring_path:crypto.path,pcm_b64:'',revoke:call})
     expect(await observedReaderState(call.call_id,'released')).toBe(leaseId)
@@ -310,6 +311,18 @@ test('native audio revoke leaves the exact released slot and truncates the pause
     const row=(await stores.administrator.query('SELECT audio_state,status,ended_at FROM sparra_call WHERE id=$1',[call.call_id])).rows[0]
     expect(row).toMatchObject({audio_state:'declined',status:'active',ended_at:null})
     expect((await stores.administrator.query('SELECT count(*)::int AS n FROM sparra_audio_chunk WHERE call_id=$1',[call.call_id])).rows[0].n).toBe(0)
+  }catch(error){
+    if(leaseId){
+      try{
+        const order=(await stores.administrator.query<{released_before_audio_denied:boolean}>(
+          `SELECT r.released_at < c.audio_denied_at AS released_before_audio_denied
+           FROM sparra_audio_reader AS r JOIN sparra_call AS c ON c.id=r.call_id AND c.workspace_id=r.workspace_id
+           WHERE r.lease_id=$1 AND r.call_id=$2 AND isfinite(r.released_at) AND isfinite(c.audio_denied_at)`,
+          [leaseId,call.call_id])).rows[0]
+        if(typeof order?.released_before_audio_denied==='boolean')console.error('native_audio_reader_released_before_audio_denied',order.released_before_audio_denied)
+      }catch{}
+    }
+    throw error
   }finally{held.close()}
 })
 test('native owner erase terminates a paused reader without completing unacknowledged Voice cleanup',async()=>{
