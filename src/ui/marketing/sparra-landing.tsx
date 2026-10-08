@@ -11,6 +11,7 @@ export function SparraLanding(): React.JSX.Element {
         <a href="#fonctionnement">Comment ça fonctionne</a>
         <a href="#controle">Vous gardez la main</a>
         <a href="#offre">L’offre</a>
+        <a href="/app?lang=fr">Mon espace</a>
       </nav>
       <Button className="sparra-contact" href="mailto:contact@sparra.fr" label="Parlons de votre activité" variant="primary" size="lg" />
     </header>
@@ -23,7 +24,7 @@ export function SparraLanding(): React.JSX.Element {
             <Button className="sparra-contact" href="#demo" label="Écouter un exemple" variant="primary" size="lg" />
             <a href="mailto:contact@sparra.fr">Préparer un pilote ensemble</a>
           </div>
-          <p className="sparra-pilot">Le service est en préparation. Le raccordement de la ligne et le relais humain seront vérifiés lors du pilote.</p>
+          <p className="sparra-pilot">Sparra est disponible en pilote accompagné. Le renvoi depuis votre ligne et le transfert à une personne restent à configurer et vérifier.</p>
         </div>
       </section>
       <SparraDemo />
@@ -31,7 +32,7 @@ export function SparraLanding(): React.JSX.Element {
         <p>Votre numéro, si le renvoi est compatible</p><p>Aucun matériel spécifique au parcours retenu</p><p>Configuration accompagnée</p><p>Vos règles, votre contrôle</p>
       </div>
       <section id="fonctionnement" className="sparra-section sparra-width" aria-labelledby="sparra-how">
-        <div className="sparra-section-heading"><h2 id="sparra-how">Un appel reçu.<br />Une demande claire.</h2><p>Le fonctionnement prévu du service, à qualifier ensemble dans le pilote.</p></div>
+        <div className="sparra-section-heading"><h2 id="sparra-how">Un appel reçu.<br />Une demande claire.</h2><p>Le parcours du pilote, de votre configuration aux appels reçus.</p></div>
         <ol className="sparra-steps">
           <li><h3>Vous nous expliquez votre activité</h3><p>Horaires, prestations, tarifs, questions fréquentes, consignes.</p></li>
           <li><h3>Vous connectez votre ligne</h3><p>Vous gardez votre numéro existant lorsque le renvoi de votre ligne le permet. Sparra peut intervenir selon vos règles.</p></li>
@@ -51,6 +52,6 @@ export function SparraLanding(): React.JSX.Element {
         <div><Button className="sparra-contact" href="mailto:contact@sparra.fr" label="Échanger sur votre besoin" variant="primary" size="lg" /><p>Ouvre un e-mail à contact@sparra.fr.</p></div>
       </section>
     </main>
-    <footer className="sparra-footer sparra-width"><a className="sparra-wordmark" href="/">sparra<span aria-hidden="true">.</span></a><p>Assistant téléphonique IA pour les professionnels locaux.</p><a href="mailto:contact@sparra.fr">contact@sparra.fr</a></footer>
+    <footer className="sparra-footer sparra-width"><a className="sparra-wordmark" href="/">sparra<span aria-hidden="true">.</span></a><p>Assistant téléphonique IA pour les professionnels locaux.</p><a href="/app?lang=fr">Mon espace</a><a href="mailto:contact@sparra.fr">contact@sparra.fr</a></footer>
   </div>
 }

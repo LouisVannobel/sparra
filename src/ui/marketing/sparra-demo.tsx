@@ -77,7 +77,7 @@ export function SparraDemo(): React.JSX.Element {
     <div className="sparra-section-heading">
       <h2 id="sparra-demo-title">Un appel, des deux côtés.</h2>
       <p>Exemple enregistré — scénario fictif</p>
-      <p className="sparra-example-label">Illustration vocale pour cette prévisualisation. Le service et les appels du pilote restent à qualifier.</p>
+      <p className="sparra-example-label">Exemple illustratif : écoutez la conversation et découvrez la fiche que l’entreprise peut recevoir.</p>
     </div>
     <div className="sparra-demo-window">
     <div className="sparra-demo-toolbar"><span className="sparra-demo-wordmark">sparra<span aria-hidden="true">.</span></span><span className="sparra-demo-caption">Exemple enregistré · scénario fictif</span></div>

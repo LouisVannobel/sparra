@@ -84,6 +84,34 @@ test('private and missing routes keep their protected headers', async () => {
   }
 })
 
+test('public header and footer expose the existing private entry in French', async () => {
+  const base = await launch()
+  const response = await fetch(base, { signal: AbortSignal.timeout(3000) })
+  expect(response.status).toBe(200)
+  const html = await response.text()
+  for (const landmark of ['header', 'footer']) {
+    const section = new RegExp(`<${landmark}\\b[^>]*>([\\s\\S]*?)</${landmark}>`).exec(html)?.[1]
+    expect(section).toMatch(/<a href="\/app\?lang=fr">Mon espace<\/a>/)
+  }
+})
+
+test('public pilot and demo copy preserve the illustrative and unqualified limits', async () => {
+  const base = await launch()
+  const response = await fetch(base, { signal: AbortSignal.timeout(3000) })
+  expect(response.status).toBe(200)
+  const html = await response.text()
+  expect(html).toContain('<meta name="description" content="Sparra est un assistant téléphonique IA pour les professionnels locaux. Découvrez sa démo et son pilote : répondre aux appels et transmettre les demandes à votre équipe."')
+  expect(html).toContain('Sparra est disponible en pilote accompagné. Le renvoi depuis votre ligne et le transfert à une personne restent à configurer et vérifier.')
+  expect(html).toContain('Le parcours du pilote, de votre configuration aux appels reçus.')
+  expect(html).toContain('Exemple illustratif : écoutez la conversation et découvrez la fiche que l’entreprise peut recevoir.')
+  expect(html).toContain('Exemple enregistré — scénario fictif')
+  expect(html).toContain('Fiche illustrative — aucune demande réelle envoyée.')
+  expect(html).toContain('Exemple fictif de connaissances. Lecture seule.')
+  expect(html).toContain('Aucun rendez-vous confirmé sans agenda relié.')
+  expect(html).toContain('il sera qualifié dans le pilote')
+  expect(html).toContain('Les conditions et le tarif seront précisés avant tout engagement.')
+})
+
 test('anonymous raw audio route rejects before owner data access', async () => {
   const base = await launch()
   const response = await fetch(
