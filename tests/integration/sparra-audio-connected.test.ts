@@ -5,7 +5,7 @@ import { afterEach, beforeAll, beforeEach, expect, test } from 'vitest'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import { createRequire } from 'node:module'
+import { fromCrossJSON } from 'seroval'
 import { request as httpRequest, type IncomingMessage } from 'node:http'
 import { fetch as loopbackFetch } from 'undici'
 import { startDisposableStores } from '../fixtures/db/disposable-stores'
@@ -13,6 +13,7 @@ import { cryptoFixture, resolveVoiceProducer } from '../helpers/sparra-crypto-fi
 import { startConnectedVoice } from '../helpers/sparra-voice-driver'
 import { bounded, unusedLoopbackPort, startWeb } from '../helpers/web-process'
 import { nativeImage } from '../helpers/native-image'
+import { googleRpcNode } from '../helpers/google-rpc-node'
 import { authRpcPath, rpcBody } from '../helpers/auth-rpc'
 
 let stores: Awaited<ReturnType<typeof startDisposableStores>>, crypto: Awaited<ReturnType<typeof cryptoFixture>>
@@ -23,47 +24,8 @@ let webImage: Awaited<ReturnType<typeof nativeImage>>
 let cookie: string, origin: string, workspaceId: string
 let expectedVoiceExit = 0
 const TRANSFER_CAPTURE_TEST = 'native accepted local capture joins before real request_human transfer intent and SDK dispatch'
-const startRequire = createRequire(import.meta.resolve('@tanstack/react-start'))
-const nativeRequire = createRequire(startRequire.resolve('@tanstack/start-client-core/package.json'))
-// Use the selected transitive package's actual declaration, including its
-// required options, without introducing another package or runtime alias.
-const { fromCrossJSON }: typeof import('../../node_modules/.pnpm/seroval@1.6.7/node_modules/seroval/dist/index') = nativeRequire('seroval')
 const phaseEpoch = performance.now()
 function phase(name: string) { console.log('PAIRED_APP_PHASE ' + name + ' elapsed_ms=' + Math.round(performance.now() - phaseEpoch)) }
-type RpcNode = import('../../node_modules/.pnpm/seroval@1.6.7/node_modules/seroval/dist/index').SerovalNode
-function googleRpcNode(value: unknown, depth = 0): RpcNode {
-  if (!value || typeof value !== 'object' || depth > 3 || !('t' in value)) throw new Error('Native Google node unavailable')
-  const base = { i: undefined, s: undefined, c: undefined, m: undefined, p: undefined, e: undefined,
-    a: undefined, f: undefined, b: undefined, o: undefined, l: undefined }
-  // Start includes an undefined error member in its successful envelope.
-  // Seroval represents null/undefined as public Constant nodes 0/1.
-  if (value.t === 2 && 's' in value && (value.s === 0 || value.s === 1)) {
-    return { ...base, t: 2, s: value.s }
-  }
-  // The two consumed DTOs contain only objects and URL/receipt strings.
-  // Preserve their public Seroval tags/IDs/flags while checking every child;
-  // the native decoder still owns the actual object/reference construction.
-  if (value.t === 1 && 's' in value && typeof value.s === 'string' && value.s.length <= 8192) {
-    return { ...base, t: 1, s: value.s }
-  }
-  if ((value.t === 10 || value.t === 11) && 'i' in value && typeof value.i === 'number'
-    && Number.isSafeInteger(value.i) && value.i >= 0 && 'o' in value
-    && (value.o === 0 || value.o === 1 || value.o === 2 || value.o === 3) && 'p' in value && value.p
-    && typeof value.p === 'object' && 'k' in value.p && 'v' in value.p
-    && Array.isArray(value.p.k) && Array.isArray(value.p.v) && value.p.k.length <= 8
-    && value.p.k.length === value.p.v.length) {
-    const keys: string[] = []
-    for (const key of value.p.k) {
-      if (typeof key !== 'string' || key.length > 128) throw new Error('Native Google node unavailable')
-      keys.push(key)
-    }
-    return { ...base, t: value.t, i: value.i, o: value.o, p: { k: keys, v: value.p.v.map(child => googleRpcNode(child, depth + 1)) } }
-  }
-  console.log('PAIRED_SEROVAL_NODE rejected depth=' + depth + ' tag=' +
-    (typeof value.t === 'number' && Number.isSafeInteger(value.t) ? value.t : 'non-numeric'))
-  throw new Error('Native Google node unavailable')
-}
-
 async function nativeRpc(name: Parameters<typeof authRpcPath>[0], data: unknown, cookies = cookie) {
   return loopbackFetch(origin + await authRpcPath(name), { method: 'POST', redirect: 'manual',
     headers: { origin, cookie: cookies ?? '', 'content-type': 'application/json', 'x-tsr-serverFn': 'true', 'x-real-ip': '127.0.1.5' },
