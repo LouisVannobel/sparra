@@ -70,7 +70,41 @@ test('real Astryx create/read/rename persists through reload and process restart
   expect(await page.getByRole('main').count()).toBe(1)
   expect(await page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'Business',exact:true}).count()).toBe(1)
   expect(await page.title()).toBe('Your personal workspace')
-  expect((await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa']).analyze()).violations).toEqual([])
+  const createButtonState = async () => {
+    try { return await page.evaluate(() => {
+    const button=document.querySelector('.sparra-app .auth-workspace button.astryx-button[data-variant="primary"]')
+    if (!(button instanceof HTMLButtonElement)) return { available:false }
+    const finite = (value:unknown,min:number,max:number) => typeof value==='number' && Number.isFinite(value) && value>=min && value<=max ? value : null
+    const aria = (name:'aria-disabled'|'aria-busy') => {
+      const value=button.getAttribute(name)
+      return value===null ? 'absent' : value==='true' ? 'true' : value==='false' ? 'false' : 'other'
+    }
+    const style = (element:Element) => {
+      const computed=getComputedStyle(element)
+      return {opacity:finite(Number(computed.opacity),0,1),color:computed.color.slice(0,80),backgroundColor:computed.backgroundColor.slice(0,80)}
+    }
+    const label=button.querySelector('span.xlyipyv')
+    return {
+      available:true,connected:button.isConnected,enabled:!button.disabled,disabled:button.disabled,
+      disabledAttribute:button.hasAttribute('disabled'),matchesDisabled:button.matches(':disabled'),ariaDisabled:aria('aria-disabled'),ariaBusy:aria('aria-busy'),
+      button:style(button),label:label ? style(label) : null,
+      animations:button.getAnimations({subtree:true}).slice(0,4).map(animation => {
+        const timing=animation.effect?.getComputedTiming()
+        const property=animation instanceof CSSTransition ? ['opacity','color','background-color','background-image','transform'].find(value => value===animation.transitionProperty) ?? 'other' : null
+        return {kind:animation instanceof CSSTransition ? 'transition' : animation instanceof CSSAnimation ? 'animation' : 'other',property,
+          state:animation.playState,pending:animation.pending,currentTimeMs:finite(animation.currentTime,-60000,60000),durationMs:finite(timing?.duration,0,60000),progress:finite(timing?.progress,0,1)}
+      }),
+    }
+    }) } catch { return { available:false } }
+  }
+  // These snapshots bracket analyze; neither timestamps the color-contrast rule itself.
+  const beforeWorkspaceAxe=await createButtonState()
+  const workspaceAxe=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa']).analyze()
+  if (workspaceAxe.violations.length) {
+    try { console.error('workspace-axe-trace',JSON.stringify({boundary:'around-analyze',before:beforeWorkspaceAxe,after:await createButtonState()})) }
+    catch { /* Diagnostic emission cannot replace the Axe assertion. */ }
+  }
+  expect(workspaceAxe.violations).toEqual([])
   expect((await stores.administrator.query('SELECT count(*)::int AS n FROM workspace')).rows[0].n).toBe(0)
   let release = () => {}
   const held = new Promise<void>(resolve => { release=resolve })
