@@ -70,6 +70,28 @@ test('native immutable redirect headers retain their location and protected defa
   expect(original.headers.get('content-security-policy')).toBeNull()
 })
 
+test('only a successful private request detail document permits its same-origin player', () => {
+  const request=new Request('https://fixture.example/app/demandes/11111111-1111-4111-8111-111111111111?lang=fr')
+  const response=responseWithSecurityHeaders(request,new Response('<main>Private request</main>',{
+    headers:{'content-type':'text/html; charset=utf-8'},
+  }),nonce)
+  expect(response.headers.get('content-security-policy')).toBe(privateCsp+"; media-src 'self'")
+  expect(response.headers.get('cache-control')).toBe('no-store')
+  expect(response.headers.get('x-robots-tag')).toBe('noindex')
+})
+
+test.each([
+  ['/login',200,'text/html'],
+  ['/app',200,'text/html'],
+  ['/app/demandes/not-a-uuid',200,'text/html'],
+  ['/app/demandes/11111111-1111-4111-8111-111111111111',401,'text/html'],
+  ['/api/sparra/audio/11111111-1111-4111-8111-111111111111',200,'audio/wav'],
+] as const)('private media permission is absent on %s/status%s/type%s',(path,status,type)=>{
+  const response=responseWithSecurityHeaders(new Request('https://fixture.example'+path),
+    new Response(null,{status,headers:{'content-type':type}}),nonce)
+  expect(response.headers.get('content-security-policy')).toBe(privateCsp)
+})
+
 test('private policy preserves cookies, status and opaque body without reading the request or stream', async () => {
   class UnreadRequest extends Request {
     override get body(): never { throw new Error('Response headers must not read the request body') }

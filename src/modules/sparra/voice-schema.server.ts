@@ -13,11 +13,14 @@ export const voiceDeploymentBinding=privateSchema.table('deployment_binding',{
   serviceLogin:name('service_login').primaryKey(),serviceRoleOid:oid('service_role_oid').notNull().unique(),
   deploymentId:text('deployment_id').notNull().unique(),workspaceId:uuid('workspace_id').notNull().references(()=>workspace.id,{onDelete:'restrict'}),
   connectionId:text('connection_id').notNull(),toE164:text('to_e164').notNull(),admissionEnabled:boolean('admission_enabled').notNull().default(false),audioEnabled:boolean('audio_enabled').notNull().default(false),
+  contractVersion:integer('contract_version').notNull().default(1),localAudioEnabled:boolean('local_audio_enabled').notNull().default(false),
 },t=>[
   check('voice_binding_deployment',sql`length(${t.deploymentId}) between 1 and 256 and ${t.deploymentId} !~ '[[:cntrl:]]'`),
   check('voice_binding_connection',sql`octet_length(${t.connectionId}) between 1 and 256 and ${t.connectionId} !~ '[[:cntrl:]]'`),
   check('voice_binding_did',sql`${t.toE164} ~ '^\\+[1-9][0-9]{1,14}$'`),
+  check('voice_binding_contract_version',sql`${t.contractVersion} in (1,2)`),
   pgPolicy('voice_binding_read',{to:'sparra_voice_definer',for:'select',using:sql`${t.serviceLogin} = session_user and ${t.serviceRoleOid} = (select oid from pg_catalog.pg_roles where rolname = session_user)`}),
+  pgPolicy('voice_binding_local_audio_read',{to:'workspace_owner',for:'select',using:sql`${t.workspaceId}::text = current_setting('app.tenant_id',true) and current_setting('app.tenant_id',true) <> '00000000-0000-0000-0000-000000000000' and ${t.admissionEnabled} and ${t.contractVersion} = 2 and ${t.localAudioEnabled}`}),
 ]).enableRLS()
 export const voiceOperationReceipt=privateSchema.table('operation_receipt',{
   deploymentId:text('deployment_id').notNull(),operationId:uuid('operation_id').notNull(),workspaceId:uuid('workspace_id').notNull(),callId:uuid('call_id').notNull(),payloadSha256:text('payload_sha256').notNull(),occurredAt:date('occurred_at').notNull(),originalRetentionUntil:date('original_retention_until').notNull(),

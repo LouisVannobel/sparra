@@ -2,12 +2,14 @@ import type { AuthTransactions } from './db/transactions.server'
 import type { createAuthRateLimiter } from '../modules/auth/rate-limit.server'
 import type { createApplicationAuth } from '../modules/auth/auth.server'
 import type { createPersonalWorkspaces } from '../modules/workspaces/personal.server'
+import type { createAudioReaderOwner } from '../modules/sparra/audio-reader.server'
 
 export type WebResources = Readonly<{
   transactions: AuthTransactions
   limiter: ReturnType<typeof createAuthRateLimiter>
   auth: ReturnType<typeof createApplicationAuth> | null
   workspaces: ReturnType<typeof createPersonalWorkspaces>
+  audioReader?: ReturnType<typeof createAudioReaderOwner>
   isReady(): boolean
 }>
 

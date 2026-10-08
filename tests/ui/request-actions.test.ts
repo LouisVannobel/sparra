@@ -7,7 +7,7 @@ const detail: RequestDetailDto = {
   endedAt: '2026-10-01T10:03:00.000Z', status: 'closed', configurationRevision: 7,
   treatedAt: null, resultAvailability: 'available', resultQuality: 'partial', category: 'information',
   summary: 'Local request text', contact: { name: 'Camille', callback_e164: '+33123456789', preference: 'Afternoon', callback_source: 'caller', callback_confirmed: false },
-  nextAction: 'Check the request', configuration: { workspaceId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', revision: 7, savedAt: '2026-09-30T10:00:00.000Z', businessName: 'Local garage', sector: 'garage', knowledge: { openingHours: '09:00–17:00', services: 'Oil change', prices: '', faq: 'Bring the vehicle papers', instructions: 'Ask before proceeding' }, transferDestination: null },
+  nextAction: 'Check the request', configuration: { workspaceId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', revision: 7, savedAt: '2026-09-30T10:00:00.000Z', businessName: 'Local garage', sector: 'garage', knowledge: { openingHours: '09:00–17:00', services: 'Oil change', prices: '', faq: 'Bring the vehicle papers', instructions: 'Ask before proceeding' }, transferDestination: null, recordingPolicy: 'off', recordingContactPhone: null },
   transcript: [{ id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', ordinal: 1, role: 'user', text: 'Caller turn', interrupted: false, startedAt: '2026-10-01T10:00:00.000Z' }],
   transcriptAvailability: 'partial', unavailableTurnCount: 2, moreTurns: true, transcriptLossCount: 3, erasureState: null,
 }

@@ -12,6 +12,7 @@ const coverageDirectory = join(root, 'coverage')
 const publication = join(coverageDirectory, 'coverage-final.json')
 const runId = randomUUID()
 const runDirectory = join(coverageDirectory, '.native-' + runId)
+const playbackScreenshots = join(runDirectory, 'playback-screenshots')
 const pending = join(coverageDirectory, '.coverage-final-' + runId + '.pending')
 const vitestCli = join(root, 'node_modules/vitest/vitest.mjs')
 let coverageOwner, runOwner, pendingOwner, frozenIdentity, version, voice
@@ -35,7 +36,8 @@ async function runPhase(name, args, timeout) {
   assertFrozenIdentity()
   await voice?.assertIdentity()
   process.stdout.write('[tests] ' + name + '\n')
-  const env = { ...process.env, ...(voice ? { SPARRA_VOICE_TEST_ROOT: voice.root, SPARRA_VOICE_FIXTURE_PYTHON: voice.fixturePython, SPARRA_VOICE_NLTK_DATA: voice.testEnvironment.NLTK_DATA, SPARRA_VOICE_TEST_HOME: voice.testEnvironment.HOME, SPARRA_VOICE_TOKENIZER_ARCHIVE: voice.tokenizerArchive } : {}) }
+  const env = { ...process.env, SPARRA_PLAYBACK_SCREENSHOT_DIR: playbackScreenshots,
+    ...(voice ? { SPARRA_VOICE_TEST_ROOT: voice.root, SPARRA_VOICE_FIXTURE_PYTHON: voice.fixturePython, SPARRA_VOICE_NLTK_DATA: voice.testEnvironment.NLTK_DATA, SPARRA_VOICE_TEST_HOME: voice.testEnvironment.HOME, SPARRA_VOICE_TOKENIZER_ARCHIVE: voice.tokenizerArchive } : {}) }
   const result = await runNativePhase(process.execPath, args, { cwd: root, env, timeout })
   if (!result.cleanExit) {
     consumerCleanupUnknown=true
@@ -66,6 +68,7 @@ function admitBlobs() {
 
 function retireRun() {
   assertOwnedRun()
+  // The owned browser screenshots retire with the same checked native run tree.
   rmSync(runDirectory, { recursive: true })
 }
 
@@ -85,7 +88,7 @@ try {
     || metadata.devDependencies['@vitest/coverage-istanbul'] !== providerVersion || version !== providerVersion) throw new Error('Native coverage runtime pins mismatch')
   if (!lstatSync(join(root, '.output/server/index.mjs')).isFile()) throw new Error('Native coverage requires the frozen web build')
   mkdirSync(runDirectory, { mode: 0o700 }); runOwner = assertDirectory(runDirectory)
-  for (const directory of ['blobs', 'ordinary', 'activity', 'requests', 'final']) mkdirSync(join(runDirectory, directory), { mode: 0o700 })
+  for (const directory of ['blobs', 'ordinary', 'activity', 'requests', 'final', 'playback-screenshots']) mkdirSync(join(runDirectory, directory), { mode: 0o700 })
   frozenIdentity = sourceIdentity(root)
   await runPhase('prerequisites', [join(root, 'scripts/test-prerequisites.mjs')], 300000)
   voice = await prepareVoiceSource({ appRoot: root })
@@ -106,7 +109,11 @@ try {
   ], 180000)
   assertRecordingReceiptQualification(recordingReport, root, startedAt)
   const requestsReport = join(runDirectory, 'requests-qualification.json')
-  await runPhase('requests qualification', [vitestCli, 'run', '--config', 'vitest.integration.config.ts', 'tests/integration/sparra-requests.test.ts', '--maxWorkers=1', '--coverage', '--reporter=default', '--reporter=json', '--reporter=blob', '--outputFile.json=' + requestsReport,
+  await runPhase('requests qualification', [vitestCli, 'run', '--config', 'vitest.integration.config.ts',
+    'tests/integration/sparra-requests.test.ts','tests/integration/sparra-audio-reader-store.test.ts',
+    'tests/integration/sparra-audio-playback.test.ts','tests/integration/sparra-audio-reader-retirement.test.ts',
+    'tests/integration/sparra-audio-connected.test.ts',
+    '--maxWorkers=1', '--coverage', '--reporter=default', '--reporter=json', '--reporter=blob', '--outputFile.json=' + requestsReport,
     '--outputFile.blob='+join(blobs,'requests.json'),'--coverage.reportsDirectory='+join(runDirectory,'requests')], 600000)
   assertRequestsQualification(requestsReport,root,startedAt)
   admitBlob('requests')

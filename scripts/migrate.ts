@@ -1,6 +1,8 @@
 import { Client } from 'pg'
 import { readMigrationFiles } from 'drizzle-orm/migrator'
-import { Redacted } from 'effect'
+import { Redacted, Schema } from 'effect'
+import { constants } from 'node:fs'
+import { lstat, open, realpath } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { readMigrationConfig } from '../src/platform/db/config.server.ts'
 import { ConfigurationError } from '../src/platform/config.server.ts'
@@ -9,9 +11,34 @@ import { normalizeAuthEmail } from '../src/modules/auth/auth-email-normalization
 // Explicit one-shot process: migration credentials never enter the web graph.
 let commitAttempted = false
 let committed = false
+const retirementSchema = Schema.Struct({ schema_version: Schema.Literal(1),
+  incarnation: Schema.String.check(Schema.isUUID()),
+  container_id: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)),
+  deployment_id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
+  restart_policy: Schema.Literal('no'), container_state: Schema.Literal('removed'),
+  proof_id: Schema.String.check(Schema.isUUID()),
+  finished_at: Schema.String.check(Schema.isPattern(/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}.[0-9]{3}Z$/),
+    Schema.makeFilter(value=>Number.isFinite(Date.parse(value))&&new Date(value).toISOString()===value)),
+  exit_code: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0),Schema.isLessThanOrEqualTo(255)),
+  exclusivity_reference: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)) })
+async function readReaderRetirementProof() {
+  const path='/run/sparra/audio-retirement-proof.json',before=await lstat(path)
+  if(!before.isFile()||before.isSymbolicLink()||before.size>4096||before.mode&0o022||await realpath(path)!==path)throw new Error('Reader proof unavailable')
+  const file=await open(path,constants.O_RDONLY|(constants.O_NOFOLLOW??0))
+  try{
+    const opened=await file.stat(),buffer=Buffer.alloc(4097)
+    if(opened.ino!==before.ino||opened.dev!==before.dev)throw new Error('Reader proof unavailable')
+    const {bytesRead}=await file.read(buffer,0,buffer.length,0)
+    if(bytesRead!==before.size||bytesRead>4096)throw new Error('Reader proof unavailable')
+    return Schema.decodeUnknownSync(retirementSchema,{onExcessProperty:'error'})(JSON.parse(buffer.subarray(0,bytesRead).toString('utf8')))
+  }finally{await file.close()}
+}
 try {
+  const args=process.argv.slice(2)
+  if(args.length>1||args.length===1&&args[0]!=='retire-audio-readers')throw new Error('Migration command unavailable')
+  const retirement=args.length===1?await readReaderRetirementProof():null
   const config = readMigrationConfig(process.env)
-  const migrations = readMigrationFiles({ migrationsFolder: fileURLToPath(new URL('../drizzle', import.meta.url)) })
+  const migrations = retirement?[]:readMigrationFiles({ migrationsFolder: fileURLToPath(new URL('../drizzle', import.meta.url)) })
   const client = new Client({
     connectionString: Redacted.value(config.url),
     connectionTimeoutMillis: config.connectTimeoutMs,
@@ -33,6 +60,10 @@ try {
     if (version.rows[0]?.version !== '160015') throw new Error('Unsupported database')
     await client.query('BEGIN ISOLATION LEVEL READ COMMITTED')
     transactionStarted = true
+    if(retirement){
+      await client.query('SELECT public.sparra_audio_retire_readers_v1($1::uuid,$2::text,$3::text)',
+        [retirement.incarnation,retirement.container_id,retirement.deployment_id])
+    }else{
     // Drizzle0.45.2-compatible journal and public reader; this CLI alone owns
     // the transaction so its exact JS preflight shares the final commit.
     await client.query('CREATE SCHEMA IF NOT EXISTS drizzle')
@@ -50,6 +81,7 @@ try {
     // Initial absence is not validation. Fresh schema/data/journal are still
     // provisional here; the fixed User relation must exist and pass the scan.
     if (!existingUser) await assertCanonicalUsers()
+    }
     commitAttempted = true
     const result = await client.query('COMMIT')
     if (result.command !== 'COMMIT') throw new Error('Migration commit was not acknowledged')
@@ -64,7 +96,7 @@ try {
       finally { await client.end() }
     } finally { clearTimeout(timer) }
   }
-  process.stdout.write('Database migrations applied\n')
+  process.stdout.write(retirement?'Audio reader retirement applied\n':'Database migrations applied\n')
 } catch (error) {
   process.stderr.write(error instanceof ConfigurationError ? `${error.message}\n` : committed ? 'Database migrations committed; cleanup failed\n'
     : commitAttempted ? 'Database migration failed; commit was not acknowledged\n' : 'Database migration failed\n')

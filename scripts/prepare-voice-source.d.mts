@@ -8,3 +8,4 @@ export function createVoiceSourceScope(parent:string,members?:Map<string,Buffer>
   directory:string;root:string;install:(members:Map<string,Buffer>)=>Promise<void>;assertIdentity:()=>Promise<void>;retire:()=>Promise<void>
 }>>
 export function installVoiceTokenizer(scope:string,pythonExecutable:string,archive:Buffer):Promise<Readonly<{HOME:string;APPDATA:string;NLTK_DATA:string}>>
+export function environmentIdentity(root:string,sourceOnly?:boolean):Promise<string>

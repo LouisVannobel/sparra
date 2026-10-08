@@ -64,13 +64,16 @@ function blobValue(table, reference) {
   return table[Number(reference)]
 }
 
-function passedTests(table, task) {
+function passedTests(table, task, leafNames) {
   const result = blobValue(table, task.result)
   if (!result || blobValue(table, result.state) !== 'pass') throw new Error('Native blob contains an incomplete task')
-  if (blobValue(table, task.type) === 'test') return 1
+  if (blobValue(table, task.type) === 'test') {
+    leafNames?.push(blobValue(table, task.name))
+    return 1
+  }
   const children = blobValue(table, task.tasks)
   if (!Array.isArray(children)) throw new Error('Native blob contains an invalid suite')
-  return children.reduce((count, reference) => count + passedTests(table, blobValue(table, reference)), 0)
+  return children.reduce((count, reference) => count + passedTests(table, blobValue(table, reference), leafNames), 0)
 }
 
 function readBlob(filePath, startedAt, version) {
@@ -111,7 +114,18 @@ function admitCoverageEntries(table, coverage, root) {
   }
 }
 
-function admitTestFile(table, file, name, fileCount, root, startedAt) {
+function requestsBlobFile(table,file,fileCount,root,seen) {
+  const filepath=resolve(blobValue(table,file.filepath))
+  const consumer=requestConsumers.find(([path])=>filepath===join(root,path))
+  if(fileCount!==5||!consumer||seen.has(filepath))throw new Error('Native requests blob has an unexpected consumer')
+  seen.add(filepath)
+  const names=[],count=passedTests(table,file,names)
+  if(count!==consumer[1].length)throw new Error('Native coverage test cardinality mismatch')
+  if(names.some((name,index)=>name!==consumer[1][index]))throw new Error('Native requests blob has unexpected leaves')
+  return count
+}
+
+function admitTestFile(table, file, name, fileCount, root, startedAt, seen) {
   const filepath = blobValue(table, file.filepath)
   const result = blobValue(table, file.result), project = blobValue(table, file.projectName)
   assertSourcePath(filepath, root)
@@ -119,9 +133,7 @@ function admitTestFile(table, file, name, fileCount, root, startedAt) {
   if (name === 'activity' && (fileCount !== 1 || resolve(filepath) !== join(root, 'tests/integration/sparra-activity.test.ts'))) {
     throw new Error('Native activity blob has an unexpected consumer')
   }
-  if (name === 'requests' && (fileCount !== 1 || resolve(filepath) !== join(root, 'tests/integration/sparra-requests.test.ts'))) {
-    throw new Error('Native requests blob has an unexpected consumer')
-  }
+  if (name === 'requests') return requestsBlobFile(table,file,fileCount,root,seen)
   return passedTests(table, file)
 }
 
@@ -130,10 +142,11 @@ export function readNativeBlob(filePath, name, root, startedAt, version) {
   const {table, envelope, digest} = readBlob(filePath, startedAt, version)
   const files = admitEnvelope(table, envelope)
   let count = 0
+  const seen=new Set()
   for (const reference of files) {
-    count += admitTestFile(table, blobValue(table, reference), name, files.length, root, startedAt)
+    count += admitTestFile(table, blobValue(table, reference), name, files.length, root, startedAt, seen)
   }
-  if (!count || (name === 'activity' && count !== 12) || (name === 'requests' && count !== 8)) throw new Error('Native coverage test cardinality mismatch')
+  if (!count || (name === 'activity' && count !== 12) || (name === 'requests' && count !== 33)) throw new Error('Native coverage test cardinality mismatch')
   const coverage = blobValue(table, envelope[3])
   admitCoverageEntries(table, coverage, root)
   return { table, coverage, digest }
@@ -175,24 +188,67 @@ const requestsLeafNames = [
     'built native RPC enforces strict input, auth, missing and foreign Origin, bounded failures and no-store',
   ]
 
+const requestConsumers=[
+  ['tests/integration/sparra-requests.test.ts',requestsLeafNames],
+  ['tests/integration/sparra-audio-reader-store.test.ts',[
+    'exact release uses auth sentinel and waits for the physical Workspace lock',
+    'cleanup releases the exact slot after auth loss and Workspace becomes deleting',
+    'stale A capability cannot release replacement B or a foreign Workspace slot',
+    'final enqueue waits for the physical Workspace lock and emits nothing after denial commits',
+    'native R1 COMMIT handoff keeps successor and held release joined (unknown return: false)',
+    'native R1 COMMIT handoff keeps successor and held release joined (unknown return: true)',
+    'native R1 acquire COMMIT followed by early TCP close joins exact release without enqueue',
+    'native R1 reader serializes same Request auth while the producer SQL result is held',
+  ]],
+  ['tests/integration/sparra-audio-playback.test.ts',[
+    'compiled private GET returns the actual Voice PCM in the exact WAV44 representation',
+    'raw playback refuses anonymous and cross-Workspace callers without exposing PCM',
+    'authenticated HEAD returns WAV metadata and no binary body',
+    'native single Range returns exact bytes and rejects malformed or multipart ranges',
+    'native audio revoke leaves the exact released slot and truncates the paused client response',
+    'native owner erase terminates a paused reader without completing unacknowledged Voice cleanup',
+    'actual private browser player clears its native source on owner erase at 320 and 1280',
+    'compiled R1 session loss releases the exact paused reader without erasing audio or ending the phone call',
+  ]],
+  ['tests/integration/sparra-audio-reader-retirement.test.ts',[
+    'active owned reader cannot issue retirement proof and missing proof leaves unknown slots occupied',
+    'actual crashed and removed reader proof releases only exact A through native migrator and replays idempotently',
+  ]],
+  ['tests/integration/sparra-audio-connected.test.ts',[
+    'native OFF call keeps its original pin when the owner saves ON during the call',
+    'native caller two before acceptance keeps the call active without retaining audio',
+    'native caller two during capture rejects reactivation after processing late caller one and PCM',
+    'native PARTIAL hangup capture and private reader join erase after the real Voice ACK',
+    'native ON capture reaches ready through normal EndFrame and serves its original 30-day WAV',
+    'native candidate CLI refuses stopped success after post-close fixture failure (protocol only)',
+    'native accepted local capture joins before real request_human transfer intent and SDK dispatch',
+  ]],
+]
+
 function requestsSummaryPassed(report) {
-  const counters = {numTotalTests:8,numPassedTests:8,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
+  const counters = {numTotalTests:33,numPassedTests:33,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
   return report?.success === true && Object.entries(counters).every(([key,wanted])=>report[key]===wanted)
 }
 
-function requestsFilePassed(file, root) {
-  return file?.name===join(root,'tests/integration/sparra-requests.test.ts').replaceAll('\\','/')
-    && file.status==='passed' && file.message==='' && Array.isArray(file.assertionResults) && file.assertionResults.length===8
+function requestsFilePassed(file,path,names,root) {
+  return file?.name===join(root,path).replaceAll('\\','/')
+    && file.status==='passed' && file.message==='' && Array.isArray(file.assertionResults) && file.assertionResults.length===names.length
+    && file.assertionResults.every((test,index)=>requestsLeafPassed(test,names[index]))
 }
 
-function requestsLeafPassed(test,index) {
-  return test?.status==='passed' && test.fullName===requestsLeafNames[index] && Array.isArray(test.failureMessages) && test.failureMessages.length===0
+function requestsLeafPassed(test,name) {
+  return test?.status==='passed' && test.fullName===name && Array.isArray(test.failureMessages) && test.failureMessages.length===0
+}
+
+function requestsConsumerPassed(report,path,names,root) {
+  const matches=report.testResults.filter(file=>file?.name===join(root,path).replaceAll('\\','/'))
+  return matches.length===1&&requestsFilePassed(matches[0],path,names,root)
 }
 
 export function assertRequestsReport(report,root) {
-  if(!requestsSummaryPassed(report) || !Array.isArray(report.testResults) || report.testResults.length!==1
-    || !requestsFilePassed(report.testResults[0],root) || !report.testResults[0].assertionResults.every(requestsLeafPassed)) {
-    throw new Error('Native Requests requires its exact eight passing leaves')
+  if(!requestsSummaryPassed(report) || !Array.isArray(report.testResults) || report.testResults.length!==5
+    || !requestConsumers.every(([path,names])=>requestsConsumerPassed(report,path,names,root))) {
+    throw new Error('Native Requests requires its exact five consumers and 33 passing leaves')
   }
 }
 

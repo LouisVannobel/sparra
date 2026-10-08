@@ -1,11 +1,70 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, test } from 'vitest'
+import { afterEach, expect, test, vi } from 'vitest'
+import type { ChildProcess } from 'node:child_process'
+import { performance } from 'node:perf_hooks'
+
+type VerifierObservation={holdEOF:boolean;child:ChildProcess|null;closed:Promise<void>|null;bytesWritten:number}
+const verifier=vi.hoisted(():VerifierObservation=>({holdEOF:false,child:null,closed:null,bytesWritten:0}))
+vi.mock('node:child_process',async importOriginal=>{
+  const actual=await importOriginal<typeof import('node:child_process')>()
+  return {...actual,spawn:(...args:Parameters<typeof actual.spawn>)=>{
+    const child=actual.spawn(...args)
+    if(verifier.holdEOF){
+      verifier.child=child
+      verifier.closed=new Promise(resolve=>child.once('close',()=>resolve()))
+      const input=child.stdin
+      if(!input){child.kill('SIGKILL');throw new Error('Native verifier stdin missing')}
+      vi.spyOn(input,'end').mockImplementation((data:unknown)=>{
+        if(!Buffer.isBuffer(data))throw new Error('Native verifier input must remain bytes')
+        // Bytes are queued to native stdin, not acknowledged by Python.
+        input.write(data);verifier.bytesWritten=data.length
+        return input
+      })
+    }
+    return child
+  }}
+})
+afterEach(()=>{verifier.holdEOF=false;vi.restoreAllMocks()})
 
 const fixture=join(process.cwd(),'tests/fixtures/voice-source')
 const modulePath='../../scripts/voice-source-fixture.mjs'
 const pythonExecutable=process.env.SPARRA_VOICE_FIXTURE_PYTHON??(process.platform==='win32'?'C:/Users/louis/Documents/ChatGPT/.worktrees/sparra-voice-pilot/.venv/Scripts/python.exe':undefined)
+
+test.runIf(process.platform==='linux')('native Linux verifier deadline kills and joins real Python with only stdin EOF held',async()=>{
+  if(typeof pythonExecutable!=='string')throw new Error('Missing qualified Voice fixture interpreter')
+  const {readVoiceSourceFixture}=await import('../../scripts/voice-source-fixture.mjs')
+  const archive=readFileSync(join(fixture,'voice-producer-source.tar.gz'))
+  const manifestBytes=readFileSync(join(fixture,'voice-producer-source.manifest.json'))
+  const manifest=JSON.parse(manifestBytes.toString('utf8'))
+  verifier.holdEOF=true
+  const nativeKill=vi.spyOn(process,'kill')
+  try{
+    const started=performance.now()
+    await expect(readVoiceSourceFixture(archive,manifest,pythonExecutable)).rejects.toThrow('Invalid native Voice source fixture')
+    expect(performance.now()-started).toBeGreaterThanOrEqual(9500)
+    const child=verifier.child
+    if(!child||child.pid===undefined)throw new Error('Actual verifier child was not observed')
+    expect(verifier.bytesWritten).toBeGreaterThan(0);expect(verifier.bytesWritten).toBeLessThanOrEqual(1048576)
+    expect(child.signalCode).toBe('SIGKILL');expect(child.exitCode).toBeNull()
+    const pid=child.pid
+    expect(nativeKill).toHaveBeenCalledWith(-pid,'SIGKILL')
+    expect(()=>process.kill(pid,0)).toThrow()
+    expect(()=>process.kill(-pid,0)).toThrow()
+    expect(readFileSync(join(fixture,'voice-producer-source.tar.gz'))).toEqual(archive)
+    expect(readFileSync(join(fixture,'voice-producer-source.manifest.json'))).toEqual(manifestBytes)
+  }finally{
+    const child=verifier.child
+    if(child?.pid!==undefined&&child.exitCode===null&&child.signalCode===null)process.kill(-child.pid,'SIGKILL')
+    if(verifier.closed){
+      let timer:ReturnType<typeof setTimeout>|undefined
+      try{await Promise.race([verifier.closed,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error('Native verifier cleanup deadline')),2000)})])}
+      finally{clearTimeout(timer)}
+    }
+    verifier.holdEOF=false
+  }
+},15000)
 
 test('reviewed native Voice source fixture exposes exact authenticated members without executing them',async()=>{
   const source:unknown=await import(modulePath)
@@ -13,11 +72,14 @@ test('reviewed native Voice source fixture exposes exact authenticated members w
   const archive=readFileSync(join(fixture,'voice-producer-source.tar.gz'))
   const manifest=JSON.parse(readFileSync(join(fixture,'voice-producer-source.manifest.json'),'utf8'))
   const result=await source.readVoiceSourceFixture(archive,manifest,pythonExecutable)
-  expect(result.commit).toBe('7fb8d72742c42e65455e0ea8634f72556a8a17e2')
-  expect(result.tree).toBe('8b8ecb004fa47d2112a5613e0ad6e3ee79a7f6d9')
+  expect(result.commit).toBe('548805d73203e9020a71af3df30817a063858925')
+  expect(result.tree).toBe('38cc1f1e3b5670a23dcfcbe70f428003d7bc3113')
   expect(result.members).toBeInstanceOf(Map)
-  expect(result.members.size).toBe(48)
+  expect(result.members.size).toBe(52)
   expect(result.members.has('src/projetv0_voice/recording_archive.py')).toBe(true)
+  expect(result.members.has('src/projetv0_voice/audio_contract.py')).toBe(true)
+  expect([...result.members.keys()].filter(path=>path.startsWith('tests/'))).toEqual(['tests/integration/sparra_connected_scenario.py'])
+  expect(createHash('sha256').update(result.members.get('tests/integration/sparra_connected_scenario.py')).digest('hex')).toBe('2fcc736a3f03a8889c86fc12093f960458e301f8f72b91ddac6f0db327cea40c')
   expect(createHash('sha256').update(result.members.get('src/projetv0_voice/models.py')).digest('hex')).toBe('4c5827d20279ad573f3237e41e547bba32162970111d353d80b9b762ae968ec6')
   expect([...result.members.keys()].sort()).toEqual(manifest.members.map((row:{path:string})=>row.path).sort())
   for(const row of manifest.members){
@@ -35,7 +97,7 @@ test.each(['archive-byte','commit','superseded-commit','tree','member-digest','m
   const manifest=JSON.parse(readFileSync(join(fixture,'voice-producer-source.manifest.json'),'utf8'))
   if(kind==='archive-byte')archive[archive.length-1]^=1
   else if(kind==='commit')manifest.commit='0'.repeat(40)
-  else if(kind==='superseded-commit')manifest.commit='9b79ddd69095e7d8c6995e0a88a4e78a16c166c3'
+  else if(kind==='superseded-commit')manifest.commit='c270d4418f20848a0d5c31d8056fdb1f19a08998'
   else if(kind==='tree')manifest.tree='0'.repeat(40)
   else if(kind==='member-digest')manifest.members[0].sha256='0'.repeat(64)
   else if(kind==='member-blob')manifest.members[0].git_blob='0'.repeat(40)

@@ -4,10 +4,10 @@ import { fileURLToPath } from 'node:url'
 import { isAbsolute, join, resolve } from 'node:path'
 import { realpath, stat } from 'node:fs/promises'
 
-const commit='7fb8d72742c42e65455e0ea8634f72556a8a17e2'
-const tree='8b8ecb004fa47d2112a5613e0ad6e3ee79a7f6d9'
-const archiveHash='26c3ea4d4022c0500fbc00e4abcd5d77e98793ff703ef191ed74a02c6ead71c1'
-const inputRoots=['.python-version','pyproject.toml','uv.lock','README.md','src','scripts','agents','deployment-profiles']
+const commit='548805d73203e9020a71af3df30817a063858925'
+const tree='38cc1f1e3b5670a23dcfcbe70f428003d7bc3113'
+const archiveHash='e0624b6d196f9cb314bf87c638b939e181622ddf4d443d20671694ffac7a610d'
+const inputRoots=['.python-version','pyproject.toml','uv.lock','README.md','src','scripts','agents','deployment-profiles','tests/integration/sparra_connected_scenario.py']
 const invalid=()=>new Error('Invalid native Voice source fixture')
 
 async function assertFixtureInterpreter(pythonExecutable){
@@ -17,16 +17,16 @@ async function assertFixtureInterpreter(pythonExecutable){
 
 function assertFixtureProvenance(manifest){
   if(!manifest||manifest.repository!=='LouisVannobel/projetV0-voice'||manifest.commit!==commit||manifest.tree!==tree
-    ||manifest.owned_ref!=='refs/heads/z/sparra-voice-pilot'||JSON.stringify(manifest.input_roots)!==JSON.stringify(inputRoots))throw invalid()
+    ||manifest.owned_ref!=='refs/heads/z/sparra-local-audio'||JSON.stringify(manifest.input_roots)!==JSON.stringify(inputRoots))throw invalid()
 }
 
 function assertFixtureArchive(archive,manifest){
-  if(!Buffer.isBuffer(archive)||archive.length!==263482||createHash('sha256').update(archive).digest('hex')!==archiveHash
-    ||manifest.archive_sha256!==archiveHash||manifest.archive_size!==archive.length||manifest.decoded_source_bytes!==1255844)throw invalid()
+  if(!Buffer.isBuffer(archive)||archive.length!==326272||createHash('sha256').update(archive).digest('hex')!==archiveHash
+    ||manifest.archive_sha256!==archiveHash||manifest.archive_size!==archive.length||manifest.decoded_source_bytes!==1605632)throw invalid()
 }
 
 function assertFixtureMembers(manifest){
-  if(!Array.isArray(manifest.members)||manifest.members.length!==48)throw invalid()
+  if(!Array.isArray(manifest.members)||manifest.members.length!==52)throw invalid()
   if(manifest.members.some(row=>!row||typeof row.path!=='string'||typeof row.sha256!=='string'||!/^([0-9a-f]{64})$/.test(row.sha256)||typeof row.git_blob!=='string'||!/^([0-9a-f]{40})$/.test(row.git_blob)||!Number.isSafeInteger(row.size)||row.size<0||row.size>1048576))throw invalid()
 }
 
@@ -68,10 +68,10 @@ function admitDecodedMember(row,expected){
 function admitVerifierResult(result,manifest){
   let decoded
   try{decoded=JSON.parse(result)}catch{throw invalid()}
-  if(decoded.commit!==commit||decoded.tree!==tree||!Array.isArray(decoded.members)||decoded.members.length!==48)throw invalid()
+  if(decoded.commit!==commit||decoded.tree!==tree||!Array.isArray(decoded.members)||decoded.members.length!==52)throw invalid()
   const expected=new Map(manifest.members.map(row=>[row.path,row]))
   const members=new Map(decoded.members.map(row=>admitDecodedMember(row,expected)))
-  if(members.size!==48)throw invalid()
+  if(members.size!==52)throw invalid()
   return {commit,tree,members}
 }
 

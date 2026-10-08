@@ -23,6 +23,7 @@ import { Route as AuthMagicConfirmRouteImport } from './routes/auth.magic.confir
 import { Route as AuthMagicConsumeRouteImport } from './routes/auth.magic.consume'
 import { Route as AuthMagicEnrollRouteImport } from './routes/auth.magic.enroll'
 import { Route as ApiAuthCallbackGoogleRouteImport } from './routes/api.auth.callback.google'
+import { Route as ApiSparraAudioRequestIdRouteImport } from './routes/api.sparra.audio.$requestId'
 import { Route as ApiAuthAccountGoogleCallbackRouteImport } from './routes/api.auth.account.google.callback'
 import { Route as ApiAuthFirstPasskeyGoogleCallbackRouteImport } from './routes/api.auth.first-passkey.google.callback'
 
@@ -96,6 +97,11 @@ const ApiAuthCallbackGoogleRoute = ApiAuthCallbackGoogleRouteImport.update({
   path: '/api/auth/callback/google',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiSparraAudioRequestIdRoute = ApiSparraAudioRequestIdRouteImport.update({
+  id: '/api/sparra/audio/$requestId',
+  path: '/api/sparra/audio/$requestId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthAccountGoogleCallbackRoute =
   ApiAuthAccountGoogleCallbackRouteImport.update({
     id: '/api/auth/account/google/callback',
@@ -124,6 +130,7 @@ export interface FileRoutesByFullPath {
   '/auth/magic/consume': typeof AuthMagicConsumeRoute
   '/auth/magic/enroll': typeof AuthMagicEnrollRoute
   '/api/auth/callback/google': typeof ApiAuthCallbackGoogleRoute
+  '/api/sparra/audio/$requestId': typeof ApiSparraAudioRequestIdRoute
   '/api/auth/account/google/callback': typeof ApiAuthAccountGoogleCallbackRoute
   '/api/auth/first-passkey/google/callback': typeof ApiAuthFirstPasskeyGoogleCallbackRoute
 }
@@ -141,6 +148,7 @@ export interface FileRoutesByTo {
   '/auth/magic/consume': typeof AuthMagicConsumeRoute
   '/auth/magic/enroll': typeof AuthMagicEnrollRoute
   '/api/auth/callback/google': typeof ApiAuthCallbackGoogleRoute
+  '/api/sparra/audio/$requestId': typeof ApiSparraAudioRequestIdRoute
   '/api/auth/account/google/callback': typeof ApiAuthAccountGoogleCallbackRoute
   '/api/auth/first-passkey/google/callback': typeof ApiAuthFirstPasskeyGoogleCallbackRoute
 }
@@ -160,6 +168,7 @@ export interface FileRoutesById {
   '/auth/magic/consume': typeof AuthMagicConsumeRoute
   '/auth/magic/enroll': typeof AuthMagicEnrollRoute
   '/api/auth/callback/google': typeof ApiAuthCallbackGoogleRoute
+  '/api/sparra/audio/$requestId': typeof ApiSparraAudioRequestIdRoute
   '/api/auth/account/google/callback': typeof ApiAuthAccountGoogleCallbackRoute
   '/api/auth/first-passkey/google/callback': typeof ApiAuthFirstPasskeyGoogleCallbackRoute
 }
@@ -180,6 +189,7 @@ export interface FileRouteTypes {
     | '/auth/magic/consume'
     | '/auth/magic/enroll'
     | '/api/auth/callback/google'
+    | '/api/sparra/audio/$requestId'
     | '/api/auth/account/google/callback'
     | '/api/auth/first-passkey/google/callback'
   fileRoutesByTo: FileRoutesByTo
@@ -197,6 +207,7 @@ export interface FileRouteTypes {
     | '/auth/magic/consume'
     | '/auth/magic/enroll'
     | '/api/auth/callback/google'
+    | '/api/sparra/audio/$requestId'
     | '/api/auth/account/google/callback'
     | '/api/auth/first-passkey/google/callback'
   id:
@@ -215,6 +226,7 @@ export interface FileRouteTypes {
     | '/auth/magic/consume'
     | '/auth/magic/enroll'
     | '/api/auth/callback/google'
+    | '/api/sparra/audio/$requestId'
     | '/api/auth/account/google/callback'
     | '/api/auth/first-passkey/google/callback'
   fileRoutesById: FileRoutesById
@@ -231,6 +243,7 @@ export interface RootRouteChildren {
   AuthMagicConsumeRoute: typeof AuthMagicConsumeRoute
   AuthMagicEnrollRoute: typeof AuthMagicEnrollRoute
   ApiAuthCallbackGoogleRoute: typeof ApiAuthCallbackGoogleRoute
+  ApiSparraAudioRequestIdRoute: typeof ApiSparraAudioRequestIdRoute
   ApiAuthAccountGoogleCallbackRoute: typeof ApiAuthAccountGoogleCallbackRoute
   ApiAuthFirstPasskeyGoogleCallbackRoute: typeof ApiAuthFirstPasskeyGoogleCallbackRoute
 }
@@ -335,6 +348,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthCallbackGoogleRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/sparra/audio/$requestId': {
+      id: '/api/sparra/audio/$requestId'
+      path: '/api/sparra/audio/$requestId'
+      fullPath: '/api/sparra/audio/$requestId'
+      preLoaderRoute: typeof ApiSparraAudioRequestIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/account/google/callback': {
       id: '/api/auth/account/google/callback'
       path: '/api/auth/account/google/callback'
@@ -378,6 +398,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthMagicConsumeRoute: AuthMagicConsumeRoute,
   AuthMagicEnrollRoute: AuthMagicEnrollRoute,
   ApiAuthCallbackGoogleRoute: ApiAuthCallbackGoogleRoute,
+  ApiSparraAudioRequestIdRoute: ApiSparraAudioRequestIdRoute,
   ApiAuthAccountGoogleCallbackRoute: ApiAuthAccountGoogleCallbackRoute,
   ApiAuthFirstPasskeyGoogleCallbackRoute:
     ApiAuthFirstPasskeyGoogleCallbackRoute,

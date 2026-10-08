@@ -5,10 +5,20 @@ import dataclasses
 import importlib.metadata
 import json
 import sys
+import traceback
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from uuid import UUID
+
+incoming = json.loads(sys.stdin.readline())
+if incoming.get("audio_candidate"):
+    print(json.dumps({"phase": "driver-input"}), flush=True)
+if "source_root" in incoming:
+    selected_source = Path(incoming["source_root"])
+    assert selected_source.is_absolute() and selected_source.resolve() == selected_source
+    assert Path(sys.prefix).resolve() == selected_source.parent / ".venv"
+    sys.path.insert(0, str(selected_source))
 
 import psycopg
 from psycopg_pool import AsyncConnectionPool
@@ -29,12 +39,22 @@ async def main():
     assert sys.version_info[:3] == (3, 13, 15)
     for name, version in {"cryptography": "50.0.0", "pipecat-ai": "1.7.0", "psycopg": "3.3.4"}.items():
         assert importlib.metadata.version(name) == version
-    request = json.loads(sys.stdin.readline())
+    request = incoming
     if request["action"] == "connected":
+        if request.get("audio_candidate"):
+            print(json.dumps({"phase": "driver-models"}), flush=True)
         sys.path.insert(0, str(Path(__file__).parents[1]))
         voice_tests = Path(__import__("projetv0_voice").__file__).parents[2] / "tests" / "integration"
         sys.path.insert(0, str(voice_tests))
         from sparra_connected_scenario import connected
+        if request.get("audio_candidate"):
+            print(json.dumps({"phase": "scenario-imported"}), flush=True)
+        if request.get("audio_candidate"):
+            from sparra_connected_scenario import Scenario
+            # Feature RED must fail before the historical Qualified fixture setup.
+            if not hasattr(Scenario, "audio_admit"):
+                print(json.dumps({"error": "audio_candidate_missing"}), flush=True)
+                sys.exit(1)
         return await connected(request)
     if request["action"] == "aggregate_size":
         return {"bytes": len(json.dumps(request["turns"], ensure_ascii=False, separators=(", ", ": "), allow_nan=False).encode("utf-8"))}
@@ -79,4 +99,14 @@ async def main():
 try:
     print(json.dumps({"ok": asyncio.run(main(), loop_factory=asyncio.SelectorEventLoop)}, default=str))
 except Exception as error:
+    frame = traceback.extract_tb(error.__traceback__)[-1]
+    filename = Path(frame.filename).name
+    allowed_files = {"sparra-voice-driver.py", "sparra_connected_scenario.py"}
+    allowed_functions = {"main", "connected", "setup", "event", "observed_asgi", "audio_admit", "attach_media", "open_call", "close"}
+    where = (filename + ":" + (frame.name if frame.name in allowed_functions else "native-code")
+             + ":" + str(frame.lineno)) if filename in allowed_files else "native-code"
+    if incoming.get("action") == "connected":
+        print(json.dumps({"error": type(error).__name__, "where": where}))
+        sys.exit(1)
+    # The single-operation RPC fixture retains its existing error DTO contract.
     print(json.dumps({"error": type(error).__name__}))
