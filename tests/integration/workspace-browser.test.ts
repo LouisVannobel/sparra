@@ -31,6 +31,16 @@ afterAll(async () => {
   if (failures.length) throw new AggregateError(failures, 'Workspace browser cleanup failed')
 })
 
+function classifyLoginPageErrors(errors: string[]) {
+  const pageErrors = { 'dynamic-module-fetch':0, other:0 }
+  const pageErrorsTruncated = errors.length>32
+  for (const message of errors.slice(0,32)) {
+    const kind = message.startsWith('Failed to fetch dynamically imported module:') ? 'dynamic-module-fetch' : 'other'
+    pageErrors[kind]++
+  }
+  return { pageErrors, pageErrorsTruncated }
+}
+
 test('real Astryx create/read/rename persists through reload and process restart; FR/EN, 320px, keyboard and private-state refusal', async () => {
   const context = await browser.newContext({viewport:{width:320,height:720}}), page = await context.newPage()
   await context.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort())
@@ -51,12 +61,7 @@ test('real Astryx create/read/rename persists through reload and process restart
     await expect.poll(() => page.getByRole('button',{name:'Continue with Google'}).isEnabled(), {timeout:7000}).toBe(true)
   } catch (error) {
     try {
-      const pageErrors = { 'dynamic-module-fetch':0, other:0 }
-      const pageErrorsTruncated = errors.length>32
-      for (const message of errors.slice(0,32)) {
-        const kind = message.startsWith('Failed to fetch dynamically imported module:') ? 'dynamic-module-fetch' : 'other'
-        pageErrors[kind]++
-      }
+      const { pageErrors, pageErrorsTruncated } = classifyLoginPageErrors(errors)
       const control = await page.evaluate(() => {
         const readyState = ['loading','interactive','complete'].find(value => value===document.readyState) ?? 'other'
         const button = document.querySelector('.auth-login .google-sign-in')
