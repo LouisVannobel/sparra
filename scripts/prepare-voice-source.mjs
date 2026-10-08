@@ -169,14 +169,14 @@ assert production_wiring.CryptoKeyring is crypto.CryptoKeyring
   await run(descriptor.pythonExecutable,['-I','-B','-c',script,descriptor.sourceRoot],{cwd:dirname(descriptor.sourceRoot),env:{...baselineEnv(),...testEnvironment},timeout:60000})
 }
 
-async function environmentIdentity(root,sourceOnly=false){
+export async function environmentIdentity(root,sourceOnly=false){
   const digest=createHash('sha256')
   const sourceRoots=['.python-version','pyproject.toml','uv.lock','README.md','src','scripts','agents','deployment-profiles']
-  function selected(name,logical){
+  const sourceTests=['tests','tests/integration','tests/integration/sparra_connected_scenario.py']
+  function selected(name,logical,label){
     if(!sourceOnly)return true
-    const path=logical?logical+'/'+name:name
-    if(path==='tests'||path.startsWith('tests/'))return path==='tests'||path==='tests/integration'||path==='tests/integration/sparra_connected_scenario.py'
-    if(!logical&&!sourceRoots.includes(name))return false
+    if(label.split('/')[0]==='tests')return sourceTests.includes(label)
+    if(!logical)return sourceRoots.includes(name)
     return name!=='__pycache__'
   }
   async function hashEntry(child,label){
@@ -193,8 +193,8 @@ async function environmentIdentity(root,sourceOnly=false){
   }
   async function visit(path,logical=''){
     for(const name of (await readdir(path)).sort()){
-      if(!selected(name,logical))continue
       const label=logical?logical+'/'+name:name
+      if(!selected(name,logical,label))continue
       digest.update(label).update('\0')
       await hashEntry(join(path,name),label)
       digest.update('\0')
