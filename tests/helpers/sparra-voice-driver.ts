@@ -61,46 +61,88 @@ export function startConnectedVoice(input:{url:string;keyring_path:string;eviden
   const waiters:Array<{resolve:(value:Reply)=>void;reject:(error:Error)=>void}>=[]
   let text='',closed=false,nativeCloseCompleted=false,ackInvariantRefusal:Error|undefined
   const fail=(label:string)=>{closed=true;for(const waiter of waiters.splice(0))waiter.reject(new Error(label))}
+  type Output=Reply&{phase?:string;peak_rss_kib?:number;elapsed_ms?:number;admission_guard?:Record<string,boolean>;audio_terminal_guard?:Record<string,boolean>;audio_ack_refusal?:{condition:string;error_class:string};server_join_guard?:{connections:number;tasks:number;owner_present:boolean;owner_closed:boolean;owner_task_done:boolean;owner_phase:string;stacks:Array<{done:boolean;frames:Array<{file:string;function:string;line:number}>}>;connection_states:Array<{protocol:string;closing:boolean;write_buffer_bytes:number;tls:boolean}>}}
+  type ServerJoinGuard=NonNullable<Output['server_join_guard']>
+
+  function logTransferBoundary(boundary:unknown){
+    if(!input.audio_candidate||!input.audio_transfer_fixture||!boundary||typeof boundary!=='object'||!('before_intent' in boundary)||!('sdk_entry' in boundary)||Object.keys(boundary).length!==2)throw new Error('Invalid transfer boundary')
+    const names=['admission_closed','event_joined','receipt_joined','tail_committed','submitted_committed','finish_transfer_committed','original_retention']
+    for(const at of ['before_intent','sdk_entry'] as const){
+      const facts=boundary[at],keys=at==='sdk_entry'?[...names,'intent_committed','fixed_target']:names
+      if(!facts||typeof facts!=='object'||Object.keys(facts).length!==keys.length||keys.some(name=>!(name in facts))||Object.values(facts).some(fact=>typeof fact!=='boolean'))throw new Error('Invalid transfer boundary')
+    }
+    console.log('PAIRED_TRANSFER_BOUNDARY '+JSON.stringify(boundary))
+  }
+
+  function validateServerConnection(connection:ServerJoinGuard['connection_states'][number]){
+    const protocols=new Set(['H11Protocol','HttpToolsProtocol','WebSocketProtocol','WebSocketsSansIOProtocol','WSProtocol','other'])
+    if(!protocols.has(connection.protocol)||typeof connection.closing!=='boolean'||typeof connection.tls!=='boolean'||!Number.isSafeInteger(connection.write_buffer_bytes)||connection.write_buffer_bytes<0)throw new Error('Invalid diagnostic')
+  }
+
+  function validateServerFrame(frame:ServerJoinGuard['stacks'][number]['frames'][number]){
+    if(typeof frame.file!=='string'||frame.file!=='native-code'&&!/^[a-z_]+(?:\.py)?$/.test(frame.file)||frame.file.length>128||typeof frame.function!=='string'||frame.function!=='native-code'&&!/^[A-Za-z_][A-Za-z0-9_]*$/.test(frame.function)||frame.function.length>128||!Number.isSafeInteger(frame.line)||frame.line<0)throw new Error('Invalid diagnostic')
+  }
+
+  function validateServerStack(stack:ServerJoinGuard['stacks'][number]){
+    if(typeof stack.done!=='boolean'||!Array.isArray(stack.frames)||stack.frames.length>16)throw new Error('Invalid diagnostic')
+    for(const frame of stack.frames)validateServerFrame(frame)
+  }
+
+  function logServerJoinGuard(guard:ServerJoinGuard){
+    const phases=new Set(['absent','gated','constructing','preactivated','finishing','done','other'])
+    if(!input.audio_candidate||Object.keys(guard).length!==8)throw new Error('Invalid diagnostic')
+    if(!Number.isSafeInteger(guard.connections)||guard.connections<0||guard.connections>65535||!Number.isSafeInteger(guard.tasks)||guard.tasks<0||guard.tasks>65535)throw new Error('Invalid diagnostic')
+    if(typeof guard.owner_present!=='boolean'||typeof guard.owner_closed!=='boolean'||typeof guard.owner_task_done!=='boolean'||!phases.has(guard.owner_phase))throw new Error('Invalid diagnostic')
+    if(!Array.isArray(guard.stacks)||guard.stacks.length>8||!Array.isArray(guard.connection_states)||guard.connection_states.length>8)throw new Error('Invalid diagnostic')
+    for(const connection of guard.connection_states)validateServerConnection(connection)
+    for(const stack of guard.stacks)validateServerStack(stack)
+    console.log('PAIRED_SERVER_JOIN_GUARD '+JSON.stringify(guard))
+  }
+
+  function logAudioTerminalGuard(guard:NonNullable<Output['audio_terminal_guard']>){
+    const names=['outbox_empty','terminal_present','terminal_bounded','terminal_known_acked','terminal_cipher_present','terminal_metadata_only','terminal_identity_exact','retention_original_30d']
+    if(!input.audio_candidate||Object.keys(guard).length!==names.length||names.some(name=>typeof guard[name]!=='boolean'))throw new Error('Invalid diagnostic')
+    console.log('PAIRED_AUDIO_TERMINAL_GUARD '+JSON.stringify(guard))
+  }
+
+  function logAudioAckRefusal(refusal:NonNullable<Output['audio_ack_refusal']>){
+    const conditions=new Set(['native_memory_scrub_before_ack','native_begin_holder_scrub_before_ack','native_owner_scrub_before_ack','native_bridge_cache_scrub_before_ack','native_bridge_facts_scrub_before_ack','native_content_removed_before_ack','native_capture_owned_before_ack','native_capture_terminal_before_ack','native_capture_event_joined_before_ack','native_capture_receipts_joined_before_ack','native_cleanup_commit_joined_before_ack','native_audio_ciphertext_removed_before_ack','native_audio_content_removed_known_metadata_before_ack','native_audio_terminal_observation_bound','native_ack_failure'])
+    const classes=new Set(['AssertionError','RuntimeError','PersistenceError','CommandSerializationError','OperationSinkContractError','OperationSinkPermanentError','TimeoutError','OtherException'])
+    if(!input.audio_candidate||Object.keys(refusal).length!==2||!conditions.has(refusal.condition)||!classes.has(refusal.error_class))throw new Error('Invalid diagnostic')
+    ackInvariantRefusal??=new Error('Connected Voice ACK invariant refused: '+refusal.condition)
+    console.log('PAIRED_AUDIO_ACK_REFUSAL '+JSON.stringify(refusal))
+  }
+
+  function logAdmissionGuard(guard:NonNullable<Output['admission_guard']>){
+    const names=['same_call_id','generation_present','same_admitted_created','retention_30d']
+    if(!input.audio_candidate||Object.keys(guard).length!==names.length||names.some(name=>typeof guard[name]!=='boolean'))throw new Error('Invalid diagnostic')
+    console.log('PAIRED_ADMISSION_GUARD '+JSON.stringify(guard))
+  }
+
+  function logPhase(value:Output,phase:string){
+    if(!input.audio_candidate||!phases.has(phase)||value.peak_rss_kib!==undefined&&(!Number.isSafeInteger(value.peak_rss_kib)||value.peak_rss_kib<0)||value.elapsed_ms!==undefined&&(!Number.isSafeInteger(value.elapsed_ms)||value.elapsed_ms<0))throw new Error('Invalid diagnostic')
+    if(phase==='native-close-completed')nativeCloseCompleted=true
+    console.log('PAIRED_VOICE_PHASE '+phase+' elapsed_ms='+Math.round(performance.now()-phaseEpoch)+(value.peak_rss_kib===undefined?'':' peak_rss_kib='+value.peak_rss_kib)+(value.elapsed_ms===undefined?'':' python_elapsed_ms='+value.elapsed_ms))
+  }
+
+  function consumeDiagnostic(value:Output):boolean{
+    if('transfer_boundary' in value){logTransferBoundary(value.transfer_boundary);return true}
+    if(value.server_join_guard!==undefined){logServerJoinGuard(value.server_join_guard);return true}
+    if(value.audio_terminal_guard!==undefined){logAudioTerminalGuard(value.audio_terminal_guard);return true}
+    if(value.audio_ack_refusal!==undefined){logAudioAckRefusal(value.audio_ack_refusal);return true}
+    if(value.admission_guard!==undefined){logAdmissionGuard(value.admission_guard);return true}
+    if(value.phase!==undefined){logPhase(value,value.phase);return true}
+    return false
+  }
+
   child.stdout.on('data',bytes=>{
     text+=bytes.toString()
     if(text.length>2097152){child.kill();fail('Connected Voice output bound');return}
     for(let newline=text.indexOf('\n');newline>=0;newline=text.indexOf('\n')){
       const line=text.slice(0,newline);text=text.slice(newline+1)
       try{
-        const value:Reply&{phase?:string;peak_rss_kib?:number;elapsed_ms?:number;admission_guard?:Record<string,boolean>;audio_terminal_guard?:Record<string,boolean>;audio_ack_refusal?:{condition:string;error_class:string};server_join_guard?:{connections:number;tasks:number;owner_present:boolean;owner_closed:boolean;owner_task_done:boolean;owner_phase:string;stacks:Array<{done:boolean;frames:Array<{file:string;function:string;line:number}>}>;connection_states:Array<{protocol:string;closing:boolean;write_buffer_bytes:number;tls:boolean}>}}=JSON.parse(line)
-        if('transfer_boundary' in value){
-          const boundary=value.transfer_boundary
-          if(!input.audio_candidate||!input.audio_transfer_fixture||!boundary||typeof boundary!=='object'||!('before_intent' in boundary)||!('sdk_entry' in boundary)||Object.keys(boundary).length!==2)throw new Error('Invalid transfer boundary')
-          const names=['admission_closed','event_joined','receipt_joined','tail_committed','submitted_committed','finish_transfer_committed','original_retention']
-          for(const at of ['before_intent','sdk_entry'] as const){const facts=boundary[at];const keys=at==='sdk_entry'?[...names,'intent_committed','fixed_target']:names;if(!facts||typeof facts!=='object'||Object.keys(facts).length!==keys.length||keys.some(name=>!(name in facts))||Object.values(facts).some(fact=>typeof fact!=='boolean'))throw new Error('Invalid transfer boundary')}
-          console.log('PAIRED_TRANSFER_BOUNDARY '+JSON.stringify(boundary));continue
-        }
-        if(value.server_join_guard!==undefined){
-          const guard=value.server_join_guard
-          const phases=new Set(['absent','gated','constructing','preactivated','finishing','done','other'])
-          if(!input.audio_candidate||Object.keys(guard).length!==8||!Number.isSafeInteger(guard.connections)||guard.connections<0||guard.connections>65535||!Number.isSafeInteger(guard.tasks)||guard.tasks<0||guard.tasks>65535||typeof guard.owner_present!=='boolean'||typeof guard.owner_closed!=='boolean'||typeof guard.owner_task_done!=='boolean'||!phases.has(guard.owner_phase)||!Array.isArray(guard.stacks)||guard.stacks.length>8||!Array.isArray(guard.connection_states)||guard.connection_states.length>8)throw new Error('Invalid diagnostic')
-          const protocols=new Set(['H11Protocol','HttpToolsProtocol','WebSocketProtocol','WebSocketsSansIOProtocol','WSProtocol','other'])
-          for(const connection of guard.connection_states){if(!protocols.has(connection.protocol)||typeof connection.closing!=='boolean'||typeof connection.tls!=='boolean'||!Number.isSafeInteger(connection.write_buffer_bytes)||connection.write_buffer_bytes<0)throw new Error('Invalid diagnostic')}
-          for(const stack of guard.stacks){
-            if(typeof stack.done!=='boolean'||!Array.isArray(stack.frames)||stack.frames.length>16)throw new Error('Invalid diagnostic')
-            for(const frame of stack.frames){if(typeof frame.file!=='string'||frame.file!=='native-code'&&!/^[a-z_]+(?:\.py)?$/.test(frame.file)||frame.file.length>128||typeof frame.function!=='string'||frame.function!=='native-code'&&!/^[A-Za-z_][A-Za-z0-9_]*$/.test(frame.function)||frame.function.length>128||!Number.isSafeInteger(frame.line)||frame.line<0)throw new Error('Invalid diagnostic')}
-          }
-          console.log('PAIRED_SERVER_JOIN_GUARD '+JSON.stringify(guard));continue
-        }
-        if(value.audio_terminal_guard!==undefined){
-          const names=['outbox_empty','terminal_present','terminal_bounded','terminal_known_acked','terminal_cipher_present','terminal_metadata_only','terminal_identity_exact','retention_original_30d']
-          if(!input.audio_candidate||Object.keys(value.audio_terminal_guard).length!==names.length||names.some(name=>typeof value.audio_terminal_guard?.[name]!=='boolean'))throw new Error('Invalid diagnostic')
-          console.log('PAIRED_AUDIO_TERMINAL_GUARD '+JSON.stringify(value.audio_terminal_guard));continue
-        }
-        if(value.audio_ack_refusal!==undefined){
-          const conditions=new Set(['native_memory_scrub_before_ack','native_begin_holder_scrub_before_ack','native_owner_scrub_before_ack','native_bridge_cache_scrub_before_ack','native_bridge_facts_scrub_before_ack','native_content_removed_before_ack','native_capture_owned_before_ack','native_capture_terminal_before_ack','native_capture_event_joined_before_ack','native_capture_receipts_joined_before_ack','native_cleanup_commit_joined_before_ack','native_audio_ciphertext_removed_before_ack','native_audio_content_removed_known_metadata_before_ack','native_audio_terminal_observation_bound','native_ack_failure'])
-          const classes=new Set(['AssertionError','RuntimeError','PersistenceError','CommandSerializationError','OperationSinkContractError','OperationSinkPermanentError','TimeoutError','OtherException'])
-          if(!input.audio_candidate||Object.keys(value.audio_ack_refusal).length!==2||!conditions.has(value.audio_ack_refusal.condition)||!classes.has(value.audio_ack_refusal.error_class))throw new Error('Invalid diagnostic')
-          ackInvariantRefusal??=new Error('Connected Voice ACK invariant refused: '+value.audio_ack_refusal.condition)
-          console.log('PAIRED_AUDIO_ACK_REFUSAL '+JSON.stringify(value.audio_ack_refusal));continue
-        }
-        if(value.admission_guard!==undefined){const names=['same_call_id','generation_present','same_admitted_created','retention_30d'];if(!input.audio_candidate||Object.keys(value.admission_guard).length!==names.length||names.some(name=>typeof value.admission_guard?.[name]!=='boolean'))throw new Error('Invalid diagnostic');console.log('PAIRED_ADMISSION_GUARD '+JSON.stringify(value.admission_guard));continue}
-        if(value.phase!==undefined){if(!input.audio_candidate||!phases.has(value.phase)||value.peak_rss_kib!==undefined&&(!Number.isSafeInteger(value.peak_rss_kib)||value.peak_rss_kib<0)||value.elapsed_ms!==undefined&&(!Number.isSafeInteger(value.elapsed_ms)||value.elapsed_ms<0))throw new Error('Invalid diagnostic');if(value.phase==='native-close-completed')nativeCloseCompleted=true;console.log('PAIRED_VOICE_PHASE '+value.phase+' elapsed_ms='+Math.round(performance.now()-phaseEpoch)+(value.peak_rss_kib===undefined?'':' peak_rss_kib='+value.peak_rss_kib)+(value.elapsed_ms===undefined?'':' python_elapsed_ms='+value.elapsed_ms));continue}
+        const value:Output=JSON.parse(line)
+        if(consumeDiagnostic(value))continue
         const waiter=waiters.shift();if(waiter)waiter.resolve(value);else replies.push(value)
       }catch{child.kill();fail('Connected Voice invalid fixture output')}
     }
