@@ -47,7 +47,34 @@ test('real Astryx create/read/rename persists through reload and process restart
     return route.fulfill({status:302,headers:{location:origin+`/api/auth/callback/google?code=${code}&state=`+target.searchParams.get('state')}})
   })
   await page.goto(origin+'/login?lang=en')
-  await expect.poll(() => page.getByRole('button',{name:'Continue with Google'}).isEnabled(), {timeout:7000}).toBe(true)
+  try {
+    await expect.poll(() => page.getByRole('button',{name:'Continue with Google'}).isEnabled(), {timeout:7000}).toBe(true)
+  } catch (error) {
+    try {
+      const pageErrors = { 'dynamic-module-fetch':0, other:0 }
+      const pageErrorsTruncated = errors.length>32
+      for (const message of errors.slice(0,32)) {
+        const kind = message.startsWith('Failed to fetch dynamically imported module:') ? 'dynamic-module-fetch' : 'other'
+        pageErrors[kind]++
+      }
+      const control = await page.evaluate(() => {
+        const readyState = ['loading','interactive','complete'].find(value => value===document.readyState) ?? 'other'
+        const button = document.querySelector('.auth-login .google-sign-in')
+        if (!(button instanceof HTMLButtonElement)) return { available:false, readyState }
+        const aria = (name:'aria-disabled'|'aria-busy') => {
+          const value = button.getAttribute(name)
+          return value===null ? 'absent' : value==='true' ? 'true' : value==='false' ? 'false' : 'other'
+        }
+        return { available:true, readyState, disabled:button.disabled, disabledAttribute:button.hasAttribute('disabled'),
+          matchesDisabled:button.matches(':disabled'), ariaDisabled:aria('aria-disabled'), ariaBusy:aria('aria-busy') }
+      })
+      console.error('login-bootstrap-trace',JSON.stringify({ pageErrors, pageErrorsTruncated, control }))
+    } catch {
+      try { console.error('login-bootstrap-trace','{"available":false}') }
+      catch { /* Diagnostic failure cannot replace the original poll assertion. */ }
+    }
+    throw error
+  }
   expect((await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa']).analyze()).violations).toEqual([])
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.getByRole('button',{name:'Continue with Google'}).click()
