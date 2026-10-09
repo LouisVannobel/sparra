@@ -12,6 +12,7 @@ import { unusedLoopbackPort } from '../../helpers/web-process.ts'
 import { proveHatchetStatementDeadline, readHatchetClaimExpiry, readHatchetClock, readHatchetRestartSnapshot } from './hatchet-restart-observation.ts'
 import { fixtureDockerEndpoint, fixtureDockerEnvironment, assertFixtureDockerEndpoint, fixtureDockerFileUser } from './docker-endpoint.ts'
 import { awaitCredentialInit,retireFixtureDirectory } from '../../helpers/credential-init-retirement.ts'
+import { awaitOwnedStoreAddresses } from './owned-address-readiness.ts'
 
 const exec = promisify(execFile)
 const label = 'projetv0.template.auth-fixture'
@@ -475,6 +476,7 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
       if(proxy)await retireCommitProxy(proxy)
       return {id,exitCode,stdout:String(result.stdout),stderr:String(result.stderr)}
     }
+    evidence.addressReadiness = await awaitOwnedStoreAddresses(network)
     return {
       kind: 'stores' as const,
       pg, pool: poolId, redis, administrator, migrate, cleanup, poolAdmin, evidence,

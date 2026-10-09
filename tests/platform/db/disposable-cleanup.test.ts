@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { ChildProcess } from 'node:child_process'
 import { PassThrough } from 'node:stream'
+import type { ExecFileOptions } from 'node:child_process'
 import { startDisposableHatchet, startDisposableStores } from '../../fixtures/db/disposable-stores'
 
 const external = vi.hoisted(() => ({
@@ -11,9 +12,13 @@ const external = vi.hoisted(() => ({
   remove: vi.fn<(path: string) => Promise<void>>(),
   realpath: vi.fn<(path: string) => Promise<string>>(),
   spawn: vi.fn<() => ChildProcess>(),
+  ip: vi.fn<(args: string[], options: ExecFileOptions, callback: (error: Error | null, stdout: string, stderr: string) => void) => ChildProcess>(),
   directory: '',
 }))
-vi.mock('node:child_process', async importOriginal => ({ ...await importOriginal<typeof import('node:child_process')>(), execFile: Object.assign(() => { throw new Error('Real process execution prohibited') }, {
+vi.mock('node:child_process', async importOriginal => ({ ...await importOriginal<typeof import('node:child_process')>(), execFile: Object.assign((file: string, args: string[], options: ExecFileOptions, callback: (error: Error | null, stdout: string, stderr: string) => void) => {
+  if (file !== 'ip') throw new Error('Real process execution prohibited')
+  return external.ip(args, options, callback)
+}, {
   [Symbol.for('nodejs.util.promisify.custom')]: external.exec,
 }), spawn: external.spawn }))
 vi.mock('undici', () => ({ fetch: async () => ({ status: 200 }) }))
@@ -70,7 +75,7 @@ function dockerDouble() {
       } else throw new Error('Unexpected volume operation')
     }
     else if (operation === 'network') {
-      if (args[1] === 'create') { network = true; networkLabel = args[3]; stdout = 'owned-network' }
+      if (args[1] === 'create') { network = true; networkLabel = args[3]; stdout = 'a'.repeat(64) }
       else if (args[1] === 'ls') stdout = network ? 'owned-network|fixture|bridge' : ''
       else if (args[1] === 'inspect') {
         if (args.at(-1) === '{{json .IPAM.Config}}') stdout = JSON.stringify([{ Gateway: '172.20.0.1' }])
@@ -116,6 +121,13 @@ function dockerDouble() {
     child.stdin.once('finish', () => { queueMicrotask(() => child.emit('close', 0)) })
     return child
   })
+  external.ip.mockImplementation((args, _options, callback) => {
+    const child = new ChildProcess(), bridge = 'br-aaaaaaaaaaaa'
+    const targets = args.includes('dev') ? [{ ifindex: 10, ifname: bridge, flags: ['UP'], linkinfo: { info_kind: 'bridge' } }]
+      : [11, 12, 13].map(ifindex => ({ ifindex, ifname: `veth${ifindex}`, master: bridge, flags: ['UP'], linkinfo: { info_kind: 'veth' } }))
+    queueMicrotask(() => { callback(null, JSON.stringify(targets.map(target => ({ ...target, addr_info: [{ family: 'inet6', scope: 'link', local: 'fe80::1', prefixlen: 64 }] }))), ''); child.emit('close', 0, null) })
+    return child
+  })
   return { operations, fail(value: Failure) { failure = value; cleaning = true } }
 }
 beforeEach(() => { vi.spyOn(console, 'log').mockImplementation(() => {}) })
@@ -135,6 +147,52 @@ describe.each(['win32', 'linux'] as const)('mocked %s local transport', platform
     if (originalGid) Object.defineProperty(process, 'getgid', originalGid); else delete process.getgid
     vi.useRealTimers()
   })
+
+if (platform === 'linux') test('initial stores cannot return until their owned address child closes', async () => {
+  const docker = dockerDouble()
+  let requested!: () => void, complete!: () => void
+  const queried = new Promise<void>(resolve => { requested = resolve })
+  const readyIp = external.ip.getMockImplementation()!
+  external.ip.mockImplementationOnce((args, options, callback) => {
+    const child = new ChildProcess()
+    complete = () => {
+      const ready = readyIp(args, options, callback)
+      ready.once('close', () => child.emit('close', 0, null))
+    }
+    requested()
+    return child
+  })
+  let returned = false
+  const startup = startDisposableStores().then(stores => { returned = true; return stores })
+  try {
+    expect(await Promise.race([queried.then(() => 'query'), startup.then(() => 'returned')])).toBe('query')
+    expect(returned).toBe(false)
+    complete()
+    const stores = await startup
+    expect(stores.evidence.addressReadiness).toMatchObject({ scope: 'confirmed', state: 'ready', bridgeCount: 1, vethCount: 3 })
+  } finally { const stores = await startup; docker.fail('none'); await stores.cleanup() }
+})
+
+if (platform === 'linux') test('owned readiness failure retires every initial store and preserves foreign inventory', async () => {
+  const docker = dockerDouble()
+  external.ip.mockImplementationOnce((_args, _options, callback) => {
+    const child = new ChildProcess()
+    queueMicrotask(() => { docker.fail('none'); callback(new Error('sensitive owned address'), '', 'sensitive stderr'); child.emit('close', 1, null) })
+    return child
+  })
+  await expect(startDisposableStores()).rejects.toThrow(/^Owned address readiness command failed$/)
+  expect(docker.operations).toEqual([
+    'administrator', 'inspect-owned-2', 'remove-owned-2', 'inspect-owned-1', 'remove-owned-1',
+    'inspect-owned-0', 'remove-owned-0', 'network-ownership', 'network-remove', 'temporary-remove', 'inventory',
+  ])
+  const emitted = String(vi.mocked(console.log).mock.calls[0][0])
+  const evidence = JSON.parse(emitted.slice('AUTH_STORE_EVIDENCE '.length))
+  expect(evidence.unrelatedUnchanged).toBe(true)
+  expect(evidence.inventoryDelta).toEqual([])
+  expect(evidence).not.toHaveProperty('cleanupFailures')
+  expect(evidence).not.toHaveProperty('addressReadiness')
+  expect(emitted).not.toMatch(/sensitive|fe80|veth/)
+})
 
 test.each(['ownership', 'removal', 'administrator'] as const)('existing fixture retains %s failure and still attempts every remaining owned cleanup', async failure => {
   const docker = dockerDouble(), fixture = await startDisposableHatchet()
