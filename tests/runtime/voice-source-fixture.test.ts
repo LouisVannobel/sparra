@@ -72,8 +72,8 @@ test('reviewed native Voice source fixture exposes exact authenticated members w
   const archive=readFileSync(join(fixture,'voice-producer-source.tar.gz'))
   const manifest=JSON.parse(readFileSync(join(fixture,'voice-producer-source.manifest.json'),'utf8'))
   const result=await source.readVoiceSourceFixture(archive,manifest,pythonExecutable)
-  expect(result.commit).toBe('7a3b3b1e1e7ff9c8061da9e2c61f3df74031a266')
-  expect(result.tree).toBe('7494f8136582381c422a85b565bfc60007a9660c')
+  expect(result.commit).toBe('2618a97e5b0ee96e1e34c481503c836e4da9633c')
+  expect(result.tree).toBe('c6f3b6db172fa60e8e6c41a534d865b5979f59b2')
   expect(result.members).toBeInstanceOf(Map)
   expect(result.members.size).toBe(52)
   expect(result.members.has('src/projetv0_voice/recording_archive.py')).toBe(true)
@@ -81,7 +81,7 @@ test('reviewed native Voice source fixture exposes exact authenticated members w
   expect(result.members.has('src/projetv0_voice/inference/completion_strategy.py')).toBe(true)
   expect(result.members.has('scripts/prepare_tokenizers.py')).toBe(false)
   expect([...result.members.keys()].filter(path=>path.startsWith('tests/'))).toEqual(['tests/integration/sparra_connected_scenario.py'])
-  expect(createHash('sha256').update(result.members.get('tests/integration/sparra_connected_scenario.py')).digest('hex')).toBe('041f6aec80f0e2b28eab183ae203b4f0689353b1b1d363f65b22ad8f3d635bb0')
+  expect(createHash('sha256').update(result.members.get('tests/integration/sparra_connected_scenario.py')).digest('hex')).toBe('de6bd78823561e2cef6042657f92c2a99f592a4b4c5bd011dd71892970a42654')
   expect(createHash('sha256').update(result.members.get('src/projetv0_voice/models.py')).digest('hex')).toBe('4c5827d20279ad573f3237e41e547bba32162970111d353d80b9b762ae968ec6')
   expect([...result.members.keys()].sort()).toEqual(manifest.members.map((row:{path:string})=>row.path).sort())
   for(const row of manifest.members){
@@ -126,7 +126,7 @@ test.each(['repository','owned-ref','archive-hash','archive-size','decoded-size'
   const manifest=JSON.parse(readFileSync(join(fixture,'voice-producer-source.manifest.json'),'utf8'))
   if(typeof pythonExecutable!=='string')throw new Error('Missing qualified Voice fixture interpreter')
   if(kind==='repository')manifest.repository='foreign/voice'
-  else if(kind==='owned-ref')manifest.owned_ref='refs/heads/main'
+  else if(kind==='owned-ref')manifest.owned_ref='refs/heads/z/sparra-v2-fixture-pacing'
   else if(kind==='archive-hash')manifest.archive_sha256='0'.repeat(64)
   else if(kind==='archive-size')manifest.archive_size-=1
   else if(kind==='decoded-size')manifest.decoded_source_bytes-=1
