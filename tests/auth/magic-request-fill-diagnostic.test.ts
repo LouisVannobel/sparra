@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { fillExceptionCategory, bootstrapResponseCategory, bootstrapFailureCategory, cspCategory } from '../helpers/magic-request-fill-diagnostic'
+import { fillExceptionCategory, bootstrapResponseCategory, bootstrapFailureCategory, cspCategory, requestFillReportLine, type RequestFillFailure, type RequestFillState } from '../helpers/magic-request-fill-diagnostic'
 
 test('fill exception projection recognizes native categories without accessing private details or getters', () => {
   for (const name of ['TimeoutError', 'TargetClosedError', 'Error', 'SensitivePrivateType']) {
@@ -29,4 +29,49 @@ test('network failure projection admits exact native codes and rejects appended 
 
 test('CSP projection records directive categories and never arbitrary directive strings', () => {
   for (const [directive, category] of [['script-src-elem', 'script'], ['style-src', 'style'], ['connect-src', 'connect'], ['frame-src', 'other'], ['script-src private-token', 'other']] as const) expect(cspCategory(directive)).toBe(category)
+})
+
+test('native report line reconstructs only the closed failure and actionability fields', () => {
+  const failure = { exception: 'TimeoutError', pageClosed: false, contextClosed: false, snapshotUnavailable: false,
+    bootstrap: { pageErrors: 1, consoleErrors: 0, scriptResponses: [{ sameOrigin: true, status: 'success' }], scriptFailures: ['blocked'], truncated: false } } satisfies RequestFillFailure
+  const state = { fieldCount: 1, visible: true, enabled: false, nativeDisabled: true, readOnly: false, formBusy: false,
+    sameLoginRoute: true, emptyFragment: true, firstRouterClean: false, routerPresent: false,
+    csp: { script: 1, style: 0, connect: 0, other: 0 } } satisfies RequestFillState
+  for (const object of [failure, failure.bootstrap, failure.bootstrap.scriptResponses[0], state, state.csp]) {
+    Object.defineProperty(object, 'toJSON', { get() { throw new Error('private serialization getter accessed') } })
+    Object.defineProperty(object, 'privateUrl', { value: 'https://private.invalid/email@example.test#proof', enumerable: true })
+  }
+  const line = requestFillReportLine(failure, state)
+  expect(line.startsWith('MAGIC_REQUEST_FILL_DIAGNOSTIC ')).toBe(true)
+  expect(line).not.toContain('private.invalid')
+  expect(line).not.toContain('toJSON')
+  expect(JSON.parse(line.slice('MAGIC_REQUEST_FILL_DIAGNOSTIC '.length))).toEqual({
+    exception: 'TimeoutError', pageClosed: false, contextClosed: false, snapshotUnavailable: false,
+    bootstrap: { pageErrors: 1, consoleErrors: 0, scriptResponses: [{ sameOrigin: true, status: 'success' }], scriptFailures: ['blocked'], truncated: false },
+    state: { fieldCount: 1, visible: true, enabled: false, nativeDisabled: true, readOnly: false, formBusy: false,
+      sameLoginRoute: true, emptyFragment: true, firstRouterClean: false, routerPresent: false,
+      csp: { script: 1, style: 0, connect: 0, other: 0 } },
+  })
+})
+
+test('native report line caps counts and arrays and rejects corrupted string categories', () => {
+  const failure = { exception: 'Error', pageClosed: true, contextClosed: true, snapshotUnavailable: true,
+    bootstrap: { pageErrors: 900, consoleErrors: -1, scriptResponses: Array.from({ length: 40 }, () => ({ sameOrigin: true, status: 'success' as const })),
+      scriptFailures: Array.from({ length: 40 }, () => 'aborted' as const), truncated: false } } satisfies RequestFillFailure
+  const privateValue = 'email@example.test#private-proof'
+  Object.defineProperty(failure, 'exception', { value: privateValue })
+  Object.defineProperty(failure.bootstrap.scriptResponses[0], 'status', { value: privateValue })
+  Object.defineProperty(failure.bootstrap.scriptFailures, '0', { value: privateValue })
+  const line = requestFillReportLine(failure)
+  expect(line).not.toContain(privateValue)
+  const payload = JSON.parse(line.slice('MAGIC_REQUEST_FILL_DIAGNOSTIC '.length))
+  expect(payload.exception).toBe('other')
+  expect(payload.bootstrap.pageErrors).toBe(255)
+  expect(payload.bootstrap.consoleErrors).toBeNull()
+  expect(payload.bootstrap.scriptResponses).toHaveLength(16)
+  expect(payload.bootstrap.scriptResponses[0]).toEqual({ sameOrigin: true, status: 'other' })
+  expect(payload.bootstrap.scriptFailures).toHaveLength(16)
+  expect(payload.bootstrap.scriptFailures[0]).toBe('other')
+  expect(payload.bootstrap.truncated).toBe(true)
+  expect(payload.state).toBeNull()
 })

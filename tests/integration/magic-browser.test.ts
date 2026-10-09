@@ -12,7 +12,7 @@ import { startDisposableStores, startDisposableHatchet } from '../fixtures/db/di
 import { startMailHttpPeer } from '../fixtures/mail-http'
 import { startWeb, bounded, unusedLoopbackPort } from '../helpers/web-process'
 import { authRpcPath, rpcBody } from '../helpers/auth-rpc'
-import { fillExceptionCategory, bootstrapResponseCategory, bootstrapFailureCategory, cspCategory, type BootstrapResponse } from '../helpers/magic-request-fill-diagnostic'
+import { fillExceptionCategory, bootstrapResponseCategory, bootstrapFailureCategory, cspCategory, requestFillReportLine, type BootstrapResponse, type RequestFillState } from '../helpers/magic-request-fill-diagnostic'
 
 const proxyFailureCodes=['EADDRINUSE','EACCES','EADDRNOTAVAIL','EINVAL'] as const
 type ProxyFailureEvidence={proxySetupNativeCode?:typeof proxyFailureCodes[number]|'other'}
@@ -374,8 +374,9 @@ for (const [mode, name] of [
       const diagnostic = { exception: fillExceptionCategory(error), pageClosed: requestPage.isClosed(), contextClosed: requestContextClosed,
         bootstrap: requestBootstrap, snapshotUnavailable: false }
       evidence.requestFillFailure = diagnostic
+      let snapshot: RequestFillState | undefined
       try {
-        evidence.requestFillState = await bounded(requestPage.getByRole('textbox', { name: /^Email address/ }).evaluateAll(elements => {
+        snapshot = await bounded(requestPage.getByRole('textbox', { name: /^Email address/ }).evaluateAll(elements => {
           const input = elements.length === 1 && elements[0] instanceof HTMLInputElement ? elements[0] : undefined
           const rect = input?.getBoundingClientRect(), style = input ? getComputedStyle(input) : undefined
           const csp = window.__magicBootstrapCsp
@@ -388,7 +389,11 @@ for (const [mode, name] of [
             firstRouterClean: window.__magicFirstRouterClean === true, routerPresent: !!window.__TSR_ROUTER__,
             csp: { script: count('script'), style: count('style'), connect: count('connect'), other: count('other') } }
         }))
+        evidence.requestFillState = snapshot
       } catch { diagnostic.snapshotUnavailable = true }
+      // Runner-local evidence is not currently uploaded by CI. Publish only
+      // this reconstructed closed line; emission must never mask the failure.
+      try { console.error(requestFillReportLine(diagnostic, snapshot)) } catch { /* retain primary stage and cleanup */ }
       throw error
     } finally { requestBootstrapActive = false }
     stage = 'request explicit submit'
