@@ -12,7 +12,7 @@ import { startDisposableStores, startDisposableHatchet } from '../fixtures/db/di
 import { startMailHttpPeer } from '../fixtures/mail-http'
 import { startWeb, bounded, unusedLoopbackPort } from '../helpers/web-process'
 import { authRpcPath, rpcBody } from '../helpers/auth-rpc'
-import { fillExceptionCategory, bootstrapResponseCategory, bootstrapFailureCategory, cspCategory, requestFillReportLine, type BootstrapResponse, type RequestFillState } from '../helpers/magic-request-fill-diagnostic'
+import { observeMagicRequestBootstrap, fillMagicRequestEmail } from '../helpers/magic-request-fill-observer'
 
 const proxyFailureCodes=['EADDRINUSE','EACCES','EADDRNOTAVAIL','EINVAL'] as const
 type ProxyFailureEvidence={proxySetupNativeCode?:typeof proxyFailureCodes[number]|'other'}
@@ -232,32 +232,7 @@ for (const [mode, name] of [
       }
     })
     const requestPage = await requesting.newPage(), receivePage = await receiving.newPage()
-    // Observe the original compiled request page only, before navigation.
-    // All persisted fields are bounded closed categories; URLs remain transient.
-    const scriptResponses: BootstrapResponse[] = [], scriptFailures: ReturnType<typeof bootstrapFailureCategory>[] = []
-    const requestBootstrap = { pageErrors: 0, consoleErrors: 0, scriptResponses, scriptFailures, truncated: false }
-    let requestBootstrapActive = true, requestContextClosed = false
-    requesting.on('close', () => { requestContextClosed = true })
-    requestPage.on('pageerror', () => { if (requestBootstrapActive) requestBootstrap.pageErrors = Math.min(255, requestBootstrap.pageErrors + 1) })
-    requestPage.on('console', message => { if (requestBootstrapActive && message.type() === 'error') requestBootstrap.consoleErrors = Math.min(255, requestBootstrap.consoleErrors + 1) })
-    requestPage.on('response', response => {
-      if (!requestBootstrapActive || response.request().resourceType() !== 'script') return
-      if (requestBootstrap.scriptResponses.length < 16) requestBootstrap.scriptResponses.push(bootstrapResponseCategory(response.url(), origin, response.status()))
-      else requestBootstrap.truncated = true
-    })
-    requestPage.on('requestfailed', request => {
-      if (!requestBootstrapActive || request.resourceType() !== 'script') return
-      if (requestBootstrap.scriptFailures.length < 16) requestBootstrap.scriptFailures.push(bootstrapFailureCategory(request.failure()?.errorText ?? null))
-      else requestBootstrap.truncated = true
-    })
-    await requestPage.addInitScript({ content: `(${function (classify: typeof cspCategory) {
-      const counts = { script: 0, style: 0, connect: 0, other: 0 }
-      window.__magicBootstrapCsp = counts
-      window.addEventListener('securitypolicyviolation', event => {
-        const category = classify(event.effectiveDirective)
-        counts[category] = Math.min(255, counts[category] + 1)
-      })
-    }.toString()})(${cspCategory.toString()})` })
+    const requestBootstrap = await observeMagicRequestBootstrap(requestPage, requesting, origin)
     if (enrollment) {
       passkeyCdp = await receiving.newCDPSession(receivePage)
       await passkeyCdp.send('WebAuthn.enable')
@@ -368,34 +343,7 @@ for (const [mode, name] of [
     expect(await requestPage.getByRole('textbox', { name: /^Email address/ }).count(), 'compiled magic request field exists').toBe(1)
     evidence.requestFieldExists = true
     stage = 'request email entry'
-    try { await requestPage.getByRole('textbox', { name: /^Email address/ }).fill(email) }
-    catch (error) {
-      requestBootstrapActive = false
-      const diagnostic = { exception: fillExceptionCategory(error), pageClosed: requestPage.isClosed(), contextClosed: requestContextClosed,
-        bootstrap: requestBootstrap, snapshotUnavailable: false }
-      evidence.requestFillFailure = diagnostic
-      let snapshot: RequestFillState | undefined
-      try {
-        snapshot = await bounded(requestPage.getByRole('textbox', { name: /^Email address/ }).evaluateAll(elements => {
-          const input = elements.length === 1 && elements[0] instanceof HTMLInputElement ? elements[0] : undefined
-          const rect = input?.getBoundingClientRect(), style = input ? getComputedStyle(input) : undefined
-          const csp = window.__magicBootstrapCsp
-          const count = (key: 'script' | 'style' | 'connect' | 'other') => typeof csp?.[key] === 'number' && Number.isInteger(csp[key]) && csp[key] >= 0 && csp[key] <= 255 ? csp[key] : null
-          return { fieldCount: Math.min(255, elements.length), visible: input ? style?.visibility !== 'hidden' && style?.visibility !== 'collapse' && !!rect && rect.width > 0 && rect.height > 0 : null,
-            enabled: input ? !input.matches(':disabled') && input.getAttribute('aria-disabled') !== 'true' : null,
-            nativeDisabled: input?.disabled ?? null, readOnly: input?.readOnly ?? null,
-            formBusy: input ? input.closest('form')?.getAttribute('aria-busy') === 'true' : null,
-            sameLoginRoute: location.pathname === '/login', emptyFragment: location.hash === '',
-            firstRouterClean: window.__magicFirstRouterClean === true, routerPresent: !!window.__TSR_ROUTER__,
-            csp: { script: count('script'), style: count('style'), connect: count('connect'), other: count('other') } }
-        }))
-        evidence.requestFillState = snapshot
-      } catch { diagnostic.snapshotUnavailable = true }
-      // Runner-local evidence is not currently uploaded by CI. Publish only
-      // this reconstructed closed line; emission must never mask the failure.
-      try { console.error(requestFillReportLine(diagnostic, snapshot)) } catch { /* retain primary stage and cleanup */ }
-      throw error
-    } finally { requestBootstrapActive = false }
+    await fillMagicRequestEmail(requestPage, email, requestBootstrap, evidence)
     stage = 'request explicit submit'
     await requestPage.getByRole('button', { name: 'Send a sign-in link', exact: true }).click()
     stage = 'request acknowledgement'

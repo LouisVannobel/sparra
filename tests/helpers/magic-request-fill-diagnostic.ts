@@ -1,6 +1,6 @@
 // Test-only closed projections; never retain browser error details or URLs.
 export type BootstrapResponse = { sameOrigin: boolean; status: 'success' | 'redirect' | 'client-error' | 'server-error' | 'other' }
-export type BootstrapCsp = { script: number; style: number; connect: number; other: number }
+type BootstrapCsp = { script: number; style: number; connect: number; other: number }
 export type RequestFillFailure = { exception: ReturnType<typeof fillExceptionCategory>; pageClosed: boolean; contextClosed: boolean; snapshotUnavailable: boolean;
   bootstrap: { pageErrors: number; consoleErrors: number; scriptResponses: BootstrapResponse[]; scriptFailures: ReturnType<typeof bootstrapFailureCategory>[]; truncated: boolean } }
 export type RequestFillState = { fieldCount: number; visible: boolean | null; enabled: boolean | null; nativeDisabled: boolean | null; readOnly: boolean | null;
@@ -37,7 +37,14 @@ export function fillExceptionCategory(error: unknown): 'TimeoutError' | 'TargetC
     let object: object | null = error
     for (let depth = 0; object && depth < 4; depth++, object = Object.getPrototypeOf(object)) {
       const descriptor = Object.getOwnPropertyDescriptor(object, 'name')
-      if (descriptor) return descriptor.value === 'TimeoutError' ? 'TimeoutError' : descriptor.value === 'TargetClosedError' ? 'TargetClosedError' : descriptor.value === 'Error' ? 'Error' : 'other'
+      if (descriptor) {
+        switch (descriptor.value) {
+          case 'TimeoutError': return 'TimeoutError'
+          case 'TargetClosedError': return 'TargetClosedError'
+          case 'Error': return 'Error'
+          default: return 'other'
+        }
+      }
     }
   } catch { /* A hostile diagnostic must never replace the primary failure. */ }
   return 'other'
