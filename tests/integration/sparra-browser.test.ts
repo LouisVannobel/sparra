@@ -378,7 +378,7 @@ async function bindLocalAudioFixture(subject:string){
   return {role,workspaceId:workspace.id}
 }
 
-test('compiled local recording validates contact before save and permits OFF after native capability withdrawal without conflict or history rewrite',async()=>{
+test('compiled local recording accepts empty contact, validates supplied phones and permits OFF after capability withdrawal without history rewrite',async()=>{
   const subject='sparra-local-recording-config',{context,page}=await signedIn(subject),savePath=await authRpcPath('saveActivity')
   let saves=0
   page.on('request',request=>{if(new URL(request.url()).pathname===savePath)saves++})
@@ -390,16 +390,16 @@ test('compiled local recording validates contact before save and permits OFF aft
     const recording=page.getByRole('checkbox',{name:'Keep audio from future calls for 30 days',exact:true}),phone=page.getByRole('textbox',{name:/^Recording contact phone/})
     await expect.poll(()=>recording.isDisabled()).toBe(false)
     await page.getByRole('textbox',{name:/^Business name/}).fill('Native recording configuration')
-    await recording.check();await page.getByRole('button',{name:'Save',exact:true}).click()
-    expect(await phone.getAttribute('aria-invalid')).toBe('true')
-    expect(await phone.evaluate(element=>document.activeElement===element)).toBe(true)
-    expect(saves).toBe(0)
+    await recording.check();await page.getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    expect(await phone.getAttribute('aria-required')).toBeNull()
+    expect(await phone.inputValue()).toBe('')
+    expect(saves).toBe(1)
     await phone.fill('0612345678');await page.getByRole('button',{name:'Save',exact:true}).click()
     expect(await phone.inputValue()).toBe('0612345678')
     expect(await phone.getAttribute('aria-invalid')).toBe('true')
-    expect(saves).toBe(0)
-    await phone.fill('+33123456789');await page.getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
     expect(saves).toBe(1)
+    await phone.fill('+33123456789');await page.getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    expect(saves).toBe(2)
     await page.reload()
     expect(await recording.isChecked()).toBe(true)
     expect(await phone.inputValue()).toBe('+33123456789')
@@ -408,7 +408,7 @@ test('compiled local recording validates contact before save and permits OFF aft
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
     await page.screenshot({path:'.output/test-evidence/sparra/local-recording-en-320.png',fullPage:true})
     const previous=(await stores.administrator.query('SELECT revision,recording_policy,recording_contact_phone,recording_enabled FROM sparra_knowledge_revision WHERE workspace_id=$1 ORDER BY revision',[binding.workspaceId])).rows
-    expect(previous).toEqual([{revision:1,recording_policy:'local_30d',recording_contact_phone:'+33123456789',recording_enabled:false}])
+    expect(previous).toEqual([{revision:1,recording_policy:'local_30d',recording_contact_phone:null,recording_enabled:false},{revision:2,recording_policy:'local_30d',recording_contact_phone:'+33123456789',recording_enabled:false}])
     await phone.fill('+33102030405');await page.getByRole('status').filter({hasText:'Unsaved changes.'}).waitFor()
     await stores.administrator.query('UPDATE voice_private.deployment_binding SET admission_enabled=false WHERE service_login=$1',[binding.role])
     await page.getByRole('button',{name:'Save',exact:true}).click()
@@ -422,8 +422,8 @@ test('compiled local recording validates contact before save and permits OFF aft
     await recording.uncheck();await page.getByRole('status').filter({hasText:'Existing recordings keep their original expiry.'}).waitFor()
     await page.getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
     await page.reload();expect(await recording.isChecked()).toBe(false);expect(await recording.isDisabled()).toBe(true)
-    expect((await stores.administrator.query('SELECT recording_policy,recording_contact_phone,recording_enabled FROM sparra_knowledge_revision WHERE workspace_id=$1 AND revision=2',[binding.workspaceId])).rows).toEqual([{recording_policy:'off',recording_contact_phone:'+33102030405',recording_enabled:false}])
-    expect((await stores.administrator.query('SELECT revision,recording_policy,recording_contact_phone,recording_enabled FROM sparra_knowledge_revision WHERE workspace_id=$1 AND revision=1',[binding.workspaceId])).rows).toEqual(previous)
+    expect((await stores.administrator.query('SELECT recording_policy,recording_contact_phone,recording_enabled FROM sparra_knowledge_revision WHERE workspace_id=$1 AND revision=3',[binding.workspaceId])).rows).toEqual([{recording_policy:'off',recording_contact_phone:'+33102030405',recording_enabled:false}])
+    expect((await stores.administrator.query('SELECT revision,recording_policy,recording_contact_phone,recording_enabled FROM sparra_knowledge_revision WHERE workspace_id=$1 AND revision<=2 ORDER BY revision',[binding.workspaceId])).rows).toEqual(previous)
   }finally{await context.close()}
 },30000)
 

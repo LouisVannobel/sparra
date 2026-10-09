@@ -27,7 +27,7 @@ export const sparraKnowledgeRevision = pgTable('sparra_knowledge_revision', {
   check('sparra_revision_transfer', sql`${table.transferDestination} is null or ${table.transferDestination} ~ '^\\+[1-9][0-9]{1,14}$'`),
   check('sparra_revision_recording_policy', sql`${table.recordingPolicy} in ('off','local_30d')`),
   check('sparra_revision_recording_contact', sql`${table.recordingContactPhone} is null or ${table.recordingContactPhone} ~ '^\\+[1-9][0-9]{1,14}$'`),
-  check('sparra_revision_local_recording', sql`${table.recordingPolicy} <> 'local_30d' or (${table.recordingContactPhone} is not null and not ${table.recordingEnabled})`),
+  check('sparra_revision_local_recording', sql`${table.recordingPolicy} <> 'local_30d' or not ${table.recordingEnabled}`),
   check('sparra_revision_saved_at', sql`isfinite(${table.savedAt})`),
   pgPolicy('sparra_revision_voice_read',{to:'sparra_voice_definer',for:'select',using:sql`workspace_id = voice_private.bound_workspace()`}),
   pgPolicy('sparra_revision_voice_delete',{to:'sparra_voice_definer',for:'delete',using:sql`workspace_id = voice_private.bound_workspace()`}),
