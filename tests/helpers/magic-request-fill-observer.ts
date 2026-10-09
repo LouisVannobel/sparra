@@ -1,4 +1,4 @@
-import type { Page, BrowserContext } from 'playwright'
+import type { Page, BrowserContext, Request } from 'playwright'
 import { bounded } from './web-process'
 import { bootstrapResponseCategory, bootstrapFailureCategory, cspCategory, fillExceptionCategory, requestFillReportLine,
   type BootstrapResponse, type RequestFillFailure, type RequestFillState } from './magic-request-fill-diagnostic'
@@ -20,11 +20,16 @@ export async function observeMagicRequestBootstrap(page: Page, context: BrowserC
   })
   page.on('requestfailed', request => {
     if (!active || request.resourceType() !== 'script') return
-    if (bootstrap.scriptFailures.length < 16) bootstrap.scriptFailures.push(bootstrapFailureCategory(request.failure()?.errorText ?? null))
+    if (bootstrap.scriptFailures.length < 16) bootstrap.scriptFailures.push(classifyScriptFailure(request))
     else bootstrap.truncated = true
   })
   await page.addInitScript({ content: `(${installRequestCspObserver.toString()})(${cspCategory.toString()})` })
   return { bootstrap, stop() { active = false }, contextClosed: () => contextClosed }
+}
+
+function classifyScriptFailure(request: Request) {
+  const failure = request.failure()
+  return bootstrapFailureCategory(failure ? failure.errorText : null)
 }
 
 function installRequestCspObserver(classify: typeof cspCategory) {
@@ -39,17 +44,39 @@ function installRequestCspObserver(classify: typeof cspCategory) {
 // This callback is serialized by native Playwright; all its browser reads stay
 // inside the callback and return only the established closed snapshot fields.
 function readRequestFillState(elements: Element[]): RequestFillState {
-  const input = elements.length === 1 && elements[0] instanceof HTMLInputElement ? elements[0] : undefined
-  const rect = input?.getBoundingClientRect(), style = input ? getComputedStyle(input) : undefined
-  const csp = window.__magicBootstrapCsp
-  const count = (key: 'script' | 'style' | 'connect' | 'other') => typeof csp?.[key] === 'number' && Number.isInteger(csp[key]) && csp[key] >= 0 && csp[key] <= 255 ? csp[key] : null
-  return { fieldCount: Math.min(255, elements.length), visible: input ? style?.visibility !== 'hidden' && style?.visibility !== 'collapse' && !!rect && rect.width > 0 && rect.height > 0 : null,
-    enabled: input ? !input.matches(':disabled') && input.getAttribute('aria-disabled') !== 'true' : null,
-    nativeDisabled: input?.disabled ?? null, readOnly: input?.readOnly ?? null,
-    formBusy: input ? input.closest('form')?.getAttribute('aria-busy') === 'true' : null,
+  // Nested definitions travel with Playwright's serialized callback. They
+  // return only these specific closed fields and need no imported runtime.
+  function selectedInput() {
+    if (elements.length !== 1) return undefined
+    if (elements[0] instanceof HTMLInputElement) return elements[0]
+    return undefined
+  }
+  function visible(input: HTMLInputElement) {
+    const style = getComputedStyle(input)
+    if (style.visibility === 'hidden' || style.visibility === 'collapse') return false
+    const rect = input.getBoundingClientRect()
+    return rect.width > 0 && rect.height > 0
+  }
+  function fieldState(input: HTMLInputElement | undefined) {
+    if (!input) return { visible: null, enabled: null, nativeDisabled: null, readOnly: null, formBusy: null }
+    return { visible: visible(input), enabled: !input.matches(':disabled') && input.getAttribute('aria-disabled') !== 'true',
+      nativeDisabled: input.disabled, readOnly: input.readOnly, formBusy: input.closest('form')?.getAttribute('aria-busy') === 'true' }
+  }
+  function count(value: number) {
+    // Number.isInteger rejects missing/non-number values without coercion.
+    if (!Number.isInteger(value)) return null
+    if (value < 0 || value > 255) return null
+    return value
+  }
+  function cspState() {
+    const csp = window.__magicBootstrapCsp
+    if (!csp) return { script: null, style: null, connect: null, other: null }
+    return { script: count(csp.script), style: count(csp.style), connect: count(csp.connect), other: count(csp.other) }
+  }
+  return { fieldCount: Math.min(255, elements.length), ...fieldState(selectedInput()),
     sameLoginRoute: location.pathname === '/login', emptyFragment: location.hash === '',
     firstRouterClean: window.__magicFirstRouterClean === true, routerPresent: !!window.__TSR_ROUTER__,
-    csp: { script: count('script'), style: count('style'), connect: count('connect'), other: count('other') } }
+    csp: cspState() }
 }
 
 async function captureRequestFillFailure(page: Page, observer: RequestBootstrapObserver, error: unknown, evidence: RequestFillEvidence) {
