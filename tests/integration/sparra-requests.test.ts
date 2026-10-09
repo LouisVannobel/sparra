@@ -16,7 +16,8 @@ import { startGoogleProtocolPeer } from '../helpers/google-protocol-peer.mjs'
 import { googleCeremony } from '../helpers/google-ceremony'
 import { createAuthRateLimiter, readRateLimitConfig } from '../../src/modules/auth/rate-limit.server'
 import type { createApplicationAuth } from '../../src/modules/auth/auth.server'
-import { startWeb, bounded, unusedLoopbackPort } from '../helpers/web-process'
+import { unusedLoopbackPort } from '../helpers/web-process'
+import { nativeImage } from '../helpers/native-image'
 import { authRpcPath, rpcBody } from '../helpers/auth-rpc'
 import { cryptoFixture, nativeVoiceTurn } from '../helpers/sparra-crypto-fixture'
 import type { sparraKnowledgeRevision } from '../../src/modules/sparra/schema.server'
@@ -24,7 +25,8 @@ import type { sparraKnowledgeRevision } from '../../src/modules/sparra/schema.se
 let stores: Awaited<ReturnType<typeof startDisposableStores>>,pool:Pool
 let requests:ReturnType<typeof createRequestOperations>,personal:ReturnType<typeof createPersonalWorkspaces>,activity:ReturnType<typeof createActivityOperations>
 let auth:ReturnType<typeof createApplicationAuth>,limiter:ReturnType<typeof createAuthRateLimiter>,peer:Awaited<ReturnType<typeof startGoogleProtocolPeer>>,ceremony:ReturnType<typeof googleCeremony>
-let app:ReturnType<typeof startWeb>,origin:string,crypto:Awaited<ReturnType<typeof cryptoFixture>>
+let app: Awaited<ReturnType<Awaited<ReturnType<typeof startDisposableStores>>['startWebImage']>>
+let origin:string,crypto:Awaited<ReturnType<typeof cryptoFixture>>
 const configuration={expectedRevision:0,businessName:'Garage',sector:'garage',knowledge:{openingHours:'',services:'Vidange',prices:'',faq:'',instructions:''}}
 const inventory=async(id:string)=>(await stores.administrator.query('SELECT (SELECT count(*)::int FROM sparra_call WHERE id=$1) AS calls,(SELECT count(*)::int FROM sparra_erasure WHERE call_id=$1) AS fences',[id])).rows[0]
 async function call(workspaceId:string,options:{id?:string;status?:string;revision?:number;admittedAt?:Date;retentionUntil?:Date;turns?:unknown;result?:unknown;endedAt?:Date}={}){
@@ -83,12 +85,19 @@ beforeAll(async()=>{
   auth=createApplicationAuth(owner,readAuthConfig({APP_ORIGIN:'http://localhost:3000',NODE_ENV:'test',AUTH_SECRET:secret,GOOGLE_CLIENT_ID:'fixture.apps.googleusercontent.com',GOOGLE_CLIENT_SECRET:'fixture-only'})!,limiter)
   ceremony=googleCeremony(auth,owner,peer);personal=createPersonalWorkspaces(owner);activity=createActivityOperations(owner);requests=createRequestOperations(owner)
   crypto=await cryptoFixture();crypto.turn=await nativeVoiceTurn(crypto);vi.stubEnv('SPARRA_AEAD_KEYRING_PATH',crypto.path)
-  app=startWeb({PORT:String(webPort),NODE_ENV:'test',APP_ORIGIN:origin,DATABASE_URL:stores.runtimeUrl,REDIS_URL:stores.redisUrl,RATE_LIMIT_HMAC_SECRET:stores.hmac,RATE_LIMIT_KEY_ID:'inbox-web',TRUSTED_PROXY_IPS:'127.0.0.1',AUTH_SECRET:secret,REQUEST_TIMEOUT_MS:'10000',SPARRA_AEAD_KEYRING_PATH:crypto.path})
-  const address=await bounded(app.ready);origin='http://localhost:'+address.port
+  // Publish the actual owned container identity through the existing protected
+  // reader manifest for the forthcoming native erase source binding.
+  app = await stores.startWebImage(await nativeImage('web'), 'valid',
+    { secret, googleClientId: 'fixture.apps.googleusercontent.com', googleClientSecret: 'fixture-only' },
+    JSON.stringify(crypto.keyring), false, webPort,
+    { incarnation: randomUUID(), deploymentId: 'inbox-app-fixture' })
+  origin = app.url
 })
 afterAll(async()=>{
   vi.unstubAllEnvs();const failures:unknown[]=[]
-  for(const close of [()=>app?.cleanup(),()=>crypto?.cleanup(),()=>auth?.close(),()=>limiter?.close(),()=>pool?.end(),()=>peer?.close(),()=>stores?.cleanup()])try{await close()}catch(error){failures.push(error)}
+  for(const close of [async () => {
+    if (app) { await stores.signalWeb(app.id, 'SIGTERM'); expect(await stores.waitWeb(app.id)).toBe(0) }
+  },()=>crypto?.cleanup(),()=>auth?.close(),()=>limiter?.close(),()=>pool?.end(),()=>peer?.close(),()=>stores?.cleanup()])try{await close()}catch(error){failures.push(error)}
   if(failures.length)throw new AggregateError(failures,'Inbox fixture cleanup failed')
 })
 test('native owner reads absent state, actual Voice ciphertext and pinned configuration without inventing pending results',async()=>{
@@ -114,6 +123,13 @@ test('native owner reads absent state, actual Voice ciphertext and pinned config
   }finally{vi.stubEnv('SPARRA_AEAD_KEYRING_PATH',crypto.path)}
   await stores.administrator.query('UPDATE sparra_call SET encrypted_turns=$2 WHERE id=$1',[id,{[crypto.turnId]:crypto.turn,[randomUUID()]:{}}])
   expect(await requests.detail(a.principal,id)).toMatchObject({resultAvailability:'available',summary:'Demande de rappel',transcriptAvailability:'partial',unavailableTurnCount:1})
+  const content = async () => (await stores.administrator.query(
+    'SELECT encrypted_turns,encrypted_message_result,retention_until FROM sparra_call WHERE id=$1', [id])).rows
+  const beforeDenial = await content()
+  expect(await requests.erase(a.principal, id)).toEqual({ requestId: id, state: 'queued' })
+  expect(await content()).toEqual(beforeDenial)
+  await expect(requests.detail(a.principal, id)).rejects.toMatchObject({ name: 'RequestNotFound' })
+  expect((await requests.list(a.principal, {})).requests.map(row => row.id)).not.toContain(id)
 })
 test('equal-millisecond pagination returns all 103 calls exactly once in tuple order',async()=>{
   const {principal}=await ceremony(),workspace=await personal.ensurePersonalWorkspace(principal),ids:string[]=[],time=new Date()
@@ -125,12 +141,20 @@ test('equal-millisecond pagination returns all 103 calls exactly once in tuple o
 test.each(['active','closed'])('treat %s preserves inventory and stamp, erase deletes native content and survives retention',async status=>{
   const {principal}=await ceremony(),workspace=await personal.ensurePersonalWorkspace(principal)
   const id=await call(workspace!.id,{status,endedAt:status==='closed'?new Date():undefined})
+  const retained = async () => (await stores.administrator.query(
+    'SELECT encrypted_turns,encrypted_message_result,retention_until FROM sparra_call WHERE id=$1', [id])).rows
+  const before = await retained()
   const treated=await requests.treat(principal,id);expect(await requests.treat(principal,id)).toEqual(treated)
   expect(await inventory(id)).toEqual({calls:1,fences:0})
   expect((await requests.detail(principal,id)).status).toBe(status)
   expect(await requests.erase(principal,id)).toEqual({requestId:id,state:'queued'})
-  expect(await inventory(id)).toEqual({calls:0,fences:1})
+  expect(await inventory(id)).toEqual({calls:1,fences:1})
+  expect(await retained()).toEqual(before)
+  const immutable = async () => (await stores.administrator.query(
+    'SELECT operation_id,source_incarnation,request_sha256,original_retention_until,fence_until FROM sparra_erasure WHERE call_id=$1', [id])).rows
+  const first = await immutable()
   expect(await requests.erase(principal,id)).toEqual({requestId:id,state:'queued'})
+  expect(await immutable()).toEqual(first)
   expect(await requests.erasure(principal,id)).toEqual({requestId:id,state:'queued'})
   await expect(requests.detail(principal,id)).rejects.toMatchObject({name:'RequestNotFound'})
   const fence=(await stores.administrator.query('SELECT workspace_id,call_id,deployment_id,provider_call_control_id,original_retention_until,fence_until,state FROM sparra_erasure WHERE call_id=$1',[id])).rows[0]
@@ -222,6 +246,6 @@ test('built native RPC enforces strict input, auth, missing and foreign Origin, 
   }
   const failureId=await call(workspace!.id)
   await stores.administrator.query("CREATE FUNCTION fixture_inbox_rpc_abort() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'private-inbox-rpc-marker'; END $$; CREATE TRIGGER fixture_inbox_rpc_abort BEFORE INSERT ON sparra_erasure FOR EACH ROW EXECUTE FUNCTION fixture_inbox_rpc_abort()")
-  try{const response=await loopbackFetch(origin+await authRpcPath('eraseRequest'),{method:'POST',headers:{cookie,origin,'content-type':'application/json','x-tsr-serverFn':'true'},body:await rpcBody({requestId:failureId})});expect(response.status).toBe(500);expect(await response.text()).toBe('Request unavailable');expect(app.output()).not.toContain('private-inbox-rpc-marker');expect(await inventory(failureId)).toEqual({calls:1,fences:0})}
+  try{const response=await loopbackFetch(origin+await authRpcPath('eraseRequest'),{method:'POST',headers:{cookie,origin,'content-type':'application/json','x-tsr-serverFn':'true'},body:await rpcBody({requestId:failureId})});expect(response.status).toBe(500);expect(await response.text()).toBe('Request unavailable');expect(JSON.stringify(await stores.imageLogs(app.id))).not.toContain('private-inbox-rpc-marker');expect(await inventory(failureId)).toEqual({calls:1,fences:0})}
   finally{await stores.administrator.query('DROP TRIGGER fixture_inbox_rpc_abort ON sparra_erasure; DROP FUNCTION fixture_inbox_rpc_abort()')}
 })
