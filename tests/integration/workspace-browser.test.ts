@@ -129,6 +129,8 @@ test('real Astryx create/read/rename persists through reload and process restart
     }
     }) } catch { return { available:false } }
   }
+  // The SSR control is disabled until its actual hydrated consumer can accept input.
+  await expect.poll(() => page.getByRole('button',{name:'Create my workspace'}).isEnabled(), {timeout:7000}).toBe(true)
   // These snapshots bracket analyze; neither timestamps the color-contrast rule itself.
   const beforeWorkspaceAxe=await createButtonState()
   const workspaceAxe=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa']).analyze()
@@ -141,8 +143,6 @@ test('real Astryx create/read/rename persists through reload and process restart
   let release = () => {}
   const held = new Promise<void>(resolve => { release=resolve })
   await page.route('**'+ensurePath,async route => { await held; await route.continue() })
-  // The SSR control is disabled until its actual hydrated consumer can accept input.
-  await expect.poll(() => page.getByRole('button',{name:'Create my workspace'}).isEnabled(), {timeout:7000}).toBe(true)
   await page.getByRole('button',{name:'Create my workspace'}).focus(); await page.keyboard.press('Enter')
   await page.getByText('Saving…',{exact:true}).waitFor()
   expect(await page.getByRole('button',{name:'Create my workspace'}).getAttribute('aria-busy')).toBe('true')
