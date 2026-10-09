@@ -115,15 +115,35 @@ test.each([false, true])('historical provider recording=%s remains local audio O
   ])
 })
 
-test('local audio ON requires a canonical business contact and leaves native revisions unchanged', async () => {
+test('local audio rejects a malformed supplied contact and leaves native revisions unchanged', async () => {
   const { principal, workspace } = await ownerFixture()
   const before = await revisions(workspace.id)
-  for (const recordingContactPhone of [undefined, null, '0612345678', ' +33123456789', '+33123456789\n']) {
+  for (const recordingContactPhone of ['', '0612345678', ' +33123456789', '+33123456789\n']) {
     await expect(activity.save(principal, {
       ...input(), recordingEnabled: false, recordingPolicy: 'local_30d', recordingContactPhone,
     })).rejects.toMatchObject({ name: 'InvalidActivityInput' })
   }
   expect(await revisions(workspace.id)).toEqual(before)
+})
+
+test('qualified local ON saves null contact and preserves a prior supplied contact through unrelated saves', async () => {
+  const initialRevision = (await activity.read(qualified.principal)).configuration?.revision ?? 0
+  const noContact = await activity.save(qualified.principal, { ...input(initialRevision), recordingPolicy: 'local_30d', recordingContactPhone: null })
+  expect(noContact).toMatchObject({ revision: initialRevision + 1, recordingPolicy: 'local_30d', recordingContactPhone: null, recordingEnabled: false })
+  expect((await activity.read(qualified.principal)).configuration).toEqual(noContact)
+  const supplied = await activity.save(qualified.principal, localInput(noContact!.revision))
+  const edited = await activity.save(qualified.principal, { ...input(supplied!.revision), businessName: 'Changed company name', recordingPolicy: 'local_30d' })
+  expect(edited).toMatchObject({ recordingPolicy: 'local_30d', recordingContactPhone: '+33123456789', recordingEnabled: false })
+  const off = await activity.save(qualified.principal, { ...input(edited!.revision), recordingPolicy: 'off' })
+  expect(off).toMatchObject({ recordingPolicy: 'off', recordingContactPhone: '+33123456789', recordingEnabled: false })
+  const cleared = await activity.save(qualified.principal, { ...input(off!.revision), recordingPolicy: 'off', recordingContactPhone: null })
+  expect(cleared).toMatchObject({ recordingContactPhone: null })
+  expect((await admin('SELECT revision,recording_policy,recording_contact_phone FROM sparra_knowledge_revision WHERE workspace_id=$1 AND revision BETWEEN $2 AND $3 ORDER BY revision', [qualified.workspace.id, noContact!.revision, off!.revision])).rows).toEqual([
+    { revision: noContact!.revision, recording_policy: 'local_30d', recording_contact_phone: null },
+    { revision: supplied!.revision, recording_policy: 'local_30d', recording_contact_phone: '+33123456789' },
+    { revision: edited!.revision, recording_policy: 'local_30d', recording_contact_phone: '+33123456789' },
+    { revision: off!.revision, recording_policy: 'off', recording_contact_phone: '+33123456789' },
+  ])
 })
 
 test('unavailable local capability refuses ON under the native Workspace lock without a revision', async () => {
@@ -201,7 +221,7 @@ test('native local capability fields and policy/contact constraints cannot be re
   }
   expect((await admin("SELECT contract_version,local_audio_enabled,audio_enabled FROM voice_private.deployment_binding WHERE service_login='sparra_voice_a'")).rows).toEqual(before)
   const { workspace } = await ownerFixture()
-  for (const [policy, phone, provider] of [['local_30d', null, false], ['local_30d', '+33123456789', true], ['off', '0612345678', false], ['unknown', null, false]] as const) {
+  for (const [policy, phone, provider] of [['local_30d', null, true], ['local_30d', '+33123456789', true], ['off', '0612345678', false], ['unknown', null, false]] as const) {
     await expect(admin(`INSERT INTO sparra_knowledge_revision(workspace_id,revision,business_name,sector,opening_hours,services,prices,faq,instructions,recording_policy,recording_contact_phone,recording_enabled)
       VALUES($1,1,'Invalid policy fixture','garage','','','','','',$2,$3,$4)`, [workspace.id, policy, phone, provider])).rejects.toMatchObject({ code: '23514' })
   }

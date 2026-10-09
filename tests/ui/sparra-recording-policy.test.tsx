@@ -64,10 +64,22 @@ test.each(['off','local_30d'] as const)('native available capability renders loc
   expect(checkbox?.includes('checked=""')).toBe(recordingPolicy==='local_30d')
   expect(checkbox).not.toContain('disabled=""')
   expect(html).toContain('Recording contact phone')
-  expect(html).toContain('Your business phone for requests about recordings.')
+  expect(html).toContain('Optional business contact')
   expect(html).toContain('name="recordingContactPhone"')
-  expect(html).toContain('does not configure call transfer')
   if(recordingPolicy==='local_30d')expect(html).toContain('value="+33123456789"')
+})
+
+test.each(['fr','en'] as const)('local ON without a contact renders an optional empty field and permits save in %s',async locale=>{
+  hydration.value=true
+  const {ActivityPanel}=await import('../../src/ui/sparra/activity-panel')
+  const current=localState('local_30d',true),state:ActivityState={...current,configuration:current.configuration?{...current.configuration,recordingContactPhone:null}:null}
+  const html=renderToStaticMarkup(<ActivityPanel locale={locale} state={state} onEnsure={unavailable} onSave={unavailable} onRead={unavailable} onRefused={unavailable}/>)
+  const phone=[...html.matchAll(/<input\b([^>]*)>/g)].find(input=>input[1]?.includes('name="recordingContactPhone"'))?.[1]
+  expect(phone).toContain('value=""')
+  expect(phone).not.toContain('required=""')
+  expect(phone).not.toContain('aria-required="true"')
+  const submit=[...html.matchAll(/<button\b([^>]*)>/g)].find(button=>button[1]?.includes('type="submit"'))?.[1]
+  expect(submit).not.toContain('disabled=""')
 })
 
 test('saved local ON remains checked and permits explicit OFF when native capability is unavailable',async()=>{

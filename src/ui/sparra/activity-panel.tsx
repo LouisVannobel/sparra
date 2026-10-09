@@ -39,7 +39,7 @@ type ActivityDraftIssues={
   businessName?:'required'|'nameTooLong'
   openingHours?:'tooLong';services?:'tooLong';prices?:'tooLong';faq?:'tooLong';instructions?:'tooLong'
   transferDestination?:'phoneFormat'
-  recordingContactPhone?:'recordingContactRequired'|'phoneFormat'
+  recordingContactPhone?:'phoneFormat'
 }
 
 export function activityDraftIssues(editable:SaveActivityInput):ActivityDraftIssues{
@@ -49,8 +49,7 @@ export function activityDraftIssues(editable:SaveActivityInput):ActivityDraftIss
   else if(name.length>80)issues.businessName='nameTooLong'
   for(const [field,limit] of sections)if(editable.knowledge[field].replace(/\r\n/g,'\n').length>limit)issues[field]='tooLong'
   if(editable.transferDestination!=null&&!/^\+[1-9][0-9]{1,14}$/.test(editable.transferDestination))issues.transferDestination='phoneFormat'
-  if(editable.recordingPolicy==='local_30d'&&!editable.recordingContactPhone)issues.recordingContactPhone='recordingContactRequired'
-  else if(editable.recordingContactPhone!=null&&!/^\+[1-9][0-9]{1,14}(?![\s\S])/.test(editable.recordingContactPhone))issues.recordingContactPhone='phoneFormat'
+  if(editable.recordingContactPhone!=null&&!/^\+[1-9][0-9]{1,14}(?![\s\S])/.test(editable.recordingContactPhone))issues.recordingContactPhone='phoneFormat'
   return issues
 }
 
@@ -110,7 +109,7 @@ function ActivityEditor({locale,editable,configuration,localAudioAvailable,audio
     <fieldset className="sparra-form-section"><legend>{t.callHandling}</legend><div className="sparra-call-settings">
     <TextInput ref={element=>fieldRef('transferDestination',element)} size="lg" label={t.transferDestination} description={`${t.transferHint} ${t.transferFormat}`} placeholder={t.transferPlaceholder} htmlName="transferDestination" value={editable.transferDestination??''} onChange={value=>onEdit({...editable,transferDestination:value||null})} status={fieldStatus('transferDestination')} statusVariant="detached" isDisabled={disabled} width="100%"/>
     <ActivityRecordingControl locale={locale} editable={editable} configuration={configuration} localAudioAvailable={localAudioAvailable} disabled={disabled} pending={pending} reconcile={reconcile} onEdit={onEdit}/>
-    <TextInput ref={element=>fieldRef('recordingContactPhone',element)} size="lg" label={t.recordingContactPhone} description={t.recordingContactHint} placeholder={t.recordingContactPlaceholder} htmlName="recordingContactPhone" value={editable.recordingContactPhone??''} onChange={value=>onEdit({...editable,recordingContactPhone:value||null})} status={fieldStatus('recordingContactPhone')} statusVariant="detached" isRequired={editable.recordingPolicy==='local_30d'} isDisabled={disabled} width="100%"/>
+    <TextInput ref={element=>fieldRef('recordingContactPhone',element)} size="lg" label={t.recordingContactPhone} description={t.recordingContactHint} placeholder={t.recordingContactPlaceholder} htmlName="recordingContactPhone" value={editable.recordingContactPhone??''} onChange={value=>onEdit({...editable,recordingContactPhone:value||null})} status={fieldStatus('recordingContactPhone')} statusVariant="detached" isDisabled={disabled} width="100%"/>
     </div>
     </fieldset>
     <ActivitySaveSummary locale={locale} issues={issues} pending={pending} reconcile={reconcile} draftStatus={draftStatus}/>
