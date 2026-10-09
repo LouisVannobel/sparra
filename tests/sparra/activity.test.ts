@@ -10,6 +10,18 @@ test('company recording defaults OFF for legacy input and accepts only explicit 
   for (const recordingEnabled of [false,true]) expect(parseSaveActivityInput({ ...input(), recordingEnabled })).toMatchObject({ recordingEnabled })
   for (const recordingEnabled of ['true','false',null,0,1]) expect(() => parseSaveActivityInput({ ...input(), recordingEnabled })).toThrow(InvalidActivityInput)
 })
+
+test.each(['off','local_30d'] as const)('local %s permits an absent contact and retains a supplied canonical phone', recordingPolicy => {
+  const editable = { ...input(), recordingPolicy }
+  expect(parseSaveActivityInput(editable)).toMatchObject({ recordingPolicy, recordingEnabled: false })
+  expect(Object.hasOwn(parseSaveActivityInput(editable), 'recordingContactPhone')).toBe(false)
+  expect(parseSaveActivityInput({ ...editable, recordingContactPhone: null })).toMatchObject({ recordingContactPhone: null })
+  expect(parseSaveActivityInput({ ...editable, recordingContactPhone: '+33123456789' })).toMatchObject({ recordingContactPhone: '+33123456789' })
+  for (const recordingContactPhone of ['', '0612345678', ' +33123456789', '+33123456789\n', '+33 123456789', '+0123456789', '+1234567890123456']) {
+    expect(() => parseSaveActivityInput({ ...editable, recordingContactPhone })).toThrow(InvalidActivityInput)
+  }
+  expect(() => parseSaveActivityInput({ ...editable, recordingEnabled: true })).toThrow(InvalidActivityInput)
+})
 test('strict editable input trims the greeting and normalizes line endings', () => {
   expect(parseSaveActivityInput({ ...input(), knowledge: { ...input().knowledge, services: 'Vidange\r\nPneus' }, transferDestination: '+33123456789' })).toEqual({ ...input(), businessName: 'Garage Dupont', knowledge: { ...input().knowledge, services: 'Vidange\nPneus' }, transferDestination: '+33123456789' })
   expect(parseSaveActivityInput({ ...input(), transferDestination: undefined }).transferDestination).toBeNull()

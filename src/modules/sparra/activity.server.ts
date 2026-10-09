@@ -46,8 +46,7 @@ export function parseSaveActivityInput(input: unknown) {
   try {
     const value = Schema.decodeUnknownSync(saveInput,{ onExcessProperty: 'error' })(input)
     if(value.recordingPolicy !== undefined && value.recordingEnabled === true) throw new InvalidActivityInput()
-    if(value.recordingPolicy === 'local_30d' && value.recordingContactPhone == null) throw new InvalidActivityInput()
-    return { ...value, transferDestination: value.transferDestination ?? null, recordingEnabled: value.recordingEnabled ?? false, ...(value.recordingPolicy !== undefined || Object.hasOwn(value,'recordingContactPhone') ? {recordingContactPhone:value.recordingContactPhone ?? null} : {}) }
+    return { ...value, transferDestination: value.transferDestination ?? null, recordingEnabled: value.recordingEnabled ?? false, ...(Object.hasOwn(value,'recordingContactPhone') ? {recordingContactPhone:value.recordingContactPhone ?? null} : {}) }
   } catch { throw new InvalidActivityInput() }
 }
 export function configuration(row: typeof sparraKnowledgeRevision.$inferSelect): ActivityConfigurationDto {
@@ -70,14 +69,14 @@ export function createActivityOperations(owner: AuthTransactions) {
     return owner.withPersonalWorkspacePromise(options(signal),principal,false,async lease=>{
       if(!lease) return null
       // The native personal lease already holds the active Workspace FOR UPDATE.
-      const [latest]=await lease.db.select({revision:sparraKnowledgeRevision.revision,recordingPolicy:sparraKnowledgeRevision.recordingPolicy}).from(sparraKnowledgeRevision).where(eq(sparraKnowledgeRevision.workspaceId,lease.workspaceId)).orderBy(desc(sparraKnowledgeRevision.revision)).limit(1)
+      const [latest]=await lease.db.select({revision:sparraKnowledgeRevision.revision,recordingPolicy:sparraKnowledgeRevision.recordingPolicy,recordingContactPhone:sparraKnowledgeRevision.recordingContactPhone}).from(sparraKnowledgeRevision).where(eq(sparraKnowledgeRevision.workspaceId,lease.workspaceId)).orderBy(desc(sparraKnowledgeRevision.revision)).limit(1)
       if((latest?.revision ?? 0)!==value.expectedRevision) throw new ActivityRevisionConflict()
       if(value.recordingPolicy === undefined && latest?.recordingPolicy === 'local_30d') throw new ActivityRecordingUnavailable()
       if(value.recordingPolicy === 'local_30d') {
         const [capability]=await lease.db.select({available:sql<boolean>`public.sparra_local_audio_available_v1()`}).from(sql`(select 1) AS local_audio_call`)
         if(capability?.available !== true) throw new ActivityRecordingUnavailable()
       }
-      const [saved]=await lease.db.insert(sparraKnowledgeRevision).values({workspaceId:lease.workspaceId,revision:value.expectedRevision+1,businessName:value.businessName,sector:value.sector,...value.knowledge,transferDestination:value.transferDestination,recordingEnabled:value.recordingPolicy === undefined ? value.recordingEnabled : false,recordingPolicy:value.recordingPolicy ?? 'off',recordingContactPhone:value.recordingContactPhone ?? null}).returning()
+      const [saved]=await lease.db.insert(sparraKnowledgeRevision).values({workspaceId:lease.workspaceId,revision:value.expectedRevision+1,businessName:value.businessName,sector:value.sector,...value.knowledge,transferDestination:value.transferDestination,recordingEnabled:value.recordingPolicy === undefined ? value.recordingEnabled : false,recordingPolicy:value.recordingPolicy ?? 'off',recordingContactPhone:Object.hasOwn(value,'recordingContactPhone') ? value.recordingContactPhone ?? null : latest?.recordingContactPhone ?? null}).returning()
       if(!saved) throw new Error('Activity unavailable')
       return configuration(saved)
     })

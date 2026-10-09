@@ -7,7 +7,7 @@ import { startDisposableStores } from '../fixtures/db/disposable-stores'
 // owned direct-PG SESSION AUTHORIZATION witness, not a pooled login proof.
 // Synthetic policy/routing/media facts do not qualify capture or caller choice.
 type Snapshot = { schema_version: 2; workspace_id: string; call_id: string; configuration_revision: number
-  retention_until: string; recording_policy: 'off' | 'local_30d'; audio_available: boolean; recording_id: string | null }
+  retention_until: string; recording_policy: 'off' | 'local_30d'; recording_contact_phone: string | null; audio_available: boolean; recording_id: string | null }
 type Role = 'a' | 'b' | 'shared'
 type Call = { id: string; role: Role; route: ReturnType<typeof route>; snapshot: Snapshot }
 type AudioIdentity = { schema_version: 2; workspace_id: string; recording_id: string; configuration_revision: number; retention_until: string }
@@ -43,7 +43,7 @@ function route(slot: number, role: Role) {
 }
 async function policy(value: 'off' | 'local_30d') {
   await admin("INSERT INTO sparra_knowledge_revision(workspace_id,revision,business_name,sector,opening_hours,services,prices,faq,instructions,recording_enabled,recording_policy,recording_contact_phone) VALUES($1,$2,'Boundary fixture','garage','','','','','',false,$3,$4)",
-    [workspaceId, ++revision, value, value === 'local_30d' ? '+33123456789' : null])
+    [workspaceId, ++revision, value, null])
 }
 async function call(slot: number, role: Role): Promise<Call> {
   const existing = routes.get(slot), routing = existing ?? route(slot, role)
@@ -131,7 +131,7 @@ test('fixed contract refuses legacy binding while OFF and local-capability absen
   expect(off.snapshot).toMatchObject({ recording_policy: 'off', audio_available: false, recording_id: null })
   await policy('local_30d')
   const unavailable = await call(1, 'shared')
-  expect(unavailable.snapshot).toMatchObject({ recording_policy: 'local_30d', audio_available: false, recording_id: null })
+  expect(unavailable.snapshot).toMatchObject({ recording_policy: 'local_30d', recording_contact_phone: null, audio_available: false, recording_id: null })
   expect((await admin('SELECT audio_state,status,audio_reserved_bytes,audio_charged_bytes FROM sparra_call WHERE id=$1', [unavailable.id])).rows[0])
     .toMatchObject({ audio_state: 'unavailable', status: 'pending', audio_reserved_bytes: 0, audio_charged_bytes: 0 })
 })

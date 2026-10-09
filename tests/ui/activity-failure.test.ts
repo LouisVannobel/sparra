@@ -69,10 +69,11 @@ test.each([
   }
 })
 
-test('local recording validation requires an explicit canonical business contact for ON independently of transfer',async()=>{
+test('local recording validation permits an absent contact and validates a supplied phone independently of transfer',async()=>{
   const {activityDraftIssues}=await import('../../src/ui/sparra/activity-panel')
   const on={...validDraft(),recordingPolicy:'local_30d' as const,recordingContactPhone:null,transferDestination:'+33102030405'}
-  expect(activityDraftIssues(on)).toEqual({recordingContactPhone:'recordingContactRequired'})
+  expect(activityDraftIssues(on)).toEqual({})
+  expect(activityDraftIssues({...on,recordingContactPhone:undefined})).toEqual({})
   for(const recordingContactPhone of ['0612345678',' +33123456789','+33123456789\n','+33 123456789','+0123456789','+1234567890123456']){
     expect(activityDraftIssues({...on,recordingContactPhone})).toEqual({recordingContactPhone:'phoneFormat'})
   }
