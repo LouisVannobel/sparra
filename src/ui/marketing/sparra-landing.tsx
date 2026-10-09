@@ -35,7 +35,7 @@ export function SparraLanding(): React.JSX.Element {
         <div className="sparra-section-heading"><h2 id="sparra-how">Un appel reçu.<br />Une demande claire.</h2><p>Le parcours du pilote, de votre configuration aux appels reçus.</p></div>
         <ol className="sparra-steps">
           <li><h3>Vous nous expliquez votre activité</h3><p>Horaires, prestations, tarifs, questions fréquentes, consignes.</p></li>
-          <li><h3>Vous connectez votre ligne</h3><p>Vous gardez votre numéro existant lorsque le renvoi de votre ligne le permet. Sparra peut intervenir selon vos règles.</p></li>
+          <li><h3>Vous connectez votre ligne</h3><p>Vous gardez votre numéro existant lorsque le renvoi de votre ligne le permet. Avec un renvoi sur non-réponse configuré, vous répondez d’abord : si vous décrochez, l’IA n’intervient pas. Sparra reçoit seulement les appels renvoyés. Ce réglage est à vérifier avec votre opérateur pendant le pilote.</p></li>
           <li><h3>Sparra répond</h3><p>Il comprend la demande, renseigne le client, qualifie une demande de rendez-vous ou recueille un message pour l’équipe. Le relais humain est prévu selon vos consignes ; il sera qualifié dans le pilote. Aucun rendez-vous confirmé sans agenda relié.</p></li>
           <li><h3>Vous récupérez l'essentiel</h3><p>Résumé, coordonnées, transcription et action à effectuer.</p></li>
         </ol>
