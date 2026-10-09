@@ -12,6 +12,7 @@ import { startDisposableStores, startDisposableHatchet } from '../fixtures/db/di
 import { startMailHttpPeer } from '../fixtures/mail-http'
 import { startWeb, bounded, unusedLoopbackPort } from '../helpers/web-process'
 import { authRpcPath, rpcBody } from '../helpers/auth-rpc'
+import { observeMagicRequestBootstrap, fillMagicRequestEmail } from '../helpers/magic-request-fill-observer'
 
 const proxyFailureCodes=['EADDRINUSE','EACCES','EADDRNOTAVAIL','EINVAL'] as const
 type ProxyFailureEvidence={proxySetupNativeCode?:typeof proxyFailureCodes[number]|'other'}
@@ -231,6 +232,7 @@ for (const [mode, name] of [
       }
     })
     const requestPage = await requesting.newPage(), receivePage = await receiving.newPage()
+    const requestBootstrap = await observeMagicRequestBootstrap(requestPage, requesting, origin)
     if (enrollment) {
       passkeyCdp = await receiving.newCDPSession(receivePage)
       await passkeyCdp.send('WebAuthn.enable')
@@ -341,7 +343,7 @@ for (const [mode, name] of [
     expect(await requestPage.getByRole('textbox', { name: /^Email address/ }).count(), 'compiled magic request field exists').toBe(1)
     evidence.requestFieldExists = true
     stage = 'request email entry'
-    await requestPage.getByRole('textbox', { name: /^Email address/ }).fill(email)
+    await fillMagicRequestEmail(requestPage, email, requestBootstrap, evidence)
     stage = 'request explicit submit'
     await requestPage.getByRole('button', { name: 'Send a sign-in link', exact: true }).click()
     stage = 'request acknowledgement'

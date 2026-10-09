@@ -2,22 +2,27 @@ import { afterAll, beforeAll, expect, test } from 'vitest'
 import { createServer, request as httpRequest } from 'node:http'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright'
+import { chromium, type Browser, type BrowserContext, type Page, type Request } from 'playwright'
 import AxeBuilder from '@axe-core/playwright'
 import { Client } from 'pg'
 import { startDisposableStores } from '../fixtures/db/disposable-stores'
 import { startWeb, bounded, unusedLoopbackPort } from '../helpers/web-process'
 import { authRpcPath, rpcBody } from '../helpers/auth-rpc'
 import { cryptoFixture, nativeVoiceTurn } from '../helpers/sparra-crypto-fixture'
+import { observePrivateLoginBootstrap, capturePrivateLoginBootstrapFailure } from '../helpers/private-login-bootstrap-diagnostic'
+import { startPrivateNetworkEventProbe } from '../helpers/private-network-event-probe'
 
 let stores: Awaited<ReturnType<typeof startDisposableStores>>, app: ReturnType<typeof startWeb>, proxy: ReturnType<typeof createServer>, browser: Browser
 let origin: string, upstreamPort: number, appEnv: ReturnType<typeof environment>, crypto: Awaited<ReturnType<typeof cryptoFixture>>
+let networkProbe: ReturnType<typeof startPrivateNetworkEventProbe> | undefined
 const foreignCallId=randomUUID()
 const fixtureClients=new Map<string,string>()
 function environment(){return { NODE_ENV:'test',APP_ORIGIN:origin,DATABASE_URL:stores.runtimeUrl,REDIS_URL:stores.redisUrl,RATE_LIMIT_HMAC_SECRET:stores.hmac,RATE_LIMIT_KEY_ID:'sparra-browser',TRUSTED_PROXY_IPS:'127.0.0.2',AUTH_SECRET:randomBytes(48).toString('hex'),GOOGLE_CLIENT_ID:'fixture.apps.googleusercontent.com',GOOGLE_CLIENT_SECRET:'fixture-only',FIXTURE_GOOGLE_PROTOCOL:'yes',REQUEST_TIMEOUT_MS:'10000',SPARRA_AEAD_KEYRING_PATH:crypto.path }}
 beforeAll(async () => {
   await mkdir('.output/test-evidence/sparra', { recursive: true })
-  stores = await startDisposableStores(); await stores.migrate(); crypto = await cryptoFixture()
+  networkProbe = startPrivateNetworkEventProbe(); networkProbe.mark('fixture-create-start')
+  stores = await startDisposableStores(); networkProbe.ownNetwork(stores.evidence.network); networkProbe.mark('fixture-ready')
+  await stores.migrate(); networkProbe.mark('migration-done'); crypto = await cryptoFixture()
   await stores.administrator.query('GRANT USAGE ON SCHEMA public TO runtime; GRANT SELECT,INSERT,UPDATE,DELETE ON "user",account,session,verification TO runtime; GRANT SELECT ON public.passkey TO runtime')
   const port = await unusedLoopbackPort(); origin = `http://localhost:${port}`
   appEnv = environment()
@@ -31,14 +36,21 @@ beforeAll(async () => {
     incoming.on('aborted',()=>call.destroy()); outgoing.on('close',()=>{if(!outgoing.writableEnded)call.destroy()})
     call.on('error',() => { if(!outgoing.destroyed){outgoing.writeHead(502); outgoing.end()} }); incoming.pipe(call)
   })
-  await new Promise<void>(done => proxy.listen(port,'127.0.0.1',done)); browser = await chromium.launch({headless:true})
+  await new Promise<void>(done => proxy.listen(port,'127.0.0.1',done)); networkProbe.mark('chromium-launch-start')
+  browser = await chromium.launch({headless:true}); networkProbe.mark('chromium-launch-done')
 })
 afterAll(async () => {
   const failures: unknown[] = []
+  if(networkProbe) {
+    try {
+      const result=await networkProbe.finish('setup-incomplete'); console.error(result.line)
+      if(result.cleanup==='unknown')failures.push(new Error('Private network observer cleanup unconfirmed'))
+    } catch(error) { failures.push(error) }
+  }
   for (const close of [() => browser?.close(), () => proxy && new Promise(done => proxy.close(done)), () => app?.cleanup(), () => crypto?.cleanup(), () => stores?.cleanup()]) { try { await close() } catch (error) { failures.push(error) } }
   if (failures.length) throw new AggregateError(failures,'Sparra browser cleanup failed')
 })
-async function signedIn(subject:string) {
+async function signedIn(subject:string,observeBootstrap=false) {
   const fixtureClient=randomUUID();fixtureClients.set(fixtureClient,`127.0.1.${fixtureClients.size+1}`)
   const context = await browser.newContext({viewport:{width:320,height:720},extraHTTPHeaders:{'x-fixture-client':fixtureClient}}), page = await context.newPage()
   await context.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort())
@@ -47,14 +59,32 @@ async function signedIn(subject:string) {
     const target = new URL(route.request().url()),code = await app.registerGoogle(target.href,subject)
     return route.fulfill({status:302,headers:{location:origin+'/api/auth/callback/google?code='+code+'&state='+target.searchParams.get('state')}})
   })
-  await page.goto(origin+'/login?lang=en'); await page.getByRole('button',{name:'Continue with Google'}).click(); await page.waitForURL(origin+'/account?lang=en')
+  const observer=observeBootstrap?await observePrivateLoginBootstrap(page,origin):undefined
+  const networkChanged=(request:Request)=>{
+    if(request.resourceType()==='script'&&request.failure()?.errorText==='net::ERR_NETWORK_CHANGED')networkProbe?.mark('first-script-network-change')
+  }
+  if(observeBootstrap)page.on('requestfailed',networkChanged)
+  try {
+    if(observeBootstrap)networkProbe?.mark('goto-start')
+    await page.goto(origin+'/login?lang=en')
+    if(observeBootstrap)networkProbe?.mark('goto-done')
+    await page.getByRole('button',{name:'Continue with Google'}).click(); await page.waitForURL(origin+'/account?lang=en')
+    if(observeBootstrap)void networkProbe?.finish('signed-in')
+  } catch(error) {
+    if(observeBootstrap)void networkProbe?.finish('native-failure')
+    if(observer)await capturePrivateLoginBootstrapFailure(page,observer,error)
+    throw error
+  } finally {
+    if(observeBootstrap) { try { page.off('requestfailed',networkChanged) } catch { /* Preserve the native failure. */ } }
+    observer?.stop()
+  }
   return {context,page}
 }
 async function rpc(context:BrowserContext,name:Parameters<typeof authRpcPath>[0],data:unknown) {
   return context.request.post(origin+await authRpcPath(name),{headers:{origin,'content-type':'application/json','x-tsr-serverFn':'true'},data:await rpcBody(data)})
 }
 test('compiled private inbox creates only by POST, saves knowledge across restart, keeps conflicting draft, treats and reloads durable erasure',async()=>{
-  const {context,page}=await signedIn('sparra-owner'), errors:string[]=[]
+  const {context,page}=await signedIn('sparra-owner',true), errors:string[]=[]
   let releaseMutation=()=>{}
   page.on('pageerror',e=>errors.push(e.message))
   try {
