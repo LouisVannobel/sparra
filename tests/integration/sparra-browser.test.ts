@@ -9,6 +9,7 @@ import { startDisposableStores } from '../fixtures/db/disposable-stores'
 import { startWeb, bounded, unusedLoopbackPort } from '../helpers/web-process'
 import { authRpcPath, rpcBody } from '../helpers/auth-rpc'
 import { cryptoFixture, nativeVoiceTurn } from '../helpers/sparra-crypto-fixture'
+import { observePrivateLoginBootstrap, capturePrivateLoginBootstrapFailure } from '../helpers/private-login-bootstrap-diagnostic'
 
 let stores: Awaited<ReturnType<typeof startDisposableStores>>, app: ReturnType<typeof startWeb>, proxy: ReturnType<typeof createServer>, browser: Browser
 let origin: string, upstreamPort: number, appEnv: ReturnType<typeof environment>, crypto: Awaited<ReturnType<typeof cryptoFixture>>
@@ -38,7 +39,7 @@ afterAll(async () => {
   for (const close of [() => browser?.close(), () => proxy && new Promise(done => proxy.close(done)), () => app?.cleanup(), () => crypto?.cleanup(), () => stores?.cleanup()]) { try { await close() } catch (error) { failures.push(error) } }
   if (failures.length) throw new AggregateError(failures,'Sparra browser cleanup failed')
 })
-async function signedIn(subject:string) {
+async function signedIn(subject:string,observeBootstrap=false) {
   const fixtureClient=randomUUID();fixtureClients.set(fixtureClient,`127.0.1.${fixtureClients.size+1}`)
   const context = await browser.newContext({viewport:{width:320,height:720},extraHTTPHeaders:{'x-fixture-client':fixtureClient}}), page = await context.newPage()
   await context.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort())
@@ -47,14 +48,20 @@ async function signedIn(subject:string) {
     const target = new URL(route.request().url()),code = await app.registerGoogle(target.href,subject)
     return route.fulfill({status:302,headers:{location:origin+'/api/auth/callback/google?code='+code+'&state='+target.searchParams.get('state')}})
   })
-  await page.goto(origin+'/login?lang=en'); await page.getByRole('button',{name:'Continue with Google'}).click(); await page.waitForURL(origin+'/account?lang=en')
+  const observer=observeBootstrap?await observePrivateLoginBootstrap(page,origin):undefined
+  try {
+    await page.goto(origin+'/login?lang=en'); await page.getByRole('button',{name:'Continue with Google'}).click(); await page.waitForURL(origin+'/account?lang=en')
+  } catch(error) {
+    if(observer)await capturePrivateLoginBootstrapFailure(page,observer,error)
+    throw error
+  } finally { observer?.stop() }
   return {context,page}
 }
 async function rpc(context:BrowserContext,name:Parameters<typeof authRpcPath>[0],data:unknown) {
   return context.request.post(origin+await authRpcPath(name),{headers:{origin,'content-type':'application/json','x-tsr-serverFn':'true'},data:await rpcBody(data)})
 }
 test('compiled private inbox creates only by POST, saves knowledge across restart, keeps conflicting draft, treats and reloads durable erasure',async()=>{
-  const {context,page}=await signedIn('sparra-owner'), errors:string[]=[]
+  const {context,page}=await signedIn('sparra-owner',true), errors:string[]=[]
   let releaseMutation=()=>{}
   page.on('pageerror',e=>errors.push(e.message))
   try {
