@@ -725,17 +725,19 @@ test('maintained_fallow_audit_scans_actual_changed_canary',()=>{
   expect(result.stdout+result.stderr).toMatch(/unused.?file|unused.?export|dead.?code/i)
 },40000)
 
-test('fallow_declares_only_native_subprocess_roots_and_exact_generated_import',()=>{
+test('fallow_declares_only_native_subprocess_and_actual_browser_roots_and_exact_generated_import',()=>{
   const {root,base}=qualityFixture()
   mkdirSync(join(root,'tests/helpers'),{recursive:true});mkdirSync(join(root,'scripts'))
   writeFileSync(join(root,'tests/helpers/generate-native-voice-envelope.ts'),"console.log('synthetic generator');\n")
   writeFileSync(join(root,'tests/helpers/runtime-probe.mjs'),"console.log('synthetic preload');\n")
+  writeFileSync(join(root,'tests/helpers/inbox-panel-fixture.tsx'),"console.log('synthetic declared browser entry');\n")
+  writeFileSync(join(root,'tests/helpers/undeclared-browser-sibling.tsx'),"console.log('synthetic undeclared browser sibling');\n")
   writeFileSync(join(root,'scripts/start-web.mjs'),"await import('../.output/server/index.mjs');\nawait import('../.output/server/genuinely-missing.mjs');\n")
   writeFileSync(join(root,'scripts/test-prerequisites.mjs'),"console.log('synthetic prerequisite decoder');\n")
   writeFileSync(join(root,'scripts/undeclared-prerequisite-sibling.mjs'),"console.log('synthetic undeclared sibling');\n")
   writeFileSync(join(root,'src/main.tsx'),readFileSync(join(root,'src/main.tsx'),'utf8')+"import './genuinely-missing';\n")
   const fixtureConfig: {entry:string[];health:{coverage:string|null}} = JSON.parse(readFileSync(join(repositoryRoot,'.fallowrc.json'),'utf8'))
-  expect(fixtureConfig.entry).toEqual(['scripts/start-web.mjs','scripts/test-prerequisites.mjs','tests/helpers/generate-native-voice-envelope.ts'])
+  expect(fixtureConfig.entry).toEqual(['scripts/start-web.mjs','scripts/test-prerequisites.mjs','tests/helpers/generate-native-voice-envelope.ts','tests/helpers/inbox-panel-fixture.tsx'])
   fixtureConfig.health.coverage = null
   writeFileSync(join(root,'.fallowrc.json'),JSON.stringify(fixtureConfig))
   const result=runQuality('fallow',['audit','--no-css','--base',base],root)
@@ -743,13 +745,27 @@ test('fallow_declares_only_native_subprocess_roots_and_exact_generated_import',(
   const output=result.stdout+result.stderr
   expect(output).toMatch(/src[\\/]unused\.ts/)
   expect(output).toContain('undeclared-prerequisite-sibling.mjs')
+  expect(output).toContain('undeclared-browser-sibling.tsx')
   expect(output).toContain('./genuinely-missing')
   expect(output).toContain('../.output/server/genuinely-missing.mjs')
   expect(output).not.toContain('generate-native-voice-envelope.ts')
   expect(output).not.toContain('runtime-probe.mjs')
+  expect(output).not.toContain('inbox-panel-fixture.tsx')
   expect(output).not.toMatch(/(?:^|[\\/])test-prerequisites\.mjs/)
   expect(output).not.toContain('../.output/server/index.mjs')
 },40000)
+
+test('declared_inbox_browser_entry_is_the_exact_HTML_module_mounting_the_runtime_panel',()=>{
+  const html=readFileSync(join(repositoryRoot,'tests/helpers/inbox-panel-fixture.html'),'utf8')
+  expect([...html.matchAll(/<script\b[^>]*>/g)].map(match=>match[0])).toEqual(['<script type="module" src="./inbox-panel-fixture.tsx">'])
+  const fixture=readFileSync(join(repositoryRoot,'tests/helpers/inbox-panel-fixture.tsx'),'utf8')
+  expect(fixture).toContain("import { InboxPanel } from '../../src/ui/sparra/inbox-panel'")
+  expect(fixture).toContain('root.render(<Theme theme={neutralTheme} mode="light"><InboxPanel')
+  const consumer=readFileSync(join(repositoryRoot,'tests/ui/inbox-refresh.test.ts'),'utf8')
+  expect(consumer).toContain("await page.goto(origin + '/tests/helpers/inbox-panel-fixture.html')")
+  expect(consumer).toContain("configFile: false, envDir: false, envPrefix: 'INBOX_FIXTURE_PUBLIC_'")
+  expect(consumer).toContain("server: { host: '127.0.0.1', port: 0 }")
+})
 
 test('fallow_ignores_only_generated_route_tree_clones_and_keeps_handwritten_clones',()=>{
   const {root}=qualityFixture()
@@ -921,9 +937,9 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
   const targets=[
     ['detail and inbox preserve the translated native category and observed number source in both locales',
       '// fallow-ignore-next-line complexity -- reviewed SSR A; TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003',
-      '619b7bbde9d420ac763e9fea7097e6f4b5e6dd9e2c5f3b064749ce742e1844a1',
-      'bd454b49386dc18c8de3ed3f29fca564f5fed7016832e6d255bf4d5ff8e2eb4e',
-      '9746db439ee5080abc680c42c88d9aa79235ca21d73186f142e7be4e74c1b719'],
+      '476189224c73762fc9923d6e855969efe4cc332007604c8bfd3a786abcad3daf',
+      '4208d3e5cbd8f2133e2f654964c04b2874fc32d679e064994da6384830c2ea55',
+      'bd3de21d3b60865bba3f45403e2e136aac29d65019a5682af2c0ddf8bcca029f'],
     ['request detail keeps observed metadata, ordered partial turns, pinned knowledge and disabled SSR actions in both locales',
       '// fallow-ignore-next-line complexity -- reviewed SSR B; TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003',
       '919208b5274ee478430e14284d8668f7a229c9fae11d4a86c9fb493131b5436c',
@@ -1071,7 +1087,7 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
         expect(source.text.slice(marker.end,marker.end+newlineLength),'Reviewed SSR marker line expired').toMatch(/^\r?\n$/)
         reconstructed=reconstructed.slice(0,marker.start)+reconstructed.slice(marker.end+newlineLength)
       }
-      expect(digest(reconstructed),'Reviewed SSR whole file expired').toBe('ee581147c8dd384b6e2f679b1bc37069182113fc0388c99a29ad7b79b2b7a7ab')
+      expect(digest(reconstructed),'Reviewed SSR whole file expired').toBe('2c768864f482b4d62d54d8dce7f6ae3dac39462d7a1173abba817d4b406368ad')
     }
     expect(()=>reviewedCallbacks(sources)).not.toThrow()
     const original=sources.get(ssrFile)!,title=targets[0][0]

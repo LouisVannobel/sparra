@@ -93,6 +93,13 @@ test('public header and footer expose the existing private entry in French', asy
     const section = new RegExp(`<${landmark}\\b[^>]*>([\\s\\S]*?)</${landmark}>`).exec(html)?.[1]
     expect(section).toMatch(/<a href="\/app\?lang=fr">Mon espace<\/a>/)
   }
+  expect(html).toMatch(/<a\b[^>]*href="\/app\/entreprise\?lang=fr"[^>]*>[\s\S]*?Configurer mon entreprise/)
+  expect(html).toContain('href="#demo"')
+  expect(html).toContain('Préparer un pilote ensemble')
+  const entry=await fetch(base+'/app/entreprise?lang=fr',{signal:AbortSignal.timeout(3000)})
+  expect(entry.status).toBe(200)
+  expect(new URL(entry.url).pathname).toBe('/login')
+  expect(await entry.text()).toContain('<html lang="fr"')
 })
 
 test('public pilot and demo copy preserve the illustrative and unqualified limits', async () => {
@@ -109,6 +116,7 @@ test('public pilot and demo copy preserve the illustrative and unqualified limit
   expect(html).toContain('Exemple fictif de connaissances. Lecture seule.')
   expect(html).toContain('Aucun rendez-vous confirmé sans agenda relié.')
   expect(html).toContain('il sera qualifié dans le pilote')
+  expect(html).toContain('Sans transfert qualifié vers votre équipe, Sparra recueille un message à vous transmettre.')
   expect(html).toContain('Les conditions et le tarif seront précisés avant tout engagement.')
 })
 

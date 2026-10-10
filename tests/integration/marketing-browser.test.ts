@@ -475,12 +475,19 @@ test('demo actions wait for real startup hydration before the first native play'
 
 test('a real audio failure is announced and leaves text and receipt available', async () => {
   const page = await openPage()
+  let requests = 0
   try {
-    await page.route('**/demos/*.mp3', route => route.fulfill({ status: 404, body: 'Missing audio' }))
+    await page.route('**/demos/*.mp3', route => { requests++; return route.fulfill({ status: 404, body: 'Missing audio' }) })
     await page.goto(origin)
     const play = page.getByRole('button', { name: 'Écouter l’exemple', exact: true })
-    await play.focus(); await page.keyboard.press('Enter')
+    await expect.poll(() => play.isEnabled()).toBe(true)
+    await expect.poll(() => play.evaluate(element => getComputedStyle(element).opacity)).toBe('1')
+    await play.focus()
+    expect(await play.evaluate(element => element === document.activeElement)).toBe(true)
+    await page.keyboard.press('Enter')
     await page.locator('#demo [role="alert"]').waitFor()
+    expect(requests).toBeGreaterThan(0)
+    expect(await page.locator('#demo audio').evaluate((audio: HTMLAudioElement) => audio.error?.code)).toBe(4)
     expect(await play.evaluate(element => element === document.activeElement)).toBe(true)
     expect(await page.locator('#demo .sparra-transcript').textContent()).toContain('révision')
     expect(await page.locator('#demo .sparra-receipt').textContent()).toContain('révision')
@@ -637,13 +644,13 @@ test.each([1280, 390])('public app entries remain visible, keyboard accessible a
   const page = await openPage()
   try {
     await page.setViewportSize({ width, height: 900 })
-    for (const landmark of ['header', 'footer']) {
+    for (const [landmark,label,destination] of [['header','Mon espace','/app?lang=fr'],['footer','Mon espace','/app?lang=fr'],['header','Configurer mon entreprise','/app/entreprise?lang=fr']] as const) {
       await page.goto(origin)
       await page.getByRole('button', { name: 'Écouter l’exemple', exact: true }).waitFor()
-      const link = page.locator(landmark).getByRole('link', { name: 'Mon espace', exact: true })
+      const link = page.locator(landmark).getByRole('link', { name: label, exact: true })
       expect(await link.count()).toBe(1)
       expect(await link.isVisible()).toBe(true)
-      expect(await link.getAttribute('href')).toBe('/app?lang=fr')
+      expect(await link.getAttribute('href')).toBe(destination)
       expect(await page.getByRole('link', { name: 'Mon espace', exact: true }).count()).toBe(2)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
       expect(await page.getByText('Exemple enregistré — scénario fictif', { exact: true }).count()).toBe(1)
@@ -664,7 +671,7 @@ test.each([1280, 390])('public app entries remain visible, keyboard accessible a
         return bounds.left >= 0 && bounds.right <= innerWidth && bounds.top >= 0 && bounds.bottom <= innerHeight
       })).toBe(true)
       await mkdir('.output/test-evidence/marketing', { recursive: true })
-      await page.screenshot({ path: `.output/test-evidence/marketing/public-entry-${landmark}-${width}.png` })
+      await page.screenshot({ path: `.output/test-evidence/marketing/public-entry-${landmark}-${label==='Mon espace'?'inbox':'business'}-${width}.png` })
       await page.keyboard.press('Enter')
       await page.waitForURL(origin + '/login')
       await page.getByRole('heading', { name: 'Connexion', exact: true }).waitFor()

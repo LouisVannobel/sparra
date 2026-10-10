@@ -13,7 +13,7 @@ export function SparraLanding(): React.JSX.Element {
         <a href="#offre">L’offre</a>
         <a href="/app?lang=fr">Mon espace</a>
       </nav>
-      <Button className="sparra-contact" href="mailto:contact@sparra.fr" label="Parlons de votre activité" variant="primary" size="lg" />
+      <Button className="sparra-contact" href="/app/entreprise?lang=fr" label="Configurer mon entreprise" variant="primary" size="lg" />
     </header>
     <main id="contenu">
       <section className="sparra-hero sparra-width" aria-labelledby="sparra-title">
@@ -41,7 +41,7 @@ export function SparraLanding(): React.JSX.Element {
         </ol>
       </section>
       <section id="controle" className="sparra-section sparra-width sparra-knowledge" aria-labelledby="sparra-control">
-        <div><h2 id="sparra-control">Il connaît votre activité. Vous fixez les limites.</h2><p>Les réponses prévues s’appuient sur les informations que vous confiez à Sparra. Vous définissez ce qu’il peut expliquer et quand votre équipe doit reprendre la conversation.</p><p>Une question sans réponse, une demande particulière ou un appelant qui veut parler à une personne : le relais suit vos consignes. Sa disponibilité et le repli si personne ne répond restent à vérifier dans le pilote.</p></div>
+        <div><h2 id="sparra-control">Il connaît votre activité. Vous fixez les limites.</h2><p>Les réponses prévues s’appuient sur les informations que vous confiez à Sparra. Vous définissez ce qu’il peut expliquer et quand votre équipe doit reprendre la conversation.</p><p>Sans transfert qualifié vers votre équipe, Sparra recueille un message à vous transmettre. Ce suivi permet de traiter une question sans réponse, une demande particulière ou un appelant qui veut parler à une personne. Le transfert selon vos consignes, sa disponibilité et le repli si personne ne répond restent à vérifier dans le pilote.</p></div>
         <aside className="sparra-knowledge-note" aria-labelledby="sparra-example">
           <h3 id="sparra-example">Garage Horizon</h3><p className="sparra-example-label">Exemple fictif de connaissances. Lecture seule.</p>
           <dl><div><dt>Horaires</dt><dd>Du lundi au vendredi, de 8 h à 18 h.</dd></div><div><dt>Prestations</dt><dd>Révision et entretien courant.</dd></div><div><dt>Tarifs</dt><dd>À confirmer avec l’équipe selon le véhicule.</dd></div><div><dt>Consigne</dt><dd>Recueillir la demande et une préférence de rappel. Tout rendez-vous reste à confirmer.</dd></div></dl>

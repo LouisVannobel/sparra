@@ -91,3 +91,33 @@ test('local recording policy and contact edits participate in latest-read and sa
   expect(activityMatchesConfiguration({...editable,recordingPolicy:'off'},configuration)).toBe(false)
   expect(activityMatchesConfiguration(validDraft(),configuration)).toBe(false)
 })
+
+test('recording contact visibility retains a stored value while clearing and hides only a known empty OFF configuration',async()=>{
+  const {activityRecordingContactVisible}=await import('../../src/ui/sparra/activity-panel')
+  expect(activityRecordingContactVisible).toBeTypeOf('function')
+  const empty:SaveActivityInput={...validDraft(),recordingPolicy:'off',recordingContactPhone:null}
+  const {expectedRevision:_,...values}=empty
+  const stored:ActivityConfigurationDto={...values,workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',revision:7,savedAt:'2026-10-10T10:00:00.000Z',transferDestination:null,recordingPolicy:'off',recordingContactPhone:'+33123456789'}
+  expect(activityRecordingContactVisible(empty,null)).toBe(false)
+  expect(activityRecordingContactVisible({...empty,recordingPolicy:'local_30d'},null)).toBe(true)
+  expect(activityRecordingContactVisible({...empty,recordingContactPhone:'+33102030405'},null)).toBe(true)
+  expect(activityRecordingContactVisible(empty,stored)).toBe(true)
+  expect(activityRecordingContactVisible(empty,{...stored,recordingContactPhone:null})).toBe(false)
+  expect(activityRecordingContactVisible({...empty,recordingContactPhone:undefined},null)).toBe(false)
+})
+
+test('save precondition blocks unchanged, audio-denied and recovering drafts while preserving initial and exact later edits',async()=>{
+  const {activitySaveBlocked}=await import('../../src/ui/sparra/activity-panel')
+  expect(activitySaveBlocked).toBeTypeOf('function')
+  const editable:SaveActivityInput={...validDraft(),recordingPolicy:'off',recordingContactPhone:null}
+  const {expectedRevision:_,...values}=editable
+  const stored:ActivityConfigurationDto={...values,workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',revision:99,savedAt:'2026-10-10T10:00:00.000Z',transferDestination:null,recordingPolicy:'off',recordingContactPhone:null}
+  expect(activitySaveBlocked(editable,null,false)).toBe(false)
+  expect(activitySaveBlocked(editable,stored,false)).toBe(true)
+  const changed={...editable,businessName:'Observed garage '}
+  expect(activitySaveBlocked(changed,stored,false)).toBe(false)
+  expect(activitySaveBlocked(changed,stored,true)).toBe(true)
+  expect(activitySaveBlocked(changed,stored,false,true)).toBe(true)
+  expect(activitySaveBlocked(changed,stored,true,true)).toBe(true)
+  expect(activitySaveBlocked({...editable,recordingContactPhone:'+33123456789'},stored,false)).toBe(false)
+})

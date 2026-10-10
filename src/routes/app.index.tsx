@@ -1,6 +1,6 @@
 import { createFileRoute, redirect, useRouter } from '@tanstack/react-router'
 import { useServerFn } from '@tanstack/react-start'
-import { getActivity, listRequests } from '../modules/sparra/sparra.functions'
+import { getActivity, listRequests, markRequestTreated } from '../modules/sparra/sparra.functions'
 import { InboxPanel } from '../ui/sparra/inbox-panel'
 import { privateResult, PrivateUnavailable } from '../ui/sparra/app-shell'
 import { appMessages } from '../modules/sparra/messages'
@@ -17,6 +17,6 @@ export const Route=createFileRoute('/app/')({
   component:Inbox,
   errorComponent:function InboxUnavailable(){const {lang}=Route.useSearch();return <PrivateUnavailable locale={lang}/>},
 })
-function Inbox(){const {lang}=Route.useSearch(),loaded=Route.useLoaderData(),router=useRouter(),more=useServerFn(listRequests)
-  return <InboxPanel key={loaded.page.requests.map(row=>row.id).join(',')+lang} locale={lang} {...loaded} onMore={(data,signal)=>more({data,signal})} onRefused={async()=>{await router.navigate({to:'/login',search:{lang,error:undefined}})}}/>
+function Inbox(){const {lang}=Route.useSearch(),loaded=Route.useLoaderData(),router=useRouter(),more=useServerFn(listRequests),treat=useServerFn(markRequestTreated)
+  return <InboxPanel locale={lang} {...loaded} onMore={(data,signal)=>more({data,signal})} onTreat={(requestId,signal)=>treat({data:{requestId},signal})} onRefused={async()=>{await router.navigate({to:'/login',search:{lang,error:undefined}})}}/>
 }

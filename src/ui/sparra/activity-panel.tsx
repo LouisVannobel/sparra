@@ -57,6 +57,14 @@ export function activityMatchesConfiguration(editable:SaveActivityInput,configur
   return configuration!==null&&editable.businessName===configuration.businessName&&editable.sector===configuration.sector&&(editable.transferDestination??null)===configuration.transferDestination&&(editable.recordingEnabled??false)===(configuration.recordingEnabled??false)&&(editable.recordingPolicy??'off')===configuration.recordingPolicy&&(editable.recordingContactPhone??null)===configuration.recordingContactPhone&&sections.every(([field])=>editable.knowledge[field]===configuration.knowledge[field])
 }
 
+export function activityRecordingContactVisible(editable:SaveActivityInput,configuration:ActivityConfigurationDto|null):boolean{
+  return editable.recordingPolicy==='local_30d'||editable.recordingContactPhone!=null||configuration?.recordingContactPhone!=null
+}
+
+export function activitySaveBlocked(editable:SaveActivityInput,configuration:ActivityConfigurationDto|null,audioBlocked:boolean,reconcile=false):boolean{
+  return reconcile||audioBlocked||activityMatchesConfiguration(editable,configuration)
+}
+
 type ActivityFieldStatus={type:'error';message:string}|undefined
 function ActivityKnowledgeFields({locale,editable,disabled,onEdit,fieldRef,fieldStatus}:{locale:Locale;editable:SaveActivityInput;disabled:boolean;onEdit(next:SaveActivityInput):void;fieldRef(field:ActivityField,element:HTMLInputElement|HTMLTextAreaElement|null):void;fieldStatus(field:ActivityField,limit:number):ActivityFieldStatus}){
   const t=activityMessages[locale],examples=editable.sector==='controle-technique'?t.inspectionExamples:t.fieldExamples
@@ -98,7 +106,7 @@ function ActivitySaveSummary({locale,issues,pending,reconcile,draftStatus}:{loca
 
 function ActivityEditor({locale,editable,configuration,localAudioAvailable,audioBlocked,draftStatus,hydrated,pending,reconcile,onEdit,onSubmit}:{locale:Locale;editable:SaveActivityInput;configuration:ActivityConfigurationDto|null;localAudioAvailable:boolean;audioBlocked:boolean;draftStatus:string;hydrated:boolean;pending:boolean;reconcile:boolean;onEdit(next:SaveActivityInput):void;onSubmit():void}){
   const t=activityMessages[locale],disabled=!hydrated||pending
-  const saveBlocked=reconcile||audioBlocked
+  const saveBlocked=activitySaveBlocked(editable,configuration,audioBlocked,reconcile)
   const {issues,fieldRef,fieldStatus,submit}=useActivityValidation({locale,editable,disabled,saveBlocked,onSubmit})
   return <form className="sparra-business-form" aria-busy={pending} onSubmit={event=>{event.preventDefault();submit()}}>
     <fieldset className="sparra-form-section"><legend>{t.establishment}</legend><p className="sparra-form-hint">{t.requiredHint}</p><div className="sparra-field-pair">
@@ -109,7 +117,7 @@ function ActivityEditor({locale,editable,configuration,localAudioAvailable,audio
     <fieldset className="sparra-form-section"><legend>{t.callHandling}</legend><div className="sparra-call-settings">
     <TextInput ref={element=>fieldRef('transferDestination',element)} size="lg" label={t.transferDestination} description={`${t.transferHint} ${t.transferFormat}`} placeholder={t.transferPlaceholder} htmlName="transferDestination" value={editable.transferDestination??''} onChange={value=>onEdit({...editable,transferDestination:value||null})} status={fieldStatus('transferDestination')} statusVariant="detached" isDisabled={disabled} width="100%"/>
     <ActivityRecordingControl locale={locale} editable={editable} configuration={configuration} localAudioAvailable={localAudioAvailable} disabled={disabled} pending={pending} reconcile={reconcile} onEdit={onEdit}/>
-    <TextInput ref={element=>fieldRef('recordingContactPhone',element)} size="lg" label={t.recordingContactPhone} description={t.recordingContactHint} placeholder={t.recordingContactPlaceholder} htmlName="recordingContactPhone" value={editable.recordingContactPhone??''} onChange={value=>onEdit({...editable,recordingContactPhone:value||null})} status={fieldStatus('recordingContactPhone')} statusVariant="detached" isDisabled={disabled} width="100%"/>
+    {activityRecordingContactVisible(editable,configuration)&&<TextInput ref={element=>fieldRef('recordingContactPhone',element)} size="lg" label={t.recordingContactPhone} description={t.recordingContactHint} placeholder={t.recordingContactPlaceholder} htmlName="recordingContactPhone" value={editable.recordingContactPhone??''} onChange={value=>onEdit({...editable,recordingContactPhone:value||null})} status={fieldStatus('recordingContactPhone')} statusVariant="detached" isDisabled={disabled} width="100%"/>}
     </div>
     </fieldset>
     <ActivitySaveSummary locale={locale} issues={issues} pending={pending} reconcile={reconcile} draftStatus={draftStatus}/>
@@ -197,7 +205,7 @@ export function ActivityPanel({locale,state,onEnsure,onSave,onRead,onRefused}:Pr
     return saveDraft(signal,live)
   }
   async function persist(mode:ActivityOperation){
-    if(mode==='save'&&audioBlocked)return
+    if(mode==='save'&&activitySaveBlocked(editable,current.configuration,audioBlocked))return
     controller.current?.abort();const owned=new AbortController(),id=++attempt.current;controller.current=owned
     const live=()=>!owned.signal.aborted&&attempt.current===id
     setPendingMode(mode);setSaved(false);if(mode!=='latest')setError('')

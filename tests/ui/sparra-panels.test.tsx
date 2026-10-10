@@ -13,7 +13,7 @@ test('configured activity SSR preserves the observed revision, editor values and
     expect(html).toContain('value="Observed inspection centre"')
     expect(html).toContain(locale==='fr'?'Contrôle technique':'Vehicle inspection')
     const inputs=[...html.matchAll(/<input\b([^>]*)>/g)]
-    expect(inputs).toHaveLength(4)
+    expect(inputs).toHaveLength(3)
     expect(inputs[0]?.[1]).toContain('aria-required="true"')
     expect(inputs[1]?.[1]).toContain('value=""')
     const areas=[...html.matchAll(/<textarea\b([^>]*)>([\s\S]*?)<\/textarea>/g)]
@@ -21,7 +21,7 @@ test('configured activity SSR preserves the observed revision, editor values and
     const labels=locale==='fr'?['Horaires','Prestations','Tarifs','Questions fréquentes','Consignes de réponse']:['Opening hours','Services','Prices','Frequently asked questions','Response instructions']
     for(const label of labels)expect(html).toContain(label)
     const controls=[...html.matchAll(/<(?:input|textarea|button)\b([^>]*)>/g)]
-    expect(controls).toHaveLength(11)
+    expect(controls).toHaveLength(10)
     for(const control of controls)expect(control[1]).toContain('disabled=""')
     expect(html).not.toContain(locale==='fr'?'Configuration enregistrée.':'Configuration saved.')
     expect(html).not.toContain(locale==='fr'?'Créer mon espace':'Create my workspace')
@@ -38,7 +38,7 @@ test('private panels render truthful empty and partial states in FR/EN without i
     const activity=renderToStaticMarkup(<ActivityPanel locale={locale} state={{workspace:null,configuration:null,localAudioAvailable:false}} onEnsure={unavailable} onSave={unavailable} onRead={unavailable} onRefused={unavailable}/> )
     expect(activity).toContain(locale==='fr'?'Créer mon espace':'Create my workspace')
     expect(activity).not.toContain('textarea')
-    const inbox=renderToStaticMarkup(<InboxPanel locale={locale} state={{workspace:null,configuration:null,localAudioAvailable:false}} page={{requests:[],nextCursor:null}} onMore={unavailable} onRefused={unavailable}/> )
+    const inbox=renderToStaticMarkup(<InboxPanel locale={locale} state={{workspace:null,configuration:null,localAudioAvailable:false}} page={{requests:[],nextCursor:null}} onMore={unavailable} onTreat={unavailable} onRefused={unavailable}/> )
     expect(inbox).toContain(locale==='fr'?'Configurez votre entreprise':'Configure your business')
     const request=renderToStaticMarkup(<RequestPanel locale={locale} loaded={{detail,receipt:null}} onTreat={unavailable} onErase={unavailable} onRefused={unavailable}/> )
     expect(request).toContain(locale==='fr'?'Transcription indisponible':'Transcript unavailable')
@@ -62,7 +62,7 @@ test('detail and inbox preserve the translated native category and observed numb
   for(const locale of ['fr','en'] as const)for(const [category,frCategory,enCategory] of categories)for(const [source,number,frSource,enSource] of sources){
     const detail:RequestDetailDto={id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',admittedAt:'2026-10-01T10:00:00.000Z',endedAt:null,status:'closing',configurationRevision:null,treatedAt:null,resultAvailability:'available',resultQuality:'partial',category,summary:'Demande fictive',contact:{name:null,callback_e164:number,preference:null,callback_source:source,callback_confirmed:false},nextAction:'Vérifier la demande',configuration:null,transcript:[],transcriptAvailability:'unavailable',unavailableTurnCount:0,moreTurns:false,transcriptLossCount:0,erasureState:null}
     const request=renderToStaticMarkup(<RequestPanel locale={locale} loaded={{detail,receipt:null}} onTreat={unavailable} onErase={unavailable} onRefused={unavailable}/> )
-    const inbox=renderToStaticMarkup(<InboxPanel locale={locale} state={{workspace:null,configuration:null,localAudioAvailable:false}} page={{requests:[detail],nextCursor:null}} onMore={unavailable} onRefused={unavailable}/> )
+    const inbox=renderToStaticMarkup(<InboxPanel locale={locale} state={{workspace:null,configuration:null,localAudioAvailable:false}} page={{requests:[detail],nextCursor:null}} onMore={unavailable} onTreat={unavailable} onRefused={unavailable}/> )
     for(const html of [request,inbox]){
       expect(html).toContain(locale==='fr'?frCategory:enCategory)
       expect(html).toContain(locale==='fr'?frSource:enSource)
@@ -72,6 +72,15 @@ test('detail and inbox preserve the translated native category and observed numb
       expect(html).not.toContain('Appointment booked')
     }
   }
+})
+
+test.each(['fr','en'] as const)('inbox %s SSR keeps all read and treatment controls disabled',async locale=>{
+  const {InboxPanel}=await import('../../src/ui/sparra/inbox-panel')
+  const row={id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',admittedAt:'2026-10-01T10:00:00.000Z',endedAt:null,status:'pending',configurationRevision:null,treatedAt:null,resultAvailability:'unavailable',resultQuality:null,category:null,summary:null,contact:null,nextAction:null} satisfies import('../../src/modules/sparra/sparra.functions').ListRequestsPage['requests'][number]
+  const html=renderToStaticMarkup(<InboxPanel locale={locale} state={{workspace:null,configuration:null,localAudioAvailable:false}} page={{requests:[row],nextCursor:{id:row.id,admittedAt:row.admittedAt}}} onMore={unavailable} onTreat={unavailable} onRefused={unavailable}/> )
+  const buttons=[...html.matchAll(/<button\b([^>]*)>/g)]
+  expect(buttons).toHaveLength(3)
+  for(const button of buttons)expect(button[1]).toContain('disabled=""')
 })
 
 const requestDetail:RequestDetailDto={id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',admittedAt:'2026-10-01T10:00:00.000Z',endedAt:'2026-10-01T10:03:00.000Z',status:'closed',configurationRevision:7,treatedAt:null,resultAvailability:'available',resultQuality:'partial',category:'information',summary:'Observed request text',contact:{name:'Camille',callback_e164:'+33123456789',preference:'Afternoon',callback_source:'caller',callback_confirmed:false},nextAction:'Check the request',configuration:{workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',revision:7,savedAt:'2026-09-30T10:00:00.000Z',businessName:'Pinned garage',sector:'garage',knowledge:{openingHours:'09:00–17:00',services:'Oil change',prices:'',faq:'Bring the vehicle papers',instructions:'Ask before proceeding'},transferDestination:null,recordingPolicy:'off',recordingContactPhone:null},transcript:[{id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc',ordinal:1,role:'user',text:'Caller turn',interrupted:false,startedAt:'2026-10-01T10:00:00.000Z'},{id:'dddddddd-dddd-4ddd-8ddd-dddddddddddd',ordinal:2,role:'assistant',text:'Assistant turn',interrupted:true,startedAt:'2026-10-01T10:01:00.000Z'}],transcriptAvailability:'partial',unavailableTurnCount:2,moreTurns:true,transcriptLossCount:3,erasureState:null}
