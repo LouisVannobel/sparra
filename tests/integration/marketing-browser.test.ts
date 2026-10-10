@@ -637,13 +637,13 @@ test.each([1280, 390])('public app entries remain visible, keyboard accessible a
   const page = await openPage()
   try {
     await page.setViewportSize({ width, height: 900 })
-    for (const landmark of ['header', 'footer']) {
+    for (const [landmark,label,destination] of [['header','Mon espace','/app?lang=fr'],['footer','Mon espace','/app?lang=fr'],['header','Configurer mon entreprise','/app/entreprise?lang=fr']] as const) {
       await page.goto(origin)
       await page.getByRole('button', { name: 'Écouter l’exemple', exact: true }).waitFor()
-      const link = page.locator(landmark).getByRole('link', { name: 'Mon espace', exact: true })
+      const link = page.locator(landmark).getByRole('link', { name: label, exact: true })
       expect(await link.count()).toBe(1)
       expect(await link.isVisible()).toBe(true)
-      expect(await link.getAttribute('href')).toBe('/app?lang=fr')
+      expect(await link.getAttribute('href')).toBe(destination)
       expect(await page.getByRole('link', { name: 'Mon espace', exact: true }).count()).toBe(2)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
       expect(await page.getByText('Exemple enregistré — scénario fictif', { exact: true }).count()).toBe(1)
@@ -664,7 +664,7 @@ test.each([1280, 390])('public app entries remain visible, keyboard accessible a
         return bounds.left >= 0 && bounds.right <= innerWidth && bounds.top >= 0 && bounds.bottom <= innerHeight
       })).toBe(true)
       await mkdir('.output/test-evidence/marketing', { recursive: true })
-      await page.screenshot({ path: `.output/test-evidence/marketing/public-entry-${landmark}-${width}.png` })
+      await page.screenshot({ path: `.output/test-evidence/marketing/public-entry-${landmark}-${label==='Mon espace'?'inbox':'business'}-${width}.png` })
       await page.keyboard.press('Enter')
       await page.waitForURL(origin + '/login')
       await page.getByRole('heading', { name: 'Connexion', exact: true }).waitFor()
