@@ -18,5 +18,5 @@ export const Route=createFileRoute('/app/')({
   errorComponent:function InboxUnavailable(){const {lang}=Route.useSearch();return <PrivateUnavailable locale={lang}/>},
 })
 function Inbox(){const {lang}=Route.useSearch(),loaded=Route.useLoaderData(),router=useRouter(),more=useServerFn(listRequests)
-  return <InboxPanel key={loaded.page.requests.map(row=>row.id).join(',')+lang} locale={lang} {...loaded} onMore={(data,signal)=>more({data,signal})} onRefused={async()=>{await router.navigate({to:'/login',search:{lang,error:undefined}})}}/>
+  return <InboxPanel locale={lang} {...loaded} onMore={(data,signal)=>more({data,signal})} onRefused={async()=>{await router.navigate({to:'/login',search:{lang,error:undefined}})}}/>
 }

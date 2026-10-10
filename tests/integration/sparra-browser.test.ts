@@ -660,6 +660,18 @@ test('inbox native cursor loads the remaining owned call shells exactly once',as
     expect(await page.getByRole('button',{name:'Show more calls',exact:true}).count()).toBe(0)
     const links=await page.locator('.sparra-inbox-row-heading > a').evaluateAll(elements=>elements.map(element=>element.getAttribute('href')))
     expect(new Set(links).size).toBe(52);expect(new Set(links)).toEqual(new Set(ids.map(id=>`/app/demandes/${id}?lang=en`)));expect(await page.getByText('Partial summary',{exact:true}).count()).toBe(0)
+    const visibleId=links[0]!.split('/').at(-1)!.split('?')[0],expiredId=links[1]!.split('/').at(-1)!.split('?')[0]
+    await stores.administrator.query("UPDATE sparra_call SET status='closed',ended_at=clock_timestamp(),treated_at=clock_timestamp() WHERE workspace_id=$1 AND id=$2",[workspace.id,visibleId])
+    await stores.administrator.query("UPDATE sparra_call SET admitted_at=admitted_at-interval '31 days',retention_until=retention_until-interval '31 days' WHERE workspace_id=$1 AND id=$2",[workspace.id,expiredId])
+    const listPath=await authRpcPath('listRequests'),read=page.waitForRequest(request=>new URL(request.url()).pathname===listPath)
+    await page.getByRole('button',{name:'Refresh calls',exact:true}).click()
+    expect((await read).method()).toBe('GET')
+    await expect.poll(()=>page.locator('.sparra-inbox > li').count()).toBe(50)
+    await page.locator('.sparra-inbox > li').filter({has:page.locator(`a[href="/app/demandes/${visibleId}?lang=en"]`)}).getByText('Closed — Treated',{exact:true}).waitFor()
+    expect(await page.locator(`a[href="/app/demandes/${expiredId}?lang=en"]`).count()).toBe(0)
+    await page.getByRole('button',{name:'Show more calls',exact:true}).click()
+    await expect.poll(()=>page.locator('.sparra-inbox > li').count()).toBe(51)
+    expect(await page.getByRole('button',{name:'Show more calls',exact:true}).count()).toBe(0)
   }finally{await context.close()}
 },20000)
 
