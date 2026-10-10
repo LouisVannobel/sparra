@@ -15,14 +15,15 @@ import { bounded, unusedLoopbackPort, startWeb } from '../helpers/web-process'
 import { nativeImage } from '../helpers/native-image'
 import { googleRpcNode } from '../helpers/google-rpc-node'
 import { authRpcPath, rpcBody } from '../helpers/auth-rpc'
+import { preparePairedAudioFixture, startPairedAudioFixture, type AudioFixtureOwners } from '../helpers/paired-audio-startup'
 
-let stores: Awaited<ReturnType<typeof startDisposableStores>>, crypto: Awaited<ReturnType<typeof cryptoFixture>>
+let stores: Awaited<ReturnType<typeof startDisposableStores>>
 let issuer: ReturnType<typeof startWeb>
 let voice: ReturnType<typeof startConnectedVoice>
-let web: Awaited<ReturnType<Awaited<ReturnType<typeof startDisposableStores>>['startWebImage']>>
 let webImage: Awaited<ReturnType<typeof nativeImage>>
 let cookie: string, origin: string, workspaceId: string
 let expectedVoiceExit = 0
+let fixture: ReturnType<typeof startPairedAudioFixture> | undefined
 const TRANSFER_CAPTURE_TEST = 'native accepted local capture joins before real request_human transfer intent and SDK dispatch'
 const phaseEpoch = performance.now()
 function phase(name: string) { console.log('PAIRED_APP_PHASE ' + name + ' elapsed_ms=' + Math.round(performance.now() - phaseEpoch)) }
@@ -40,10 +41,16 @@ function issuedCookies(headers: Readonly<{ getSetCookie(): string[] }>) {
 beforeAll(async () => { webImage = await nativeImage('web') })
 
 beforeEach(async context => {
-  const transferFixture = context.task.name === TRANSFER_CAPTURE_TEST
   expectedVoiceExit = 0
+  fixture = startPairedAudioFixture(owners => prepareAudioFixture(context.task.name === TRANSFER_CAPTURE_TEST, owners))
+  await fixture.ready
+}, 20000)
+
+async function prepareAudioFixture(transferFixture: boolean, owners: AudioFixtureOwners) {
   phase('stores-start')
-  stores = await startDisposableStores(); await stores.migrate()
+  const ownedStores = stores = await startDisposableStores()
+  owners.stores = () => ownedStores.cleanup()
+  await stores.migrate()
   phase('stores-migrated')
   await stores.administrator.query('GRANT USAGE ON SCHEMA public TO runtime; GRANT SELECT,INSERT,UPDATE,DELETE ON "user",account,session,verification TO runtime')
   const port = await unusedLoopbackPort()
@@ -53,6 +60,8 @@ beforeEach(async context => {
     REDIS_URL: stores.redisUrl, RATE_LIMIT_HMAC_SECRET: stores.hmac, RATE_LIMIT_KEY_ID: 'audio-connected',
     TRUSTED_PROXY_IPS: '127.0.0.1', AUTH_SECRET: secret, GOOGLE_CLIENT_ID: 'fixture.apps.googleusercontent.com',
     GOOGLE_CLIENT_SECRET: 'fixture-only', FIXTURE_GOOGLE_PROTOCOL: 'yes', REQUEST_TIMEOUT_MS: '10000' })
+  const ownedIssuer = issuer
+  owners.issuer = () => ownedIssuer.cleanup()
   expect((await bounded(issuer.ready)).port).toBe(port)
   phase('google-start')
   const begun = await nativeRpc('beginGoogleSignIn', { locale: 'fr' }, '')
@@ -88,34 +97,37 @@ beforeEach(async context => {
   expect(issuer.child.exitCode).toBe(0); expect(issuer.child.signalCode).toBeNull()
   expect((await stores.administrator.query("SELECT count(*)::int n FROM pg_stat_activity WHERE usename='runtime' AND state<>'idle'")).rows[0].n).toBe(0)
   phase('setup-child-retired')
-  crypto = await cryptoFixture()
-  const evidence = join(crypto.directory, 'native-evidence'); await mkdir(evidence)
+  const ownedCrypto = await cryptoFixture()
+  owners.crypto = () => ownedCrypto.cleanup()
+  const evidence = join(ownedCrypto.directory, 'native-evidence'); await mkdir(evidence)
   const producer = await resolveVoiceProducer()
-  phase('voice-start')
-  voice = startConnectedVoice({ url: stores.voiceUrlA, keyring_path: crypto.path,
-    evidence_path: evidence, state_path: join(crypto.directory, 'voice-state'), audio_candidate: true, workspace_id: workspaceId,
-    ...(transferFixture ? { audio_transfer_fixture: true } : {}) }, producer)
-  expect(await voice.ready).toMatchObject({ ready: true, candidate: true })
-  phase('voice-ready')
-  web = await stores.startWebImage(webImage, 'valid',
-    { secret, googleClientId: 'fixture.apps.googleusercontent.com', googleClientSecret: 'fixture-only' },
-    JSON.stringify(crypto.keyring), false, port, { incarnation: randomUUID(), deploymentId: 'native-capture-app' })
-  origin = web.url
-  phase('web-ready')
-}, 20000)
-
-afterEach(async () => {
-  const failures: unknown[] = []
-  for (const close of [async () => {
-    const ended = await voice?.cleanup()
-    if (ended) expect(ended).toEqual({ code: expectedVoiceExit, signal: null })
+  // Neither preparation consumes the other: Voice connects to migrated stores,
+  // while the compiled reader uses the persisted session/policy and keyring.
+  // Auth setup is fully retired before either preparation can begin.
+  await preparePairedAudioFixture(async () => {
+    phase('voice-start')
+    const ownedVoice = voice = startConnectedVoice({ url: ownedStores.voiceUrlA, keyring_path: ownedCrypto.path,
+      evidence_path: evidence, state_path: join(ownedCrypto.directory, 'voice-state'), audio_candidate: true, workspace_id: workspaceId,
+      ...(transferFixture ? { audio_transfer_fixture: true } : {}) }, producer)
+    owners.voice = async () => {
+      expect(await ownedVoice.cleanup()).toEqual({ code: expectedVoiceExit, signal: null })
+    }
+    expect(await ownedVoice.ready).toMatchObject({ ready: true, candidate: true })
+    phase('voice-ready')
   }, async () => {
-    if (web) { await stores.signalWeb(web.id, 'SIGTERM'); expect(await stores.waitWeb(web.id)).toBe(0) }
-  }, () => issuer?.cleanup(), () => crypto?.cleanup(), () => stores?.cleanup()]) {
-    try { await close() } catch (error) { failures.push(error) }
-  }
-  if (failures.length) throw new AggregateError(failures, 'Paired native capture cleanup failed')
-}, 10000)
+    phase('web-start')
+    const ownedWeb = await ownedStores.startWebImage(webImage, 'valid',
+      { secret, googleClientId: 'fixture.apps.googleusercontent.com', googleClientSecret: 'fixture-only' },
+      JSON.stringify(ownedCrypto.keyring), false, port, { incarnation: randomUUID(), deploymentId: 'native-capture-app' })
+    owners.web = async () => {
+      await ownedStores.signalWeb(ownedWeb.id, 'SIGTERM'); expect(await ownedStores.waitWeb(ownedWeb.id)).toBe(0)
+    }
+    origin = ownedWeb.url
+    phase('web-ready')
+  })
+}
+
+afterEach(async () => { await fixture?.cleanup() }, 10000)
 
 async function exactReader(callId: string, state: 'active' | 'released') {
   const deadline = Date.now() + 2000
