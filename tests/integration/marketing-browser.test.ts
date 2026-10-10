@@ -475,12 +475,19 @@ test('demo actions wait for real startup hydration before the first native play'
 
 test('a real audio failure is announced and leaves text and receipt available', async () => {
   const page = await openPage()
+  let requests = 0
   try {
-    await page.route('**/demos/*.mp3', route => route.fulfill({ status: 404, body: 'Missing audio' }))
+    await page.route('**/demos/*.mp3', route => { requests++; return route.fulfill({ status: 404, body: 'Missing audio' }) })
     await page.goto(origin)
     const play = page.getByRole('button', { name: 'Écouter l’exemple', exact: true })
-    await play.focus(); await page.keyboard.press('Enter')
+    await expect.poll(() => play.isEnabled()).toBe(true)
+    await expect.poll(() => play.evaluate(element => getComputedStyle(element).opacity)).toBe('1')
+    await play.focus()
+    expect(await play.evaluate(element => element === document.activeElement)).toBe(true)
+    await page.keyboard.press('Enter')
     await page.locator('#demo [role="alert"]').waitFor()
+    expect(requests).toBeGreaterThan(0)
+    expect(await page.locator('#demo audio').evaluate((audio: HTMLAudioElement) => audio.error?.code)).toBe(4)
     expect(await play.evaluate(element => element === document.activeElement)).toBe(true)
     expect(await page.locator('#demo .sparra-transcript').textContent()).toContain('révision')
     expect(await page.locator('#demo .sparra-receipt').textContent()).toContain('révision')

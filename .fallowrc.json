@@ -1,5 +1,5 @@
 {
-  "entry": ["scripts/start-web.mjs", "scripts/test-prerequisites.mjs", "tests/helpers/generate-native-voice-envelope.ts"],
+  "entry": ["scripts/start-web.mjs", "scripts/test-prerequisites.mjs", "tests/helpers/generate-native-voice-envelope.ts", "tests/helpers/inbox-panel-fixture.tsx"],
   "dynamicallyLoaded": ["tests/helpers/runtime-probe.mjs"],
   "ignoreUnresolvedImports": ["../.output/server/index.mjs"],
   "duplicates": {

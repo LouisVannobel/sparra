@@ -725,17 +725,19 @@ test('maintained_fallow_audit_scans_actual_changed_canary',()=>{
   expect(result.stdout+result.stderr).toMatch(/unused.?file|unused.?export|dead.?code/i)
 },40000)
 
-test('fallow_declares_only_native_subprocess_roots_and_exact_generated_import',()=>{
+test('fallow_declares_only_native_subprocess_and_actual_browser_roots_and_exact_generated_import',()=>{
   const {root,base}=qualityFixture()
   mkdirSync(join(root,'tests/helpers'),{recursive:true});mkdirSync(join(root,'scripts'))
   writeFileSync(join(root,'tests/helpers/generate-native-voice-envelope.ts'),"console.log('synthetic generator');\n")
   writeFileSync(join(root,'tests/helpers/runtime-probe.mjs'),"console.log('synthetic preload');\n")
+  writeFileSync(join(root,'tests/helpers/inbox-panel-fixture.tsx'),"console.log('synthetic declared browser entry');\n")
+  writeFileSync(join(root,'tests/helpers/undeclared-browser-sibling.tsx'),"console.log('synthetic undeclared browser sibling');\n")
   writeFileSync(join(root,'scripts/start-web.mjs'),"await import('../.output/server/index.mjs');\nawait import('../.output/server/genuinely-missing.mjs');\n")
   writeFileSync(join(root,'scripts/test-prerequisites.mjs'),"console.log('synthetic prerequisite decoder');\n")
   writeFileSync(join(root,'scripts/undeclared-prerequisite-sibling.mjs'),"console.log('synthetic undeclared sibling');\n")
   writeFileSync(join(root,'src/main.tsx'),readFileSync(join(root,'src/main.tsx'),'utf8')+"import './genuinely-missing';\n")
   const fixtureConfig: {entry:string[];health:{coverage:string|null}} = JSON.parse(readFileSync(join(repositoryRoot,'.fallowrc.json'),'utf8'))
-  expect(fixtureConfig.entry).toEqual(['scripts/start-web.mjs','scripts/test-prerequisites.mjs','tests/helpers/generate-native-voice-envelope.ts'])
+  expect(fixtureConfig.entry).toEqual(['scripts/start-web.mjs','scripts/test-prerequisites.mjs','tests/helpers/generate-native-voice-envelope.ts','tests/helpers/inbox-panel-fixture.tsx'])
   fixtureConfig.health.coverage = null
   writeFileSync(join(root,'.fallowrc.json'),JSON.stringify(fixtureConfig))
   const result=runQuality('fallow',['audit','--no-css','--base',base],root)
@@ -743,13 +745,27 @@ test('fallow_declares_only_native_subprocess_roots_and_exact_generated_import',(
   const output=result.stdout+result.stderr
   expect(output).toMatch(/src[\\/]unused\.ts/)
   expect(output).toContain('undeclared-prerequisite-sibling.mjs')
+  expect(output).toContain('undeclared-browser-sibling.tsx')
   expect(output).toContain('./genuinely-missing')
   expect(output).toContain('../.output/server/genuinely-missing.mjs')
   expect(output).not.toContain('generate-native-voice-envelope.ts')
   expect(output).not.toContain('runtime-probe.mjs')
+  expect(output).not.toContain('inbox-panel-fixture.tsx')
   expect(output).not.toMatch(/(?:^|[\\/])test-prerequisites\.mjs/)
   expect(output).not.toContain('../.output/server/index.mjs')
 },40000)
+
+test('declared_inbox_browser_entry_is_the_exact_HTML_module_mounting_the_runtime_panel',()=>{
+  const html=readFileSync(join(repositoryRoot,'tests/helpers/inbox-panel-fixture.html'),'utf8')
+  expect([...html.matchAll(/<script\b[^>]*>/g)].map(match=>match[0])).toEqual(['<script type="module" src="./inbox-panel-fixture.tsx">'])
+  const fixture=readFileSync(join(repositoryRoot,'tests/helpers/inbox-panel-fixture.tsx'),'utf8')
+  expect(fixture).toContain("import { InboxPanel } from '../../src/ui/sparra/inbox-panel'")
+  expect(fixture).toContain('root.render(<Theme theme={neutralTheme} mode="light"><InboxPanel')
+  const consumer=readFileSync(join(repositoryRoot,'tests/ui/inbox-refresh.test.ts'),'utf8')
+  expect(consumer).toContain("await page.goto(origin + '/tests/helpers/inbox-panel-fixture.html')")
+  expect(consumer).toContain("configFile: false, envDir: false, envPrefix: 'INBOX_FIXTURE_PUBLIC_'")
+  expect(consumer).toContain("server: { host: '127.0.0.1', port: 0 }")
+})
 
 test('fallow_ignores_only_generated_route_tree_clones_and_keeps_handwritten_clones',()=>{
   const {root}=qualityFixture()

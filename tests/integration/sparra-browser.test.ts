@@ -108,10 +108,15 @@ test('compiled private inbox creates only by POST, saves knowledge across restar
     // the local policy remains OFF until explicit owner configuration.
     expect((await rpc(context,'saveActivity',{expectedRevision:0,businessName:'Garage persisted',sector:'garage',knowledge:{openingHours:'',services:'Vidange sur rendez-vous',prices:'',faq:'',instructions:''},transferDestination:null,recordingEnabled:true})).status()).toBe(200)
     await page.reload();expect(await recording.isChecked()).toBe(false);expect(await recording.isDisabled()).toBe(true)
+    const correction=page.getByRole('button',{name:'Use local recording settings',exact:true})
+    // The capability-disabled checkbox does not establish hydration readiness.
+    // Astryx transitions the correction control from its SSR disabled opacity.
+    await expect.poll(()=>correction.isEnabled()).toBe(true)
+    await expect.poll(()=>correction.evaluate(button=>getComputedStyle(button).opacity)).toBe('1')
     const editorAxe=await new AxeBuilder({page}).analyze();expect(editorAxe.violations).toEqual([])
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
     await page.screenshot({path:'.output/test-evidence/sparra/business-en-320.png',fullPage:true})
-    await page.getByRole('button',{name:'Use local recording settings',exact:true}).click()
+    await correction.click()
     await page.getByRole('textbox',{name:'Services',exact:true}).fill('Vidange sur rendez-vous')
     await page.getByRole('button',{name:'Save',exact:true}).focus();await page.keyboard.press('Enter')
     await page.getByText('Configuration saved.',{exact:true}).waitFor()
