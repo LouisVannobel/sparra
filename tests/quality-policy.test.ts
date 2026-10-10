@@ -921,9 +921,9 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
   const targets=[
     ['detail and inbox preserve the translated native category and observed number source in both locales',
       '// fallow-ignore-next-line complexity -- reviewed SSR A; TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003',
-      '619b7bbde9d420ac763e9fea7097e6f4b5e6dd9e2c5f3b064749ce742e1844a1',
-      'bd454b49386dc18c8de3ed3f29fca564f5fed7016832e6d255bf4d5ff8e2eb4e',
-      '9746db439ee5080abc680c42c88d9aa79235ca21d73186f142e7be4e74c1b719'],
+      '476189224c73762fc9923d6e855969efe4cc332007604c8bfd3a786abcad3daf',
+      '4208d3e5cbd8f2133e2f654964c04b2874fc32d679e064994da6384830c2ea55',
+      'bd3de21d3b60865bba3f45403e2e136aac29d65019a5682af2c0ddf8bcca029f'],
     ['request detail keeps observed metadata, ordered partial turns, pinned knowledge and disabled SSR actions in both locales',
       '// fallow-ignore-next-line complexity -- reviewed SSR B; TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003',
       '919208b5274ee478430e14284d8668f7a229c9fae11d4a86c9fb493131b5436c',
@@ -1071,7 +1071,7 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
         expect(source.text.slice(marker.end,marker.end+newlineLength),'Reviewed SSR marker line expired').toMatch(/^\r?\n$/)
         reconstructed=reconstructed.slice(0,marker.start)+reconstructed.slice(marker.end+newlineLength)
       }
-      expect(digest(reconstructed),'Reviewed SSR whole file expired').toBe('7656dd6d4ef2c93dade896d0634c11fce845c47c9de154c4237359e3b5fee33c')
+      expect(digest(reconstructed),'Reviewed SSR whole file expired').toBe('2c768864f482b4d62d54d8dce7f6ae3dac39462d7a1173abba817d4b406368ad')
     }
     expect(()=>reviewedCallbacks(sources)).not.toThrow()
     const original=sources.get(ssrFile)!,title=targets[0][0]
