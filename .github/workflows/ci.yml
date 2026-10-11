@@ -50,8 +50,8 @@ jobs:
       - run: pnpm run build
       - name: Ordinary source consumers on the installed graph and build
         run: pnpm test
-      - name: Actual local Linux stores and direct ingress
-        run: pnpm exec vitest run --config vitest.integration.config.ts tests/integration/disposable-stores-linux.test.ts tests/integration/direct-serve-ingress.test.ts --maxWorkers=1
+      - name: Actual Linux stores, direct ingress and caller-free recovery
+        run: pnpm exec vitest run --config vitest.integration.config.ts tests/integration/disposable-stores-linux.test.ts tests/integration/direct-serve-ingress.test.ts tests/integration/caller-free-recovery.test.ts --maxWorkers=1
       - name: Native web image and fixed credential admission
         run: pnpm run test:image
       - name: Separate native migrator image and ambiguous commit
