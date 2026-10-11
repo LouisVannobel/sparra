@@ -163,9 +163,18 @@ test('isolated native reconstruction preserves source security/configuration, au
       (SELECT prosecdef AND pg_get_userbyid(proowner)='sparra_voice_definer' FROM pg_proc WHERE oid='voice.begin_call_v1(text,uuid,jsonb)'::regprocedure) definer`)).rows[0]
     expect(native).toEqual({private_schema:false,binding_read:false,forced:true,definer:true})
     await stores.administrator.query("GRANT USAGE ON SCHEMA voice TO sparra_voice_a;GRANT EXECUTE ON FUNCTION voice.begin_call_v1(text,uuid,jsonb) TO sparra_voice_a")
-    await stores.administrator.query("INSERT INTO voice_private.deployment_binding(service_login,service_role_oid,deployment_id,workspace_id,connection_id,to_e164,admission_enabled,audio_enabled,local_audio_enabled) SELECT 'sparra_voice_a',oid,'synthetic-closed',$1,'synthetic-connection','+33123456789',false,false,false FROM pg_roles WHERE rolname='sparra_voice_a'",[workspaceIds[0]])
+    await stores.administrator.query("INSERT INTO voice_private.deployment_binding(service_login,service_role_oid,deployment_id,workspace_id,connection_id,to_e164,admission_enabled,audio_enabled,local_audio_enabled,contract_version) SELECT 'sparra_voice_a',oid,'synthetic-closed',$1,'synthetic-connection','+33123456789',false,false,false,1 FROM pg_roles WHERE rolname='sparra_voice_a'",[workspaceIds[0]])
     voice=new Client({connectionString:stores.voiceUrlA});await voice.connect()
-    await expect(voice.query('SELECT voice.begin_call_v1($1,$2,$3)',['synthetic-closed',randomUUID(),{}])).rejects.toMatchObject({code:'PV202'})
+    // Valid authority/routing isolates the closed admission flag; PV202 alone is ambiguous.
+    const voiceIdentity=(await voice.query<{login:string;role_oid:string}>("SELECT session_user AS login,(SELECT oid::text FROM pg_roles WHERE rolname=session_user) AS role_oid")).rows[0]
+    expect(voiceIdentity.login).toBe('sparra_voice_a')
+    const binding=(await stores.administrator.query(`SELECT b.service_login,b.service_role_oid::text,b.contract_version,b.deployment_id,b.workspace_id,b.connection_id,b.to_e164,
+      b.admission_enabled,b.audio_enabled,b.local_audio_enabled,w.kind,w.lifecycle,w.auth_organization_id
+      FROM voice_private.deployment_binding b JOIN public.workspace w ON w.id=b.workspace_id WHERE b.service_login=$1`,[voiceIdentity.login])).rows
+    expect(binding).toEqual([{service_login:voiceIdentity.login,service_role_oid:voiceIdentity.role_oid,contract_version:1,deployment_id:'synthetic-closed',workspace_id:workspaceIds[0],connection_id:'synthetic-connection',to_e164:'+33123456789',admission_enabled:false,audio_enabled:false,local_audio_enabled:false,kind:'personal',lifecycle:'active',auth_organization_id:null}])
+    const closedCallId=randomUUID(),routing={schema_version:1,direction:'incoming',connection_id:'synthetic-connection',to_e164:'+33123456789',from_e164:null,
+      telnyx_call_control_id:closedCallId,telnyx_call_leg_id:null,telnyx_call_session_id:null,admitted_at:new Date().toISOString()}
+    await expect(voice.query('SELECT voice.begin_call_v1($1,$2,$3)',['synthetic-closed',closedCallId,routing])).rejects.toMatchObject({code:'PV202',message:'Voice admission unavailable'})
     expect((await stores.administrator.query('SELECT count(*)::int AS n FROM sparra_call')).rows[0].n).toBe(0)
     expect((await stores.administrator.query('SELECT admission_enabled,audio_enabled,local_audio_enabled FROM voice_private.deployment_binding')).rows).toEqual([{admission_enabled:false,audio_enabled:false,local_audio_enabled:false}])
   } finally {
