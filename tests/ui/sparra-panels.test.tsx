@@ -4,6 +4,22 @@ import { expect, test } from 'vitest'
 import type { ActivityState, RequestDetailDto } from '../../src/modules/sparra/sparra.functions'
 
 const unavailable=async():Promise<never>=>{throw new Error('SSR must not mutate')}
+test.each([
+  ['fr', 'available', 'complete', 'Résumé'],
+  ['en', 'available', 'complete', 'Summary'],
+  ['fr', 'available', 'partial', 'Résumé partiel'],
+  ['en', 'available', 'partial', 'Partial summary'],
+  ['fr', 'unavailable', null, 'Résumé indisponible'],
+  ['en', 'unavailable', null, 'Summary unavailable'],
+] as const)('request summary heading reflects %s %s/%s', async (locale, resultAvailability, resultQuality, heading) => {
+  const { RequestPanel } = await import('../../src/ui/sparra/request-panel')
+  const detail: RequestDetailDto = { id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', admittedAt:'2026-10-01T10:00:00.000Z', endedAt:'2026-10-01T10:01:00.000Z', status:'closed', configurationRevision:null, treatedAt:null, resultAvailability, resultQuality, category:null, summary:resultAvailability==='available'?'Test-only summary':null, contact:null, nextAction:null, configuration:null, transcript:[], transcriptAvailability:'unavailable', unavailableTurnCount:0, moreTurns:false, transcriptLossCount:0, erasureState:null }
+  const html = renderToStaticMarkup(<RequestPanel locale={locale} loaded={{detail,receipt:null}} onTreat={unavailable} onErase={unavailable} onRefused={unavailable} />)
+  const summarySection = html.match(/<section class="sparra-request-summary"[^>]*>([\s\S]*?)<\/section>/)?.[1]
+  expect(summarySection).toBeDefined()
+  expect(summarySection).toMatch(new RegExp(`<h2[^>]*>${heading}</h2>`))
+})
+
 test('configured activity SSR preserves the observed revision, editor values and disabled actions in both locales',async()=>{
   const {ActivityPanel}=await import('../../src/ui/sparra/activity-panel')
   const state:ActivityState={workspace:{id:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',displayName:'Observed workspace'},localAudioAvailable:false,configuration:{workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',revision:7,savedAt:'2026-10-01T10:00:00.000Z',businessName:'Observed inspection centre',sector:'controle-technique',knowledge:{openingHours:'09:00–17:00',services:'Vehicle inspection',prices:'80 euros',faq:'Bring the vehicle papers',instructions:'Ask before proceeding'},transferDestination:null,recordingPolicy:'off',recordingContactPhone:null}}
@@ -114,7 +130,7 @@ test('request detail retains empty contact and absent snapshot fallbacks without
   for(const locale of ['fr','en'] as const){
     const detail:RequestDetailDto={...requestDetail,resultQuality:'complete',summary:null,category:null,nextAction:null,contact:{name:null,callback_e164:null,preference:null,callback_source:'missing',callback_confirmed:false},configuration:null,transcript:[],transcriptAvailability:'available',unavailableTurnCount:0,moreTurns:false,transcriptLossCount:0,treatedAt:'2026-10-01T11:00:00.000Z'}
     const html=renderToStaticMarkup(<RequestPanel locale={locale} loaded={{detail,receipt:null}} onTreat={unavailable} onErase={unavailable} onRefused={unavailable}/> )
-    expect(html).toContain(locale==='fr'?'Résumé indisponible':'Summary unavailable')
+    expect(html).toMatch(new RegExp('<h2[^>]*>'+(locale==='fr'?'Résumé':'Summary')+'</h2>'))
     expect(html).not.toContain(locale==='fr'?'Résumé partiel':'Partial summary')
     expect(html).toContain('<h3>Contact</h3><p>—</p>')
     expect(html).toContain(locale==='fr'?'Aucun numéro disponible':'No number available')
