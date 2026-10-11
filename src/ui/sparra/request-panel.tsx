@@ -40,7 +40,7 @@ export async function performRequestAction(kind:'treat'|'erase',current:RequestL
 function RequestSummary({locale,detail}:{locale:Locale;detail:RequestDetailDto}){
   const t=appMessages[locale],labels=requestMessages[locale]
   return <section className="sparra-request-summary" aria-label={locale==='fr'?'Résumé':'Summary'}>
-    <Heading level={2}>{detail.resultAvailability==='available'&&detail.resultQuality==='partial'?t.partial:t.summaryUnavailable}</Heading>
+    <Heading level={2}>{detail.resultAvailability==='unavailable'?t.summaryUnavailable:detail.resultQuality==='partial'?t.partial:t.summary}</Heading>
     {detail.summary&&<p>{detail.summary}</p>}
     {detail.category&&<><h3>{labels.reason}</h3><p>{labels.category[detail.category]}</p></>}
     {detail.nextAction&&<><h3>{t.nextAction}</h3><p>{detail.nextAction}</p></>}
