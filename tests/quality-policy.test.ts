@@ -934,6 +934,7 @@ test('native_complexity_comment_is_function_scoped_and_expires_on_content_or_cou
 test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_change',()=>{
   const ssrFile='tests/ui/sparra-panels.test.tsx',path=join(repositoryRoot,ssrFile)
   // Fixed candidates from TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003; hashes are literal review anchors.
+  // SSR C heading and six new summary cases independently reviewed on 2026-10-11.
   const targets=[
     ['detail and inbox preserve the translated native category and observed number source in both locales',
       '// fallow-ignore-next-line complexity -- reviewed SSR A; TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003',
@@ -947,9 +948,9 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
       '40a153934e259d52d0ff2b441047452d5acd6b9abe110dfbcba61e77104da1b5'],
     ['request detail retains empty contact and absent snapshot fallbacks without treating complete quality as partial',
       '// fallow-ignore-next-line complexity -- reviewed SSR C; TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003',
-      '019bc71eda1885dedf1436863265acb6d8805d01430594d3626445ceaf75143f',
-      '0fd4c667d883f18f20d3a205de14294b3aaf2537c6f3b0f20184d899c443fac8',
-      '565f33deaabfdefc1338dce6d4bc1b8fb481501460b3b8316e2c3b6e8d7e49a5'],
+      '990b276b8dcc2fcf86817b0936fecbe1a9ac31867b223e033c27623cf914aae6',
+      'cdab1a13235c06e229216cb35381e1a6d47383242faad12f6808c92c156bec1d',
+      'e1d1becf0b0995227f08851464a33e75050022160d7ec3a69f5783aa6d192347'],
     ['queued and completed erasure receipts take precedence over loaded private detail in both locales',
       '// fallow-ignore-next-line complexity -- reviewed SSR D; TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003',
       '992924250fb09143e0bfe0988cd328d0ce854971d0099bb5953b9b2bf2c18247',
@@ -1087,7 +1088,7 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
         expect(source.text.slice(marker.end,marker.end+newlineLength),'Reviewed SSR marker line expired').toMatch(/^\r?\n$/)
         reconstructed=reconstructed.slice(0,marker.start)+reconstructed.slice(marker.end+newlineLength)
       }
-      expect(digest(reconstructed),'Reviewed SSR whole file expired').toBe('2c768864f482b4d62d54d8dce7f6ae3dac39462d7a1173abba817d4b406368ad')
+      expect(digest(reconstructed),'Reviewed SSR whole file expired').toBe('5a38798c5cafc67cb6245db55fad7587886d3ba06a15b848bdc70e3fbfc26087')
     }
     expect(()=>reviewedCallbacks(sources)).not.toThrow()
     const original=sources.get(ssrFile)!,title=targets[0][0]
