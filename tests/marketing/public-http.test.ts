@@ -84,6 +84,47 @@ test('private and missing routes keep their protected headers', async () => {
   }
 })
 
+test('public SSR exposes the canonical text social metadata', async () => {
+  const base = await launch()
+  const response = await fetch(base, { signal: AbortSignal.timeout(3000) })
+  expect(response.status).toBe(200)
+  security(response, true)
+  const html = await response.text()
+  const head = /<head\b[^>]*>([\s\S]*?)<\/head>/.exec(html)?.[1]
+  expect(head).toBeDefined()
+  const title = 'Sparra — votre assistant téléphonique IA'
+  const description = 'Sparra est un assistant téléphonique IA pour les professionnels locaux. Découvrez sa démo et son pilote : répondre aux appels et transmettre les demandes à votre équipe.'
+  expect(head).toContain(`<title>${title}</title>`)
+  expect(head).toContain(`<meta name="description" content="${description}"`)
+  expect(head).toContain('<link rel="canonical" href="https://sparra.fr/"')
+  for (const [property, content] of [
+    ['og:type', 'website'], ['og:title', title], ['og:description', description],
+    ['og:url', 'https://sparra.fr/'], ['og:site_name', 'Sparra'], ['og:locale', 'fr_FR'],
+  ]) expect(head).toContain(`<meta property="${property}" content="${content}"`)
+  for (const [name, content] of [
+    ['twitter:card', 'summary'], ['twitter:title', title], ['twitter:description', description],
+  ]) expect(head).toContain(`<meta name="${name}" content="${content}"`)
+  expect(head).not.toMatch(/(?:og|twitter):image/)
+})
+
+test.each([
+  { path: '/robots.txt', contentType: /^text\/plain(?:;|$)/,
+    document: /^User-agent: \*\s+Allow: \/\s+Sitemap: https:\/\/sparra\.fr\/sitemap\.xml\s*$/ },
+  { path: '/sitemap.xml', contentType: /^(?:application|text)\/xml(?:;|$)/,
+    document: /^<\?xml version="1\.0" encoding="UTF-8"\?>\s*<urlset xmlns="http:\/\/www\.sitemaps\.org\/schemas\/sitemap\/0\.9">\s*<url>\s*<loc>https:\/\/sparra\.fr\/<\/loc>\s*<\/url>\s*<\/urlset>\s*$/ },
+])('GET and HEAD $path expose the public discovery resource', async ({ path, contentType, document }) => {
+  const base = await launch()
+  for (const method of ['GET', 'HEAD']) {
+    const response = await fetch(`${base}${path}`, { method, redirect: 'manual', signal: AbortSignal.timeout(3000) })
+    expect(response.status, `${method} ${path}`).toBe(200)
+    expect(response.headers.get('content-type')).toMatch(contentType)
+    expect(response.headers.get('x-robots-tag')).toBeNull()
+    const body = await response.text()
+    if (method === 'HEAD') expect(body).toBe('')
+    else expect(body).toMatch(document)
+  }
+})
+
 test('public header and footer expose the existing private entry in French', async () => {
   const base = await launch()
   const response = await fetch(base, { signal: AbortSignal.timeout(3000) })
