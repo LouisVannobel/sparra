@@ -61,6 +61,20 @@ test('selected owner cannot omit the entire current security batch',()=>{
   expect(()=>validateSyntheticReconstruction(input,input.source,classifiedSyntheticFields(input.relations))).toThrow('Synthetic reconstruction refused')
 })
 
+test.each([
+  ['duplicate Google subject', (b:SyntheticReconstruction)=>Object.assign(b.relations,{account:[...b.relations.account,{...b.relations.account[0],id:'second-account'}]})],
+  ['noncanonical owner email', (b:SyntheticReconstruction)=>Object.assign(b.relations.user[0],{email:'Owner@example.test'})],
+  ['foreign Workspace owner', (b:SyntheticReconstruction)=>Object.assign(b.relations.workspace[0],{owner_user_id:'foreign'})],
+  ['current batch generation mismatch', (b:SyntheticReconstruction)=>Object.assign(b.relations.recovery_code_batch[0],{recovery_generation:6})],
+  ['incomplete current batch', (b:SyntheticReconstruction)=>Object.assign(b.relations,{recovery_code:b.relations.recovery_code.slice(1)})],
+  ['unknown revision Workspace', (b:SyntheticReconstruction)=>Object.assign(b.relations.sparra_knowledge_revision[0],{workspace_id:'dddddddd-dddd-4ddd-8ddd-dddddddddddd'})],
+  ['incoherent local recording policy', (b:SyntheticReconstruction)=>Object.assign(b.relations.sparra_knowledge_revision[0],{recording_policy:'local_30d',recording_enabled:true})],
+  ['duplicate journal timestamp', (b:SyntheticReconstruction)=>Object.assign(b.source.journal[1],{created_at:b.source.journal[0].created_at})],
+] as const)('classified bytes cannot authorize %s',(_name,change)=>{
+  const input=fixture();change(input)
+  expect(()=>validateSyntheticReconstruction(input,input.source,classifiedSyntheticFields(input.relations))).toThrow('Synthetic reconstruction refused')
+})
+
 test('caller-free qualification has a strict test-owned validator before any native write', async () => {
   const path = '../helpers/caller-free-reconstruction'
   const helper = await import(path).catch(() => null)

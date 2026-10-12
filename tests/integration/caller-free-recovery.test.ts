@@ -46,6 +46,27 @@ async function emptyExcluded(client:Client) {
     (SELECT count(*)::int FROM workspace_audit)+(SELECT count(*)::int FROM auth_session_revocation)+(SELECT count(*)::int FROM recovery_code_rotation_fact) facts`)).rows[0]
 }
 
+// Existing native passkey fixtures provision auth transport separately from
+// migrations. Keep identity/factor mutations unavailable except required locks
+// and the native assertion counter; establish this before the catalog baseline.
+async function prepareNativePasskeyTransport(client:Client) {
+  await client.query(`GRANT SELECT ON public."user",public.passkey TO runtime;
+    GRANT UPDATE(id) ON public."user" TO runtime;
+    GRANT UPDATE(counter) ON public.passkey TO runtime;
+    GRANT SELECT,INSERT,UPDATE,DELETE ON public.session TO runtime;
+    GRANT SELECT,INSERT,DELETE ON public.verification TO runtime`)
+  const privileges=(await client.query(`SELECT
+    has_table_privilege('runtime','public.verification','SELECT') AND has_table_privilege('runtime','public.verification','INSERT') AND has_table_privilege('runtime','public.verification','DELETE') verification_transport,
+    has_table_privilege('runtime','public.session','SELECT') AND has_table_privilege('runtime','public.session','INSERT') AND has_table_privilege('runtime','public.session','UPDATE') AND has_table_privilege('runtime','public.session','DELETE') session_transport,
+    has_table_privilege('runtime','public."user"','SELECT') AND has_column_privilege('runtime','public."user"','id','UPDATE') user_lock,
+    has_table_privilege('runtime','public.passkey','SELECT') AND has_column_privilege('runtime','public.passkey','counter','UPDATE') assertion_counter,
+    has_table_privilege('runtime','public."user"','INSERT,DELETE') OR has_table_privilege('runtime','public.account','INSERT,UPDATE,DELETE') OR has_table_privilege('runtime','public.passkey','INSERT,DELETE')
+      OR has_column_privilege('runtime','public."user"','recovering','UPDATE') OR has_column_privilege('runtime','public."user"','recovery_generation','UPDATE') OR has_column_privilege('runtime','public."user"','hold_until','UPDATE')
+      OR has_column_privilege('runtime','public.passkey','public_key','UPDATE') OR has_column_privilege('runtime','public.passkey','user_id','UPDATE') factor_mutation,
+    has_table_privilege('runtime','public.verification','UPDATE') verification_update`)).rows[0]
+  expect(privileges).toEqual({verification_transport:true,session_transport:true,user_lock:true,assertion_counter:true,factor_mutation:false,verification_update:false})
+}
+
 // Catches native ownership/grant regressions, copied session authority, dropped
 // counters/holds/spent codes, old configuration fallback and caller restoration.
 test('isolated native reconstruction preserves source security/configuration, authenticates fresh passkeys and keeps Voice closed',async()=>{
@@ -105,6 +126,7 @@ test('isolated native reconstruction preserves source security/configuration, au
     // Source is retired before target creation: only one bounded fixture owns
     // the existing exact-inventory guard at any time.
     stores=await startDisposableStores();await stores.migrate()
+    await prepareNativePasskeyTransport(stores.administrator)
     const before=fieldHash(JSON.stringify(await securityCatalog(stores.administrator)))
     const invalid={...bundle,qualification:'real-qualified'}
     await expect(rebuildSyntheticReconstruction(stores.administrator,invalid,source,classified)).rejects.toThrow('Synthetic reconstruction refused')
@@ -184,9 +206,3 @@ test('isolated native reconstruction preserves source security/configuration, au
     if(failures.length)throw new Error('Caller-free owned cleanup failed: '+failures.join(','))
   }
 },180000)
-
-test('native caller-free rebuild has a one-shot fixed insert consumer', async () => {
-  const path = '../helpers/caller-free-reconstruction'
-  const helper = await import(path).catch(() => null)
-  expect(typeof helper?.rebuildSyntheticReconstruction, 'Feature absence: isolated fixed native reconstruction consumer missing').toBe('function')
-})
