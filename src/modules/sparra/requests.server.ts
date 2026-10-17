@@ -18,12 +18,18 @@ export function parseListRequestsInput(input:unknown){try{return Schema.decodeUn
 export function parseRequestInput(input:unknown){try{return Schema.decodeUnknownSync(requestInput,{onExcessProperty:'error'})(input)}catch{throw new InvalidRequestInput()}}
 export type ListRequestsInput=typeof listInput.Type
 export type EraseReceipt=Readonly<{requestId:string;state:'queued'|'completed'}>
-export type RequestSummaryDto=Readonly<{id:string;admittedAt:string;endedAt:string|null;status:typeof sparraCall.$inferSelect.status;configurationRevision:number|null;treatedAt:string|null;resultAvailability:'available'|'unavailable';resultQuality:'partial'|'complete'|null;category:MessageResultV1['category']|null;summary:string|null;contact:MessageResultV1['contact']|null;nextAction:string|null}>
+export type RequestSummaryDto=Readonly<{id:string;admittedAt:string;endedAt:string|null;status:typeof sparraCall.$inferSelect.status;configurationRevision:number|null;treatedAt:string|null;resultAvailability:'available'|'unavailable';resultQuality:'partial'|'complete'|null;category:MessageResultV1['category']|null;summary:string|null;conversationExcerpt:string|null;contact:MessageResultV1['contact']|null;nextAction:string|null}>
 export type RequestDetailDto=RequestSummaryDto & Readonly<{configuration:ActivityConfigurationDto|null;transcript:MessageContent['transcript'];transcriptAvailability:MessageContent['transcriptAvailability'];unavailableTurnCount:number;moreTurns:boolean;transcriptLossCount:number;erasureState:'queued'|'completed'|null;audio?:AudioDto}>
 export type ListRequestsPage=Readonly<{requests:RequestSummaryDto[];nextCursor:{admittedAt:string;id:string}|null}>
+function conversationExcerpt(content:MessageContent):string|null {
+  const text=content.transcript.find(turn=>turn.role==='user'&&turn.text.trim())?.text.replace(/\s+/gu,' ').trim()
+  if(!text)return null
+  const characters=[...text]
+  return characters.length<=240?text:characters.slice(0,239).join('')+'…'
+}
 function summary(row:typeof sparraCall.$inferSelect,content:MessageContent):RequestSummaryDto {
   const result=content.result
-  return {id:row.id,admittedAt:row.admittedAt.toISOString(),endedAt:row.endedAt?.toISOString()??null,status:row.status,configurationRevision:row.configurationRevision,treatedAt:row.treatedAt?.toISOString()??null,resultAvailability:result?'available':'unavailable',resultQuality:result?.quality??null,category:result?.category??null,summary:result?.summary??null,contact:result?.contact??null,nextAction:result?.next_action??null}
+  return {id:row.id,admittedAt:row.admittedAt.toISOString(),endedAt:row.endedAt?.toISOString()??null,status:row.status,configurationRevision:row.configurationRevision,treatedAt:row.treatedAt?.toISOString()??null,resultAvailability:result?'available':'unavailable',resultQuality:result?.quality??null,category:result?.category??null,summary:result?.summary??null,conversationExcerpt:result?null:conversationExcerpt(content),contact:result?.contact??null,nextAction:result?.next_action??null}
 }
 const hasContent=(row:typeof sparraCall.$inferSelect)=>row.encryptedMessageResult!==null || Object.keys(row.encryptedTurns).length>0
 export function createRequestOperations(owner:AuthTransactions){

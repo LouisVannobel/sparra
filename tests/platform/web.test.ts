@@ -432,7 +432,13 @@ test.each([
   expect(result.stderr).not.toContain('private-')
   if (scenario !== 'deadline' && scenario !== 'client-abort') expect(result.stderr).toBe('')
   if (scenario === 'normal' || scenario === 'forbidden') expect(observed.headers['x-consumer']).toBe('preserved')
-  if (scenario === 'redirect') expect(observed.headers.location).toBe('https://template.example/health/live')
+  if (scenario === 'redirect') {
+    const location = observed.headers.location
+    expect(location).toBeTypeOf('string')
+    expect(location.trim()).not.toBe('')
+    // A same-origin Location may be relative; it must resolve to the exact public target.
+    expect(new URL(location, 'https://template.example/health/live').href).toBe('https://template.example/health/live')
+  }
 })
 
 test('isolated boundary mechanics preserve signals and unread bodies, sanitize rejections and dispose replaced responses', async () => {

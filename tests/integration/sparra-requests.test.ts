@@ -32,6 +32,10 @@ async function call(workspaceId:string,options:{id?:string;status?:string;revisi
   await stores.administrator.query(`INSERT INTO sparra_call(id,workspace_id,deployment_id,provider_call_control_id,admitted_at,retention_until,status,configuration_revision,encrypted_turns,encrypted_message_result,ended_at) VALUES($1::uuid,$2,'fixture',$1::text,$3,$4,$5,$6,$7,$8,$9)`,[id,workspaceId,admitted,options.retentionUntil??new Date(admitted.getTime()+2592000000),options.status??'pending',options.revision??null,options.turns??{},options.result??null,options.endedAt??null])
   return id
 }
+function encryptedTurn(text:string,ordinal:number,role:'user'|'assistant'='user'){
+  const id=randomUUID()
+  return {...crypto.turn,turn_id:id,turn_no:ordinal,role,source:role==='user'?'stt_final':'pipecat_assistant',...crypto.encrypt(text,'turn:'+id)}
+}
 beforeAll(async()=>{
   stores=await startDisposableStores()
   const dir=await mkdtemp(join(tmpdir(),'sparra-inbox-prefix-'))
@@ -99,7 +103,7 @@ test('native owner reads absent state, actual Voice ciphertext and pinned config
   const wa=await personal.ensurePersonalWorkspace(a.principal),wb=await personal.ensurePersonalWorkspace(b.principal)
   const config=await activity.save(a.principal,configuration)
   const id=await call(wa!.id,{id:crypto.callId,revision:1,turns:{[crypto.turnId]:crypto.turn},result:crypto.result()})
-  expect(await requests.detail(a.principal,id)).toMatchObject({configuration:config,summary:'Demande de rappel',resultAvailability:'available',resultQuality:'partial',transcriptAvailability:'available',transcript:[{text:'Rappelez-moi'}],endedAt:null})
+  expect(await requests.detail(a.principal,id)).toMatchObject({configuration:config,summary:'Demande de rappel',conversationExcerpt:null,resultAvailability:'available',resultQuality:'partial',transcriptAvailability:'available',transcript:[{text:'Rappelez-moi'}],endedAt:null})
   expect(await requests.detail(a.principal,id.toUpperCase())).toMatchObject({id,resultAvailability:'available'})
   await expect(call(wb!.id,{revision:1})).rejects.toMatchObject({code:'23503'})
   const shell=await call(wa!.id),detail=await requests.detail(a.principal,shell)
@@ -115,6 +119,46 @@ test('native owner reads absent state, actual Voice ciphertext and pinned config
   await stores.administrator.query('UPDATE sparra_call SET encrypted_turns=$2 WHERE id=$1',[id,{[crypto.turnId]:crypto.turn,[randomUUID()]:{}}])
   expect(await requests.detail(a.principal,id)).toMatchObject({resultAvailability:'available',summary:'Demande de rappel',transcriptAvailability:'partial',unavailableTurnCount:1})
 })
+test('native owner lists only the first authenticated nonblank caller excerpt without inventing result fields',async()=>{
+  const a=await ceremony(),b=await ceremony(),workspace=await personal.ensurePersonalWorkspace(a.principal)
+  await personal.ensurePersonalWorkspace(b.principal)
+  const turns=[encryptedTurn('Bonjour, je suis Sparra.',1,'assistant'),encryptedTurn(' \n\t ',2),encryptedTurn('  Je souhaite\n un devis\t pour une vidange.  ',3),encryptedTurn('Et un rappel demain.',4)]
+  const id=await call(workspace!.id,{turns:Object.fromEntries(turns.reverse().map(turn=>[turn.turn_id,turn]))})
+  const expected={id,resultAvailability:'unavailable',resultQuality:null,summary:null,category:null,contact:null,nextAction:null,conversationExcerpt:'Je souhaite un devis pour une vidange.'}
+  expect((await requests.list(a.principal,{})).requests).toEqual([expect.objectContaining(expected)])
+  expect(await requests.detail(a.principal,id)).toMatchObject(expected)
+  expect((await requests.list(b.principal,{})).requests).toEqual([])
+  expect((await stores.administrator.query('SELECT encrypted_message_result FROM sparra_call WHERE id=$1',[id])).rows[0].encrypted_message_result).toBeNull()
+})
+test.each([
+  ['exact bound','x'.repeat(240),'x'.repeat(240)],
+  ['over bound','x'.repeat(241),'x'.repeat(239)+'…'],
+  ['Unicode bound','🔧'.repeat(241),'🔧'.repeat(239)+'…'],
+  ['blank caller',' \n\t ',null],
+] as const)('native caller excerpt preserves the %s without inventing a summary',async(_label,text,expected)=>{
+  const {principal}=await ceremony(),workspace=await personal.ensurePersonalWorkspace(principal),turn=encryptedTurn(text,1)
+  const id=await call(workspace!.id,{turns:{[turn.turn_id]:turn}})
+  expect((await requests.list(principal,{})).requests).toEqual([expect.objectContaining({id,summary:null,conversationExcerpt:expected,resultAvailability:'unavailable'})])
+})
+test('invalid result may expose a valid caller excerpt but missing keys and unauthenticated turns cannot',async()=>{
+  const {principal}=await ceremony(),workspace=await personal.ensurePersonalWorkspace(principal)
+  const id=await call(workspace!.id,{turns:{[crypto.turnId]:crypto.turn},result:crypto.result()})
+  expect(await requests.detail(principal,id)).toMatchObject({summary:null,conversationExcerpt:'Rappelez-moi',resultAvailability:'unavailable'})
+  vi.stubEnv('SPARRA_AEAD_KEYRING_PATH','')
+  try{
+    expect((await requests.list(principal,{})).requests).toEqual([expect.objectContaining({id,conversationExcerpt:null})])
+    expect(await requests.detail(principal,id)).toMatchObject({conversationExcerpt:null,transcriptAvailability:'unavailable'})
+  }finally{vi.stubEnv('SPARRA_AEAD_KEYRING_PATH',crypto.path)}
+  await stores.administrator.query('UPDATE sparra_call SET encrypted_message_result=$2 WHERE id=$1',[id,{schema_version:1,...crypto.encrypt(JSON.stringify(crypto.inner),'result:'+id)}])
+  expect((await requests.list(principal,{})).requests).toEqual([expect.objectContaining({id,summary:'Demande de rappel',conversationExcerpt:null,resultAvailability:'available'})])
+  await stores.administrator.query('UPDATE sparra_call SET encrypted_turns=$2 WHERE id=$1',[id,{[crypto.turnId]:{...crypto.turn,ciphertext_b64:Buffer.alloc(20).toString('base64')}}])
+  expect((await requests.list(principal,{})).requests).toEqual([expect.objectContaining({id,conversationExcerpt:null})])
+})
+test('an assistant turn without a caller never supplies an Inbox excerpt',async()=>{
+  const {principal}=await ceremony(),workspace=await personal.ensurePersonalWorkspace(principal),turn=encryptedTurn('Bonjour, je suis Sparra.',1,'assistant')
+  const id=await call(workspace!.id,{turns:{[turn.turn_id]:turn}})
+  expect((await requests.list(principal,{})).requests).toEqual([expect.objectContaining({id,conversationExcerpt:null})])
+})
 test('equal-millisecond pagination returns all 103 calls exactly once in tuple order',async()=>{
   const {principal}=await ceremony(),workspace=await personal.ensurePersonalWorkspace(principal),ids:string[]=[],time=new Date()
   for(let i=0;i<103;i++)ids.push(await call(workspace!.id,{admittedAt:time}))
@@ -124,15 +168,16 @@ test('equal-millisecond pagination returns all 103 calls exactly once in tuple o
 })
 test.each(['active','closed'])('treat %s preserves inventory and stamp, erase deletes native content and survives retention',async status=>{
   const {principal}=await ceremony(),workspace=await personal.ensurePersonalWorkspace(principal)
-  const id=await call(workspace!.id,{status,endedAt:status==='closed'?new Date():undefined})
+  const id=await call(workspace!.id,{status,endedAt:status==='closed'?new Date():undefined,turns:{[crypto.turnId]:crypto.turn}})
   const treated=await requests.treat(principal,id);expect(await requests.treat(principal,id)).toEqual(treated)
   expect(await inventory(id)).toEqual({calls:1,fences:0})
-  expect((await requests.detail(principal,id)).status).toBe(status)
+  expect(await requests.detail(principal,id)).toMatchObject({status,conversationExcerpt:'Rappelez-moi'})
   expect(await requests.erase(principal,id)).toEqual({requestId:id,state:'queued'})
   expect(await inventory(id)).toEqual({calls:0,fences:1})
   expect(await requests.erase(principal,id)).toEqual({requestId:id,state:'queued'})
   expect(await requests.erasure(principal,id)).toEqual({requestId:id,state:'queued'})
   await expect(requests.detail(principal,id)).rejects.toMatchObject({name:'RequestNotFound'})
+  expect((await requests.list(principal,{})).requests).toEqual([])
   const fence=(await stores.administrator.query('SELECT workspace_id,call_id,deployment_id,provider_call_control_id,original_retention_until,fence_until,state FROM sparra_erasure WHERE call_id=$1',[id])).rows[0]
   expect(fence).toMatchObject({workspace_id:workspace!.id,call_id:id,deployment_id:'fixture',provider_call_control_id:id,state:'queued'})
   expect(fence.fence_until.getTime()-fence.original_retention_until.getTime()).toBe(900000)
@@ -144,7 +189,7 @@ test.each(['active','closed'])('treat %s preserves inventory and stamp, erase de
 })
 test('expired content stays unreadable including a Workspace lock held across retention; queued receipt outlives fence deadline',async()=>{
   const {principal}=await ceremony(),workspace=await personal.ensurePersonalWorkspace(principal),end=new Date(Date.now()+600),admitted=new Date(end.getTime()-2592000000)
-  const id=await call(workspace!.id,{admittedAt:admitted,retentionUntil:end})
+  const id=await call(workspace!.id,{admittedAt:admitted,retentionUntil:end,turns:{[crypto.turnId]:crypto.turn}})
   const blocker=new Client({connectionString:stores.directRuntimeUrl});await blocker.connect()
   try{await blocker.query('BEGIN');await blocker.query("SELECT set_config('app.tenant_id',$1,true)",[workspace!.id]);await blocker.query('SELECT id FROM workspace WHERE id=$1 FOR UPDATE',[workspace!.id])
     const detail=requests.detail(principal,id);void detail.catch(()=>{})

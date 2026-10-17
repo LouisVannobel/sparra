@@ -118,6 +118,13 @@ const recordingReceiptNames=[
 const requestConsumerNames=[
   ['sparra-requests.test.ts',[
     'native owner reads absent state, actual Voice ciphertext and pinned configuration without inventing pending results',
+    'native owner lists only the first authenticated nonblank caller excerpt without inventing result fields',
+    'native caller excerpt preserves the exact bound without inventing a summary',
+    'native caller excerpt preserves the over bound without inventing a summary',
+    'native caller excerpt preserves the Unicode bound without inventing a summary',
+    'native caller excerpt preserves the blank caller without inventing a summary',
+    'invalid result may expose a valid caller excerpt but missing keys and unauthenticated turns cannot',
+    'an assistant turn without a caller never supplies an Inbox excerpt',
     'equal-millisecond pagination returns all 103 calls exactly once in tuple order',
     'treat active preserves inventory and stamp, erase deletes native content and survives retention',
     'treat closed preserves inventory and stamp, erase deletes native content and survives retention',
@@ -161,6 +168,28 @@ const requestConsumerNames=[
   ]],
 ] as const
 const requestConsumerPaths=requestConsumerNames.map(([file])=>'tests/integration/'+file)
+
+test('native_requests_requires_all_seven_adopted_excerpt_leaves_in_its_exact_forty_case_report',()=>{
+  // Synthetic reporter records qualify admission only, not native SQL behavior.
+  const report={success:true,numTotalTests:40,numPassedTests:40,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0,
+    testResults:requestConsumerNames.map(([file,names])=>({name:join(repositoryRoot,'tests/integration',file).replaceAll('\\','/'),status:'passed',message:'',
+      assertionResults:names.map((fullName:string)=>({fullName,status:'passed',failureMessages:[]}))}))}
+  expect(()=>assertRequestsReport(report,repositoryRoot)).not.toThrow()
+  const old=structuredClone(report)
+  old.numTotalTests=33;old.numPassedTests=33;old.testResults[0]!.assertionResults.splice(1,7)
+  const refusal='Native Requests requires its exact five consumers and 40 passing leaves'
+  expect(()=>assertRequestsReport(old,repositoryRoot)).toThrow(refusal)
+  for(const name of requestConsumerNames[0][1].slice(1,8)){
+    for(const kind of ['missing','skipped','failed','renamed'] as const){
+      const wrong=structuredClone(report),leaves=wrong.testResults[0]!.assertionResults,index=leaves.findIndex(leaf=>leaf.fullName===name)
+      expect(index).toBeGreaterThan(0)
+      if(kind==='missing')leaves.splice(index,1)
+      else if(kind==='renamed')leaves[index]!.fullName='Unreviewed excerpt leaf'
+      else leaves[index]!.status=kind
+      expect(()=>assertRequestsReport(wrong,repositoryRoot),name+':'+kind).toThrow(refusal)
+    }
+  }
+})
 
 function nativeCoverageFixture(activityAfterAll = '',recordingAfterAll = '') {
   const {root}=qualityFixture()
@@ -242,7 +271,7 @@ test('native_activity_blob_admits_twelve_complete_pass_cases_and_refuses_missing
   expect(readFileSync(blob)).toEqual(bytes)
 },25000)
 
-test('native_requests_blob_admits_exact_five_consumers_and_33_leaves_without_losing_original_eight',()=>{
+test('native_requests_blob_admits_exact_five_consumers_and_40_leaves_without_losing_original_eight',()=>{
   const root=nativeCoverageFixture(),blob=join(root,'coverage/requests.json'),startedAt=Date.now()
   const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...requestConsumerPaths,'--maxWorkers=1','--coverage','--reporter=blob','--outputFile.blob='+blob,'--coverage.reportsDirectory='+join(root,'coverage/requests')],requestCanaryEnvironment(root))
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
@@ -288,9 +317,9 @@ test('native_requests_report_preserves_exact_summary_consumer_and_leaf_admission
   const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...requestConsumerPaths,'--maxWorkers=1','--reporter=json','--outputFile.json='+reportPath],requestCanaryEnvironment(root))
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   const report=JSON.parse(readFileSync(reportPath,'utf8'))
-  expect(report.numTotalTests).toBe(33);expect(report.numPassedTests).toBe(33)
+  expect(report.numTotalTests).toBe(40);expect(report.numPassedTests).toBe(40)
   expect(()=>assertRequestsReport(report,root)).not.toThrow()
-  const refusal='Native Requests requires its exact five consumers and 33 passing leaves'
+  const refusal='Native Requests requires its exact five consumers and 40 passing leaves'
   for(const field of ['success','numTotalTests','numPassedTests','numPendingTests','numTodoTests','numFailedTests','numFailedTestSuites','numPendingTestSuites']){
     const wrong={...report,[field]:field==='success'?false:report[field]+1}
     expect(()=>assertRequestsReport(wrong,root)).toThrow(refusal)
@@ -325,7 +354,7 @@ test('native_requests_report_preserves_exact_summary_consumer_and_leaf_admission
       expect(()=>assertRequestsReport(wrong,root),filename+':'+kind).toThrow(refusal)
     }
   }
-  // The three same-count consumers cannot exchange their path/title bindings.
+  // Consumers cannot exchange path/title bindings, including the equal-count audio pair.
   for(const [first,second] of [
     ['sparra-requests.test.ts','sparra-audio-playback.test.ts'],
     ['sparra-requests.test.ts','sparra-audio-reader-store.test.ts'],
@@ -359,7 +388,7 @@ test('native_requests_file_admission_requires_a_current_bounded_regular_report_w
   writeFileSync(refused,'{')
   expect(()=>assertRequestsQualification(refused,root,startedAt)).toThrow(SyntaxError)
   for(const [kind,mutate] of [
-    ['summary',(value:typeof report)=>{value.numPassedTests=32}],
+    ['summary',(value:typeof report)=>{value.numPassedTests=39}],
     ['consumer',(value:typeof report)=>{value.testResults[0].name=join(root,'tests/foreign.ts')}],
     ['missing-leaf',(value:typeof report)=>{value.testResults[0].assertionResults.pop()}],
     ['extra-leaf',(value:typeof report)=>{value.testResults[0].assertionResults.push({...value.testResults[0].assertionResults[0],fullName:'extra leaf'})}],
@@ -368,7 +397,7 @@ test('native_requests_file_admission_requires_a_current_bounded_regular_report_w
     const wrong=structuredClone(report)
     mutate(wrong)
     writeFileSync(refused,JSON.stringify(wrong))
-    expect(()=>assertRequestsQualification(refused,root,startedAt),kind).toThrow('Native Requests requires its exact five consumers and 33 passing leaves')
+    expect(()=>assertRequestsQualification(refused,root,startedAt),kind).toThrow('Native Requests requires its exact five consumers and 40 passing leaves')
   }
 },25000)
 
@@ -558,9 +587,11 @@ test('actual_coverage_runner_publishes_only_native_complete_map_after_retirement
   expect(existsSync(audioConsumers[0]!.screenshots)).toBe(false)
   const coverage=JSON.parse(readFileSync(join(root,'coverage/coverage-final.json'),'utf8'))
   expect(coverage.stale).toBeUndefined()
-  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].f).toEqual({'0':21})
-  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].s).toEqual({'0':21,'1':9,'2':12})
-  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].b).toEqual({'0':[9,12]})
+  // Fifteen Requests and one ordinary case take true; twelve Activity cases take false.
+  // These literal totals independently check that all three phases were merged once.
+  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].f).toEqual({'0':28})
+  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].s).toEqual({'0':28,'1':16,'2':12})
+  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].b).toEqual({'0':[16,12]})
   expect(coverage[join(root,'src/unexecuted.ts').replaceAll('\\','/')].f).toEqual({'0':0})
   expect(coverage[join(root,'src/audio-covered.ts').replaceAll('\\','/')].f).toEqual({'0':25})
   expect(coverage[join(root,'src/audio-covered.ts').replaceAll('\\','/')].b).toEqual({'0':[25,0]})
@@ -612,14 +643,14 @@ test('actual_coverage_runner_retains_producer_on_recording_afterAll_failure',()=
 },25000)
 
 test('actual_coverage_runner_refuses_requests_missing_or_extra_leaves_before_publication',()=>{
-  for(const count of [7,9]){
+  for(const count of [14,16]){
     const root=nativeCoverageFixture(),path=join(root,'tests/integration/sparra-requests.test.ts')
     const lines=readFileSync(path,'utf8').trimEnd().split('\n')
-    if(count===7)lines.pop();else lines.push(lines.at(-1)!.replace('built native RPC','extra native RPC'))
+    if(count===14)lines.pop();else lines.push(lines.at(-1)!.replace('built native RPC','extra native RPC'))
     writeFileSync(path,lines.join('\n')+'\n')
     const result=runCoverageConsumer(root)
     expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
-    expect(result.stderr).toContain('Native Requests requires its exact five consumers and 33 passing leaves')
+    expect(result.stderr).toContain('Native Requests requires its exact five consumers and 40 passing leaves')
     expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
   }
 },25000)
@@ -632,7 +663,7 @@ test.each(['missing','extra'] as const)('actual_coverage_runner_refuses_connecte
   writeFileSync(path,lines.join('\n')+'\n')
   const result=runCoverageConsumer(root)
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
-  expect(result.stderr).toContain('Native Requests requires its exact five consumers and 33 passing leaves')
+  expect(result.stderr).toContain('Native Requests requires its exact five consumers and 40 passing leaves')
   expect(result.stdout).toContain('[tests] requests qualification')
   expect(result.stdout).not.toContain('[tests] merge')
   expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
@@ -935,12 +966,14 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
   const ssrFile='tests/ui/sparra-panels.test.tsx',path=join(repositoryRoot,ssrFile)
   // Fixed candidates from TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003; hashes are literal review anchors.
   // SSR C heading and six new summary cases independently reviewed on 2026-10-11.
+  // Excerpt cases and nullable DTO fixtures re-reviewed on 2026-10-17.
+  // Only A changes callback text; B/C/D retain their approved callback hashes.
   const targets=[
     ['detail and inbox preserve the translated native category and observed number source in both locales',
       '// fallow-ignore-next-line complexity -- reviewed SSR A; TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003',
-      '476189224c73762fc9923d6e855969efe4cc332007604c8bfd3a786abcad3daf',
-      '4208d3e5cbd8f2133e2f654964c04b2874fc32d679e064994da6384830c2ea55',
-      'bd3de21d3b60865bba3f45403e2e136aac29d65019a5682af2c0ddf8bcca029f'],
+      '702e3c919a1442eca301cbab9d673d5d7a5d105454c44e6cda26ee2e43f3b643',
+      'b0b66374beaef40478dfbc1664a2f31c72e68b76d844dd509fae802560d90d97',
+      '783c50775db400109334313036d0fc33ff85bcb94f0d2591d6dc8638d21f0cab'],
     ['request detail keeps observed metadata, ordered partial turns, pinned knowledge and disabled SSR actions in both locales',
       '// fallow-ignore-next-line complexity -- reviewed SSR B; TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003',
       '919208b5274ee478430e14284d8668f7a229c9fae11d4a86c9fb493131b5436c',
@@ -1088,7 +1121,7 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
         expect(source.text.slice(marker.end,marker.end+newlineLength),'Reviewed SSR marker line expired').toMatch(/^\r?\n$/)
         reconstructed=reconstructed.slice(0,marker.start)+reconstructed.slice(marker.end+newlineLength)
       }
-      expect(digest(reconstructed),'Reviewed SSR whole file expired').toBe('5a38798c5cafc67cb6245db55fad7587886d3ba06a15b848bdc70e3fbfc26087')
+      expect(digest(reconstructed),'Reviewed SSR whole file expired').toBe('a767ee6b60ff91b54c36ff34ba4ae5c5aad3d2b05aa4abeda1a12cd1ffa2e866')
     }
     expect(()=>reviewedCallbacks(sources)).not.toThrow()
     const original=sources.get(ssrFile)!,title=targets[0][0]

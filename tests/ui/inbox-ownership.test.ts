@@ -5,7 +5,7 @@ import { loadInboxPage, treatInboxRequest } from '../../src/ui/sparra/inbox-pane
 const oldRow: ListRequestsPage['requests'][number] = {
   id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', admittedAt: '2026-10-01T10:00:00.000Z', endedAt: null,
   status: 'pending', configurationRevision: null, treatedAt: null, resultAvailability: 'unavailable',
-  resultQuality: null, category: null, summary: null, contact: null, nextAction: null,
+  resultQuality: null, category: null, conversationExcerpt:null,summary: null, contact: null, nextAction: null,
 }
 const cursor = { admittedAt: oldRow.admittedAt, id: oldRow.id }
 const current: ListRequestsPage = { requests: [oldRow], nextCursor: cursor }

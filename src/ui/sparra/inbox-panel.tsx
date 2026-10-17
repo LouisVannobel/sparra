@@ -70,8 +70,9 @@ function InboxTreatment({request,locale,disabled,treating,onTreat}:{request:Inbo
   return <Button label={appMessages[locale].treat} aria-describedby={`inbox-call-${request.id}`} isDisabled={disabled} isLoading={treating===request.id} onClick={()=>onTreat(request.id)}/>
 }
 function InboxRow({request,locale,disabled,treating,onTreat}:{request:InboxRequest;locale:Locale;disabled:boolean;treating:string|null;onTreat(requestId:string):void}){
-  const t=appMessages[locale]
-  return <li><div className="sparra-inbox-row-heading" id={`inbox-call-${request.id}`}><a href={`/app/demandes/${request.id}?lang=${locale}`}>{request.summary??t.summaryUnavailable}</a><p><time dateTime={request.admittedAt}>{observedDate(request.admittedAt,locale)}</time></p></div>
+  const t=appMessages[locale],excerpt=request.summary===null&&request.resultAvailability==='unavailable'?request.conversationExcerpt:null
+  return <li><div className="sparra-inbox-row-heading" id={`inbox-call-${request.id}`}><a href={`/app/demandes/${request.id}?lang=${locale}`}>{request.summary??(excerpt?t.conversationExcerpt:t.summaryUnavailable)}</a><p><time dateTime={request.admittedAt}>{observedDate(request.admittedAt,locale)}</time></p></div>
+    {excerpt&&<p><q>{excerpt}</q></p>}
     <div className="sparra-app-label sparra-inbox-operator">{request.treatedAt?<time dateTime={request.treatedAt}>{t.treated}</time>:t.untreated}</div><p className="sparra-inbox-status">{t.status[request.status]}</p>
     <InboxResult request={request} locale={locale}/><InboxTreatment request={request} locale={locale} disabled={disabled} treating={treating} onTreat={onTreat}/></li>
 }

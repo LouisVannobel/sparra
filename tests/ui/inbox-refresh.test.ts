@@ -8,7 +8,7 @@ import type {} from '../helpers/inbox-panel-fixture'
 const row: ListRequestsPage['requests'][number] = {
   id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', admittedAt: '2026-10-01T10:00:00.000Z', endedAt: null,
   status: 'pending', configurationRevision: null, treatedAt: null, resultAvailability: 'unavailable',
-  resultQuality: null, category: null, summary: 'Initial summary', contact: null, nextAction: null,
+  resultQuality: null, category: null, conversationExcerpt:null,summary: 'Initial summary', contact: null, nextAction: null,
 }
 const closed = {
   ...row, status: 'closed', summary: 'Updated same-ID summary', treatedAt: '2026-10-01T11:00:00.000Z',
