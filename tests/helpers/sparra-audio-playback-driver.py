@@ -58,6 +58,12 @@ async def produce(request):
                             "configuration_revision": original["configuration_revision"],
                             "retention_until": original["retention_until"], "reason": "caller_declined"},
             })
+            if request.get("hold_revoke") is True:
+                # Imports, validation and the real sink connection precede the
+                # HTTP reader. Only this fixture process waits for its owner;
+                # EOF/cancellation leaves without ingesting the operation.
+                print(json.dumps({"ready": "audio_revoke"}), flush=True)
+                assert json.loads(sys.stdin.readline(65)) == {"commit": "audio_revoke"}
             await sink.ingest_v2(revoke)
             return original
         snapshot = await sink.begin_call_v2(deployment, call_id, routing)
