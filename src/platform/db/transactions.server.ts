@@ -4,7 +4,7 @@ import { Cause, Context, Effect, Exit } from 'effect'
 import { DrizzleError, DrizzleQueryError } from 'drizzle-orm'
 import { DatabaseError } from 'pg'
 import type { PoolClient } from 'pg'
-import { openAuthPgLease, PgTransactionError, type AuthPgLease, type AuthQueryDb, type PersonalWorkspaceLease } from './auth-pg-lease.server'
+import { openAuthPgLease, PgTransactionError, type AuthPgLease, type AuthQueryDb, type PersonalWorkspaceLease, type BillingWorkspaceLease } from './auth-pg-lease.server'
 import type { AdmittedPrincipal } from '../../modules/auth/session.server'
 
 export type AuthTxOptions = Readonly<{
@@ -21,13 +21,16 @@ type OwnedScope = {
   readonly lease: AuthPgLease
   readonly mode: Mode
   personal?: PersonalWorkspaceLease | null
+  billing?: BillingWorkspaceLease | null
   readonly signal: AbortSignal
   readonly stopped: Promise<void>
   readonly isClosed: () => boolean
   readonly finish: (decision: 'commit' | 'rollback') => Promise<'committed' | 'rolled-back'>
   readonly cancel: () => void
 }
-type Mode = { readonly kind: 'auth' } | { readonly kind: 'personal'; readonly principal: AdmittedPrincipal; readonly createIfMissing: boolean }
+type Mode = { readonly kind: 'auth' }
+  | { readonly kind: 'personal'; readonly principal: AdmittedPrincipal; readonly createIfMissing: boolean }
+  | { readonly kind: 'billing'; readonly principal: AdmittedPrincipal; readonly workspaceId: string }
 const authMode: Mode = { kind: 'auth' }
 type Invocation = { readonly owner: object; readonly options: AuthTxOptions; readonly scope?: OwnedScope; readonly mode: Mode }
 const CurrentScope = Context.Reference<OwnedScope | undefined>('app/pg/currentAuthScope', { defaultValue: () => undefined })
@@ -60,8 +63,11 @@ function same(a: AuthTxOptions, b: AuthTxOptions) {
     && a.cleanupTimeoutMs === b.cleanupTimeoutMs && a.correlationId === b.correlationId && a.signal === b.signal
 }
 function sameMode(a: Mode, b: Mode) {
-  return a.kind === 'auth' ? b.kind === 'auth' : b.kind === 'personal'
+  if (a.kind === 'auth') return b.kind === 'auth'
+  if (a.kind === 'personal') return b.kind === 'personal'
     && a.principal.userId === b.principal.userId && a.principal.sessionId === b.principal.sessionId && a.createIfMissing === b.createIfMissing
+  return b.kind === 'billing' && a.principal.userId === b.principal.userId
+    && a.principal.sessionId === b.principal.sessionId && a.workspaceId === b.workspaceId
 }
 
 export function createTransactions(pool: { connect(): Promise<PoolClient> }, limits: AuthTxLimits) {
@@ -73,6 +79,7 @@ export function createTransactions(pool: { connect(): Promise<PoolClient> }, lim
     if (!positive(options.deadlineAtMs) || !positive(options.statementTimeoutMs) || !positive(options.cleanupTimeoutMs)
       || !uuid.test(options.correlationId) || options.deadlineAtMs <= Date.now() || options.signal?.aborted
       || mode.kind === 'personal' && (!mode.principal?.userId || !mode.principal.sessionId || typeof mode.createIfMissing !== 'boolean')
+      || mode.kind === 'billing' && (!mode.principal?.userId || !mode.principal.sessionId || !uuid.test(mode.workspaceId))
       || inherited && (inherited.owner !== owner || !same(inherited.options, options) || !sameMode(inherited.mode, mode) || inherited.scope?.isClosed())) throw failure(options)
   }
   function context(scope: OwnedScope): Invocation { return { owner: scope.owner, options: scope.options, scope, mode: scope.mode } }
@@ -139,6 +146,7 @@ export function createTransactions(pool: { connect(): Promise<PoolClient> }, lim
 
   async function initialize(scope: OwnedScope) {
     if (scope.mode.kind === 'personal' && scope.personal === undefined) scope.personal = await scope.lease.selectPersonalWorkspace(scope.mode.principal, scope.mode.createIfMissing)
+    if (scope.mode.kind === 'billing' && scope.billing === undefined) scope.billing = await scope.lease.selectBillingWorkspace(scope.mode.principal, scope.mode.workspaceId)
   }
   async function withPromise<A>(options: AuthTxOptions, mode: Mode, call: (scope: OwnedScope) => Promise<A>): Promise<A> {
     const inherited = promiseInvocation.getStore()
@@ -242,11 +250,14 @@ export function createTransactions(pool: { connect(): Promise<PoolClient> }, lim
   function withPersonalWorkspacePromise<A>(options: AuthTxOptions, principal: AdmittedPrincipal, createIfMissing: boolean, call: (lease: PersonalWorkspaceLease | null) => Promise<A>) {
     return withPromise(options, { kind: 'personal', principal: Object.freeze({ ...principal }), createIfMissing }, scope => call(scope.personal ?? null))
   }
+  function withBillingWorkspacePromise<A>(options: AuthTxOptions, principal: AdmittedPrincipal, workspaceId: string, call: (lease: BillingWorkspaceLease | null) => Promise<A>) {
+    return withPromise(options, { kind: 'billing', principal: Object.freeze({ ...principal }), workspaceId }, scope => call(scope.billing ?? null))
+  }
   const withAuthTransaction = <A, E, R>(options: AuthTxOptions, use: Effect.Effect<A, E, R>) => withTransaction(options, authMode, use)
   const withPersonalWorkspaceTransaction = <A, E, R>(options: AuthTxOptions, principal: AdmittedPrincipal, createIfMissing: boolean, use: Effect.Effect<A, E, R>) => withTransaction(options, { kind: 'personal', principal: Object.freeze({ ...principal }), createIfMissing }, use)
   const invokeAuthPromise = <A>(options: AuthTxOptions, call: (signal: AbortSignal) => Promise<A>) => invokePromise(options, 'auth', call)
   const invokePersonalWorkspacePromise = <A>(options: AuthTxOptions, call: (signal: AbortSignal) => Promise<A>) => invokePromise(options, 'personal', call)
   return { withAuthPromise, withAuthTransaction, invokeAuthPromise, currentDb, invocationOptions, runAuthInvocation, assertNoActiveAuthTransaction,
-    withPersonalWorkspacePromise, withPersonalWorkspaceTransaction, invokePersonalWorkspacePromise }
+    withPersonalWorkspacePromise, withPersonalWorkspaceTransaction, invokePersonalWorkspacePromise, withBillingWorkspacePromise }
 }
 export type AuthTransactions = ReturnType<typeof createTransactions>

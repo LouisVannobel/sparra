@@ -5,8 +5,9 @@ import { randomUUID } from 'node:crypto'
 import type { readDatabaseConfig } from './config.server'
 import { createTransactions } from './transactions.server'
 
-export const acquireDatabase = Effect.fn('acquireDatabase')(function* (database: ReturnType<typeof readDatabaseConfig>, expectedLogin?: 'auth_mail_relay' | 'auth_mail_worker') {
+export const acquireDatabase = Effect.fn('acquireDatabase')(function* (database: ReturnType<typeof readDatabaseConfig>, expectedLogin?: 'auth_mail_relay' | 'auth_mail_worker' | 'billing_relay' | 'billing_worker') {
   let stopping = false, databaseFault = false
+  const billingLogin = expectedLogin === 'billing_relay' || expectedLogin === 'billing_worker'
   const clients = new Set<PoolClient>()
     const pool = yield* Effect.acquireRelease(Effect.sync(() => {
       const pool = new Pool({
@@ -50,7 +51,7 @@ export const acquireDatabase = Effect.fn('acquireDatabase')(function* (database:
           ...(expectedLogin ? {
             login: sql<string>`session_user`,
             currentUser: sql<string>`current_user`,
-            canImpersonate: sql<boolean>`exists(select 1 from pg_roles where rolname in ('auth_mail_owner','auth_mail_definer') and pg_has_role(session_user,oid,'MEMBER'))`,
+            canImpersonate: sql<boolean>`exists(select 1 from pg_roles where rolname in ('auth_mail_owner','auth_mail_definer','billing_owner','billing_definer','billing_relay','billing_worker') and rolname<>session_user and pg_has_role(session_user,oid,'MEMBER'))`,
           } : {}),
           superuser: sql<string>`rolsuper::text`,
           bypassrls: sql<string>`rolbypassrls::text`,
@@ -59,7 +60,51 @@ export const acquireDatabase = Effect.fn('acquireDatabase')(function* (database:
           fsync: sql<string>`current_setting('fsync')`,
           fullPageWrites: sql<string>`current_setting('full_page_writes')`,
           synchronousCommit: sql<string>`current_setting('synchronous_commit')`,
-          schemaReady: sql<string>`(to_regclass('public.user') is not null and to_regclass('public.account') is not null and to_regclass('public.session') is not null and to_regclass('public.verification') is not null)::text`,
+          schemaReady: billingLogin ? sql<string>`coalesce((
+            (select count(*)=10 from pg_class c join pg_namespace n on n.oid=c.relnamespace join pg_roles r on r.oid=c.relowner
+             where n.nspname='public' and c.relname in ('billing_customer','billing_operation','billing_agreement','billing_charge_binding',
+               'billing_command','billing_current_agreement','billing_event_receipt','billing_outbox','billing_receipt_assignment','billing_risk_observation')
+             and c.relrowsecurity and c.relforcerowsecurity
+             and r.rolname=case when c.relname in ('billing_customer','billing_operation') then 'workspace_owner' else 'billing_owner' end)
+            and (select count(*)=4 from pg_attribute where attrelid=to_regclass('public.billing_command')
+              and attname in ('manifest_revision','target_progress','identities','completed_at') and not attisdropped)
+            and exists(select 1 from pg_attribute where attrelid=to_regclass('public.billing_outbox') and attname='terminal_disposition' and not attisdropped)
+            and exists(select 1 from pg_attribute where attrelid=to_regclass('public.billing_operation') and attname='checkout_reference_version' and not attisdropped)
+          ),false)::text` : sql<string>`(to_regclass('public.user') is not null and to_regclass('public.account') is not null and to_regclass('public.session') is not null and to_regclass('public.verification') is not null)::text`,
+          ...(billingLogin ? { billingReady: sql<string>`coalesce((
+            not rolcreaterole and not rolcreatedb and not rolreplication and not rolinherit
+            and (select count(*)=4 from pg_roles where rolname in ('billing_owner','billing_definer','billing_relay','billing_worker')
+              and rolcanlogin=(rolname in ('billing_relay','billing_worker')) and not rolsuper and not rolbypassrls
+              and not rolcreaterole and not rolcreatedb and not rolreplication and not rolinherit)
+            and not exists(select 1 from pg_auth_members m join pg_roles r on r.oid=m.member or r.oid=m.roleid
+              where r.rolname in ('billing_owner','billing_definer','billing_relay','billing_worker'))
+            and has_schema_privilege(current_user,'app_private','USAGE')
+            and not has_schema_privilege(current_user,'app_private','CREATE')
+            and not has_schema_privilege(current_user,'public','CREATE')
+            and not exists(select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+              where n.nspname='public' and c.relkind in ('r','p','v','m','f')
+              and has_table_privilege(current_user,c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'))
+            and (select bool_and(coalesce(p.oid is not null and p.prosecdef and p.provolatile='v' and r.rolname='billing_definer'
+                and p.proconfig @> array['search_path=pg_catalog, pg_temp']
+                and has_function_privilege(current_user,p.oid,'EXECUTE')=(current_user=required.login)
+                and not exists(select 1 from aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a where a.grantee=0),false))
+              from (values
+                ('app_private.billing_receive_event(jsonb)','runtime'),
+                ('app_private.billing_claim_admission()','billing_relay'),
+                ('app_private.billing_finalize_admission(uuid,uuid,bigint,jsonb)','billing_relay'),
+                ('app_private.billing_claim_command(uuid,uuid)','billing_worker'),
+                ('app_private.billing_observe_command(uuid,uuid,bigint,jsonb,jsonb)','billing_worker'),
+                ('app_private.billing_apply_command(uuid,uuid,bigint,jsonb,jsonb)','billing_worker'),
+                ('app_private.billing_record_risk(uuid,uuid,bigint,jsonb)','billing_worker')
+              ) required(signature,login)
+              left join pg_proc p on p.oid=to_regprocedure(required.signature) left join pg_roles r on r.oid=p.proowner)
+            and not exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+              where n.nspname='app_private' and p.proname like 'billing_%' and has_function_privilege(current_user,p.oid,'EXECUTE')
+              and p.oid<>all(case when current_user='billing_relay' then array[
+                to_regprocedure('app_private.billing_claim_admission()'),to_regprocedure('app_private.billing_finalize_admission(uuid,uuid,bigint,jsonb)')]
+              else array[to_regprocedure('app_private.billing_claim_command(uuid,uuid)'),to_regprocedure('app_private.billing_observe_command(uuid,uuid,bigint,jsonb,jsonb)'),
+                to_regprocedure('app_private.billing_apply_command(uuid,uuid,bigint,jsonb,jsonb)'),to_regprocedure('app_private.billing_record_risk(uuid,uuid,bigint,jsonb)')] end))
+          ),false)::text` } : {}),
           ...(!expectedLogin ? { workspaceReady: sql<string>`coalesce((
             session_user = 'runtime' and current_user = 'runtime' and not rolcreaterole and not rolcreatedb and not rolreplication and not rolinherit
             and (select count(*) = 2 from pg_roles where rolname in ('workspace_owner','workspace_bootstrap') and not rolcanlogin and not rolsuper and not rolbypassrls and not rolcreaterole and not rolcreatedb and not rolreplication and not rolinherit)
@@ -75,7 +120,7 @@ export const acquireDatabase = Effect.fn('acquireDatabase')(function* (database:
         }).from(sql`pg_roles`).where(sql`rolname = current_user`)
         if (!observed || expectedLogin && (observed.login !== expectedLogin || observed.currentUser !== expectedLogin || observed.canImpersonate) || observed.version !== '160015' || observed.superuser !== 'false' || observed.bypassrls !== 'false'
           || observed.databaseOwner !== 'false' || observed.tableOwner !== 'false' || observed.fsync !== 'on'
-          || observed.fullPageWrites !== 'on' || observed.synchronousCommit !== 'on' || observed.schemaReady !== 'true' || !expectedLogin && observed.workspaceReady !== 'true') throw new Error('Database contract mismatch')
+          || observed.fullPageWrites !== 'on' || observed.synchronousCommit !== 'on' || observed.schemaReady !== 'true' || billingLogin && observed.billingReady !== 'true' || !expectedLogin && observed.workspaceReady !== 'true') throw new Error('Database contract mismatch')
       }),
       catch: () => new Error('Application stores unavailable'),
     })
