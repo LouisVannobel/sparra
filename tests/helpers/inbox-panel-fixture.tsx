@@ -10,7 +10,7 @@ import '../../src/ui/sparra/sparra.css'
 export const row: ListRequestsPage['requests'][number] = {
   id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', admittedAt: '2026-10-01T10:00:00.000Z', endedAt: null,
   status: 'pending', configurationRevision: null, treatedAt: null, resultAvailability: 'unavailable',
-  resultQuality: null, category: null, summary: 'Initial summary', contact: null, nextAction: null,
+  resultQuality: null, category: null, conversationExcerpt:null,summary: 'Initial summary', contact: null, nextAction: null,
 }
 const initial: ListRequestsPage = { requests: [row], nextCursor: { id: row.id, admittedAt: row.admittedAt } }
 const reads: { data: ListRequestsInput; signal: AbortSignal; resolve(value: ListRequestsPage | Response): void; reject(error: Error): void }[] = []

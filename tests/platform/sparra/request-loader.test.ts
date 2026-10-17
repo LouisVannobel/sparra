@@ -24,7 +24,7 @@ type ParentMatch = Awaited<LoaderContext['parentMatchPromise']>
 const requestId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const detail: RequestDetailDto = {
   id: requestId, admittedAt: '2026-10-01T10:00:00.000Z', endedAt: null, status: 'pending', configurationRevision: null, treatedAt: null,
-  resultAvailability: 'unavailable', resultQuality: null, category: null, summary: null, contact: null, nextAction: null, configuration: null,
+  resultAvailability: 'unavailable', resultQuality: null, category: null, conversationExcerpt:null,summary: null, contact: null, nextAction: null, configuration: null,
   transcript: [], transcriptAvailability: 'unavailable', unavailableTurnCount: 0, moreTurns: false, transcriptLossCount: 0, erasureState: null,
 }
 
