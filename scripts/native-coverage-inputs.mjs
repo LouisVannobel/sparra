@@ -146,7 +146,7 @@ export function readNativeBlob(filePath, name, root, startedAt, version) {
   for (const reference of files) {
     count += admitTestFile(table, blobValue(table, reference), name, files.length, root, startedAt, seen)
   }
-  if (!count || (name === 'activity' && count !== 12) || (name === 'requests' && count !== 33)) throw new Error('Native coverage test cardinality mismatch')
+  if (!count || (name === 'activity' && count !== 12) || (name === 'requests' && count !== 40)) throw new Error('Native coverage test cardinality mismatch')
   const coverage = blobValue(table, envelope[3])
   admitCoverageEntries(table, coverage, root)
   return { table, coverage, digest }
@@ -179,6 +179,13 @@ export function admitCommonGeometry(ordinary, activity) {
 
 const requestsLeafNames = [
     'native owner reads absent state, actual Voice ciphertext and pinned configuration without inventing pending results',
+    'native owner lists only the first authenticated nonblank caller excerpt without inventing result fields',
+    'native caller excerpt preserves the exact bound without inventing a summary',
+    'native caller excerpt preserves the over bound without inventing a summary',
+    'native caller excerpt preserves the Unicode bound without inventing a summary',
+    'native caller excerpt preserves the blank caller without inventing a summary',
+    'invalid result may expose a valid caller excerpt but missing keys and unauthenticated turns cannot',
+    'an assistant turn without a caller never supplies an Inbox excerpt',
     'equal-millisecond pagination returns all 103 calls exactly once in tuple order',
     'treat active preserves inventory and stamp, erase deletes native content and survives retention',
     'treat closed preserves inventory and stamp, erase deletes native content and survives retention',
@@ -226,7 +233,7 @@ const requestConsumers=[
 ]
 
 function requestsSummaryPassed(report) {
-  const counters = {numTotalTests:33,numPassedTests:33,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
+  const counters = {numTotalTests:40,numPassedTests:40,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
   return report?.success === true && Object.entries(counters).every(([key,wanted])=>report[key]===wanted)
 }
 
@@ -248,7 +255,7 @@ function requestsConsumerPassed(report,path,names,root) {
 export function assertRequestsReport(report,root) {
   if(!requestsSummaryPassed(report) || !Array.isArray(report.testResults) || report.testResults.length!==5
     || !requestConsumers.every(([path,names])=>requestsConsumerPassed(report,path,names,root))) {
-    throw new Error('Native Requests requires its exact five consumers and 33 passing leaves')
+    throw new Error('Native Requests requires its exact five consumers and 40 passing leaves')
   }
 }
 
