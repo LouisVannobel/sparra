@@ -62,36 +62,88 @@ function expectedWave(): Buffer {
   return Buffer.concat([header, pcm])
 }
 
-async function nativePlayback(request: PlaybackProducerRequest): Promise<PlaybackProducerResult> {
+async function playbackProducer(request: PlaybackProducerRequest, holdRevoke = false) {
   const producer = await resolveVoiceProducer()
   const home = process.env.SPARRA_VOICE_TEST_HOME
   if (!home || !isAbsolute(home)) throw new Error('Voice playback prerequisite missing')
-  return new Promise((accept, reject) => {
-    const child = spawn(producer.pythonExecutable, ['-I', '-B', resolve('tests/helpers/sparra-audio-playback-driver.py')], {
-      cwd: dirname(producer.sourceRoot), windowsHide: true,
-      env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, TEMP: process.env.TEMP,
-        TMP: process.env.TMP, HOME: home, APPDATA: home, PYTHONDONTWRITEBYTECODE: '1' },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    })
-    const timer = setTimeout(() => { child.kill(); reject(new Error('Voice playback fixture deadline')) }, 15000)
-    let output = ''
-    child.stdout.on('data', data => {
-      output += String(data)
-      if (Buffer.byteLength(output) > 4096) { child.kill(); reject(new Error('Voice playback fixture output bound')) }
-    })
-    child.stderr.resume()
-    child.once('error', () => { clearTimeout(timer); reject(new Error('Voice playback fixture startup')) })
-    child.once('close', code => {
-      clearTimeout(timer)
-      try {
-        const reply: { ok?: PlaybackProducerResult; error?: string } = JSON.parse(output)
-        if (code !== 0 || reply.error || !reply.ok || reply.ok.call_id !== request.call_id) throw new Error()
-        accept(reply.ok)
-      } catch { reject(new Error('Voice playback fixture failed')) }
-    })
-    // Only owned generated material crosses stdin; no credential argument/log export.
-    child.stdin.end(JSON.stringify({ ...request, source_root: producer.sourceRoot }))
+  if (holdRevoke && !request.revoke) throw new Error('Voice playback revoke required')
+  const child = spawn(producer.pythonExecutable, ['-I', '-B', resolve('tests/helpers/sparra-audio-playback-driver.py')], {
+    cwd: dirname(producer.sourceRoot), windowsHide: true,
+    env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, TEMP: process.env.TEMP,
+      TMP: process.env.TMP, HOME: home, APPDATA: home, PYTHONDONTWRITEBYTECODE: '1' },
+    stdio: ['pipe', 'pipe', 'pipe'],
   })
+  let acceptReady!: () => void, rejectReady!: (error: Error) => void
+  const ready = new Promise<void>((accept, reject) => { acceptReady = accept; rejectReady = reject })
+  let acceptResult!: (value: PlaybackProducerResult) => void, rejectResult!: (error: Error) => void
+  const result = new Promise<PlaybackProducerResult>((accept, reject) => { acceptResult = accept; rejectResult = reject })
+  // Readiness may fail before its caller awaits it; every outcome remains
+  // observable through ready/result and the owned close below.
+  void ready.catch(() => {}); void result.catch(() => {})
+  let output = '', bytes = 0, prepared = false, committed = false, closed = false, failure: Error | undefined
+  function fail(message: string) {
+    failure ??= new Error(message)
+    rejectReady(failure)
+    child.stdin.destroy()
+    if (!closed) child.kill('SIGKILL')
+  }
+  const timer = setTimeout(() => fail('Voice playback fixture deadline'), 15000)
+  child.stdout.on('data', data => {
+    bytes += data.length
+    if (bytes > 4096) { fail('Voice playback fixture output bound'); return }
+    output += String(data)
+    if (holdRevoke && !prepared && output.includes('\n')) {
+      const end = output.indexOf('\n')
+      try {
+        const receipt = JSON.parse(output.slice(0, end))
+        if (receipt?.ready !== 'audio_revoke' || Object.keys(receipt).length !== 1) throw new Error()
+        prepared = true; output = output.slice(end + 1); acceptReady()
+      } catch { fail('Voice playback fixture readiness') }
+    }
+  })
+  child.stderr.resume()
+  child.once('error', () => fail('Voice playback fixture startup'))
+  child.stdin.on('error', () => fail('Voice playback fixture input'))
+  const joined = new Promise<void>(joined => child.once('close', code => {
+    closed = true
+    clearTimeout(timer)
+    try {
+      const reply: { ok?: PlaybackProducerResult; error?: string } = JSON.parse(output)
+      if (failure || code !== 0 || (holdRevoke && (!prepared || !committed))
+        || reply.error || !reply.ok || reply.ok.call_id !== request.call_id) throw new Error()
+      acceptReady(); acceptResult(reply.ok)
+    } catch {
+      failure ??= new Error('Voice playback fixture failed')
+      rejectReady(failure); rejectResult(failure)
+    } finally { joined() }
+  }))
+  // Only owned generated material crosses stdin; no credential argument/log export.
+  const input = JSON.stringify({ ...request, source_root: producer.sourceRoot, ...(holdRevoke ? { hold_revoke: true } : {}) }) + '\n'
+  if (holdRevoke) child.stdin.write(input)
+  else child.stdin.end(input)
+  return {
+    ready, result,
+    commit() {
+      if (!holdRevoke || !prepared || committed || closed || failure) throw new Error('Voice playback fixture commit refused')
+      committed = true
+      child.stdin.end(JSON.stringify({ commit: 'audio_revoke' }) + '\n')
+      return result
+    },
+    async close() {
+      if (!closed && !child.stdin.writableEnded) child.stdin.end()
+      try { await bounded(joined, 2000) }
+      catch {
+        fail('Voice playback fixture cleanup')
+        await bounded(joined, 2000)
+        throw failure
+      }
+    },
+  }
+}
+
+async function nativePlayback(request: PlaybackProducerRequest): Promise<PlaybackProducerResult> {
+  const fixture = await playbackProducer(request)
+  try { return await fixture.result } finally { await fixture.close() }
 }
 
 beforeAll(async () => {
@@ -293,15 +345,27 @@ async function observedReaderState(id:string,state:'active'|'released') {
   throw new Error('Exact reader state was not observed')
 }
 test('native audio revoke leaves the exact released slot and truncates the paused client response',async()=>{
-  const call=await largeNativeCall(),held=await pausedNativeResponse(call.call_id)
+  const call=await largeNativeCall()
+  const revoke=await playbackProducer({url:stores.voiceUrlA,deployment_id:deployment,call_id:call.call_id,
+    keyring_path:crypto.path,pcm_b64:'',revoke:call},true)
+  let held:Awaited<ReturnType<typeof pausedNativeResponse>>|undefined
   let leaseId:string|undefined
   try{
+    await revoke.ready
+    held=await pausedNativeResponse(call.call_id)
     expect(held.response.statusCode).toBe(200)
     expect(held.response.complete).toBe(false)
     leaseId=await observedReaderState(call.call_id,'active')
-    await nativePlayback({url:stores.voiceUrlA,deployment_id:deployment,call_id:call.call_id,
-      keyring_path:crypto.path,pcm_b64:'',revoke:call})
+    await revoke.commit()
     expect(await observedReaderState(call.call_id,'released')).toBe(leaseId)
+    // Pause/preparation alone do not prove active revocation. Require the
+    // native denial to precede this exact reader's terminal release in SQL.
+    const order=(await stores.administrator.query<{denied_before_release:boolean}>(
+      `SELECT c.audio_denied_at < r.released_at AS denied_before_release
+       FROM sparra_audio_reader AS r JOIN sparra_call AS c ON c.id=r.call_id AND c.workspace_id=r.workspace_id
+       WHERE r.lease_id=$1 AND r.call_id=$2 AND isfinite(r.released_at) AND isfinite(c.audio_denied_at)`,
+      [leaseId,call.call_id])).rows[0]
+    expect(order).toEqual({denied_before_release:true})
     // Received client bytes cannot be recalled. Resume only after the control
     // action/server-slot observation to receive the real truncated FIN/RST.
     held.response.resume()
@@ -323,7 +387,9 @@ test('native audio revoke leaves the exact released slot and truncates the pause
       }catch{}
     }
     throw error
-  }finally{held.close()}
+  }finally{
+    try{held?.close();if(held)await bounded(held.terminal,2000)}finally{await revoke.close()}
+  }
 })
 test('native owner erase terminates a paused reader without completing unacknowledged Voice cleanup',async()=>{
   const call=await largeNativeCall(),held=await pausedNativeResponse(call.call_id)
