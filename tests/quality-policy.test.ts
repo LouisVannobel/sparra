@@ -209,6 +209,17 @@ const billingConsumerNames=[
     'known subscription cancellation after terms B still targets subscription A',
     'first native Checkout creates Customer and retains admitted A after B is inserted during the provider send',
   ]],
+  ['billing-consumer-webhook.test.ts',[
+    'native Google session and persisted call Inbox remain usable with absent Stripe configuration',
+    'native Google session and persisted call Inbox remain usable with partial Stripe configuration',
+    'signed duplicate and reordered native webhook events each retain one atomic receipt, command and outbox without granting paid access',
+    'native webhook rejects signature before any durable receipt',
+    'native webhook rejects version before any durable receipt',
+    'native webhook rejects account before any durable receipt',
+    'native webhook rejects oversize before any durable receipt',
+    'aborting a native request body closes its client transport and produces no receipt or paid right',
+    'native server shutdown joins an unfinished webhook body before normal process and store retirement',
+  ]],
 ] as const
 const billingConsumerPaths=billingConsumerNames.map(([file])=>'tests/integration/'+file)
 
@@ -318,12 +329,12 @@ test('native_activity_blob_admits_twelve_complete_pass_cases_and_refuses_missing
   expect(readFileSync(blob)).toEqual(bytes)
 },25000)
 
-test('native_billing_blob_admits_exact_three_consumers_and_25_leaves',()=>{
+test('native_billing_blob_admits_exact_four_consumers_and_34_leaves',()=>{
   const root=nativeCoverageFixture(),blob=join(root,'coverage/billing.json'),startedAt=Date.now()
   const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...billingConsumerPaths,'--maxWorkers=1','--coverage','--reporter=blob','--outputFile.blob='+blob,'--coverage.reportsDirectory='+join(root,'coverage/billing')])
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   const bytes=readFileSync(blob),table=JSON.parse(bytes.toString('utf8')),files=table[Number(table[0][1])]
-  expect(files).toHaveLength(3)
+  expect(files).toHaveLength(4)
   expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.11')).not.toThrow()
   for(const [filename,names] of billingConsumerNames){
     const file=table[Number(files.find((reference:string)=>table[Number(table[Number(reference)].filepath)]===join(root,'tests/integration',filename).replaceAll('\\','/')))]
@@ -356,13 +367,13 @@ test('native_billing_blob_admits_exact_three_consumers_and_25_leaves',()=>{
   expect(readFileSync(blob)).toEqual(bytes)
 },25000)
 
-test('native_billing_report_requires_exact_three_consumers_and_25_passing_leaves',()=>{
+test('native_billing_report_requires_exact_four_consumers_and_34_passing_leaves',()=>{
   const root=nativeCoverageFixture(),path=join(root,'coverage/billing-report.json'),startedAt=Date.now()
   const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...billingConsumerPaths,'--maxWorkers=1','--reporter=json','--outputFile.json='+path])
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   const bytes=readFileSync(path),report=JSON.parse(bytes.toString('utf8'))
-  const refusal='Native Billing requires its exact three consumers and 25 passing leaves'
-  expect(report.numTotalTests).toBe(25);expect(report.numPassedTests).toBe(25)
+  const refusal='Native Billing requires its exact four consumers and 34 passing leaves'
+  expect(report.numTotalTests).toBe(34);expect(report.numPassedTests).toBe(34)
   expect(()=>assertBillingReport(report,root)).not.toThrow()
   expect(()=>assertBillingQualification(path,root,startedAt)).not.toThrow()
   for(const field of ['success','numTotalTests','numPassedTests','numPendingTests','numTodoTests','numFailedTests','numFailedTestSuites','numPendingTestSuites']){
@@ -401,6 +412,18 @@ test('native_billing_report_requires_exact_three_consumers_and_25_passing_leaves
   writeFileSync(refused,'{');expect(()=>assertBillingQualification(refused,root,startedAt)).toThrow(SyntaxError)
   rmSync(refused);expect(()=>assertBillingQualification(refused,root,startedAt)).toThrow()
   expect(readFileSync(path)).toEqual(bytes)
+},25000)
+
+test('native_billing_gate_refuses_the_previous_three_consumer_25_leaf_run',()=>{
+  const root=nativeCoverageFixture(),reportPath=join(root,'coverage/previous-billing-report.json'),blob=join(root,'coverage/previous-billing.json'),startedAt=Date.now()
+  const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...billingConsumerPaths.slice(0,3),'--maxWorkers=1','--coverage',
+    '--reporter=json','--reporter=blob','--outputFile.json='+reportPath,'--outputFile.blob='+blob,'--coverage.reportsDirectory='+join(root,'coverage/previous-billing')])
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
+  const report=JSON.parse(readFileSync(reportPath,'utf8'))
+  expect(report.numTotalTests).toBe(25);expect(report.numPassedTests).toBe(25)
+  expect(report.testResults).toHaveLength(3)
+  expect(()=>assertBillingReport(report,root)).toThrow('Native Billing requires its exact four consumers and 34 passing leaves')
+  expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.11')).toThrow('Native billing blob has an unexpected consumer')
 },25000)
 
 test('native_requests_blob_admits_exact_five_consumers_and_40_leaves_without_losing_original_eight',()=>{
@@ -703,13 +726,13 @@ function runCoverageConsumer(root:string,preload?:string) {
   return spawnSync(process.execPath,args,{cwd:root,encoding:'utf8',windowsHide:true,timeout:20000})
 }
 
-test('native_billing_runner_publishes_all_three_consumers_once_in_the_native_merge',()=>{
+test('native_billing_runner_publishes_all_four_consumers_once_in_the_native_merge',()=>{
   const root=nativeCoverageFixture(),result=runCoverageConsumer(root)
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   expect(result.stdout).toContain('[tests] billing qualification\n')
   const coverage=JSON.parse(readFileSync(join(root,'coverage/coverage-final.json'),'utf8'))
-  expect(coverage[join(root,'src/billing-covered.ts').replaceAll('\\','/')].f).toEqual({'0':25})
-  expect(coverage[join(root,'src/billing-covered.ts').replaceAll('\\','/')].b).toEqual({'0':[25,0]})
+  expect(coverage[join(root,'src/billing-covered.ts').replaceAll('\\','/')].f).toEqual({'0':34})
+  expect(coverage[join(root,'src/billing-covered.ts').replaceAll('\\','/')].b).toEqual({'0':[34,0]})
   expect(readdirSync(join(root,'coverage'))).toEqual(['coverage-final.json'])
   expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
 },25000)
@@ -731,7 +754,30 @@ test.each(['disabled','missing','adverse'] as const)('native_billing_runner_refu
     expect(existsSync(join(root,'coverage/canary-voice-owner'))).toBe(true)
     expect(existsSync(join(root,'canary-voice-retired.txt'))).toBe(false)
   }else{
-    expect(result.stderr).toContain('Native Billing requires its exact three consumers and 25 passing leaves')
+    expect(result.stderr).toContain('Native Billing requires its exact four consumers and 34 passing leaves')
+    expect(readdirSync(join(root,'coverage'))).toEqual([])
+    expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
+  }
+},25000)
+
+test.each(['disabled','missing','adverse'] as const)('native_billing_runner_refuses_webhook_%s_before_merge_and_publication',kind=>{
+  const root=nativeCoverageFixture(),path=join(root,'tests/integration/billing-consumer-webhook.test.ts')
+  const lines=readFileSync(path,'utf8').trimEnd().split('\n')
+  if(kind==='disabled')lines[1]=lines[1]!.replace('test(','test.skip(')
+  else if(kind==='missing')lines.pop()
+  else lines.push("import {afterAll} from 'vitest';afterAll(()=>{throw new Error('Owned billing webhook consumer failure')});")
+  writeFileSync(path,lines.join('\n')+'\n')
+  const result=runCoverageConsumer(root)
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
+  expect(result.stdout).toContain('[tests] billing qualification\n')
+  expect(result.stdout).not.toContain('[tests] merge')
+  expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
+  if(kind==='adverse'){
+    expect(result.stderr).toContain('Native coverage billing qualification failed; consumer cleanup is unconfirmed')
+    expect(existsSync(join(root,'coverage/canary-voice-owner'))).toBe(true)
+    expect(existsSync(join(root,'canary-voice-retired.txt'))).toBe(false)
+  }else{
+    expect(result.stderr).toContain('Native Billing requires its exact four consumers and 34 passing leaves')
     expect(readdirSync(join(root,'coverage'))).toEqual([])
     expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
   }

@@ -128,7 +128,7 @@ function requestsBlobFile(table,file,fileCount,root,seen) {
 function billingBlobFile(table,file,fileCount,root,seen) {
   const filepath=resolve(blobValue(table,file.filepath))
   const consumer=billingConsumers.find(([path])=>filepath===join(root,path))
-  if(fileCount!==3||!consumer||seen.has(filepath))throw new Error('Native billing blob has an unexpected consumer')
+  if(fileCount!==4||!consumer||seen.has(filepath))throw new Error('Native billing blob has an unexpected consumer')
   seen.add(filepath)
   const names=[],count=passedTests(table,file,names)
   if(count!==consumer[1].length)throw new Error('Native coverage test cardinality mismatch')
@@ -159,7 +159,7 @@ export function readNativeBlob(filePath, name, root, startedAt, version) {
     count += admitTestFile(table, blobValue(table, reference), name, files.length, root, startedAt, seen)
   }
   if (!count || (name === 'activity' && count !== 12) || (name === 'requests' && count !== 40)
-    || (name === 'billing' && count !== 25)) throw new Error('Native coverage test cardinality mismatch')
+    || (name === 'billing' && count !== 34)) throw new Error('Native coverage test cardinality mismatch')
   const coverage = blobValue(table, envelope[3])
   admitCoverageEntries(table, coverage, root)
   return { table, coverage, digest }
@@ -350,15 +350,26 @@ const billingConsumers=[
     'known subscription cancellation after terms B still targets subscription A',
     'first native Checkout creates Customer and retains admitted A after B is inserted during the provider send',
   ]],
+  ['tests/integration/billing-consumer-webhook.test.ts',[
+    'native Google session and persisted call Inbox remain usable with absent Stripe configuration',
+    'native Google session and persisted call Inbox remain usable with partial Stripe configuration',
+    'signed duplicate and reordered native webhook events each retain one atomic receipt, command and outbox without granting paid access',
+    'native webhook rejects signature before any durable receipt',
+    'native webhook rejects version before any durable receipt',
+    'native webhook rejects account before any durable receipt',
+    'native webhook rejects oversize before any durable receipt',
+    'aborting a native request body closes its client transport and produces no receipt or paid right',
+    'native server shutdown joins an unfinished webhook body before normal process and store retirement',
+  ]],
 ]
 
 function billingSummaryPassed(report) {
-  const counters={numTotalTests:25,numPassedTests:25,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
+  const counters={numTotalTests:34,numPassedTests:34,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
   return report?.success===true&&Object.entries(counters).every(([key,wanted])=>report[key]===wanted)
 }
 
 export function assertBillingReport(report,root) {
-  if(!billingSummaryPassed(report)||!Array.isArray(report.testResults)||report.testResults.length!==3
+  if(!billingSummaryPassed(report)||!Array.isArray(report.testResults)||report.testResults.length!==4
     ||!billingConsumers.every(([path,names])=>{
       const matches=report.testResults.filter(file=>file?.name===join(root,path).replaceAll('\\','/'))
       const file=matches[0]
@@ -367,7 +378,7 @@ export function assertBillingReport(report,root) {
         &&file.assertionResults.every((test,index)=>test?.status==='passed'&&test.fullName===names[index]
           &&Array.isArray(test.failureMessages)&&test.failureMessages.length===0)
     })) {
-    throw new Error('Native Billing requires its exact three consumers and 25 passing leaves')
+    throw new Error('Native Billing requires its exact four consumers and 34 passing leaves')
   }
 }
 
