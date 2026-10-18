@@ -27,3 +27,34 @@ test('UNKNOWN Session still open without a subscription and invoice is unresolve
   const client = provider(true)
   await expect(proveBillingLineage(config, client, checkoutOperation, customer, 'in_fixture123', termsA)).rejects.toThrow()
 })
+
+const unrelatedAdjustment: Awaited<ReturnType<MonetaryProvider['listCustomerBalanceTransactions']>>['data'][number] = {
+  id: 'cbtxn_adjustment', object: 'customer_balance_transaction', customer: 'cus_fixture', customer_account: null,
+  livemode: false, currency: 'eur', amount: -200, ending_balance: -200, created: 1793491300,
+  type: 'adjustment', invoice: null, checkout_session: null, credit_note: null,
+}
+
+test.each([
+  { label: 'a credit applied to this invoice', balance: { ...unrelatedAdjustment, type: 'applied_to_invoice', invoice: 'in_fixture123' } },
+  { label: 'another customer balance', balance: { ...unrelatedAdjustment, customer: 'cus_other' } },
+])('monthly paid proof refuses $label despite a succeeded payment', async ({ balance }) => {
+  const client = provider()
+  const lineage = await proveBillingLineage(config, client, checkoutOperation, customer, 'in_fixture123', termsA)
+  const withBalance: MonetaryProvider = { ...client, async listCustomerBalanceTransactions() {
+    return f.list('/v1/customers/cus_fixture/balance_transactions', [balance])
+  } }
+  await expect(provePaidMonthlyInvoice(config, withBalance, lineage.boundInvoice)).rejects.toThrow('Billing monetary proof unavailable')
+})
+
+test('monthly paid proof refuses a newly observed customer adjustment during captured-payment verification', async () => {
+  const client = provider()
+  const lineage = await proveBillingLineage(config, client, checkoutOperation, customer, 'in_fixture123', termsA)
+  let balanceRead = 0
+  const withChangingBalance: MonetaryProvider = { ...client, async listCustomerBalanceTransactions() {
+    const rows = [unrelatedAdjustment]
+    if (balanceRead++ > 0) rows.unshift({ ...unrelatedAdjustment, id: 'cbtxn_later', amount: 200, ending_balance: 0, created: 1793491301 })
+    return f.list('/v1/customers/cus_fixture/balance_transactions', rows)
+  } }
+  await expect(provePaidMonthlyInvoice(config, withChangingBalance, lineage.boundInvoice)).rejects.toThrow('Billing monetary proof unavailable')
+  expect(balanceRead).toBe(2)
+})

@@ -369,7 +369,7 @@ function requireUnpaidAllocationScope(payment: InvoiceAllocation, bound: BoundMo
   live: boolean, seen: Set<string>, canceledAt: number | null): asserts payment is InvoiceAllocation & { status: 'open' | 'canceled' } {
   if (payment.object !== 'invoice_payment' || !allocationId.test(payment.id) || seen.has(payment.id)
     || idOf(payment.invoice) !== bound.invoiceId || payment.livemode !== live || payment.currency !== bound.currency
-    || payment.status !== 'open' && payment.status !== 'canceled' || payment.amount_paid !== 0
+    || payment.status !== 'open' && payment.status !== 'canceled' || payment.amount_paid !== null
     || !positive(payment.amount_requested) || payment.amount_requested > bound.expectedAmount
     || payment.status_transitions?.paid_at !== null
     || payment.status === 'open' && canceledAt !== null

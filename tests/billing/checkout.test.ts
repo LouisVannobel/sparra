@@ -1,26 +1,35 @@
+import { createHash } from 'node:crypto'
 import { getTableColumns } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/pg-proxy'
 import type Stripe from 'stripe'
 import { expect, test } from 'vitest'
 import type { AuthTransactions } from '../../src/platform/db/transactions.server'
 import type { BillingWorkspaceLease } from '../../src/platform/db/auth-pg-lease.server'
-import { parseBillingInput, startCheckout, type BillingClient } from '../../src/modules/billing/checkout.server'
-import { billingCustomer, billingOperation } from '../../src/modules/billing/schema.server'
+import { parseBillingInput, readBillingState, startCheckout, type BillingClient } from '../../src/modules/billing/checkout.server'
+import { billingAgreement, billingCurrentAgreement, billingCustomer, billingOperation } from '../../src/modules/billing/schema.server'
 import { config, workspaceId, customer, checkoutOperation, termsA, termsB, monthlyPrice } from '../helpers/billing-fixtures'
 
 const principal = { userId: 'fixture-user', sessionId: 'fixture-session', name: 'Fixture', email: 'fixture@example.test' }
 // The query boundary double retains Drizzle's actual selection/mapping and SQL.
 // SQL authority, locking and mutations are covered by the disposable-PG tests.
 type Operation = typeof billingOperation.$inferSelect
-type Row = Partial<typeof billingCustomer.$inferSelect & Operation>
-function fixture(initial: typeof termsA | null = termsA, existing: Partial<Operation> | null = null, priceChanges: Partial<Stripe.Price> = {}) {
+type BillingTable = typeof billingCustomer | typeof billingOperation | typeof billingAgreement | typeof billingCurrentAgreement
+type Visibility = Readonly<{
+  customer?: typeof billingCustomer.$inferSelect | null
+  operations?: readonly Operation[]
+  pointer?: typeof billingCurrentAgreement.$inferSelect
+  agreement?: typeof billingAgreement.$inferSelect
+  observedAtSeconds?: number
+}>
+function fixture(initial: typeof termsA | null = termsA, existing: Partial<Operation> | null = null,
+  priceChanges: Partial<Stripe.Price> = {}, visibility: Visibility = {}) {
   let currentTerms = initial
   let operation: Operation | null = existing ? { ...checkoutOperation, ...existing } : null
   const effects: string[] = []
   const sent: unknown[] = []
-  const rows = (table: typeof billingCustomer | typeof billingOperation, value: Row) => {
-    // SAFETY: table is one of these two Drizzle schemas and Row retains all their keys.
-    const keys = Object.keys(getTableColumns(table)) as Array<keyof Row>
+  const rows = <Table extends BillingTable>(table: Table, value: Table['$inferSelect']) => {
+    // SAFETY: each value has this table's SELECT shape; the keys come from the same Drizzle schema.
+    const keys = Object.keys(getTableColumns(table)) as Array<keyof Table['$inferSelect']>
     return keys.map(key => { const field = value[key]; return field instanceof Date ? field.toISOString() : field })
   }
   const db = drizzle(async (query, params) => {
@@ -35,14 +44,25 @@ function fixture(initial: typeof termsA | null = termsA, existing: Partial<Opera
     if (query.includes('billing_admit_checkout_v2')) { effects.push('admit-v2'); return { rows: [[null]] } }
     if (query.includes('billing_claim_operation')) { operation = { ...operation!, phase: 'DISPATCHING' }; return { rows: [[true]] } }
     if (query.includes('billing_mark_unknown')) { operation = { ...operation!, phase: 'UNKNOWN' }; return { rows: [[true]] } }
-    if (query.includes('from "billing_customer"')) return { rows: [rows(billingCustomer, customer)] }
-    if (query.includes('from "billing_operation"')) return { rows: operation ? [rows(billingOperation, operation)] : [] }
+    if (query.includes('from "billing_customer"')) {
+      const retained = visibility.customer === undefined ? customer : visibility.customer
+      return { rows: retained ? [rows(billingCustomer, retained)] : [] }
+    }
+    if (query.includes('from "billing_operation"')) return {
+      rows: (visibility.operations ?? (operation ? [operation] : [])).map(value => rows(billingOperation, value)),
+    }
+    if (query.includes('from "billing_current_agreement"')) return {
+      rows: visibility.pointer ? [rows(billingCurrentAgreement, visibility.pointer)] : [],
+    }
+    if (query.includes('from "billing_agreement"')) return {
+      rows: visibility.agreement ? [rows(billingAgreement, visibility.agreement)] : [],
+    }
     if (query.includes('from "billing_agreed_terms"')) {
       effects.push('terms')
       return { rows: currentTerms ? [[currentTerms.id, currentTerms.workspaceId, currentTerms.environment, currentTerms.accountId,
         currentTerms.revision, currentTerms.monthlyPriceId, currentTerms.currency, currentTerms.monthlyUnitAmount]] : [] }
     }
-    if (query.includes('clock_timestamp')) return { rows: [[1790812800]] }
+    if (query.includes('clock_timestamp')) return { rows: [[visibility.observedAtSeconds ?? 1790812800]] }
     throw new Error(`Unexpected SQL ${query} ${params.length}`)
   })
   // SAFETY: this test owns only the two transaction-owner methods used by Checkout; SQL authority has separate native tests.
@@ -107,4 +127,96 @@ test('lost Checkout acknowledgement followed by terms B keeps A, its hash and se
   await expect(startCheckout(f.owner, principal, config, f.provider, workspaceId)).rejects.toMatchObject({ status: 409 })
   expect(f.operation).toEqual(before)
   expect(f.effects).toEqual(effects)
+})
+
+test('Billing without negotiated terms stays unavailable and cannot expose another Workspace', async () => {
+  const f = fixture(null)
+  const unavailable = { availability: 'unavailable', state: 'unavailable', paidThrough: null, cancellation: 'none' }
+  expect(await readBillingState(f.owner, principal, null, workspaceId)).toEqual(unavailable)
+  expect(f.effects).toEqual([])
+  expect(await readBillingState(f.owner, principal, config, workspaceId)).toEqual(unavailable)
+  expect(f.effects).toEqual(['terms'])
+  await expect(readBillingState(f.owner, principal, config, 'ffffffff-ffff-4fff-8fff-ffffffffffff')).rejects.toMatchObject({ status: 404 })
+  expect(f.effects).toEqual(['terms'])
+})
+
+test('Billing projects retained Customer and Checkout admissions without provider I/O or commercial amounts', async () => {
+  const customerAdmission: Operation = { ...checkoutOperation, kind: 'CUSTOMER_CREATE', phase: 'ADMITTED',
+    idempotencyKey: `customer:${checkoutOperation.id}`,
+    requestHash: createHash('sha256').update(JSON.stringify({ metadata: { workspace_id: workspaceId } })).digest('hex'),
+    customerId: null, agreedTermsId: null, monthlyPriceId: null, currency: null, monthlyUnitAmount: null,
+    integrationIdentifier: null, checkoutReferenceVersion: 'legacy-v1' }
+  const pendingCustomer = fixture(termsA, null, {}, { customer: null, operations: [customerAdmission] })
+  expect(await readBillingState(pendingCustomer.owner, principal, config, workspaceId)).toEqual({
+    availability: 'available', state: 'customer-pending', paidThrough: null, cancellation: 'none',
+  })
+  expect(pendingCustomer.effects).toEqual(['terms'])
+  const pendingCheckout = fixture(termsB, { phase: 'ADMITTED' })
+  expect(await readBillingState(pendingCheckout.owner, principal, config, workspaceId)).toEqual({
+    availability: 'available', state: 'checkout-pending', paidThrough: null, cancellation: 'none',
+  })
+  expect(pendingCheckout.effects).toEqual([])
+})
+
+test('Billing keeps unresolved sends and a Checkout expired at the SQL clock as incidents without reopening them', async () => {
+  const operations: Operation[] = [
+    { ...checkoutOperation, phase: 'UNKNOWN' },
+    { ...checkoutOperation, phase: 'DISPATCHING' },
+    { ...checkoutOperation, phase: 'SUCCEEDED', stripeObjectId: 'cs_test_fixture',
+      checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_test_fixture', checkoutExpiresAt: 1790814600 },
+  ]
+  for (const operation of operations) {
+    const f = fixture(termsB, operation, {}, { observedAtSeconds: 1790814600 })
+    expect(await readBillingState(f.owner, principal, config, workspaceId)).toEqual({
+      availability: 'available', state: 'incident', paidThrough: null, cancellation: 'none',
+    })
+    expect(f.operation).toEqual(operation)
+    expect(f.effects).toEqual([])
+    expect(f.sent).toEqual([])
+  }
+})
+
+test('Billing confirms cancellation only for the retained subscription and canonical cancellation intention', async () => {
+  const id = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+  const cancellation: Operation = { ...checkoutOperation, id, kind: 'CANCEL_AT_PERIOD_END', phase: 'ADMITTED',
+    idempotencyKey: `cancel:${id}`, requestHash: createHash('sha256').update(JSON.stringify({ cancel_at_period_end: true })).digest('hex'),
+    agreedTermsId: null, monthlyPriceId: null, currency: null, monthlyUnitAmount: null, integrationIdentifier: null,
+    checkoutReferenceVersion: 'legacy-v1' }
+  const observations: Array<{ operation: Operation; expected: 'pending' | 'confirmed' | 'incident' }> = [
+    { operation: cancellation, expected: 'pending' },
+    { operation: { ...cancellation, phase: 'SUCCEEDED', stripeObjectId: 'sub_fixture' }, expected: 'confirmed' },
+    { operation: { ...cancellation, phase: 'SUCCEEDED', stripeObjectId: 'sub_other' }, expected: 'incident' },
+    { operation: { ...cancellation, customerId: 'cus_other' }, expected: 'incident' },
+    { operation: { ...cancellation, idempotencyKey: 'cancel:changed' }, expected: 'incident' },
+    { operation: { ...cancellation, currency: 'eur' }, expected: 'incident' },
+  ]
+  for (const observation of observations) {
+    const f = fixture(termsB, null, {}, { customer: { ...customer, knownSubscriptionId: 'sub_fixture' },
+      operations: [checkoutOperation, observation.operation] })
+    expect(await readBillingState(f.owner, principal, config, workspaceId)).toEqual({
+      availability: 'available', state: 'subscription-present', paidThrough: null, cancellation: observation.expected,
+    })
+    expect(f.effects).toEqual([])
+  }
+})
+
+test('Billing projects paid or held only from the current agreement and expires payment against the SQL clock', async () => {
+  const agreement: typeof billingAgreement.$inferSelect = { id: '99999999-9999-4999-8999-999999999999', workspaceId,
+    operationId: checkoutOperation.id, environment: config.environment, accountId: config.accountId, subscriptionId: 'sub_fixture',
+    invoiceId: 'in_fixture', periodStart: 1790812800, periodEnd: 1790816400, proof: { fixture: 'retained paid proof' },
+    createdAt: checkoutOperation.createdAt }
+  const pointer: typeof billingCurrentAgreement.$inferSelect = { workspaceId, agreementId: agreement.id, version: 1, heldAt: null }
+  const observations = [
+    { pointer, observedAtSeconds: agreement.periodStart, expected: 'paid' },
+    { pointer: { ...pointer, heldAt: checkoutOperation.createdAt }, observedAtSeconds: agreement.periodStart, expected: 'held' },
+    { pointer, observedAtSeconds: agreement.periodEnd, expected: 'incident' },
+  ]
+  for (const observation of observations) {
+    const f = fixture(termsB, checkoutOperation, {}, { customer: { ...customer, knownSubscriptionId: 'sub_fixture' },
+      pointer: observation.pointer, agreement, observedAtSeconds: observation.observedAtSeconds })
+    expect(await readBillingState(f.owner, principal, config, workspaceId)).toEqual({
+      availability: 'available', state: observation.expected, paidThrough: new Date(agreement.periodEnd * 1000).toISOString(), cancellation: 'none',
+    })
+    expect(f.effects).toEqual([])
+  }
 })

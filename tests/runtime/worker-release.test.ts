@@ -8,6 +8,7 @@ import { promisify } from 'node:util'
 import { workerOciFixture } from '../helpers/migrator-oci-fixture'
 import { workerSourceManifest } from '../../scripts/worker-source-manifest.mjs'
 import { verifyWorkerArtifact } from '../../scripts/verify-worker-release.mjs'
+import { candidateArguments } from '../../scripts/release-cli.mjs'
 
 const execute = promisify(execFile), directories: string[] = []
 const commit = 'a'.repeat(40)
@@ -125,3 +126,34 @@ test('worker writer requires this checkout and emits only a strict temporary can
   expect((await invoke('scripts/write-worker-candidate.mjs', ['--directory', directory, '--commit', commit, '--image-id', receipt.image_id, '--run-id', 'synthetic-worker-writer'])).code).toBe(1)
 })
 
+test('the candidate argument contract returns only the resolved directory and immutable release identity', () => {
+  const directory = join(tmpdir(), 'sparra-worker-cli-contract'), imageId = 'sha256:' + 'b'.repeat(64)
+  expect(candidateArguments(['--directory', directory, '--commit', commit, '--image-id', imageId, '--run-id', 'synthetic-worker-parser'])).toEqual({
+    directory: resolve(directory), commit, imageId, runId: 'synthetic-worker-parser',
+  })
+})
+
+test('the candidate argument contract refuses missing extra reordered or duplicated flags', () => {
+  const directory = join(tmpdir(), 'sparra-worker-cli-contract'), imageId = 'sha256:' + 'b'.repeat(64)
+  const args = ['--directory', directory, '--commit', commit, '--image-id', imageId, '--run-id', 'synthetic-worker-parser']
+  const invalid = [
+    args.slice(0, -1), [...args, '--unexpected'],
+    ['--commit', commit, '--directory', directory, ...args.slice(4)],
+    ['--directory', directory, '--directory', commit, ...args.slice(4)],
+  ]
+  for (const selected of invalid) expect(() => candidateArguments(selected)).toThrow()
+})
+
+test('the candidate argument contract refuses mutable images malformed commits and ambiguous run identities', () => {
+  const directory = join(tmpdir(), 'sparra-worker-cli-contract'), imageId = 'sha256:' + 'b'.repeat(64)
+  const identities = [
+    { commit: commit.toUpperCase(), imageId, runId: 'synthetic-worker-parser' },
+    { commit: commit.slice(1), imageId, runId: 'synthetic-worker-parser' },
+    { commit, imageId: 'worker:latest', runId: 'synthetic-worker-parser' },
+    { commit, imageId: 'sha256:' + 'g'.repeat(64), runId: 'synthetic-worker-parser' },
+    { commit, imageId, runId: '' }, { commit, imageId, runId: ' synthetic-worker-parser' },
+    { commit, imageId, runId: 'r'.repeat(257) },
+  ]
+  for (const identity of identities) expect(() => candidateArguments(['--directory', directory, '--commit', identity.commit,
+    '--image-id', identity.imageId, '--run-id', identity.runId])).toThrow()
+})

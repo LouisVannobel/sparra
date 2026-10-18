@@ -27,10 +27,11 @@ const workspace = Schema.Struct({ id: uuid, kind: Schema.Literal('personal'), li
 const revision = Schema.Struct({ workspace_id: uuid, revision: integer.check(Schema.isGreaterThanOrEqualTo(1)), business_name: text(80).check(Schema.isMinLength(1)),
   sector: Schema.Literals(['garage','controle-technique']), opening_hours: text(1000,true), services: text(2000,true), prices: text(1500,true), faq: text(3000,true), instructions: text(2000,true),
   transfer_destination: phone, recording_enabled: Schema.Boolean, recording_policy: Schema.Literals(['off','local_30d']), recording_contact_phone: phone, saved_at: instant })
+export const reconstructionMigrationCount = 24
 const rows = <S extends Schema.Top>(schema: S) => Schema.Array(schema).check(Schema.isMaxLength(256))
 const source = Schema.Struct({ app_commit: Schema.String.check(Schema.isPattern(/^[0-9a-f]{40}$/)), app_tree: Schema.String.check(Schema.isPattern(/^[0-9a-f]{40}$/)),
   web_digest: hex, migrator_digest: hex, migration_source_hash: hex, postgres_version: Schema.Literal('160015'),
-  journal: rows(Schema.Struct({ id: integer, hash: hex, created_at: Schema.String.check(Schema.isPattern(/^[0-9]+$/)) })).check(Schema.isMinLength(23),Schema.isMaxLength(23)) })
+  journal: rows(Schema.Struct({ id: integer, hash: hex, created_at: Schema.String.check(Schema.isPattern(/^[0-9]+$/)) })).check(Schema.isMinLength(reconstructionMigrationCount),Schema.isMaxLength(reconstructionMigrationCount)) })
 const relations = Schema.Struct({ user: rows(user), account: rows(account), passkey: rows(passkey), recovery_code_batch: rows(batch), recovery_code: rows(code), workspace: rows(workspace), sparra_knowledge_revision: rows(revision) })
 const envelope = Schema.Struct({ schema_version: Schema.Literal(1), purpose: Schema.Literal('caller-free-service-reconstruction'),
   qualification: Schema.Literal('synthetic-closed-admission'), capture_id: uuid, captured_at: instant, source, relations })

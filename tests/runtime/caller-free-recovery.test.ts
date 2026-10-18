@@ -1,11 +1,11 @@
 import { expect, test } from 'vitest'
-import { classifiedSyntheticFields, validateSyntheticReconstruction, type SyntheticReconstruction } from '../helpers/caller-free-reconstruction'
+import { classifiedSyntheticFields, reconstructionMigrationCount, validateSyntheticReconstruction, type SyntheticReconstruction } from '../helpers/caller-free-reconstruction'
 
 const at='2026-10-12T00:00:00.000Z', wid='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', bid='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 function fixture(): SyntheticReconstruction {
   return {schema_version:1,purpose:'caller-free-service-reconstruction',qualification:'synthetic-closed-admission',capture_id:wid,captured_at:at,
     source:{app_commit:'1'.repeat(40),app_tree:'2'.repeat(40),web_digest:'3'.repeat(64),migrator_digest:'4'.repeat(64),migration_source_hash:'5'.repeat(64),postgres_version:'160015',
-      journal:Array.from({length:23},(_,i)=>({id:i+1,hash:i.toString(16).padStart(64,'0'),created_at:String(1000+i)}))},
+      journal:Array.from({length:reconstructionMigrationCount},(_,i)=>({id:i+1,hash:i.toString(16).padStart(64,'0'),created_at:String(1000+i)}))},
     relations:{user:[{id:'owner',name:'Synthetic owner',email:'owner@example.test',email_verified:true,image:null,created_at:at,updated_at:at,recovering:true,recovery_generation:7,hold_until:'2027-10-12T00:00:00.000Z'}],
       account:[{id:'account',account_id:'synthetic-subject',provider_id:'google',user_id:'owner',created_at:at,updated_at:at}],
       passkey:[{id:'key',name:null,public_key:'AQ',user_id:'owner',credential_id:'Ag',counter:19,device_type:'singleDevice',backed_up:false,transports:'internal',created_at:at,aaguid:null}],
@@ -18,6 +18,14 @@ function fixture(): SyntheticReconstruction {
 test('strict synthetic projection preserves security values and explicit nulls',()=>{
   const input=fixture(),classified=classifiedSyntheticFields(input.relations)
   expect(validateSyntheticReconstruction(input,input.source,classified)).toEqual(input)
+})
+
+test.each([23,25] as const)('strict synthetic projection refuses %i migration entries despite matching source binding',count=>{
+  const input=fixture(),expected=fixture()
+  const journal=Array.from({length:count},(_,i)=>({id:i+1,hash:i.toString(16).padStart(64,'0'),created_at:String(1000+i)}))
+  Object.assign(input.source,{journal})
+  Object.assign(expected.source,{journal:journal.map(row=>({...row}))})
+  expect(()=>validateSyntheticReconstruction(input,expected.source,classifiedSyntheticFields(input.relations))).toThrow('Synthetic reconstruction refused')
 })
 
 test.each([
