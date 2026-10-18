@@ -46,6 +46,28 @@ function decode<A>(schema: Schema.Codec<A>, value: unknown): A {
   catch { throw retryFixtureError() }
 }
 
+type NativeRetryFailureDiagnostic = {
+  tlsAcquiredMs: number | undefined; storesAcquiredMs: number | undefined; engineAcquiredMs: number | undefined; setupElapsedMs: number | undefined
+  ready: boolean; observationStarted: boolean; observationFinished: boolean; bodyFailure: boolean; caseCount: number
+  fatal: boolean; processClosed: boolean; processCode: number | null; outputBytes: number; forced: boolean
+  eventTypes: Observation['type'][]; phases: ReturnType<typeof safeRetryParentPhase>[]; commandCount: number
+  normalStop: { elapsedMs: number; processClosed: boolean; receipt: Extract<Observation, { type: 'stopped' }> | null } | undefined
+  cleanup: {
+    rowLockReleased: boolean | undefined; childClosed: boolean | undefined; webPoolClosed: boolean | undefined
+    engineRemoved: boolean | undefined; storesRemoved: boolean | undefined; tlsClosedAndMaterialsRemoved: boolean | undefined
+  }
+}
+function reportNativeRetryFailure(success: boolean, diagnostic: NativeRetryFailureDiagnostic) {
+  if (success !== false) return
+  console.log('SPARRA_MAIL_RETRY_I3_FAILURE ' + JSON.stringify(diagnostic, [
+    'tlsAcquiredMs', 'storesAcquiredMs', 'engineAcquiredMs', 'setupElapsedMs',
+    'ready', 'observationStarted', 'observationFinished', 'bodyFailure', 'caseCount',
+    'fatal', 'processClosed', 'processCode', 'outputBytes', 'forced', 'eventTypes', 'phases', 'commandCount',
+    'normalStop', 'elapsedMs', 'receipt', 'nativeStartState', 'nativeStopState', 'pendingHooks', 'commandsJoined',
+    'cleanup', 'rowLockReleased', 'childClosed', 'webPoolClosed', 'engineRemoved', 'storesRemoved', 'tlsClosedAndMaterialsRemoved',
+  ]))
+}
+
 // Explicitly excluded from every non-native command. timeout:0 keeps the WHOLE
 // acquisition/cleanup lifecycle awaited; it does not extend observation/stop.
 test('I3 one owned native retry fixture: retained A/B, transient C, expired E, exhausted D', { timeout: 0 }, async () => {
@@ -348,5 +370,19 @@ test('I3 one owned native retry fixture: retained A/B, transient C, expired E, e
       || currentEvidenceOwner.dev !== evidenceOwner.dev || currentEvidenceOwner.ino !== evidenceOwner.ino) throw retryFixtureError()
     await writeFile(join(evidenceDirectory, `task-7-i3-native-${evidenceId}.json`), JSON.stringify(evidence, null, 2) + '\n', { flag: 'wx', mode: 0o600 })
   }
+  reportNativeRetryFailure(success, {
+    tlsAcquiredMs: evidence.tlsAcquiredMs, storesAcquiredMs: evidence.storesAcquiredMs,
+    engineAcquiredMs: evidence.engineAcquiredMs, setupElapsedMs: evidence.setupElapsedMs,
+    ready: Boolean(evidence.ready), observationStarted: Boolean(evidence.observationStartedAt), observationFinished: Boolean(evidence.observationFinishedAt),
+    bodyFailure: Boolean(evidence.failure), caseCount: cases.size,
+    fatal, processClosed, processCode, outputBytes, forced,
+    eventTypes: events.map(event => event.type), phases, commandCount: commandReceipts.length,
+    normalStop: evidence.normalStop,
+    cleanup: {
+      rowLockReleased: cleanupReceipts.rowLockReleased, childClosed: cleanupReceipts.childClosed, webPoolClosed: cleanupReceipts.webPoolClosed,
+      engineRemoved: cleanupReceipts.engineRemoved, storesRemoved: cleanupReceipts.storesRemoved,
+      tlsClosedAndMaterialsRemoved: cleanupReceipts.tlsClosedAndMaterialsRemoved,
+    },
+  })
   requireFact(success)
 })
