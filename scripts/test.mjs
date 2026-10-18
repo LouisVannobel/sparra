@@ -125,6 +125,7 @@ try {
     'tests/integration/billing-consumer-migration.test.ts','tests/integration/billing-consumer-authority.test.ts',
     'tests/integration/billing-negotiated-checkout.test.ts',
     'tests/integration/billing-consumer-webhook.test.ts',
+    'tests/integration/billing-consumer-browser.test.ts',
     '--maxWorkers=1', '--coverage', '--reporter=default', '--reporter=json', '--reporter=blob', '--outputFile.json=' + billingReport,
     '--outputFile.blob='+join(blobs,'billing.json'),'--coverage.reportsDirectory='+join(runDirectory,'billing')], 600000)
   assertBillingQualification(billingReport,root,startedAt)

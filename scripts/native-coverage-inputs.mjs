@@ -128,7 +128,7 @@ function requestsBlobFile(table,file,fileCount,root,seen) {
 function billingBlobFile(table,file,fileCount,root,seen) {
   const filepath=resolve(blobValue(table,file.filepath))
   const consumer=billingConsumers.find(([path])=>filepath===join(root,path))
-  if(fileCount!==4||!consumer||seen.has(filepath))throw new Error('Native billing blob has an unexpected consumer')
+  if(fileCount!==5||!consumer||seen.has(filepath))throw new Error('Native billing blob has an unexpected consumer')
   seen.add(filepath)
   const names=[],count=passedTests(table,file,names)
   if(count!==consumer[1].length)throw new Error('Native coverage test cardinality mismatch')
@@ -159,7 +159,7 @@ export function readNativeBlob(filePath, name, root, startedAt, version) {
     count += admitTestFile(table, blobValue(table, reference), name, files.length, root, startedAt, seen)
   }
   if (!count || (name === 'activity' && count !== 12) || (name === 'requests' && count !== 40)
-    || (name === 'billing' && count !== 34)) throw new Error('Native coverage test cardinality mismatch')
+    || (name === 'billing' && count !== 40)) throw new Error('Native coverage test cardinality mismatch')
   const coverage = blobValue(table, envelope[3])
   admitCoverageEntries(table, coverage, root)
   return { table, coverage, digest }
@@ -361,15 +361,23 @@ const billingConsumers=[
     'aborting a native request body closes its client transport and produces no receipt or paid right',
     'native server shutdown joins an unfinished webhook body before normal process and store retirement',
   ]],
+  ['tests/integration/billing-consumer-browser.test.ts',[
+    'compiled billing redirects anonymous navigation and never provisions a null Workspace',
+    'compiled Google navigation exposes Billing while native financial authority refuses without affecting Inbox',
+    'compiled fresh passkey billing stays truthful in FR EN at320 with keyboard access and forged Checkout returns',
+    'compiled partial Stripe configuration preserves private navigation and a fresh passkey unavailable billing screen',
+    'compiled protected refresh ignores a late departed read and clears private content after native session refusal',
+    'compiled billing UI validates Checkout navigation and uses exact Workspace POSTs without trusting cancellation acknowledgements',
+  ]],
 ]
 
 function billingSummaryPassed(report) {
-  const counters={numTotalTests:34,numPassedTests:34,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
+  const counters={numTotalTests:40,numPassedTests:40,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
   return report?.success===true&&Object.entries(counters).every(([key,wanted])=>report[key]===wanted)
 }
 
 export function assertBillingReport(report,root) {
-  if(!billingSummaryPassed(report)||!Array.isArray(report.testResults)||report.testResults.length!==4
+  if(!billingSummaryPassed(report)||!Array.isArray(report.testResults)||report.testResults.length!==5
     ||!billingConsumers.every(([path,names])=>{
       const matches=report.testResults.filter(file=>file?.name===join(root,path).replaceAll('\\','/'))
       const file=matches[0]
@@ -378,7 +386,7 @@ export function assertBillingReport(report,root) {
         &&file.assertionResults.every((test,index)=>test?.status==='passed'&&test.fullName===names[index]
           &&Array.isArray(test.failureMessages)&&test.failureMessages.length===0)
     })) {
-    throw new Error('Native Billing requires its exact four consumers and 34 passing leaves')
+    throw new Error('Native Billing requires its exact five consumers and 40 passing leaves')
   }
 }
 
