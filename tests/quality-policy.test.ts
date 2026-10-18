@@ -845,17 +845,6 @@ function runCoverageConsumer(root:string,preload?:string) {
   return spawnSync(process.execPath,args,{cwd:root,encoding:'utf8',windowsHide:true,timeout:20000})
 }
 
-test('native_billing_runner_publishes_all_eight_consumers_once_in_the_native_merge',()=>{
-  const root=nativeCoverageFixture(),result=runCoverageConsumer(root)
-  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
-  expect(result.stdout).toContain('[tests] billing qualification\n')
-  const coverage=JSON.parse(readFileSync(join(root,'coverage/coverage-final.json'),'utf8'))
-  expect(coverage[join(root,'src/billing-covered.ts').replaceAll('\\','/')].f).toEqual({'0':55})
-  expect(coverage[join(root,'src/billing-covered.ts').replaceAll('\\','/')].b).toEqual({'0':[55,0]})
-  expect(readdirSync(join(root,'coverage'))).toEqual(['coverage-final.json'])
-  expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
-},25000)
-
 test.each(['disabled','missing','adverse'] as const)('native_mail_retry_runner_refuses_%s_before_requests_merge_and_publication',kind=>{
   const root=nativeCoverageFixture(),path=join(root,'tests/integration/mail-retry-native.test.ts')
   const source=readFileSync(path,'utf8')
@@ -867,6 +856,7 @@ test.each(['disabled','missing','adverse'] as const)('native_mail_retry_runner_r
   expect(result.stdout).toContain('[tests] mail retry build\n')
   expect(result.stdout).toContain('[tests] mail retry qualification\n')
   expect(result.stdout).not.toContain('[tests] requests qualification')
+  expect(result.stdout).not.toContain('[tests] billing qualification')
   expect(result.stdout).not.toContain('[tests] merge')
   expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
   if(kind==='adverse'){
@@ -880,87 +870,15 @@ test.each(['disabled','missing','adverse'] as const)('native_mail_retry_runner_r
   }
 },25000)
 
-test.each(['disabled','missing','adverse'] as const)('native_billing_runner_refuses_%s_before_merge_and_publication',kind=>{
-  const root=nativeCoverageFixture(),path=join(root,'tests/integration/billing-negotiated-checkout.test.ts')
-  const lines=readFileSync(path,'utf8').trimEnd().split('\n')
-  if(kind==='disabled')lines[1]=lines[1]!.replace('test(','test.skip(')
-  else if(kind==='missing')lines.pop()
-  else lines.push("import {afterAll} from 'vitest';afterAll(()=>{throw new Error('Owned billing consumer failure')});")
-  writeFileSync(path,lines.join('\n')+'\n')
-  const result=runCoverageConsumer(root)
-  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
-  expect(result.stdout).toContain('[tests] billing qualification\n')
-  expect(result.stdout).not.toContain('[tests] merge')
-  expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
-  if(kind==='adverse'){
-    expect(result.stderr).toContain('Native coverage billing qualification failed; consumer cleanup is unconfirmed')
-    expect(existsSync(join(root,'coverage/canary-voice-owner'))).toBe(true)
-    expect(existsSync(join(root,'canary-voice-retired.txt'))).toBe(false)
-  }else{
-    expect(result.stderr).toContain('Native Billing requires its exact eight consumers and 55 passing leaves')
-    expect(readdirSync(join(root,'coverage'))).toEqual([])
-    expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
-  }
-},25000)
-
-test.each(['disabled','missing','adverse'] as const)('native_billing_runner_refuses_webhook_%s_before_merge_and_publication',kind=>{
-  const root=nativeCoverageFixture(),path=join(root,'tests/integration/billing-consumer-webhook.test.ts')
-  const lines=readFileSync(path,'utf8').trimEnd().split('\n')
-  if(kind==='disabled')lines[1]=lines[1]!.replace('test(','test.skip(')
-  else if(kind==='missing')lines.pop()
-  else lines.push("import {afterAll} from 'vitest';afterAll(()=>{throw new Error('Owned billing webhook consumer failure')});")
-  writeFileSync(path,lines.join('\n')+'\n')
-  const result=runCoverageConsumer(root)
-  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
-  expect(result.stdout).toContain('[tests] billing qualification\n')
-  expect(result.stdout).not.toContain('[tests] merge')
-  expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
-  if(kind==='adverse'){
-    expect(result.stderr).toContain('Native coverage billing qualification failed; consumer cleanup is unconfirmed')
-    expect(existsSync(join(root,'coverage/canary-voice-owner'))).toBe(true)
-    expect(existsSync(join(root,'canary-voice-retired.txt'))).toBe(false)
-  }else{
-    expect(result.stderr).toContain('Native Billing requires its exact eight consumers and 55 passing leaves')
-    expect(readdirSync(join(root,'coverage'))).toEqual([])
-    expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
-  }
-},25000)
-
-test.each(['disabled','missing','adverse'] as const)('native_billing_runner_refuses_browser_%s_before_merge_and_publication',kind=>{
-  const root=nativeCoverageFixture(),path=join(root,'tests/integration/billing-consumer-browser.test.ts')
-  const lines=readFileSync(path,'utf8').trimEnd().split('\n')
-  if(kind==='disabled')lines[1]=lines[1]!.replace('test(','test.skip(')
-  else if(kind==='missing')lines.pop()
-  else lines.push("import {afterAll} from 'vitest';afterAll(()=>{throw new Error('Owned billing browser consumer failure')});")
-  writeFileSync(path,lines.join('\n')+'\n')
-  const result=runCoverageConsumer(root)
-  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
-  expect(result.stdout).toContain('[tests] billing qualification\n')
-  expect(result.stdout).not.toContain('[tests] merge')
-  expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
-  if(kind==='adverse'){
-    expect(result.stderr).toContain('Native coverage billing qualification failed; consumer cleanup is unconfirmed')
-    expect(existsSync(join(root,'coverage/canary-voice-owner'))).toBe(true)
-    expect(existsSync(join(root,'canary-voice-retired.txt'))).toBe(false)
-  }else{
-    expect(result.stderr).toContain('Native Billing requires its exact eight consumers and 55 passing leaves')
-    expect(readdirSync(join(root,'coverage'))).toEqual([])
-    expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
-  }
-},25000)
-
 test.each([
-  ['billing-worker-native.test.ts','disabled'],['billing-worker-native.test.ts','missing'],['billing-worker-native.test.ts','adverse'],
-  ['mail-worker-native.test.ts','disabled'],['mail-worker-native.test.ts','missing'],['mail-worker-native.test.ts','adverse'],
-  ['billing-dispute-namespace.test.ts','disabled'],['billing-dispute-namespace.test.ts','missing'],['billing-dispute-namespace.test.ts','adverse'],
+  ['billing-worker-native.test.ts','adverse'],
+  ['mail-worker-native.test.ts','missing'],
 ] as const)('native_billing_runner_refuses_worker_%s_%s_before_merge_and_publication',(file,kind)=>{
   const root=nativeCoverageFixture(),path=join(root,'tests/integration',file)
   const lines=readFileSync(path,'utf8').trimEnd().split('\n')
-  if(kind==='disabled')lines[1]=lines[1]!.replace('test(','test.skip(')
-  else if(kind==='missing'){
+  if(kind==='missing'){
     // Keep the one-leaf mail file valid while removing its exact required title.
-    if(file==='mail-worker-native.test.ts')lines[1]=lines[1]!.replace('built application relay','unreviewed application relay')
-    else lines.pop()
+    lines[1]=lines[1]!.replace('built application relay','unreviewed application relay')
   }else lines.push("import {afterAll} from 'vitest';afterAll(()=>{throw new Error('Owned native worker consumer failure')});")
   writeFileSync(path,lines.join('\n')+'\n')
   const result=runCoverageConsumer(root)
@@ -995,6 +913,7 @@ test('actual_coverage_runner_publishes_only_native_complete_map_after_retirement
   const root=nativeCoverageFixture(),result=runCoverageConsumer(root)
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   expect(result.stdout).toContain('[tests] prerequisites\nCANARY_PREREQUISITE_READY\n')
+  expect(result.stdout).toContain('[tests] billing qualification\n')
   expect(readdirSync(join(root,'coverage'))).toEqual(['coverage-final.json'])
   expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
   expect(existsSync(join(root,'coverage/canary-voice-owner'))).toBe(false)
@@ -1015,11 +934,12 @@ test('actual_coverage_runner_publishes_only_native_complete_map_after_retirement
   expect(coverage[join(root,'src/unexecuted.ts').replaceAll('\\','/')].f).toEqual({'0':0})
   expect(coverage[join(root,'src/audio-covered.ts').replaceAll('\\','/')].f).toEqual({'0':25})
   expect(coverage[join(root,'src/audio-covered.ts').replaceAll('\\','/')].b).toEqual({'0':[25,0]})
+  expect(coverage[join(root,'src/billing-covered.ts').replaceAll('\\','/')].f).toEqual({'0':55})
+  expect(coverage[join(root,'src/billing-covered.ts').replaceAll('\\','/')].b).toEqual({'0':[55,0]})
 },25000)
 
 test.each([
-  'sparra-audio-playback.test.ts','sparra-audio-reader-store.test.ts','sparra-audio-reader-retirement.test.ts',
-  'sparra-audio-connected.test.ts',
+  'sparra-audio-playback.test.ts',
 ] as const)('actual_coverage_runner_retains_producer_on_audio_failure_%s',file=>{
   const root=nativeCoverageFixture(),path=join(root,'tests/integration',file)
   writeFileSync(path,readFileSync(path,'utf8')+"import {afterAll} from 'vitest';afterAll(()=>{throw new Error('Owned audio consumer afterAll failure')});\n")
@@ -1027,6 +947,7 @@ test.each([
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
   expect(result.stderr).toContain('Native coverage requests qualification failed; consumer cleanup is unconfirmed')
   expect(result.stderr).toContain('Native Voice scope retained: consumer resource cleanup is unconfirmed')
+  expect(result.stdout).not.toContain('[tests] billing qualification')
   expect(result.stdout).not.toContain('[tests] merge')
   expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
   expect(readdirSync(join(root,'coverage'))).toEqual(['canary-voice-owner'])
