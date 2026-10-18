@@ -4,9 +4,10 @@ import { Pool } from 'pg'
 import { sql } from 'drizzle-orm'
 import { startDisposableStores } from '../fixtures/db/disposable-stores'
 import { createTransactions } from '../../src/platform/db/transactions.server'
-import { billingOperation } from '../../src/modules/billing/schema.server'
+import { billingCustomer, billingOperation } from '../../src/modules/billing/schema.server'
 import { readAgreedMonthlyTerms } from '../../src/modules/billing/agreed-terms.server'
-import { startCheckout, type BillingClient } from '../../src/modules/billing/checkout.server'
+import { readBillingState, startCheckout, type BillingClient } from '../../src/modules/billing/checkout.server'
+import { buildCheckoutParameters } from '../../src/modules/billing/stripe.server'
 import { cancelAtPeriodEnd } from '../../src/modules/billing/cancellation.server'
 import { config, monthlyPrice } from '../helpers/billing-fixtures'
 
@@ -113,4 +114,69 @@ test('known subscription cancellation after terms B still targets subscription A
   } }
   expect(await cancelAtPeriodEnd(owner, f.principal, config, provider, f.workspaceId)).toEqual({ state: 'confirmed' })
   expect(targets).toEqual([subscriptionId])
+})
+
+test('first native Checkout creates Customer and retains admitted A after B is inserted during the provider send', async () => {
+  const f = await fixture(false), a = await agree(f, 1), effects: string[] = []
+  const sessionId = 'cs_test_' + randomUUID().replaceAll('-', '')
+  const navigation = { id: sessionId, url: 'https://checkout.stripe.com/c/pay/' + sessionId, expiresAt: Math.floor(Date.now() / 1000) + 3600 }
+  const sends: (typeof billingOperation.$inferSelect)[] = []
+  const operations = () => owner.withBillingWorkspacePromise(options(), f.principal, f.workspaceId, async lease => {
+    if (!lease) throw new Error('Native financial lease missing')
+    return lease.db.select().from(billingOperation)
+  })
+  // SAFETY: only the provider effects are controlled; Customer/Checkout claims,
+  // persisted snapshots and the agreement insertion lock are real owned SQL.
+  const provider = {
+    async retrievePrice(id) {
+      owner.assertNoActiveAuthTransaction()
+      effects.push('GET ' + id)
+      return monthlyPrice({ id })
+    },
+    async createCustomer(intent) {
+      owner.assertNoActiveAuthTransaction()
+      effects.push('POST Customer')
+      const customerOperation = (await operations())?.find(operation => operation.kind === 'CUSTOMER_CREATE')
+      expect(customerOperation).toMatchObject({ workspaceId: f.workspaceId, phase: 'DISPATCHING',
+        idempotencyKey: intent.idempotencyKey,
+        requestHash: createHash('sha256').update(JSON.stringify({ metadata: { workspace_id: f.workspaceId } })).digest('hex') })
+      expect(intent.workspaceId).toBe(f.workspaceId)
+      return { id: f.customerId }
+    },
+    async createCheckout(intent) {
+      owner.assertNoActiveAuthTransaction()
+      effects.push('POST Checkout')
+      const sent = (await operations())?.find(operation => operation.kind === 'CHECKOUT_CREATE')
+      if (!sent) throw new Error('Claimed native Checkout missing')
+      sends.push(sent)
+      expect(sent).toMatchObject({ workspaceId: f.workspaceId, phase: 'DISPATCHING', customerId: f.customerId,
+        agreedTermsId: a.id, monthlyPriceId: a.price, currency: 'eur', monthlyUnitAmount: a.amount,
+        idempotencyKey: intent.idempotencyKey,
+        requestHash: createHash('sha256').update(JSON.stringify(buildCheckoutParameters(config, intent))).digest('hex') })
+      expect(intent).toMatchObject({ workspaceId: f.workspaceId, customerId: f.customerId, operationReference: sent.id,
+        terms: { id: a.id, monthlyPriceId: a.price, currency: 'eur', monthlyUnitAmount: a.amount } })
+      await stores.administrator.query('BEGIN')
+      try {
+        await stores.administrator.query("SET LOCAL lock_timeout='1000ms'")
+        await agree(f, 2, 2900, 'price_agreedB')
+        await stores.administrator.query('COMMIT')
+      } catch (error) { await stores.administrator.query('ROLLBACK'); throw error }
+      return navigation
+    },
+  } satisfies BillingClient
+  expect(await startCheckout(owner, f.principal, config, provider, f.workspaceId)).toEqual({ url: navigation.url })
+  expect(effects).toEqual(['GET price_agreedA', 'POST Customer', 'POST Checkout'])
+  const rows = await operations(), completed = rows?.find(operation => operation.kind === 'CHECKOUT_CREATE'), sent = sends[0]
+  if (!sent || !completed) throw new Error('Native Checkout completion missing')
+  expect(sends).toHaveLength(1)
+  expect(rows).toHaveLength(2)
+  expect(rows?.find(operation => operation.kind === 'CUSTOMER_CREATE')).toMatchObject({ phase: 'SUCCEEDED', stripeObjectId: f.customerId })
+  expect(completed).toEqual({ ...sent, phase: 'SUCCEEDED', stripeObjectId: navigation.id,
+    checkoutUrl: navigation.url, checkoutExpiresAt: navigation.expiresAt, updatedAt: completed.updatedAt })
+  expect(await owner.withBillingWorkspacePromise(options(), f.principal, f.workspaceId, async lease => lease!.db.select().from(billingCustomer)))
+    .toMatchObject([{ stripeCustomerId: f.customerId, knownSubscriptionId: null }])
+  expect(await readBillingState(owner, f.principal, config, f.workspaceId)).toMatchObject({ state: 'checkout-ready', paidThrough: null })
+  expect(await startCheckout(owner, f.principal, config, provider, f.workspaceId)).toEqual({ url: navigation.url })
+  expect(effects).toEqual(['GET price_agreedA', 'POST Customer', 'POST Checkout'])
+  expect((await operations())?.find(operation => operation.kind === 'CHECKOUT_CREATE')).toEqual(completed)
 })

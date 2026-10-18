@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { closeSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { admitCommonGeometry, assertDirectory, assertRunTree, assertRecordingReceiptQualification, assertRequestsQualification, readNativeBlob, sourceIdentity } from './native-coverage-inputs.mjs'
+import { admitCommonGeometry, assertBillingQualification, assertDirectory, assertRunTree, assertRecordingReceiptQualification, assertRequestsQualification, readNativeBlob, sourceIdentity } from './native-coverage-inputs.mjs'
 import { prepareVoiceSource } from './prepare-voice-source.mjs'
 import { runNativePhase } from './native-test-phase.mjs'
 
@@ -57,13 +57,16 @@ function admitBlob(name) {
 
 function admitBlobs() {
   assertFrozenIdentity()
-  if (readdirSync(join(runDirectory, 'blobs')).sort().join('|') !== 'activity.json|ordinary.json|requests.json') {
-    throw new Error('Native coverage requires exactly three current blobs')
+  if (readdirSync(join(runDirectory, 'blobs')).sort().join('|') !== 'activity.json|billing.json|ordinary.json|requests.json') {
+    throw new Error('Native coverage requires exactly four current blobs')
   }
-  const ordinary=admitBlob('ordinary'),activity=admitBlob('activity'),requests=admitBlob('requests')
+  const ordinary=admitBlob('ordinary'),activity=admitBlob('activity'),requests=admitBlob('requests'),billing=admitBlob('billing')
   admitCommonGeometry(ordinary,activity)
   admitCommonGeometry(ordinary,requests)
+  admitCommonGeometry(ordinary,billing)
   admitCommonGeometry(activity,requests)
+  admitCommonGeometry(activity,billing)
+  admitCommonGeometry(requests,billing)
 }
 
 function retireRun() {
@@ -88,7 +91,7 @@ try {
     || metadata.devDependencies['@vitest/coverage-istanbul'] !== providerVersion || version !== providerVersion) throw new Error('Native coverage runtime pins mismatch')
   if (!lstatSync(join(root, '.output/server/index.mjs')).isFile()) throw new Error('Native coverage requires the frozen web build')
   mkdirSync(runDirectory, { mode: 0o700 }); runOwner = assertDirectory(runDirectory)
-  for (const directory of ['blobs', 'ordinary', 'activity', 'requests', 'final', 'playback-screenshots']) mkdirSync(join(runDirectory, directory), { mode: 0o700 })
+  for (const directory of ['blobs', 'ordinary', 'activity', 'requests', 'billing', 'final', 'playback-screenshots']) mkdirSync(join(runDirectory, directory), { mode: 0o700 })
   frozenIdentity = sourceIdentity(root)
   await runPhase('prerequisites', [join(root, 'scripts/test-prerequisites.mjs')], 300000)
   voice = await prepareVoiceSource({ appRoot: root })
@@ -117,6 +120,14 @@ try {
     '--outputFile.blob='+join(blobs,'requests.json'),'--coverage.reportsDirectory='+join(runDirectory,'requests')], 600000)
   assertRequestsQualification(requestsReport,root,startedAt)
   admitBlob('requests')
+  const billingReport = join(runDirectory, 'billing-qualification.json')
+  await runPhase('billing qualification', [vitestCli, 'run', '--config', 'vitest.integration.config.ts',
+    'tests/integration/billing-consumer-migration.test.ts','tests/integration/billing-consumer-authority.test.ts',
+    'tests/integration/billing-negotiated-checkout.test.ts',
+    '--maxWorkers=1', '--coverage', '--reporter=default', '--reporter=json', '--reporter=blob', '--outputFile.json=' + billingReport,
+    '--outputFile.blob='+join(blobs,'billing.json'),'--coverage.reportsDirectory='+join(runDirectory,'billing')], 600000)
+  assertBillingQualification(billingReport,root,startedAt)
+  admitBlob('billing')
   admitBlobs()
   await runPhase('merge', [vitestCli, '--config', 'vitest.config.ts', '--coverage', '--mergeReports=' + blobs, '--reporter=default',
     '--coverage.reportsDirectory=' + join(runDirectory, 'final')], 120000)
