@@ -8,7 +8,8 @@ const helper = await import('../helpers/mail-process.mjs')
 test('cleanup observer preserves init and dispose receivers arguments return values and original rejected promise', async () => {
   expect(typeof helper.installMailCleanupObserver).toBe('function')
   const failure = new AggregateError([Object.assign(new Error('private-native-sentinel'), {
-    path: '/Dispatcher/Unsubscribe', code: 14, config: { Authorization: 'private-native-sentinel' },
+    path: '/Dispatcher/Unsubscribe', code: 14, details: 'No connection established. Last error: private-native-sentinel',
+    config: { Authorization: 'private-native-sentinel' },
   })], 'Owned worker cleanup failed')
   let reject!: (error: unknown) => void
   const originalPromise = new Promise<void>((_, failed) => { reject = failed })
@@ -28,7 +29,7 @@ test('cleanup observer preserves init and dispose receivers arguments return val
   await expect(originalPromise).rejects.toBe(failure)
   await Promise.resolve()
   expect(observations).toEqual([{ type: 'fixture-mail-cleanup', outcome: 'REJECTED',
-    codes: ['GRPC_UNAVAILABLE', 'RPC_UNSUBSCRIBE', 'SDK_CLEANUP_FAILED'] }])
+    codes: ['GRPC_UNAVAILABLE', 'RPC_UNSUBSCRIBE', 'SDK_CLEANUP_FAILED', 'UNAVAILABLE_NO_CONNECTION_PATTERN'] }])
   expect(JSON.stringify(observations).includes('private-native-sentinel')).toBe(false)
 })
 
@@ -97,6 +98,34 @@ test('cleanup classification recognizes only the published gRPC status and metho
   expect(helper.classifyMailCleanup(Object.assign(new Error('private-rpc-sentinel'), {
     path: '/private/Unsubscribe', code: 99,
   }))).toEqual(['UNKNOWN'])
+})
+
+test('cleanup unavailable signature requires the same own data fields and never publishes details or infers an origin', () => {
+  const details = 'No connection established. Last error: private-details-sentinel. Resolution note: private-resolution-sentinel'
+  const fields = { path: '/Dispatcher/Unsubscribe', code: 14, details }
+  const pattern = 'UNAVAILABLE_NO_CONNECTION_PATTERN'
+  expect(helper.MAIL_CLEANUP_CODES).toContain(pattern)
+  const codes = helper.classifyMailCleanup(Object.assign(new Error('private-message-sentinel'), fields))
+  expect(codes).toEqual(['GRPC_UNAVAILABLE', 'RPC_UNSUBSCRIBE', pattern])
+  expect(JSON.stringify(codes).includes('private-')).toBe(false)
+  for (const changed of [
+    { code: 13 }, { path: '/Dispatcher/ListenV2' }, { details: undefined },
+    { details: { private: details } }, { details: 'No connection established.Last error: private-details-sentinel' },
+    { details: 'Unavailable from peer: private-details-sentinel' },
+  ]) expect(helper.classifyMailCleanup(Object.assign(new Error('private-message-sentinel'), fields, changed))).not.toContain(pattern)
+  let getterReads = 0
+  for (const name of ['code', 'path', 'details']) {
+    const error = Object.assign(new Error('private-message-sentinel'), fields)
+    Object.defineProperty(error, name, { get() { getterReads++; throw new Error('private-getter-sentinel') } })
+    expect(helper.classifyMailCleanup(error)).not.toContain(pattern)
+  }
+  expect(getterReads).toBe(0)
+  const inherited = Object.create(fields)
+  expect(helper.classifyMailCleanup(inherited)).not.toContain(pattern)
+  const split = new AggregateError([
+    { path: fields.path, code: fields.code }, { details: fields.details },
+  ], 'Owned worker cleanup failed')
+  expect(helper.classifyMailCleanup(split)).not.toContain(pattern)
 })
 
 test('opt-in preload can report asynchronous cleanup over IPC after shutdown without holding the child alive', async () => {

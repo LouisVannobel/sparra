@@ -21,7 +21,7 @@ const rpcCodes = new Map([
   ['/Dispatcher/Listen', 'RPC_LISTEN'], ['/Dispatcher/ListenV2', 'RPC_LISTEN_V2'], ['/Dispatcher/Heartbeat', 'RPC_HEARTBEAT'],
 ])
 export const MAIL_CLEANUP_CODES = Object.freeze([...sdkCodes.values(), ...grpcCodes, ...nodeCodes.map(code => `NODE_${code}`),
-  ...rpcCodes.values(), 'UNKNOWN', 'TRUNCATED', 'OBSERVER_UNAVAILABLE'])
+  ...rpcCodes.values(), 'UNAVAILABLE_NO_CONNECTION_PATTERN', 'UNKNOWN', 'TRUNCATED', 'OBSERVER_UNAVAILABLE'])
 
 // Inspect only own data properties. Error serializers, getters, details,
 // messages outside the exact SDK allowlist and transport/config data stay private.
@@ -40,6 +40,10 @@ export function classifyMailCleanup(error) {
       if (rpc) { codes.add(rpc); recognized = true }
       if (Number.isInteger(code) && code >= 0 && code < grpcCodes.length) { codes.add(grpcCodes[code]); recognized = true }
       if (nodeCodes.includes(code)) { codes.add(`NODE_${code}`); recognized = true }
+      if (code === 14 && rpc === 'RPC_UNSUBSCRIBE') {
+        const details = own(value, 'details')
+        if (typeof details === 'string' && details.startsWith('No connection established. Last error: ')) codes.add('UNAVAILABLE_NO_CONNECTION_PATTERN')
+      }
       if (!recognized) codes.add('UNKNOWN')
       const append = child => {
         if (child && typeof child === 'object' && seen.has(child)) return
