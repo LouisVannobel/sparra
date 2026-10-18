@@ -236,6 +236,8 @@ test('compiled protected refresh ignores a late departed read and clears private
     try {
       await f.activate('Refresh')
       await f.page.waitForFunction(() => window.__sparraBillingDeferred?.state().paused === true)
+      expect(await f.page.getByRole('button', { name: 'Refresh', exact: true }).isDisabled()).toBe(true)
+      expect(await f.page.locator('.sparra-billing').getAttribute('aria-busy')).toBe('true')
       await f.page.evaluate(() => { history.pushState(null, '', '/account?lang=en'); dispatchEvent(new PopStateEvent('popstate')) })
       await f.page.getByRole('button', { name: 'Sign out', exact: true }).waitFor()
       await f.page.evaluate(() => window.__sparraBillingDeferred?.release())
@@ -271,6 +273,19 @@ test('compiled protected refresh ignores a late departed read and clears private
       expect(await f.page.getByText(workspace.displayName, { exact: true }).count()).toBe(0)
       expect(await f.page.getByRole('button', { name: 'Cancel at period end', exact: true }).count()).toBe(0)
       expect(await f.page.locator('.sparra-billing time').count()).toBe(0)
+      await f.page.evaluate(() => window.__sparraBillingDeferred?.release())
+      await f.page.getByText(workspace.displayName, { exact: true }).waitFor()
+    } finally { await restoreWorkspaceRead() }
+    // Exercise the installed handlers in the retained document. These
+    // dispatched events do not claim that Chromium admitted a real BFCache entry.
+    await holdWorkspaceRead()
+    try {
+      await f.page.evaluate(() => dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })))
+      await expect.poll(() => f.page.getByText(workspace.displayName, { exact: true }).count()).toBe(0)
+      expect(await f.page.locator('.sparra-billing time').count()).toBe(0)
+      await f.page.evaluate(() => dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })))
+      await f.page.waitForFunction(() => window.__sparraBillingDeferred?.state().paused === true)
+      expect(await f.page.getByText(workspace.displayName, { exact: true }).count()).toBe(0)
       await f.page.evaluate(() => window.__sparraBillingDeferred?.release())
       await f.page.getByText(workspace.displayName, { exact: true }).waitFor()
     } finally { await restoreWorkspaceRead() }
