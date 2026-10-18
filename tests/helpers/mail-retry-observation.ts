@@ -157,25 +157,73 @@ function retryIdentityRefusal(input: unknown, expected: Parameters<typeof safeRe
     return 'identity-shape'
   } catch { return 'identity-shape' }
 }
+function ownedEmptyRetryProjection(input: unknown, expected: { runId: string; tenantId: string }) {
+  try {
+    const { run, tasks } = Schema.decodeUnknownSync(Schema.Struct({ run: retryRun, tasks: Schema.Unknown }))(input)
+    if (run.metadata.id !== expected.runId || run.tenantId !== expected.tenantId) return false
+    return Array.isArray(tasks) && tasks.length === 0
+  } catch { return false }
+}
+function pauseRetryProjection(signal: AbortSignal, milliseconds: number) {
+  return new Promise<void>((resolve, reject) => {
+    const aborted = () => {
+      clearTimeout(timer); signal.removeEventListener('abort', aborted); reject(retryFixtureError())
+    }
+    const timer = setTimeout(() => { signal.removeEventListener('abort', aborted); resolve() }, milliseconds)
+    signal.addEventListener('abort', aborted, { once: true })
+    if (signal.aborted) aborted()
+  })
+}
 export async function readRetryHistory(client: Pick<HatchetClient, 'api' | 'tenantId'>,
-  value: { runId?: string; taskId?: string } | undefined,
+  value: { runId?: string; taskId?: string; deadlineAtMs?: number } | undefined,
   observed: <A>(call: (signal: AbortSignal, timeout: number) => Promise<A>) => Promise<A>,
   setPhase: (phase: typeof retryChildPhase.Type) => void) {
   if (!value?.runId) throw retryFixtureError()
+  if (!value.taskId) { setPhase('identity-decoding'); throw retryFixtureError() }
+  if (value.deadlineAtMs === undefined) throw retryFixtureError()
+  const expected = { runId: value.runId, taskId: value.taskId, tenantId: client.tenantId }
+  const budget = retryBudget(value.deadlineAtMs)
+  budget.remaining(10000)
   setPhase('run-details-request')
-  const state = await observed((signal, timeout) => client.api.v1WorkflowRunGet(value.runId!, { signal, timeout, maxContentLength: 65536 }))
-  setPhase('identity-decoding')
-  if (!value.taskId) throw retryFixtureError()
-  const observedTaskId = value.taskId
+  const decoded = await observed(async (signal, timeout) => {
+    if (!Number.isInteger(timeout) || timeout <= 0 || timeout > 10000) throw retryFixtureError()
+    for (;;) {
+      if (signal.aborted) throw retryFixtureError()
+      const state = await client.api.v1WorkflowRunGet(expected.runId, { signal, timeout: budget.remaining(timeout), maxContentLength: 65536 })
+      if (signal.aborted) throw retryFixtureError()
+      budget.remaining(10000)
+      if (!ownedEmptyRetryProjection(state.data, expected)) {
+        setPhase('identity-decoding')
+        let identity: ReturnType<typeof safeRetryRunIdentity>
+        try { identity = safeRetryRunIdentity(state.data, expected) }
+        catch { setPhase(retryIdentityRefusal(state.data, expected)); throw retryFixtureError() }
+        if (signal.aborted) throw retryFixtureError()
+        budget.remaining(10000)
+        return identity
+      }
+      setPhase('identity-tasks-empty')
+      await pauseRetryProjection(signal, budget.remaining(50))
+      if (signal.aborted) throw retryFixtureError()
+      budget.remaining(10000)
+      setPhase('run-details-request')
+    }
+  })
+  budget.remaining(10000)
   setPhase('task-events-request')
-  const events = await observed((signal, timeout) => client.api.v1TaskEventList(observedTaskId, { limit: 100 }, { signal, timeout, maxContentLength: 65536 }))
-  setPhase('identity-decoding')
-  const expected = { runId: value.runId, taskId: observedTaskId, tenantId: client.tenantId }
-  let decoded: ReturnType<typeof safeRetryRunIdentity>
-  try { decoded = safeRetryRunIdentity(state.data, expected) }
-  catch { setPhase(retryIdentityRefusal(state.data, expected)); throw retryFixtureError() }
-  setPhase('history-sanitization')
-  return { status: decoded.status, events: safeRetryHistory(events.data) }
+  const events = await observed(async (signal, timeout) => {
+    if (!Number.isInteger(timeout) || timeout <= 0 || timeout > 10000) throw retryFixtureError()
+    if (signal.aborted) throw retryFixtureError()
+    const response = await client.api.v1TaskEventList(expected.taskId, { limit: 100 }, { signal, timeout: budget.remaining(timeout), maxContentLength: 65536 })
+    if (signal.aborted) throw retryFixtureError()
+    budget.remaining(10000)
+    setPhase('history-sanitization')
+    const result = safeRetryHistory(response.data)
+    if (signal.aborted) throw retryFixtureError()
+    budget.remaining(10000)
+    return result
+  })
+  budget.remaining(10000)
+  return { status: decoded.status, events }
 }
 const historyRow = Schema.Struct({ id: Schema.Int, taskId: uuid, timestamp, eventType: Schema.Literals(Object.values(V1TaskEventType)),
   retryCount: Schema.optional(Schema.Int), attempt: Schema.optional(Schema.Int), errorMessage: Schema.optional(Schema.String.check(Schema.isMaxLength(8192))) })

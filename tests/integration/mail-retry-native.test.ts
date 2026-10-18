@@ -135,12 +135,18 @@ test('I3 one owned native retry fixture: retained A/B, transient C, expired E, e
     }
   }
   function ask(op: typeof retryCommandOperation.Type, fields: NativeRetryCommandFields = {}) {
+    const startedAtMs = Date.now()
     checkLive()
-    const timeout = budget!.remaining(10000), id = ++nextCommand
+    const deadlineAtMs = op === 'history' ? Math.min(budget!.deadlineAtMs, startedAtMs + 10000) : undefined
+    const timeout = deadlineAtMs === undefined ? budget!.remaining(10000) : retryBudget(deadlineAtMs).remaining(10000), id = ++nextCommand
     return new Promise<unknown>((settle, reject) => {
       const timer = setTimeout(() => { replies.delete(id); reject(retryFixtureError()) }, timeout)
-      replies.set(id, { settle(value) { clearTimeout(timer); replies.delete(id); settle(value) }, reject() { clearTimeout(timer); replies.delete(id); reject(retryFixtureError()) } })
-      child!.send({ id, op, ...fields }, error => { if (error) replies.get(id)?.reject() })
+      replies.set(id, { settle(value) {
+        clearTimeout(timer); replies.delete(id)
+        if (deadlineAtMs !== undefined && Date.now() >= deadlineAtMs) reject(retryFixtureError())
+        else settle(value)
+      }, reject() { clearTimeout(timer); replies.delete(id); reject(retryFixtureError()) } })
+      child!.send({ id, op, ...fields, ...(deadlineAtMs === undefined ? {} : { deadlineAtMs }) }, error => { if (error) replies.get(id)?.reject() })
     })
   }
   async function query(client: Client, text: string, values: unknown[] = []) {

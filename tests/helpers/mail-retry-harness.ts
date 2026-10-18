@@ -61,13 +61,21 @@ async function main() {
     if (!value || !message.runId || value.runId || value.observedRunId && value.observedRunId !== message.runId) throw retryFixtureError()
     value.runId = message.runId
   }
-  async function observed<A>(call: (signal: AbortSignal, timeout: number) => Promise<A>) {
+  async function observed<A>(call: (signal: AbortSignal, timeout: number) => Promise<A>, deadlineAtMs?: number) {
     if (closing) throw retryFixtureError()
-    const timeout = budget ? budget.remaining(10000) : 10000
+    const commandBudget = deadlineAtMs === undefined ? undefined : retryBudget(Math.min(deadlineAtMs, budget?.deadlineAtMs ?? deadlineAtMs))
+    const timeout = commandBudget ? commandBudget.remaining(10000) : budget ? budget.remaining(10000) : 10000
     const controller = new AbortController()
     requests.add(controller)
     const timer = setTimeout(() => controller.abort(), timeout)
-    try { return await call(controller.signal, timeout) }
+    try {
+      const result = await call(controller.signal, timeout)
+      if (commandBudget) {
+        if (closing || controller.signal.aborted) throw retryFixtureError()
+        commandBudget.remaining(10000)
+      }
+      return result
+    }
     finally { clearTimeout(timer); requests.delete(controller) }
   }
   function shutdown() {
@@ -191,7 +199,14 @@ async function main() {
             case 'cancel-A':
               await cancelCaseA(message, value); break
             case 'history': {
-              result = await readRetryHistory(client, value, observed, current => { phase = current }); break
+              const historyDeadline = message.deadlineAtMs
+              if (historyDeadline === undefined) throw retryFixtureError()
+              result = await readRetryHistory(client, { ...value, deadlineAtMs: historyDeadline },
+                call => observed(call, historyDeadline), current => { phase = current })
+              if (closing) throw retryFixtureError()
+              retryBudget(historyDeadline).remaining(10000)
+              budget.remaining(10000)
+              break
             }
           }
           respond(true, result)
