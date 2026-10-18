@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs'
-import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 export function assertDirectory(path, owner) {
   const stat = lstatSync(path)
@@ -317,6 +317,75 @@ export function assertRecordingReceiptQualification(path,root,startedAt) {
   const stat = lstatSync(path)
   if (!stat.isFile() || stat.isSymbolicLink() || stat.mtimeMs < startedAt || stat.size === 0 || stat.size > 268435456) throw new Error('Native Recording receipt report is invalid')
   assertRecordingReceiptReport(JSON.parse(readFileSync(path,'utf8')),root)
+}
+
+const mailRetryLeafName = 'I3 one owned native retry fixture: retained A/B, transient C, expired E, exhausted D'
+
+export function assertMailRetryReport(report, root, startedAt) {
+  const counters = {numTotalTests:1,numPassedTests:1,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
+  if (report?.success !== true || !Object.entries(counters).every(([key, wanted]) => report[key] === wanted)
+    || !Number.isFinite(report.startTime) || report.startTime < startedAt
+    || !Array.isArray(report.testResults) || report.testResults.length !== 1
+    || !mailRetryFilePassed(report.testResults[0], root, startedAt)) throw new Error('Native mail retry requires its exact one passing parent')
+}
+
+function mailRetryFilePassed(file, root, startedAt) {
+  const leaf = file?.assertionResults?.[0]
+  return file?.name === join(root, 'tests/integration/mail-retry-native.test.ts').replaceAll('\\', '/')
+    && file.status === 'passed' && file.message === '' && Number.isFinite(file.startTime) && file.startTime >= startedAt
+    && Array.isArray(file.assertionResults) && file.assertionResults.length === 1
+    && leaf?.status === 'passed' && leaf.fullName === mailRetryLeafName
+    && Array.isArray(leaf.failureMessages) && leaf.failureMessages.length === 0
+}
+
+function readMailRetryRecord(path, startedAt) {
+  const stat = lstatSync(path)
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.mtimeMs < startedAt || stat.size === 0 || stat.size > 268435456) throw new Error('Native mail retry report or receipt is invalid')
+  return JSON.parse(readFileSync(path, 'utf8'))
+}
+
+function assertMailRetryHashes(receipt, root, buildDirectory) {
+  const paths = ['src/modules/auth/mail-worker.server.ts', 'src/modules/auth/mail-hatchet.server.ts', 'src/modules/auth/plunk.server.ts',
+    'tests/helpers/mail-retry-harness.ts', 'tests/helpers/mail-retry-observation.ts', 'tests/helpers/vite.mail-retry.config.ts',
+    'tests/integration/mail-retry-native.test.ts', '.output/worker/index.mjs',
+    ...['harness.mjs', 'hatchet-empty.yaml'].map(name => relative(root, join(buildDirectory, name)).replaceAll('\\', '/'))]
+  const hashes = receipt?.beforeLaunchSha256
+  if (!hashes || typeof hashes !== 'object' || Array.isArray(hashes) || Object.keys(hashes).sort().join('|') !== [...paths].sort().join('|')
+    || !paths.every(path => hashes[path] === createHash('sha256').update(readFileSync(join(root, path))).digest('hex'))) throw new Error('Native mail retry receipt source changed')
+}
+
+function assertMailRetryCleanupReceipt(receipt, cleanup, names) {
+  if (receipt?.passed !== true || receipt.failure !== undefined || cleanup?.forced !== false || cleanup.processCode !== 0 || cleanup.exactOutputEmpty !== true
+    || !cleanup.receipts || Object.keys(cleanup.receipts).sort().join('|') !== [...names].sort().join('|')
+    || !names.every(name => cleanup.receipts[name] === true)) throw new Error('Native mail retry retirement is unconfirmed')
+}
+
+function assertMailRetryNormalStop(receipt, stop) {
+  if (receipt.normalStop.processClosed !== true || !Number.isFinite(receipt.normalStop.elapsedMs) || receipt.normalStop.elapsedMs > 15000
+    || stop?.type !== 'stopped' || stop.nativeStartState !== 'resolved' || stop.nativeStopState !== 'resolved'
+    || stop.pendingHooks !== 0 || stop.commandsJoined !== true) throw new Error('Native mail retry retirement is unconfirmed')
+}
+
+function assertMailRetryRetirement(receipt) {
+  const names = ['rowLockReleased', 'childClosed', 'webPoolClosed', 'engineRemoved', 'storesRemoved', 'tlsClosedAndMaterialsRemoved']
+  const cleanup = receipt?.cleanup, stop = receipt?.normalStop?.receipt
+  assertMailRetryCleanupReceipt(receipt, cleanup, names)
+  assertMailRetryNormalStop(receipt, stop)
+}
+
+export function assertMailRetryQualification(path, root, startedAt, evidenceDirectory) {
+  const runDirectory = dirname(evidenceDirectory), buildDirectory = join(runDirectory, 'mail-retry-build')
+  if (dirname(runDirectory) !== join(root, 'coverage') || !/^\.native-[0-9a-f-]{36}$/.test(basename(runDirectory))
+    || basename(evidenceDirectory) !== 'mail-retry-evidence' || path !== join(runDirectory, 'mail-retry-qualification.json')) throw new Error('Native mail retry evidence is not owned')
+  for (const directory of [join(root, 'coverage'), runDirectory, evidenceDirectory, buildDirectory]) assertDirectory(directory)
+  assertRunTree(buildDirectory)
+  assertMailRetryReport(readMailRetryRecord(path, startedAt), root, startedAt)
+  const files = readdirSync(evidenceDirectory)
+  if (files.length !== 1 || !/^task-7-i3-native-[0-9a-f-]{36}\.json$/.test(files[0])) throw new Error('Native mail retry requires exactly one fresh receipt')
+  const receipt = readMailRetryRecord(join(evidenceDirectory, files[0]), startedAt)
+  if (files[0] !== 'task-7-i3-native-' + receipt?.evidenceId + '.json') throw new Error('Native mail retry receipt identity changed')
+  assertMailRetryHashes(receipt, root, buildDirectory)
+  assertMailRetryRetirement(receipt)
 }
 
 const billingConsumers=[

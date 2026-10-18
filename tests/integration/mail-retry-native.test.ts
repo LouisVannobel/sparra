@@ -2,8 +2,8 @@ import { test } from 'vitest'
 import { Schema } from 'effect'
 import { spawn } from 'node:child_process'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { readFile, writeFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { lstat, readFile, realpath, writeFile } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { Pool, type Client } from 'pg'
 import { V1TaskStatus, V1TaskEventType } from '@hatchet-dev/typescript-sdk/clients/rest/generated/data-contracts.js'
 import { startDisposableStores, startDisposableHatchet } from '../fixtures/db/disposable-stores'
@@ -49,8 +49,42 @@ function decode<A>(schema: Schema.Codec<A>, value: unknown): A {
 // Explicitly excluded from every non-native command. timeout:0 keeps the WHOLE
 // acquisition/cleanup lifecycle awaited; it does not extend observation/stop.
 test('I3 one owned native retry fixture: retained A/B, transient C, expired E, exhausted D', { timeout: 0 }, async () => {
+  const evidenceDirectory = process.env.SPARRA_MAIL_RETRY_EVIDENCE_DIR, buildDirectory = process.env.SPARRA_MAIL_RETRY_BUILD_DIR
+  if (!evidenceDirectory || !buildDirectory || !isAbsolute(evidenceDirectory) || !isAbsolute(buildDirectory)
+    || basename(evidenceDirectory) !== 'mail-retry-evidence' || basename(buildDirectory) !== 'mail-retry-build'
+    || dirname(evidenceDirectory) !== dirname(buildDirectory) || dirname(dirname(evidenceDirectory)) !== resolve('coverage')
+    || !/^\.native-[0-9a-f-]{36}$/.test(basename(dirname(evidenceDirectory)))) throw retryFixtureError()
+  for (const path of [resolve('coverage'), dirname(evidenceDirectory), evidenceDirectory, buildDirectory]) {
+    const stat = await lstat(path)
+    if (!stat.isDirectory() || stat.isSymbolicLink() || await realpath(path) !== path) throw retryFixtureError()
+  }
+  const evidenceOwner = await lstat(evidenceDirectory)
+  type NativeRetryCommandFields = {
+    label?: Hook['label']; outboxId?: Hook['outboxId']; runId?: Hook['runId']; hookId?: Hook['hookId']
+    deadlineAtMs?: ReturnType<typeof retryBudget>['deadlineAtMs']
+  }
+  type NativeRetryEvidence = {
+    evidenceId: ReturnType<typeof randomUUID>; nativeObservationLimitMs: 300000; normalStopObservationMs: 15000
+    beforeLaunchSha256?: Record<string, string>
+    tlsAcquiredMs?: number; storesAcquiredMs?: number; engineAcquiredMs?: number; setupElapsedMs?: number
+    ready?: Extract<Observation, { type: 'ready' }>
+    observationStartedAt?: string; observationFinishedAt?: string
+    eBeforeExpiry?: Awaited<ReturnType<typeof delivery>>; eAfterExpiry?: Awaited<ReturnType<typeof delivery>>
+    enginePolicy?: Pick<Extract<Observation, { type: 'ready' }>['policy'], 'retries' | 'factor' | 'cap' | 'execution' | 'schedule'>
+    dFinal?: Awaited<ReturnType<typeof delivery>>
+    failure?: 'MAIL_RETRY_FIXTURE_REJECTED'
+    normalStop?: { elapsedMs: number; processClosed: boolean; receipt: Extract<Observation, { type: 'stopped' }> | null }
+    finalPeer?: ReturnType<Awaited<ReturnType<typeof startMailHttpPeer>>['evidence']>
+    cleanup?: { receipts: typeof cleanupReceipts; elapsedMs: number; forced: boolean; processCode: number | null; exactOutputEmpty: boolean }
+    cases?: Partial<Record<RetryLabel, NonNullable<ReturnType<typeof cases.get>>>>
+    events?: typeof events; histories?: typeof histories; intervals?: typeof intervals; peer?: typeof peerReceipts
+    phases?: typeof phases; commandReceipts?: typeof commandReceipts
+    appStores?: Awaited<ReturnType<typeof startDisposableStores>>['evidence']
+    engine?: Awaited<ReturnType<typeof startDisposableHatchet>>['evidence']
+    passed?: boolean
+  }
   const evidenceId = randomUUID(), setupStarted = performance.now()
-  const evidence: Record<string, unknown> = { evidenceId, nativeObservationLimitMs: 300000, normalStopObservationMs: 15000 }
+  const evidence: NativeRetryEvidence = { evidenceId, nativeObservationLimitMs: 300000, normalStopObservationMs: 15000 }
   const cleanupReceipts: Record<string, boolean> = {}
   let peer: Awaited<ReturnType<typeof startMailHttpPeer>> | undefined
   let stores: Awaited<ReturnType<typeof startDisposableStores>> | undefined
@@ -74,7 +108,7 @@ test('I3 one owned native retry fixture: retained A/B, transient C, expired E, e
       await pause(budget ? budget.remaining(25) : 25)
     }
   }
-  function ask(op: string, fields: Record<string, unknown> = {}) {
+  function ask(op: typeof retryCommandOperation.Type, fields: NativeRetryCommandFields = {}) {
     checkLive()
     const timeout = budget!.remaining(10000), id = ++nextCommand
     return new Promise<unknown>((settle, reject) => {
@@ -135,7 +169,10 @@ test('I3 one owned native retry fixture: retained A/B, transient C, expired E, e
   try {
     const hashes: Record<string, string> = {}
     for (const path of ['src/modules/auth/mail-worker.server.ts', 'src/modules/auth/mail-hatchet.server.ts', 'src/modules/auth/plunk.server.ts',
-      'tests/helpers/mail-retry-harness.ts', 'tests/helpers/mail-retry-observation.ts', 'tests/integration/mail-retry-native.test.ts', '.output/worker/index.mjs', '.output/test-mail-retry/harness.mjs']) {
+      'tests/helpers/mail-retry-harness.ts', 'tests/helpers/mail-retry-observation.ts', 'tests/helpers/vite.mail-retry.config.ts',
+      'tests/integration/mail-retry-native.test.ts', '.output/worker/index.mjs',
+      relative(process.cwd(), join(buildDirectory, 'harness.mjs')).replaceAll('\\', '/'),
+      relative(process.cwd(), join(buildDirectory, 'hatchet-empty.yaml')).replaceAll('\\', '/')]) {
       hashes[path] = createHash('sha256').update(await readFile(resolve(path))).digest('hex')
     }
     evidence.beforeLaunchSha256 = hashes
@@ -149,7 +186,7 @@ test('I3 one owned native retry fixture: retained A/B, transient C, expired E, e
     pool = new Pool({ connectionString: stores.runtimeUrl }); pool.on('error', () => {})
     const key = randomBytes(32), codec = createAuthEmailEnvelope({ currentKeyId: 'native', keys: { native: key } })
     const apiOrigin = peer.origin.replace('127.0.0.1', 'localhost')
-    child = spawn(process.execPath, [resolve('.output/test-mail-retry/harness.mjs')], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc'], env: {
+    child = spawn(process.execPath, [join(buildDirectory, 'harness.mjs')], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc'], env: {
       PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, TEMP: process.env.TEMP, TMP: process.env.TMP,
       NODE_ENV: 'test', NODE_EXTRA_CA_CERTS: peer.certificate,
       AUTH_MAIL_RELAY_DATABASE_URL: stores.mailRelayUrl, AUTH_MAIL_WORKER_DATABASE_URL: stores.mailWorkerUrl,
@@ -306,7 +343,10 @@ test('I3 one owned native retry fixture: retained A/B, transient C, expired E, e
     evidence.cases = Object.fromEntries(cases); evidence.events = events; evidence.histories = histories; evidence.intervals = intervals; evidence.peer = peerReceipts
     evidence.phases = phases; evidence.commandReceipts = commandReceipts
     evidence.appStores = stores?.evidence; evidence.engine = engine?.evidence; evidence.passed = success
-    await writeFile(resolve(`.superpowers/sdd/2026-09-10-functional-auth/task-7-i3-native-${evidenceId}.json`), JSON.stringify(evidence, null, 2) + '\n', { flag: 'wx' })
+    const currentEvidenceOwner = await lstat(evidenceDirectory)
+    if (!currentEvidenceOwner.isDirectory() || currentEvidenceOwner.isSymbolicLink() || await realpath(evidenceDirectory) !== evidenceDirectory
+      || currentEvidenceOwner.dev !== evidenceOwner.dev || currentEvidenceOwner.ino !== evidenceOwner.ino) throw retryFixtureError()
+    await writeFile(join(evidenceDirectory, `task-7-i3-native-${evidenceId}.json`), JSON.stringify(evidence, null, 2) + '\n', { flag: 'wx', mode: 0o600 })
   }
   requireFact(success)
 })

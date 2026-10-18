@@ -1,8 +1,8 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { closeSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { admitCommonGeometry, assertBillingQualification, assertDirectory, assertRunTree, assertRecordingReceiptQualification, assertRequestsQualification, readNativeBlob, sourceIdentity } from './native-coverage-inputs.mjs'
+import { admitCommonGeometry, assertBillingQualification, assertDirectory, assertRunTree, assertRecordingReceiptQualification, assertRequestsQualification, assertMailRetryQualification, readNativeBlob, sourceIdentity } from './native-coverage-inputs.mjs'
 import { prepareVoiceSource } from './prepare-voice-source.mjs'
 import { runNativePhase } from './native-test-phase.mjs'
 
@@ -13,10 +13,13 @@ const publication = join(coverageDirectory, 'coverage-final.json')
 const runId = randomUUID()
 const runDirectory = join(coverageDirectory, '.native-' + runId)
 const playbackScreenshots = join(runDirectory, 'playback-screenshots')
+const mailRetryBuild = join(runDirectory, 'mail-retry-build')
+const mailRetryEvidence = join(runDirectory, 'mail-retry-evidence')
 const pending = join(coverageDirectory, '.coverage-final-' + runId + '.pending')
 const vitestCli = join(root, 'node_modules/vitest/vitest.mjs')
 let coverageOwner, runOwner, pendingOwner, frozenIdentity, version, voice
 let consumerCleanupUnknown=false
+let mailRetryBuildIdentity
 const blobDigests = new Map()
 
 function assertOwnedRun() {
@@ -30,6 +33,20 @@ function assertOwnedRun() {
 function assertFrozenIdentity() {
   assertOwnedRun()
   if (sourceIdentity(root) !== frozenIdentity) throw new Error('Native coverage source or build changed')
+  if (mailRetryBuildIdentity && retryBuildIdentity() !== mailRetryBuildIdentity) throw new Error('Native mail retry build changed')
+}
+
+function retryBuildIdentity() {
+  assertDirectory(mailRetryBuild)
+  if (readdirSync(mailRetryBuild).sort().join('|') !== 'harness.mjs|hatchet-empty.yaml') throw new Error('Native mail retry build requires its exact resources')
+  const digest = createHash('sha256')
+  for (const name of ['harness.mjs', 'hatchet-empty.yaml']) {
+    const path = join(mailRetryBuild, name), stat = lstatSync(path)
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.mtimeMs < startedAt || stat.size === 0 || stat.size > 268435456) throw new Error('Native mail retry build is stale or invalid')
+    digest.update(name).update('\0').update(readFileSync(path)).update('\0')
+  }
+  if (readFileSync(join(mailRetryBuild, 'hatchet-empty.yaml'), 'utf8') !== '{}\n') throw new Error('Native mail retry configuration changed')
+  return digest.digest('hex')
 }
 
 async function runPhase(name, args, timeout) {
@@ -37,6 +54,7 @@ async function runPhase(name, args, timeout) {
   await voice?.assertIdentity()
   process.stdout.write('[tests] ' + name + '\n')
   const env = { ...process.env, SPARRA_PLAYBACK_SCREENSHOT_DIR: playbackScreenshots,
+    SPARRA_MAIL_RETRY_BUILD_DIR: mailRetryBuild, SPARRA_MAIL_RETRY_EVIDENCE_DIR: mailRetryEvidence,
     ...(voice ? { SPARRA_VOICE_TEST_ROOT: voice.root, SPARRA_VOICE_FIXTURE_PYTHON: voice.fixturePython, SPARRA_VOICE_TEST_HOME: voice.testEnvironment.HOME } : {}) }
   const result = await runNativePhase(process.execPath, args, { cwd: root, env, timeout })
   if (!result.cleanExit) {
@@ -91,9 +109,11 @@ try {
     || metadata.devDependencies['@vitest/coverage-istanbul'] !== providerVersion || version !== providerVersion) throw new Error('Native coverage runtime pins mismatch')
   if (!lstatSync(join(root, '.output/server/index.mjs')).isFile()) throw new Error('Native coverage requires the frozen web build')
   mkdirSync(runDirectory, { mode: 0o700 }); runOwner = assertDirectory(runDirectory)
-  for (const directory of ['blobs', 'ordinary', 'activity', 'requests', 'billing', 'final', 'playback-screenshots']) mkdirSync(join(runDirectory, directory), { mode: 0o700 })
+  for (const directory of ['blobs', 'ordinary', 'activity', 'requests', 'billing', 'final', 'playback-screenshots', 'mail-retry-build', 'mail-retry-evidence']) mkdirSync(join(runDirectory, directory), { mode: 0o700 })
   frozenIdentity = sourceIdentity(root)
   await runPhase('prerequisites', [join(root, 'scripts/test-prerequisites.mjs')], 300000)
+  await runPhase('mail retry build', [join(root, 'node_modules/vite/bin/vite.js'), 'build', '--config', 'tests/helpers/vite.mail-retry.config.ts', '--outDir', mailRetryBuild], 120000)
+  mailRetryBuildIdentity = retryBuildIdentity()
   voice = await prepareVoiceSource({ appRoot: root })
   await voice.assertIdentity()
   const blobs = join(runDirectory, 'blobs')
@@ -111,6 +131,11 @@ try {
     '--reporter=default', '--reporter=json', '--outputFile.json=' + recordingReport,
   ], 180000)
   assertRecordingReceiptQualification(recordingReport, root, startedAt)
+  const mailRetryReport = join(runDirectory, 'mail-retry-qualification.json')
+  await runPhase('mail retry qualification', [vitestCli, 'run', '--config', 'vitest.integration.config.ts',
+    'tests/integration/mail-retry-native.test.ts', '--maxWorkers=1',
+    '--reporter=default', '--reporter=json', '--outputFile.json=' + mailRetryReport], 600000)
+  assertMailRetryQualification(mailRetryReport, root, startedAt, mailRetryEvidence)
   const requestsReport = join(runDirectory, 'requests-qualification.json')
   await runPhase('requests qualification', [vitestCli, 'run', '--config', 'vitest.integration.config.ts',
     'tests/integration/sparra-requests.test.ts','tests/integration/sparra-audio-reader-store.test.ts',

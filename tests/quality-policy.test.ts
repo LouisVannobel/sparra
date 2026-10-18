@@ -277,7 +277,7 @@ test('native_requests_requires_all_seven_adopted_excerpt_leaves_in_its_exact_for
 function nativeCoverageFixture(activityAfterAll = '',recordingAfterAll = '') {
   const {root}=qualityFixture()
   for(const name of ['App.tsx','main.tsx','unused.ts'])rmSync(join(root,'src',name))
-  for(const directory of ['scripts','tests/integration','drizzle','.output/server','.output/public','coverage'])mkdirSync(join(root,directory),{recursive:true})
+  for(const directory of ['scripts','tests/integration','tests/helpers','src/modules/auth','drizzle','public','.output/server','.output/public','.output/worker','coverage'])mkdirSync(join(root,directory),{recursive:true})
   const packageFile=join(root,'package.json'),metadata=JSON.parse(readFileSync(join(repositoryRoot,'package.json'),'utf8'))
   writeFileSync(packageFile,JSON.stringify({name:'native-coverage-canary',private:true,type:'module',engines:metadata.engines,devDependencies:{vitest:'4.1.11','@vitest/coverage-istanbul':'4.1.11'}}))
   writeFileSync(join(root,'pnpm-lock.yaml'),'lockfileVersion: 9.0\n')
@@ -293,6 +293,29 @@ export async function prepareVoiceSource({appRoot}){const scope=join(appRoot,'co
   // The nine private named leaves qualify report admission and environment
   // forwarding only; they do not qualify native SQL or the real Voice source.
   writeFileSync(join(root,'tests/integration/sparra-recording-receipt.test.ts'),"import {afterAll,expect,test} from 'vitest';import {join} from 'node:path';\n"+recordingReceiptNames.map(name=>'test('+JSON.stringify(name)+",()=>{const root=process.env.SPARRA_VOICE_TEST_ROOT;expect(root).toContain('canary-voice-owner');expect(process.env.SPARRA_VOICE_FIXTURE_PYTHON).toBe(process.execPath);expect(process.env.SPARRA_VOICE_TEST_HOME).toBe(root);});\n").join('')+'afterAll(()=>{'+recordingAfterAll+'});\n')
+  // Miniature runner wiring only: this does not execute the native retry cases.
+  writeFileSync(join(root,'public/i3-public-copy-marker.txt'),'owned mail retry public marker\n')
+  writeFileSync(join(root,'.env'),'VITE_SPARRA_I3_FIXTURE_SENTINEL=owned-mail-retry-root-env-marker\n')
+  writeFileSync(join(root,'.env.production'),'VITE_SPARRA_I3_FIXTURE_SENTINEL=owned-mail-retry-production-env-marker\n')
+  writeFileSync(join(root,'tests/helpers/vite.mail-retry.config.ts'),readFileSync(join(repositoryRoot,'tests/helpers/vite.mail-retry.config.ts')))
+  for(const file of ['src/modules/auth/mail-worker.server.ts','src/modules/auth/mail-hatchet.server.ts','src/modules/auth/plunk.server.ts',
+    'tests/helpers/mail-retry-observation.ts','.output/worker/index.mjs'])writeFileSync(join(root,file),'export const runnerWiringCanary = true\n')
+  writeFileSync(join(root,'tests/helpers/mail-retry-harness.ts'),'export const runnerWiringCanary = import.meta.env.VITE_SPARRA_I3_FIXTURE_SENTINEL\n')
+  writeFileSync(join(root,'tests/integration/mail-retry-native.test.ts'),`import {expect,test} from 'vitest';import {createHash,randomUUID} from 'node:crypto';import {readFileSync,readdirSync,writeFileSync} from 'node:fs';import {join,relative} from 'node:path';
+test('I3 one owned native retry fixture: retained A/B, transient C, expired E, exhausted D',()=>{
+  const build=process.env.SPARRA_MAIL_RETRY_BUILD_DIR!,evidence=process.env.SPARRA_MAIL_RETRY_EVIDENCE_DIR!,evidenceId=randomUUID();
+  expect(build).toBe(join(evidence,'../mail-retry-build'));expect(readFileSync(join(build,'hatchet-empty.yaml'),'utf8')).toBe('{}\\n');
+  expect(readdirSync(build).sort()).toEqual(['harness.mjs','hatchet-empty.yaml']);
+  const harness=readFileSync(join(build,'harness.mjs'),'utf8');expect(harness).not.toContain('owned-mail-retry-root-env-marker');expect(harness).not.toContain('owned-mail-retry-production-env-marker');
+  const paths=['src/modules/auth/mail-worker.server.ts','src/modules/auth/mail-hatchet.server.ts','src/modules/auth/plunk.server.ts',
+    'tests/helpers/mail-retry-harness.ts','tests/helpers/mail-retry-observation.ts','tests/helpers/vite.mail-retry.config.ts',
+    'tests/integration/mail-retry-native.test.ts','.output/worker/index.mjs',...['harness.mjs','hatchet-empty.yaml'].map(name=>relative(process.cwd(),join(build,name)).replaceAll('\\\\','/'))];
+  const beforeLaunchSha256=Object.fromEntries(paths.map(path=>[path,createHash('sha256').update(readFileSync(path)).digest('hex')]));
+  const receipts={rowLockReleased:true,childClosed:true,webPoolClosed:true,engineRemoved:true,storesRemoved:true,tlsClosedAndMaterialsRemoved:true};
+  writeFileSync(join(evidence,'task-7-i3-native-'+evidenceId+'.json'),JSON.stringify({evidenceId,beforeLaunchSha256,passed:true,
+    normalStop:{elapsedMs:1,processClosed:true,receipt:{type:'stopped',nativeStartState:'resolved',nativeStopState:'resolved',pendingHooks:0,commandsJoined:true}},
+    cleanup:{receipts,forced:false,processCode:0,exactOutputEmpty:true}}),{flag:'wx'});
+});\n`)
   writeFileSync(join(root,'tests/integration/sparra-requests.test.ts'),"import {expect,test} from 'vitest';import {selectBranch} from '../../src/covered';// Synthetic runner selection canary only.\n"+requestConsumerNames[0][1].map(name=>'test('+JSON.stringify(name)+",()=>{expect(process.env.SPARRA_VOICE_TEST_ROOT).toContain('canary-voice-owner');expect(selectBranch(true)).toBe(7)});\n").join(''))
   // Exact audio consumer paths exercise the native runner and owned environment,
   // not browser, R1, SQL or process-retirement behavior.
@@ -833,6 +856,30 @@ test('native_billing_runner_publishes_all_eight_consumers_once_in_the_native_mer
   expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
 },25000)
 
+test.each(['disabled','missing','adverse'] as const)('native_mail_retry_runner_refuses_%s_before_requests_merge_and_publication',kind=>{
+  const root=nativeCoverageFixture(),path=join(root,'tests/integration/mail-retry-native.test.ts')
+  const source=readFileSync(path,'utf8')
+  if(kind==='disabled')writeFileSync(path,source.replace("test('I3 ","test.skip('I3 "))
+  else if(kind==='missing')writeFileSync(path,"import {test} from 'vitest';test('unreviewed replacement',()=>{});\n")
+  else writeFileSync(path,source+"import {afterAll} from 'vitest';afterAll(()=>{throw new Error('Owned mail retry afterAll failure')});\n")
+  const result=runCoverageConsumer(root)
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
+  expect(result.stdout).toContain('[tests] mail retry build\n')
+  expect(result.stdout).toContain('[tests] mail retry qualification\n')
+  expect(result.stdout).not.toContain('[tests] requests qualification')
+  expect(result.stdout).not.toContain('[tests] merge')
+  expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
+  if(kind==='adverse'){
+    expect(result.stderr).toContain('Native coverage mail retry qualification failed; consumer cleanup is unconfirmed')
+    expect(existsSync(join(root,'coverage/canary-voice-owner'))).toBe(true)
+    expect(existsSync(join(root,'canary-voice-retired.txt'))).toBe(false)
+  }else{
+    expect(result.stderr).toContain('Native mail retry requires its exact one passing parent')
+    expect(readdirSync(join(root,'coverage'))).toEqual([])
+    expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
+  }
+},25000)
+
 test.each(['disabled','missing','adverse'] as const)('native_billing_runner_refuses_%s_before_merge_and_publication',kind=>{
   const root=nativeCoverageFixture(),path=join(root,'tests/integration/billing-negotiated-checkout.test.ts')
   const lines=readFileSync(path,'utf8').trimEnd().split('\n')
@@ -951,8 +998,8 @@ test('actual_coverage_runner_publishes_only_native_complete_map_after_retirement
   expect(readdirSync(join(root,'coverage'))).toEqual(['coverage-final.json'])
   expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
   expect(existsSync(join(root,'coverage/canary-voice-owner'))).toBe(false)
-  expect(result.stdout.split('\n').filter(line=>/^\[tests\] (voice-crypto qualification|recording receipt qualification|requests qualification|billing qualification|private audio playback qualification|audio reader store qualification|audio reader retirement qualification|merge)$/.test(line.trim())).map(line=>line.trim())).toEqual([
-    '[tests] voice-crypto qualification','[tests] recording receipt qualification','[tests] requests qualification','[tests] billing qualification','[tests] merge',
+  expect(result.stdout.split('\n').filter(line=>/^\[tests\] (voice-crypto qualification|recording receipt qualification|mail retry qualification|requests qualification|billing qualification|private audio playback qualification|audio reader store qualification|audio reader retirement qualification|merge)$/.test(line.trim())).map(line=>line.trim())).toEqual([
+    '[tests] voice-crypto qualification','[tests] recording receipt qualification','[tests] mail retry qualification','[tests] requests qualification','[tests] billing qualification','[tests] merge',
   ])
   const audioConsumers: {file:string;screenshots:string}[]=readFileSync(join(root,'canary-audio-consumers.jsonl'),'utf8').trimEnd().split('\n').map(line=>JSON.parse(line))
   expect(audioConsumers.map(row=>row.file).sort()).toEqual(requestConsumerNames.slice(1).map(([file])=>file).sort())
