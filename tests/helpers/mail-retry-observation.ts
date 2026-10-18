@@ -21,6 +21,41 @@ export function appendRetryCommandReceipt(receipts: unknown[], input: unknown) {
     receipts.push(value)
   } catch { throw retryFixtureError() }
 }
+export type RetryParentFrame = { line: number; column: number }
+export type RetryCommandDiagnostic = Pick<typeof commandReceipt.Type, 'op' | 'label' | 'ok' | 'phase'>
+function retryParentFrame(sourceLine: string, ownedPath: string): RetryParentFrame | null {
+  const frame = /^\s+at (?:[^()\r\n]+ \(([^()\r\n]+)\)|([^()\r\n]+))$/.exec(sourceLine.replaceAll('\\', '/'))
+  if (!frame) return null
+  const location = /^(.+):([1-9][0-9]{0,5}):([1-9][0-9]{0,5})$/.exec(frame[1] ?? frame[2])
+  if (!location) return null
+  const fileLocation = ownedPath.startsWith('/') ? `file://${ownedPath}` : `file:///${ownedPath}`
+  if (![ownedPath, fileLocation].includes(location[1])) return null
+  const line = Number(location[2]), column = Number(location[3])
+  if (line > 100000 || column > 100000) return null
+  return { line, column }
+}
+export function safeRetryParentFrames(input: unknown, ownedParentPath: string): RetryParentFrame[] {
+  try {
+    if (!(input instanceof Error)) return []
+    const stack = input.stack, ownedPath = ownedParentPath.replaceAll('\\', '/')
+    if (typeof stack !== 'string' || stack.length > 16384 || !/^(?:\/|[A-Za-z]:\/).+\/tests\/integration\/mail-retry-native\.test\.ts$/.test(ownedPath)) return []
+    const frames: RetryParentFrame[] = []
+    for (const sourceLine of stack.split(/\r?\n/)) {
+      const frame = retryParentFrame(sourceLine, ownedPath)
+      if (frame) frames.push(frame)
+      if (frames.length === 4) break
+    }
+    return frames
+  } catch { return [] }
+}
+export function safeRetryLastCommandReceipt(input: unknown): RetryCommandDiagnostic | null {
+  try {
+    const receipts: (typeof commandReceipt.Type)[] = []
+    appendRetryCommandReceipt(receipts, input)
+    const { op, label, ok, phase } = receipts[0]
+    return phase === undefined ? { op, label, ok } : { op, label, ok, phase }
+  } catch { return null }
+}
 export function retryFixtureError() { return new Error('MAIL_RETRY_FIXTURE_REJECTED') }
 export function observeRetryHandler(handler: ReturnType<typeof createAuthMailHandler>, settled: (input: unknown, result: HandlerResult) => void): ReturnType<typeof createAuthMailHandler> {
   return { stop: handler.stop, async handle(input, signal) {

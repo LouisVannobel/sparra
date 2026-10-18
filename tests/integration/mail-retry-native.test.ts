@@ -8,7 +8,7 @@ import { Pool, type Client } from 'pg'
 import { V1TaskStatus, V1TaskEventType } from '@hatchet-dev/typescript-sdk/clients/rest/generated/data-contracts.js'
 import { startDisposableStores, startDisposableHatchet } from '../fixtures/db/disposable-stores'
 import { startMailHttpPeer } from '../fixtures/mail-http'
-import { checkedRetryInterval, expiryGate, retryBudget, retryFixtureError, retryLabels, deferredCodes, retryCommandOperation, retryChildPhase, safeRetryParentPhase, appendRetryCommandReceipt, type RetryLabel } from '../helpers/mail-retry-observation'
+import { checkedRetryInterval, expiryGate, retryBudget, retryFixtureError, retryLabels, deferredCodes, retryCommandOperation, retryChildPhase, safeRetryParentPhase, appendRetryCommandReceipt, safeRetryParentFrames, safeRetryLastCommandReceipt, type RetryParentFrame, type RetryCommandDiagnostic, type RetryLabel } from '../helpers/mail-retry-observation'
 import { createTransactions } from '../../src/platform/db/transactions.server'
 import { authorizeEmailRequest, materializeDelivery } from '../../src/modules/auth/auth-email-store.server'
 import { createAuthEmailEnvelope } from '../../src/modules/auth/auth-email-envelope.server'
@@ -51,6 +51,7 @@ type NativeRetryFailureDiagnostic = {
   ready: boolean; observationStarted: boolean; observationFinished: boolean; bodyFailure: boolean; caseCount: number
   fatal: boolean; processClosed: boolean; processCode: number | null; outputBytes: number; forced: boolean
   eventTypes: Observation['type'][]; phases: ReturnType<typeof safeRetryParentPhase>[]; commandCount: number
+  failureFrames: RetryParentFrame[]; lastCommand: RetryCommandDiagnostic | null
   normalStop: { elapsedMs: number; processClosed: boolean; receipt: Extract<Observation, { type: 'stopped' }> | null } | undefined
   cleanup: {
     rowLockReleased: boolean | undefined; childClosed: boolean | undefined; webPoolClosed: boolean | undefined
@@ -63,6 +64,7 @@ function reportNativeRetryFailure(success: boolean, diagnostic: NativeRetryFailu
     'tlsAcquiredMs', 'storesAcquiredMs', 'engineAcquiredMs', 'setupElapsedMs',
     'ready', 'observationStarted', 'observationFinished', 'bodyFailure', 'caseCount',
     'fatal', 'processClosed', 'processCode', 'outputBytes', 'forced', 'eventTypes', 'phases', 'commandCount',
+    'failureFrames', 'line', 'column', 'lastCommand', 'op', 'label', 'ok', 'phase',
     'normalStop', 'elapsedMs', 'receipt', 'nativeStartState', 'nativeStopState', 'pendingHooks', 'commandsJoined',
     'cleanup', 'rowLockReleased', 'childClosed', 'webPoolClosed', 'engineRemoved', 'storesRemoved', 'tlsClosedAndMaterialsRemoved',
   ]))
@@ -121,6 +123,8 @@ test('I3 one owned native retry fixture: retained A/B, transient C, expired E, e
   const intervals: ReturnType<typeof checkedRetryInterval>[] = []
   const peerReceipts: { phase: string; calls: number }[] = []
   const phases: ReturnType<typeof safeRetryParentPhase>[] = [], commandReceipts: unknown[] = []
+  let failureFrames: RetryParentFrame[] = []
+  let lastCommand: RetryCommandDiagnostic | null = null
   let firstAHistory = true
   function checkLive() { if (fatal || processClosed) throw retryFixtureError() }
   async function waitFor<A>(read: () => A | undefined): Promise<A> {
@@ -328,7 +332,11 @@ test('I3 one owned native retry fixture: retained A/B, transient C, expired E, e
     for (const which of retryLabels) await history(which)
     key.fill(0)
     success = true
-  } catch { evidence.failure = 'MAIL_RETRY_FIXTURE_REJECTED' }
+  } catch (error) {
+    failureFrames = safeRetryParentFrames(error, resolve('tests/integration/mail-retry-native.test.ts'))
+    lastCommand = safeRetryLastCommandReceipt(commandReceipts.at(-1))
+    evidence.failure = 'MAIL_RETRY_FIXTURE_REJECTED'
+  }
   finally {
     evidence.observationFinishedAt = new Date().toISOString()
     const cleanupStarted = performance.now()
@@ -377,6 +385,7 @@ test('I3 one owned native retry fixture: retained A/B, transient C, expired E, e
     bodyFailure: Boolean(evidence.failure), caseCount: cases.size,
     fatal, processClosed, processCode, outputBytes, forced,
     eventTypes: events.map(event => event.type), phases, commandCount: commandReceipts.length,
+    failureFrames, lastCommand,
     normalStop: evidence.normalStop,
     cleanup: {
       rowLockReleased: cleanupReceipts.rowLockReleased, childClosed: cleanupReceipts.childClosed, webPoolClosed: cleanupReceipts.webPoolClosed,

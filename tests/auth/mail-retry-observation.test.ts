@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import { Api } from '@hatchet-dev/typescript-sdk/clients/rest/generated/Api.js'
-import { checkedRetryInterval, createRetryBarriers, expiryGate, retryBudget, safeRetryHistory, safeRetryOutcome, observeRetryHandler, safeRetryRunIdentity, safeRetryParentPhase, appendRetryCommandReceipt, readRetryHistory } from '../helpers/mail-retry-observation'
+import { checkedRetryInterval, createRetryBarriers, expiryGate, retryBudget, safeRetryHistory, safeRetryOutcome, observeRetryHandler, safeRetryRunIdentity, safeRetryParentPhase, appendRetryCommandReceipt, readRetryHistory, safeRetryParentFrames as parentFailureFrames, safeRetryLastCommandReceipt as lastCommandFailure } from '../helpers/mail-retry-observation'
 
 test('one absolute observation budget shrinks across calls and cannot restart after expiry', () => {
   let now = 10
@@ -210,4 +210,69 @@ test('harness history failures keep request and decoder phases closed without re
     expect(receipts).toEqual([{ id: 1, op: 'history', label: 'B', ok: false, phase }])
     expect(JSON.stringify(receipts).includes('private')).toBe(false)
   }
+})
+// These fixtures qualify diagnostic privacy/shape only; they do not reproduce native I3.
+const ownedRetryParent = '/owned/project/tests/integration/mail-retry-native.test.ts'
+function stackFailure(stack: unknown): Error {
+  const error = new Error('private-message-token')
+  Object.defineProperty(error, 'stack', { value: stack, configurable: true })
+  return error
+}
+test('parent failure frames expose only numeric coordinates for the exact owned parent path', () => {
+  const result = parentFailureFrames(stackFailure(`Error: private-message-token
+    at requireFact (${ownedRetryParent}:159:65)
+    at async history (file://${ownedRetryParent}:288:9)
+    at ${ownedRetryParent}:331:8
+    at foreign (/foreign/project/tests/integration/mail-retry-native.test.ts:123:4)
+    at foreign (/owned/project/tests/helpers/mail-retry-observation.ts:1:2)
+    at remote (https://private.example${ownedRetryParent}:3:4)`), ownedRetryParent)
+  expect(result).toEqual([{ line: 159, column: 65 }, { line: 288, column: 9 }, { line: 331, column: 8 }])
+  expect(JSON.stringify(result)).not.toMatch(/private|owned|foreign|https|Error|stack|message|token/)
+})
+test('parent failure frames support exact Windows paths without disclosing a drive or file URL', () => {
+  const owned = 'C:\\owned\\project\\tests\\integration\\mail-retry-native.test.ts'
+  expect(parentFailureFrames(stackFailure(`Error: private
+    at body (${owned}:285:17)
+    at async body (file:///C:/owned/project/tests/integration/mail-retry-native.test.ts:287:5)`), owned)).toEqual([
+    { line: 285, column: 17 }, { line: 287, column: 5 },
+  ])
+})
+test('parent failure frames cap output at four and reject zero, fractional, negative and oversized coordinates', () => {
+  const invalid = ['0:1', '1:0', '-1:1', '1:-1', '1.5:2', '1:2.5', '100001:1', '1:100001', '9999999999999999:1']
+  const stack = ['Error: private', ...invalid.map(pair => `    at body (${ownedRetryParent}:${pair})`),
+    ...[1, 2, 3, 100000, 5].map(line => `    at body (${ownedRetryParent}:${line}:100000)`)].join('\n')
+  expect(parentFailureFrames(stackFailure(stack), ownedRetryParent)).toEqual([
+    { line: 1, column: 100000 }, { line: 2, column: 100000 }, { line: 3, column: 100000 }, { line: 100000, column: 100000 },
+  ])
+})
+test('parent failure frames reject oversized stack input and malformed or foreign frames without raw fallback', () => {
+  const valid = `    at body (${ownedRetryParent}:159:65)`
+  for (const input of [undefined, null, 'private', { stack: `Error: private\n${valid}` }, stackFailure(undefined), stackFailure(42),
+    stackFailure('x'.repeat(16385)), stackFailure(`Error: private\n${'x'.repeat(16384)}\n${valid}`),
+    stackFailure(`Error: private\n${ownedRetryParent}:1:2\n    not-at (${ownedRetryParent}:3:4)\n    at foreign (/foreign.ts:1:2)`),
+    stackFailure(`Error: private\n    at body (${ownedRetryParent}.private:1:2)`),
+  ]) expect(parentFailureFrames(input, ownedRetryParent)).toEqual([])
+  expect(parentFailureFrames(stackFailure(`Error: private\n${valid}`), '/foreign.ts')).toEqual([])
+})
+test('parent failure projection never inspects error name, message or cause and safely contains a throwing stack getter', () => {
+  const error = stackFailure(`Error: private\n    at body (${ownedRetryParent}:288:9)`)
+  for (const key of ['name', 'message', 'cause']) Object.defineProperty(error, key, { get() { throw new Error('private-access') } })
+  expect(parentFailureFrames(error, ownedRetryParent)).toEqual([{ line: 288, column: 9 }])
+  const hostile = new Error()
+  Object.defineProperty(hostile, 'stack', { get() { throw new Error('private-stack-access') } })
+  expect(parentFailureFrames(hostile, ownedRetryParent)).toEqual([])
+})
+test('last completed command diagnostic reuses strict finite receipt validation and omits its ID', () => {
+  expect(lastCommandFailure({ id: 17, op: 'history', label: 'E', ok: false, phase: 'identity-decoding' })).toEqual({ op: 'history', label: 'E', ok: false, phase: 'identity-decoding' })
+  expect(lastCommandFailure({ id: 18, op: 'release', label: 'E', ok: true })).toEqual({ op: 'release', label: 'E', ok: true })
+  expect(lastCommandFailure({ id: 19, op: 'admit', label: null, ok: true })).toEqual({ op: 'admit', label: null, ok: true })
+})
+test('last completed command diagnostic returns null for absent, malformed, extra or hostile input without raw fallback', () => {
+  const valid = { id: 17, op: 'history', label: 'E', ok: false }
+  const hostile = Object.defineProperty({}, 'id', { get() { throw new Error('private-access') } })
+  for (const input of [undefined, null, 'private', hostile, { ...valid, id: 0 }, { ...valid, id: 'private-id' },
+    { ...valid, op: 'private-op' }, { ...valid, label: 'private-label' }, { ...valid, ok: 'private' },
+    { ...valid, phase: 'private-phase' }, { ...valid, ok: true, phase: 'identity-decoding' },
+    { ...valid, op: 'release', phase: 'identity-decoding' }, { ...valid, value: 'private-value' }, { ...valid, error: 'private-error' },
+  ]) expect(lastCommandFailure(input)).toBeNull()
 })
