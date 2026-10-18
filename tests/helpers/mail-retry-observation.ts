@@ -222,7 +222,8 @@ function runDetailsFailure(input: unknown): RetryRunFailure {
     }
   } catch { return { phase: 'run-details-rejected', pending404: false } }
 }
-function inspectRetryRunRejection(error: unknown, setPhase: (phase: typeof retryChildPhase.Type) => void): { kind: 'NOT_PROJECTED' } {
+type RetryRunNotProjected = { kind: 'NOT_PROJECTED' }
+function inspectRetryRunRejection(error: unknown, setPhase: (phase: typeof retryChildPhase.Type) => void): RetryRunNotProjected {
   const failure = runDetailsFailure(error)
   setPhase(failure.phase)
   if (!failure.pending404) throw error
@@ -256,7 +257,7 @@ export async function readRetryHistory(client: Pick<HatchetClient, 'api' | 'tena
     }
     for (;;) {
       const requestTimeout = checkedAllowance('before', timeout)
-      let read: { kind: 'RESPONSE'; state: Awaited<ReturnType<typeof client.api.v1WorkflowRunGet>> } | { kind: 'NOT_PROJECTED' }
+      let read: { kind: 'RESPONSE'; state: Awaited<ReturnType<typeof client.api.v1WorkflowRunGet>> } | RetryRunNotProjected
       try {
         read = { kind: 'RESPONSE', state: await client.api.v1WorkflowRunGet(expected.runId, { signal, timeout: requestTimeout, maxContentLength: 65536 }) }
       } catch (error) { read = inspectRetryRunRejection(error, setPhase) }
