@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { Pool } from 'pg'
 import { startDisposableStores, startDisposableHatchet } from '../fixtures/db/disposable-stores'
 import { startMailHttpPeer } from '../fixtures/mail-http'
@@ -91,6 +91,7 @@ test('built application relay and native worker consume the real SQL snapshot th
     try { await engine?.cleanup() } catch { cleanupFailures.push('engine') }
     try { await stores?.cleanup() } catch { cleanupFailures.push('stores') }
     try { await peer?.close() } catch { cleanupFailures.push('peer') }
+    await mkdir(resolve('.superpowers/sdd/2026-09-10-functional-auth'), { recursive: true })
     await writeFile(resolve(`.superpowers/sdd/2026-09-10-functional-auth/task-7-i4-maintenance-native-${runId}.json`), JSON.stringify({ runId, outcome, cleanupFailures, appStores: stores?.evidence, engine: engine?.evidence }, null, 2)+'\n', { flag: 'wx' })
     expect(cleanupFailures).toEqual([])
   }
