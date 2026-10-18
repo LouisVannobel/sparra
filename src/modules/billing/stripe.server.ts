@@ -8,6 +8,7 @@ export type CheckoutIntent = Readonly<{
   idempotencyKey: string
   integrationIdentifier: string
   operationReference?: string
+  terms: Readonly<{ id: string; monthlyPriceId: string; currency: string; monthlyUnitAmount: number }>
 }>
 
 export type CheckoutNavigation = Readonly<{ id: string; url: string; expiresAt: number }>
@@ -60,14 +61,21 @@ function requireIntent(intent: CheckoutIntent): void {
   if (!intent || typeof intent !== 'object' || Array.isArray(intent)) throw new StripeInputError()
   const keys = Object.keys(intent).sort()
   if (keys.join(',') !== (Object.hasOwn(intent, 'operationReference')
-    ? 'customerId,idempotencyKey,integrationIdentifier,operationReference,workspaceId'
-    : 'customerId,idempotencyKey,integrationIdentifier,workspaceId')) throw new StripeInputError()
+    ? 'customerId,idempotencyKey,integrationIdentifier,operationReference,terms,workspaceId'
+    : 'customerId,idempotencyKey,integrationIdentifier,terms,workspaceId')) throw new StripeInputError()
   if (Object.hasOwn(intent, 'operationReference')) requireId(intent.operationReference!, uuid)
   requireId(intent.workspaceId, uuid)
   requireId(intent.customerId, customer)
   requireId(intent.idempotencyKey, safeKey)
   requireId(intent.integrationIdentifier, integration)
   if (intent.integrationIdentifier.length > 255) throw new StripeInputError()
+  const terms = intent.terms
+  if (!terms || typeof terms !== 'object' || Array.isArray(terms)
+    || Object.keys(terms).sort().join(',') !== 'currency,id,monthlyPriceId,monthlyUnitAmount'
+    || !Number.isSafeInteger(terms.monthlyUnitAmount) || terms.monthlyUnitAmount <= 0
+    || !/^[a-z]{3}$/.test(terms.currency)) throw new StripeInputError()
+  requireId(terms.id, uuid)
+  requireId(terms.monthlyPriceId, price)
 }
 
 function requireCustomerIntent(intent: CustomerCreateIntent): void {
@@ -88,9 +96,8 @@ function requireCancellationIntent(intent: SubscriptionCancellationIntent): void
 export function buildCheckoutParameters(config: StripeConfig, intent: CheckoutIntent): Stripe.Checkout.SessionCreateParams {
   requireIntent(intent)
   const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [
-    { price: config.monthlyPriceId, quantity: 1 },
+    { price: intent.terms.monthlyPriceId, quantity: 1 },
   ]
-  if (config.onboardingPriceId) lineItems.push({ price: config.onboardingPriceId, quantity: 1 })
   return {
     mode: 'subscription',
     ui_mode: 'hosted_page',
@@ -98,6 +105,7 @@ export function buildCheckoutParameters(config: StripeConfig, intent: CheckoutIn
     client_reference_id: intent.operationReference ?? intent.workspaceId,
     integration_identifier: intent.integrationIdentifier,
     line_items: lineItems,
+    currency: intent.terms.currency,
     subscription_data: { billing_mode: { type: 'flexible' } },
     success_url: `${config.origin}/billing?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${config.origin}/billing?checkout=cancelled`,

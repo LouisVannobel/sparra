@@ -4054,6 +4054,156 @@
       },
       "isRLSEnabled": true
     },
+    "public.billing_agreed_terms": {
+      "name": "billing_agreed_terms",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "environment": {
+          "name": "environment",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "account_id": {
+          "name": "account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "revision": {
+          "name": "revision",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "monthly_price_id": {
+          "name": "monthly_price_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "currency": {
+          "name": "currency",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "monthly_unit_amount": {
+          "name": "monthly_unit_amount",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "billing_agreed_terms_workspace_id_workspace_id_fk": {
+          "name": "billing_agreed_terms_workspace_id_workspace_id_fk",
+          "tableFrom": "billing_agreed_terms",
+          "tableTo": "workspace",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "billing_terms_revision": {
+          "name": "billing_terms_revision",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "environment",
+            "account_id",
+            "revision"
+          ]
+        },
+        "billing_terms_scope": {
+          "name": "billing_terms_scope",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "workspace_id",
+            "environment",
+            "account_id"
+          ]
+        }
+      },
+      "policies": {
+        "billing_terms_runtime_read": {
+          "name": "billing_terms_runtime_read",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": [
+            "runtime"
+          ],
+          "using": "\"billing_agreed_terms\".\"workspace_id\"::text = current_setting('app.tenant_id', true)"
+        },
+        "billing_terms_workspace_definer_read": {
+          "name": "billing_terms_workspace_definer_read",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": [
+            "workspace_bootstrap"
+          ],
+          "using": "\"billing_agreed_terms\".\"workspace_id\"::text = current_setting('app.tenant_id', true)"
+        },
+        "billing_terms_billing_definer_read": {
+          "name": "billing_terms_billing_definer_read",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": [
+            "billing_definer"
+          ],
+          "using": "true"
+        }
+      },
+      "checkConstraints": {
+        "billing_terms_environment": {
+          "name": "billing_terms_environment",
+          "value": "\"billing_agreed_terms\".\"environment\" in ('sandbox','live')"
+        },
+        "billing_terms_account": {
+          "name": "billing_terms_account",
+          "value": "\"billing_agreed_terms\".\"account_id\" ~ '^acct_[A-Za-z0-9]+$'"
+        },
+        "billing_terms_revision_positive": {
+          "name": "billing_terms_revision_positive",
+          "value": "\"billing_agreed_terms\".\"revision\" between 1 and 9007199254740991"
+        },
+        "billing_terms_price": {
+          "name": "billing_terms_price",
+          "value": "\"billing_agreed_terms\".\"monthly_price_id\" ~ '^price_[A-Za-z0-9]+$'"
+        },
+        "billing_terms_currency": {
+          "name": "billing_terms_currency",
+          "value": "\"billing_agreed_terms\".\"currency\" ~ '^[a-z]{3}$'"
+        },
+        "billing_terms_amount": {
+          "name": "billing_terms_amount",
+          "value": "\"billing_agreed_terms\".\"monthly_unit_amount\" between 1 and 9007199254740991"
+        }
+      },
+      "isRLSEnabled": true
+    },
     "public.billing_agreement": {
       "name": "billing_agreement",
       "schema": "",
@@ -5040,6 +5190,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "agreed_terms_id": {
+          "name": "agreed_terms_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "monthly_price_id": {
           "name": "monthly_price_id",
           "type": "text",
@@ -5131,6 +5287,25 @@
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
+        "billing_operation_terms_scope": {
+          "name": "billing_operation_terms_scope",
+          "tableFrom": "billing_operation",
+          "tableTo": "billing_agreed_terms",
+          "columnsFrom": [
+            "agreed_terms_id",
+            "workspace_id",
+            "environment",
+            "account_id"
+          ],
+          "columnsTo": [
+            "id",
+            "workspace_id",
+            "environment",
+            "account_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
         "billing_operation_customer_same_scope": {
           "name": "billing_operation_customer_same_scope",
           "tableFrom": "billing_operation",
@@ -5212,6 +5387,10 @@
         }
       },
       "checkConstraints": {
+        "billing_operation_terms_shape": {
+          "name": "billing_operation_terms_shape",
+          "value": "(\"billing_operation\".\"kind\"='CHECKOUT_CREATE') = (\"billing_operation\".\"agreed_terms_id\" is not null)\n    and \"billing_operation\".\"onboarding_price_id\" is null and \"billing_operation\".\"onboarding_unit_amount\" is null"
+        },
         "billing_operation_kind": {
           "name": "billing_operation_kind",
           "value": "\"billing_operation\".\"kind\" in ('CUSTOMER_CREATE','CHECKOUT_CREATE','CANCEL_AT_PERIOD_END')"

@@ -13,7 +13,7 @@ const confirmed = Object.freeze({ state: 'confirmed' as const })
 function refusal(status: number): Response { return new Response('Billing unavailable', { status }) }
 
 export async function cancelAtPeriodEnd(owner: AuthTransactions, principal: AdmittedPrincipal, config: StripeConfig,
-  client: ReturnType<typeof createStripeBillingClient>, workspaceId: string, signal?: AbortSignal): Promise<typeof confirmed> {
+  client: Pick<ReturnType<typeof createStripeBillingClient>, 'cancelSubscriptionAtPeriodEnd'>, workspaceId: string, signal?: AbortSignal): Promise<typeof confirmed> {
   function scoped<A>(work: (lease: BillingWorkspaceLease) => Promise<A>): Promise<A> {
     return owner.withBillingWorkspacePromise({ deadlineAtMs: Date.now() + 10000, statementTimeoutMs: 1000,
       cleanupTimeoutMs: 1000, correlationId: randomUUID(), signal }, principal, workspaceId, lease => {

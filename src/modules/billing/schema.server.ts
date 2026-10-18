@@ -4,6 +4,29 @@ import { workspace } from '../workspaces/schema.server'
 
 const tenant = (workspaceId: AnyPgColumn) => sql`${workspaceId}::text = current_setting('app.tenant_id', true)`
 
+export const billingAgreedTerms = pgTable('billing_agreed_terms', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspace.id, { onDelete: 'restrict' }),
+  environment: text('environment', { enum: ['sandbox', 'live'] }).notNull(),
+  accountId: text('account_id').notNull(),
+  revision: bigint('revision', { mode: 'number' }).notNull(),
+  monthlyPriceId: text('monthly_price_id').notNull(),
+  currency: text('currency').notNull(),
+  monthlyUnitAmount: bigint('monthly_unit_amount', { mode: 'number' }).notNull(),
+}, table => [
+  unique('billing_terms_revision').on(table.workspaceId, table.environment, table.accountId, table.revision),
+  unique('billing_terms_scope').on(table.id, table.workspaceId, table.environment, table.accountId),
+  check('billing_terms_environment', sql`${table.environment} in ('sandbox','live')`),
+  check('billing_terms_account', sql`${table.accountId} ~ '^acct_[A-Za-z0-9]+$'`),
+  check('billing_terms_revision_positive', sql`${table.revision} between 1 and 9007199254740991`),
+  check('billing_terms_price', sql`${table.monthlyPriceId} ~ '^price_[A-Za-z0-9]+$'`),
+  check('billing_terms_currency', sql`${table.currency} ~ '^[a-z]{3}$'`),
+  check('billing_terms_amount', sql`${table.monthlyUnitAmount} between 1 and 9007199254740991`),
+  pgPolicy('billing_terms_runtime_read', { to: 'runtime', for: 'select', using: tenant(table.workspaceId) }),
+  pgPolicy('billing_terms_workspace_definer_read', { to: 'workspace_bootstrap', for: 'select', using: tenant(table.workspaceId) }),
+  pgPolicy('billing_terms_billing_definer_read', { to: 'billing_definer', for: 'select', using: sql`true` }),
+]).enableRLS()
+
 export const billingCustomer = pgTable('billing_customer', {
   id: uuid('id').primaryKey().defaultRandom(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspace.id, { onDelete: 'restrict' }),
@@ -35,6 +58,7 @@ export const billingOperation = pgTable('billing_operation', {
   idempotencyKey: text('idempotency_key').notNull().unique(),
   requestHash: text('request_hash').notNull(),
   customerId: text('customer_id'),
+  agreedTermsId: uuid('agreed_terms_id'),
   monthlyPriceId: text('monthly_price_id'),
   onboardingPriceId: text('onboarding_price_id'),
   currency: text('currency'),
@@ -51,6 +75,10 @@ export const billingOperation = pgTable('billing_operation', {
   unique('billing_operation_one_slot').on(table.workspaceId, table.environment, table.accountId, table.kind),
   unique('billing_operation_workspace_ref').on(table.id, table.workspaceId),
   unique('billing_operation_graph_ref').on(table.id, table.workspaceId, table.environment, table.accountId, table.customerId),
+  foreignKey({ name: 'billing_operation_terms_scope', columns: [table.agreedTermsId, table.workspaceId, table.environment, table.accountId],
+    foreignColumns: [billingAgreedTerms.id, billingAgreedTerms.workspaceId, billingAgreedTerms.environment, billingAgreedTerms.accountId] }),
+  check('billing_operation_terms_shape', sql`(${table.kind}='CHECKOUT_CREATE') = (${table.agreedTermsId} is not null)
+    and ${table.onboardingPriceId} is null and ${table.onboardingUnitAmount} is null`),
   foreignKey({ name: 'billing_operation_customer_same_scope',
     columns: [table.workspaceId, table.environment, table.accountId, table.customerId],
     foreignColumns: [billingCustomer.workspaceId, billingCustomer.environment, billingCustomer.accountId, billingCustomer.stripeCustomerId] }),

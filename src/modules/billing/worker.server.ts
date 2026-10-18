@@ -10,6 +10,7 @@ import type { BillingStore, BillingClaim, BillingObservation, BillingApplyDecisi
   ObservedChargeBinding, VerifiedRiskFacts } from './store.server'
 
 type Result = Readonly<{ state: 'applied' | 'duplicate' | 'held' | 'stale' | 'deferred'; commandCompleted: boolean }>
+type Progress = { state: Result['state'] }
 const deferred: Result = Object.freeze({ state: 'deferred', commandCompleted: false })
 const jobSchema = Schema.Struct({ outboxId: billingUuid, tenantId: billingUuid })
 const ids = { invoice: /^in_[A-Za-z0-9]+$/, intent: /^pi_[A-Za-z0-9]+$/, charge: /^ch_[A-Za-z0-9]+$/ }
@@ -142,7 +143,7 @@ export function createBillingHandler(config: StripeConfig, store: BillingStore) 
     let client: StripeReadClient | undefined
     const check = () => { if (cancel.signal.aborted || Date.now() >= deadline) fail() }
     async function run(): Promise<Result> {
-      const progress: { state: Result['state'] } = { state: 'deferred' }
+      const progress: Progress = { state: 'deferred' }
       function result(value: BillingEffectResult): Result {
         switch (value.targetDisposition) {
           case 'held': progress.state = 'held'; break
@@ -173,7 +174,7 @@ export function createBillingHandler(config: StripeConfig, store: BillingStore) 
         // settlement. Every observe transaction ends before the next GET.
         for (const invoiceId of candidates) {
           check()
-          const proven = await proveBillingLineage(config, client, claim.operation, claim.customer, invoiceId)
+          const proven = await proveBillingLineage(config, client, claim.operation, claim.customer, invoiceId, claim.agreedTerms)
           // The positive lineage retains the original Checkout catalog. The
           // SQL period identity carries a fee only for its first period.
           const lineage: ObservedBillingLineage = proven.boundInvoice.firstPeriod === false

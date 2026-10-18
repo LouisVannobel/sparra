@@ -61,15 +61,16 @@ export const acquireDatabase = Effect.fn('acquireDatabase')(function* (database:
           fullPageWrites: sql<string>`current_setting('full_page_writes')`,
           synchronousCommit: sql<string>`current_setting('synchronous_commit')`,
           schemaReady: billingLogin ? sql<string>`coalesce((
-            (select count(*)=10 from pg_class c join pg_namespace n on n.oid=c.relnamespace join pg_roles r on r.oid=c.relowner
-             where n.nspname='public' and c.relname in ('billing_customer','billing_operation','billing_agreement','billing_charge_binding',
+            (select count(*)=11 from pg_class c join pg_namespace n on n.oid=c.relnamespace join pg_roles r on r.oid=c.relowner
+             where n.nspname='public' and c.relname in ('billing_agreed_terms','billing_customer','billing_operation','billing_agreement','billing_charge_binding',
                'billing_command','billing_current_agreement','billing_event_receipt','billing_outbox','billing_receipt_assignment','billing_risk_observation')
              and c.relrowsecurity and c.relforcerowsecurity
-             and r.rolname=case when c.relname in ('billing_customer','billing_operation') then 'workspace_owner' else 'billing_owner' end)
+             and r.rolname=case when c.relname in ('billing_agreed_terms','billing_customer','billing_operation') then 'workspace_owner' else 'billing_owner' end)
             and (select count(*)=4 from pg_attribute where attrelid=to_regclass('public.billing_command')
               and attname in ('manifest_revision','target_progress','identities','completed_at') and not attisdropped)
             and exists(select 1 from pg_attribute where attrelid=to_regclass('public.billing_outbox') and attname='terminal_disposition' and not attisdropped)
             and exists(select 1 from pg_attribute where attrelid=to_regclass('public.billing_operation') and attname='checkout_reference_version' and not attisdropped)
+            and exists(select 1 from pg_attribute where attrelid=to_regclass('public.billing_operation') and attname='agreed_terms_id' and not attisdropped)
           ),false)::text` : sql<string>`(to_regclass('public.user') is not null and to_regclass('public.account') is not null and to_regclass('public.session') is not null and to_regclass('public.verification') is not null)::text`,
           ...(billingLogin ? { billingReady: sql<string>`coalesce((
             not rolcreaterole and not rolcreatedb and not rolreplication and not rolinherit

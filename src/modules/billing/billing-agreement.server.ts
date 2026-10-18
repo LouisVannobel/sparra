@@ -33,7 +33,7 @@ export const targetProgressSchema = Schema.Struct({ invoiceId: billingIds.invoic
 export type TargetProgress = typeof targetProgressSchema.Type
 export const boundInvoiceSchema = Schema.Struct({ environment: billingEnvironment, accountId: billingIds.account,
   customerId: billingIds.customer, subscriptionId: billingIds.subscription, invoiceId: billingIds.invoice,
-  monthlyPriceId: billingIds.price, currency, expectedAmount: billingPositive, periodStart: billingPositive, periodEnd: billingPositive,
+  agreedTermsId: billingUuid, monthlyPriceId: billingIds.price, currency, expectedAmount: billingPositive, periodStart: billingPositive, periodEnd: billingPositive,
   firstPeriod: Schema.optionalKey(Schema.Boolean),
   onboarding: Schema.optionalKey(Schema.NullOr(Schema.Struct({ priceId: billingIds.price, amount: billingPositive }))),
 })

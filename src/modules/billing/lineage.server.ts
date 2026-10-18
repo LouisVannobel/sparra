@@ -3,10 +3,11 @@ import type Stripe from 'stripe'
 import type { StripeConfig } from './stripe-config.server'
 import type { StripeReadClient } from './stripe-read.server'
 import type { billingCustomer, billingOperation } from './schema.server'
-import type { BoundMonthlyInvoice } from './reconcile.server'
+import type { BoundMonthlyInvoice, MonetaryProvider } from './reconcile.server'
 import type { VerifiedStripeEvent } from './stripe-webhook.server'
 import { buildCheckoutParameters } from './stripe.server'
 import { classifyBillingEvent } from './events.server'
+import { operationMonthlyTerms, type AgreedMonthlyTerms } from './agreed-terms.server'
 
 export type ObservedBillingLineage = Readonly<{
   operationId: string; workspaceId: string; environment: StripeConfig['environment']; accountId: string
@@ -24,6 +25,20 @@ const patterns = {
   invoice: /^in_[A-Za-z0-9]+$/, payment_intent: /^pi_[A-Za-z0-9]+$/, charge: /^ch_[A-Za-z0-9]+$/,
 } as const
 const positive = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+type LineageInvoice = Awaited<ReturnType<MonetaryProvider['retrieveInvoice']>>
+type LineageSubscription = Pick<Stripe.Subscription, 'id' | 'object' | 'livemode' | 'customer' | 'customer_account' | 'currency' | 'collection_method'> & {
+  items: { object: 'list'; has_more: boolean; data: Pick<Stripe.SubscriptionItem, 'id' | 'object' | 'subscription' | 'quantity' | 'price'>[] }
+}
+type LineageSession = Pick<Stripe.Checkout.Session, 'id' | 'object' | 'livemode' | 'mode' | 'customer_account' | 'customer' |
+  'subscription' | 'client_reference_id' | 'integration_identifier' | 'currency' | 'status' | 'invoice'>
+type LineageItem = Pick<Stripe.LineItem, 'id' | 'object' | 'price' | 'quantity' | 'currency' | 'amount_subtotal' | 'amount_total' | 'amount_tax' | 'amount_discount'>
+export type LineageProvider = Readonly<{
+  retrieveInvoice(id: string): Promise<LineageInvoice>
+  retrieveSubscription(id: string): Promise<LineageSubscription>
+  retrieveCheckoutSession(id: string): Promise<LineageSession>
+  listCheckoutSessions(subscriptionId: string, customerId: string, cursor?: string): Promise<{ object: 'list'; has_more: boolean; data: LineageSession[] }>
+  listCheckoutLineItems(sessionId: string, cursor?: string): Promise<{ object: 'list'; has_more: boolean; data: LineageItem[] }>
+}>
 function reference(value: unknown, kind: keyof typeof patterns, live: boolean): string {
   const id = typeof value === 'string' ? value
     : value !== null && typeof value === 'object' && 'id' in value ? value.id : null
@@ -57,13 +72,13 @@ async function completePages<T extends { id: string }>(
   return fail()
 }
 
-function invoiceScope(invoice: Stripe.Invoice, live: boolean): { customerId: string; subscriptionId: string } {
+function invoiceScope(invoice: LineageInvoice, live: boolean) {
   if (invoice.object !== 'invoice' || invoice.livemode !== live || invoice.customer_account !== null
     || invoice.parent?.type !== 'subscription_details') fail()
   return { customerId: reference(invoice.customer, 'customer', live),
     subscriptionId: reference(invoice.parent.subscription_details?.subscription, 'subscription', live) }
 }
-function subscriptionCustomer(subscription: Stripe.Subscription, live: boolean): string {
+function subscriptionCustomer(subscription: Pick<Stripe.Subscription, 'object' | 'livemode' | 'customer_account' | 'customer'>, live: boolean): string {
   if (subscription.object !== 'subscription' || subscription.livemode !== live || subscription.customer_account !== null) fail()
   return reference(subscription.customer, 'customer', live)
 }
@@ -75,17 +90,22 @@ function matchesPrice(price: Stripe.Price | null, id: string, amount: number, cu
       : price.type === 'one_time' && price.recurring === null)
 }
 
-export async function proveBillingLineage(config: StripeConfig, provider: StripeReadClient,
+export async function proveBillingLineage(config: StripeConfig, provider: LineageProvider,
   operation: typeof billingOperation.$inferSelect, customer: typeof billingCustomer.$inferSelect,
-  invoiceId: string): Promise<ObservedBillingLineage> {
+  invoiceId: string, terms: AgreedMonthlyTerms): Promise<ObservedBillingLineage> {
   const live = config.environment === 'live'
   if (!uuid.test(operation.id) || !uuid.test(operation.workspaceId) || operation.kind !== 'CHECKOUT_CREATE'
     || !['DISPATCHING', 'UNKNOWN', 'SUCCEEDED'].includes(operation.phase)
     || operation.environment !== config.environment || operation.accountId !== config.accountId
     || operation.apiVersion !== config.apiVersion || customer.environment !== config.environment
     || customer.accountId !== config.accountId || customer.workspaceId !== operation.workspaceId
-    || operation.customerId !== customer.stripeCustomerId || !operation.monthlyPriceId || operation.monthlyPriceId !== config.monthlyPriceId
-    || operation.onboardingPriceId !== config.onboardingPriceId || !operation.currency || !/^[a-z]{3}$/.test(operation.currency)
+    || operation.customerId !== customer.stripeCustomerId || !operation.monthlyPriceId
+    || !terms || operation.agreedTermsId !== terms.id || terms.workspaceId !== operation.workspaceId
+    || terms.environment !== operation.environment || terms.accountId !== operation.accountId
+    || !positive(terms.revision) || terms.monthlyPriceId !== operation.monthlyPriceId
+    || terms.currency !== operation.currency || terms.monthlyUnitAmount !== operation.monthlyUnitAmount
+    || operation.onboardingPriceId !== null || operation.onboardingUnitAmount !== null
+    || !operation.currency || !/^[a-z]{3}$/.test(operation.currency)
     || !positive(operation.monthlyUnitAmount) || !operation.integrationIdentifier
     || operation.checkoutReferenceVersion !== 'legacy-v1' && operation.checkoutReferenceVersion !== 'operation-v2'
     || operation.onboardingPriceId === null && operation.onboardingUnitAmount !== null
@@ -99,6 +119,7 @@ export async function proveBillingLineage(config: StripeConfig, provider: Stripe
   const parameters = buildCheckoutParameters(config, {
     workspaceId: operation.workspaceId, customerId, idempotencyKey: operation.idempotencyKey,
     integrationIdentifier: operation.integrationIdentifier,
+    terms: operationMonthlyTerms(operation),
     ...(operation.checkoutReferenceVersion === 'operation-v2' ? { operationReference: operation.id } : {}),
   })
   if (createHash('sha256').update(JSON.stringify(parameters)).digest('hex') !== operation.requestHash) fail()
@@ -180,7 +201,7 @@ export async function proveBillingLineage(config: StripeConfig, provider: Stripe
   const expectedAmount = operation.monthlyUnitAmount + (firstPeriod && onboarding ? onboarding.amount : 0)
   if (!positive(expectedAmount)) fail()
   const boundInvoice: BoundMonthlyInvoice = Object.freeze({ environment: config.environment, accountId: config.accountId,
-    customerId, subscriptionId: subscription.id, invoiceId, monthlyPriceId: operation.monthlyPriceId,
+    customerId, subscriptionId: subscription.id, invoiceId, agreedTermsId: terms.id, monthlyPriceId: operation.monthlyPriceId,
     currency: operation.currency, expectedAmount, periodStart: monthly.period.start, periodEnd: monthly.period.end,
     firstPeriod, onboarding: onboarding ? Object.freeze(onboarding) : null })
   return Object.freeze({ operationId: operation.id, workspaceId: operation.workspaceId, environment: config.environment,

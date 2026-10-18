@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { Schema } from 'effect'
+import { agreedMonthlyTermsSchema } from './agreed-terms.server'
 import { sql } from 'drizzle-orm'
 import type { AuthTransactions } from '../../platform/db/transactions.server'
 import type { VerifiedStripeEvent } from './stripe-webhook.server'
@@ -33,7 +34,7 @@ const operationSchema = Schema.Struct({ id: billingUuid, workspaceId: billingUui
   kind: Schema.Literals(['CUSTOMER_CREATE', 'CHECKOUT_CREATE']), phase: Schema.Literals(['ADMITTED', 'DISPATCHING', 'SUCCEEDED', 'UNKNOWN']),
   environment: billingEnvironment, accountId: billingIds.account, apiVersion: Schema.Literal('2026-09-30.endive'),
   idempotencyKey: Schema.String.check(Schema.isMaxLength(255), Schema.isPattern(/^[A-Za-z0-9:_-]+$/)), requestHash: billingHash,
-  customerId: Schema.NullOr(billingIds.customer), monthlyPriceId: Schema.NullOr(billingIds.price), onboardingPriceId: Schema.NullOr(billingIds.price),
+  customerId: Schema.NullOr(billingIds.customer), agreedTermsId: Schema.NullOr(billingUuid), monthlyPriceId: Schema.NullOr(billingIds.price), onboardingPriceId: Schema.NullOr(billingIds.price),
   currency: Schema.NullOr(Schema.String), monthlyUnitAmount: Schema.NullOr(billingPositive), onboardingUnitAmount: Schema.NullOr(billingPositive),
   integrationIdentifier: Schema.NullOr(Schema.String), checkoutReferenceVersion: Schema.Literals(['legacy-v1', 'operation-v2']),
   stripeObjectId: Schema.NullOr(Schema.String), checkoutUrl: Schema.NullOr(Schema.String), checkoutExpiresAt: Schema.NullOr(billingPositive),
@@ -42,7 +43,7 @@ const operationSchema = Schema.Struct({ id: billingUuid, workspaceId: billingUui
 const customerSchema = Schema.Struct({ id: billingUuid, workspaceId: billingUuid, environment: billingEnvironment,
   accountId: billingIds.account, stripeCustomerId: billingIds.customer, knownSubscriptionId: Schema.NullOr(billingIds.subscription), createdAt: Schema.DateFromString })
 const claimSchema = Schema.Struct({ input: jobSchema, commandCompleted: Schema.Literal(false), fence: billingPositive, deadlineAtMs: billingPositive, event: eventSchema,
-  operation: operationSchema, customer: customerSchema, knownInvoiceIds: bounded(billingIds.invoice),
+  operation: operationSchema, agreedTerms: agreedMonthlyTermsSchema, customer: customerSchema, knownInvoiceIds: bounded(billingIds.invoice),
   manifestRevision: billingNatural, targetProgress: bounded(targetProgressSchema) })
 export type BillingClaim = typeof claimSchema.Type
 const one = sql`(SELECT 1) AS billing_single_row`

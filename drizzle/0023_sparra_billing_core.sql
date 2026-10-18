@@ -2,6 +2,28 @@
 -- Historical consumer migrations through0022 remain immutable.
 -- Checkout, reconciliation and cancellation supplements are embedded once.
 
+CREATE TABLE public.billing_agreed_terms (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+ workspace_id uuid NOT NULL CONSTRAINT billing_agreed_terms_workspace_id_workspace_id_fk REFERENCES public.workspace(id) ON DELETE RESTRICT,
+ environment text NOT NULL CONSTRAINT billing_terms_environment CHECK(environment IN ('sandbox','live')),
+ account_id text NOT NULL CONSTRAINT billing_terms_account CHECK(account_id ~ '^acct_[A-Za-z0-9]+$'),
+ revision bigint NOT NULL CONSTRAINT billing_terms_revision_positive CHECK(revision BETWEEN 1 AND 9007199254740991),
+ monthly_price_id text NOT NULL CONSTRAINT billing_terms_price CHECK(monthly_price_id ~ '^price_[A-Za-z0-9]+$'),
+ currency text NOT NULL CONSTRAINT billing_terms_currency CHECK(currency ~ '^[a-z]{3}$'),
+ monthly_unit_amount bigint NOT NULL CONSTRAINT billing_terms_amount CHECK(monthly_unit_amount BETWEEN 1 AND 9007199254740991),
+ CONSTRAINT billing_terms_revision UNIQUE(workspace_id,environment,account_id,revision),
+ CONSTRAINT billing_terms_scope UNIQUE(id,workspace_id,environment,account_id)
+);
+ALTER TABLE public.billing_agreed_terms OWNER TO workspace_owner;
+ALTER TABLE public.billing_agreed_terms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.billing_agreed_terms FORCE ROW LEVEL SECURITY;
+REVOKE ALL ON public.billing_agreed_terms FROM PUBLIC,runtime,workspace_bootstrap;
+GRANT SELECT ON public.billing_agreed_terms TO runtime,workspace_bootstrap;
+CREATE POLICY billing_terms_runtime_read ON public.billing_agreed_terms FOR SELECT TO runtime
+ USING(workspace_id::text=current_setting('app.tenant_id',true));
+CREATE POLICY billing_terms_workspace_definer_read ON public.billing_agreed_terms FOR SELECT TO workspace_bootstrap
+ USING(workspace_id::text=current_setting('app.tenant_id',true));
+--> statement-breakpoint
 CREATE TABLE "billing_customer" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"workspace_id" uuid NOT NULL,
@@ -30,6 +52,7 @@ CREATE TABLE "billing_operation" (
 	"idempotency_key" text NOT NULL,
 	"request_hash" text NOT NULL,
 	"customer_id" text,
+	"agreed_terms_id" uuid,
 	"monthly_price_id" text,
 	"onboarding_price_id" text,
 	"currency" text,
@@ -200,35 +223,39 @@ ALTER FUNCTION app_private.billing_admit_customer(text,text,uuid,text,text,text,
 REVOKE ALL ON FUNCTION app_private.billing_admit_customer(text,text,uuid,text,text,text,uuid,text,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION app_private.billing_admit_customer(text,text,uuid,text,text,text,uuid,text,text) TO runtime;
 --> statement-breakpoint
-CREATE FUNCTION app_private.billing_admit_checkout(p_user text,p_session text,p_workspace uuid,p_environment text,p_account text,
-  p_api text,p_id uuid,p_key text,p_hash text,p_customer text,p_monthly text,p_onboarding text,p_currency text,
-  p_monthly_amount bigint,p_onboarding_amount bigint,p_integration text) RETURNS uuid
+CREATE FUNCTION app_private.billing_admit_checkout_v3(p_user text,p_session text,p_workspace uuid,p_environment text,p_account text,
+ p_api text,p_id uuid,p_key text,p_hash text,p_customer text,p_terms uuid,p_revision bigint,p_monthly text,p_currency text,
+ p_monthly_amount bigint,p_integration text) RETURNS uuid
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
-DECLARE existing_id uuid; inserted_id uuid;
+DECLARE admitted uuid; terms public.billing_agreed_terms;
 BEGIN
-  IF NOT app_private.billing_authority(p_user,p_session,p_workspace,false)
-    OR p_environment NOT IN ('sandbox','live') OR p_account !~ '^acct_[A-Za-z0-9]+$'
-    OR p_api <> '2026-09-30.endive' OR p_id IS NULL OR p_key !~ '^[A-Za-z0-9:_-]{1,255}$'
-    OR p_hash !~ '^[0-9a-f]{64}$' OR p_monthly !~ '^price_[A-Za-z0-9]+$'
-    OR p_currency !~ '^[a-z]{3}$' OR p_monthly_amount<=0
-    OR (p_onboarding IS NULL) IS DISTINCT FROM (p_onboarding_amount IS NULL)
-    OR (p_onboarding IS NOT NULL AND (p_onboarding !~ '^price_[A-Za-z0-9]+$' OR p_onboarding_amount<=0))
-    OR p_integration !~ '^[A-Za-z][A-Za-z0-9_-]*_[A-Za-z]{8}$' THEN RETURN NULL; END IF;
-  IF NOT EXISTS (SELECT 1 FROM public.billing_customer c WHERE c.workspace_id=p_workspace AND c.environment=p_environment
-    AND c.account_id=p_account AND c.stripe_customer_id=p_customer AND c.known_subscription_id IS NULL) THEN RETURN NULL; END IF;
-  INSERT INTO public.billing_operation(id,workspace_id,kind,environment,account_id,api_version,idempotency_key,request_hash,
-    customer_id,monthly_price_id,onboarding_price_id,currency,monthly_unit_amount,onboarding_unit_amount,integration_identifier)
-    VALUES(p_id,p_workspace,'CHECKOUT_CREATE',p_environment,p_account,p_api,p_key,p_hash,p_customer,p_monthly,p_onboarding,p_currency,
-      p_monthly_amount,p_onboarding_amount,p_integration)
-    ON CONFLICT(workspace_id,environment,account_id,kind) DO NOTHING RETURNING id INTO inserted_id;
-  IF inserted_id IS NOT NULL THEN RETURN inserted_id; END IF;
-  SELECT id INTO existing_id FROM public.billing_operation
-    WHERE workspace_id=p_workspace AND environment=p_environment AND account_id=p_account AND kind='CHECKOUT_CREATE';
-  RETURN existing_id;
+ -- billing_authority holds User -> Session -> Workspace locks until COMMIT.
+ IF NOT app_private.billing_authority(p_user,p_session,p_workspace,false) THEN RETURN NULL; END IF;
+ -- The native operation slot is independent of today's commercial revision.
+ SELECT id INTO admitted FROM public.billing_operation WHERE workspace_id=p_workspace
+  AND environment=p_environment AND account_id=p_account AND kind='CHECKOUT_CREATE';
+ IF admitted IS NOT NULL THEN RETURN admitted; END IF;
+ SELECT * INTO terms FROM public.billing_agreed_terms WHERE workspace_id=p_workspace AND environment=p_environment
+  AND account_id=p_account ORDER BY revision DESC LIMIT 1;
+ IF NOT coalesce(terms.id=p_terms AND terms.revision=p_revision AND terms.monthly_price_id=p_monthly
+  AND terms.currency=p_currency AND terms.monthly_unit_amount=p_monthly_amount
+  AND p_environment IN ('sandbox','live') AND p_account ~ '^acct_[A-Za-z0-9]+$' AND p_api='2026-09-30.endive'
+  AND p_id IS NOT NULL AND p_key='checkout:'||p_id::text AND p_hash ~ '^[0-9a-f]{64}$'
+  AND p_integration ~ '^[A-Za-z][A-Za-z0-9_-]*_[A-Za-z]{8}$',false) THEN RETURN NULL; END IF;
+ IF NOT EXISTS(SELECT FROM public.billing_customer WHERE workspace_id=p_workspace AND environment=p_environment
+  AND account_id=p_account AND stripe_customer_id=p_customer AND known_subscription_id IS NULL) THEN RETURN NULL; END IF;
+ INSERT INTO public.billing_operation(id,workspace_id,kind,environment,account_id,api_version,idempotency_key,request_hash,
+  customer_id,agreed_terms_id,monthly_price_id,currency,monthly_unit_amount,integration_identifier,checkout_reference_version)
+ VALUES(p_id,p_workspace,'CHECKOUT_CREATE',p_environment,p_account,p_api,p_key,p_hash,p_customer,terms.id,terms.monthly_price_id,
+  terms.currency,terms.monthly_unit_amount,p_integration,'operation-v2')
+ ON CONFLICT(workspace_id,environment,account_id,kind) DO NOTHING RETURNING id INTO admitted;
+ IF admitted IS NULL THEN SELECT id INTO admitted FROM public.billing_operation WHERE workspace_id=p_workspace
+  AND environment=p_environment AND account_id=p_account AND kind='CHECKOUT_CREATE'; END IF;
+ RETURN admitted;
 END $$;
-ALTER FUNCTION app_private.billing_admit_checkout(text,text,uuid,text,text,text,uuid,text,text,text,text,text,text,bigint,bigint,text) OWNER TO workspace_bootstrap;
-REVOKE ALL ON FUNCTION app_private.billing_admit_checkout(text,text,uuid,text,text,text,uuid,text,text,text,text,text,text,bigint,bigint,text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION app_private.billing_admit_checkout(text,text,uuid,text,text,text,uuid,text,text,text,text,text,text,bigint,bigint,text) TO runtime;
+ALTER FUNCTION app_private.billing_admit_checkout_v3(text,text,uuid,text,text,text,uuid,text,text,text,uuid,bigint,text,text,bigint,text) OWNER TO workspace_bootstrap;
+REVOKE ALL ON FUNCTION app_private.billing_admit_checkout_v3(text,text,uuid,text,text,text,uuid,text,text,text,uuid,bigint,text,text,bigint,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION app_private.billing_admit_checkout_v3(text,text,uuid,text,text,text,uuid,text,text,text,uuid,bigint,text,text,bigint,text) TO runtime;
 --> statement-breakpoint
 CREATE FUNCTION app_private.billing_claim_operation(p_user text,p_session text,p_workspace uuid,p_id uuid) RETURNS boolean
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
@@ -304,10 +331,10 @@ CREATE FUNCTION app_private.billing_operation_guard() RETURNS trigger
 LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $$
 BEGIN
   IF ROW(NEW.id,NEW.workspace_id,NEW.kind,NEW.environment,NEW.account_id,NEW.api_version,NEW.idempotency_key,
-      NEW.request_hash,NEW.customer_id,NEW.monthly_price_id,NEW.onboarding_price_id,NEW.currency,
+      NEW.request_hash,NEW.customer_id,NEW.agreed_terms_id,NEW.monthly_price_id,NEW.onboarding_price_id,NEW.currency,
       NEW.monthly_unit_amount,NEW.onboarding_unit_amount,NEW.integration_identifier,NEW.created_at)
     IS DISTINCT FROM ROW(OLD.id,OLD.workspace_id,OLD.kind,OLD.environment,OLD.account_id,OLD.api_version,OLD.idempotency_key,
-      OLD.request_hash,OLD.customer_id,OLD.monthly_price_id,OLD.onboarding_price_id,OLD.currency,
+      OLD.request_hash,OLD.customer_id,OLD.agreed_terms_id,OLD.monthly_price_id,OLD.onboarding_price_id,OLD.currency,
       OLD.monthly_unit_amount,OLD.onboarding_unit_amount,OLD.integration_identifier,OLD.created_at)
     OR NOT (OLD.phase='ADMITTED' AND NEW.phase='DISPATCHING'
       OR OLD.phase='DISPATCHING' AND NEW.phase IN ('SUCCEEDED','UNKNOWN')) THEN
@@ -529,7 +556,8 @@ CREATE POLICY billing_binding_definer ON public.billing_charge_binding TO billin
 CREATE POLICY billing_risk_definer ON public.billing_risk_observation TO billing_definer USING(true) WITH CHECK(true);
 CREATE POLICY billing_agreement_definer ON public.billing_agreement TO billing_definer USING(true) WITH CHECK(true);
 CREATE POLICY billing_current_definer ON public.billing_current_agreement TO billing_definer USING(true) WITH CHECK(true);
-GRANT SELECT ON public.billing_customer,public.billing_operation TO billing_definer;
+GRANT SELECT ON public.billing_customer,public.billing_operation,public.billing_agreed_terms TO billing_definer;
+CREATE POLICY billing_terms_billing_definer_read ON public.billing_agreed_terms FOR SELECT TO billing_definer USING(true);
 GRANT UPDATE(known_subscription_id) ON public.billing_customer TO billing_definer;
 CREATE POLICY billing_customer_reconcile ON public.billing_customer TO billing_definer USING(true) WITH CHECK(true);
 CREATE POLICY billing_operation_reconcile ON public.billing_operation FOR SELECT TO billing_definer USING(true);
@@ -598,33 +626,6 @@ BEGIN
 END $$;
 CREATE TRIGGER billing_binding_insert_guard BEFORE INSERT ON public.billing_charge_binding FOR EACH ROW EXECUTE FUNCTION app_private.billing_binding_insert_guard();
 --> statement-breakpoint
-CREATE FUNCTION app_private.billing_admit_checkout_v2(p_user text,p_session text,p_workspace uuid,p_environment text,p_account text,
- p_api text,p_id uuid,p_key text,p_hash text,p_customer text,p_monthly text,p_onboarding text,p_currency text,
- p_monthly_amount bigint,p_onboarding_amount bigint,p_integration text) RETURNS uuid
-LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
-DECLARE admitted uuid;
-BEGIN
- IF NOT app_private.billing_authority(p_user,p_session,p_workspace,false)
-  OR p_environment NOT IN ('sandbox','live') OR p_account!~'^acct_[A-Za-z0-9]+$' OR p_api<>'2026-09-30.endive'
-  OR p_id IS NULL OR p_key IS DISTINCT FROM 'checkout:'||p_id::text OR p_hash!~'^[0-9a-f]{64}$'
-  OR p_monthly!~'^price_[A-Za-z0-9]+$' OR p_currency!~'^[a-z]{3}$' OR p_monthly_amount<=0
-  OR (p_onboarding IS NULL) IS DISTINCT FROM (p_onboarding_amount IS NULL)
-  OR (p_onboarding IS NOT NULL AND (p_onboarding!~'^price_[A-Za-z0-9]+$' OR p_onboarding_amount<=0))
-  OR p_integration!~'^[A-Za-z][A-Za-z0-9_-]*_[A-Za-z]{8}$' THEN RETURN NULL; END IF;
- IF NOT EXISTS(SELECT FROM public.billing_customer WHERE workspace_id=p_workspace AND environment=p_environment
-  AND account_id=p_account AND stripe_customer_id=p_customer AND known_subscription_id IS NULL) THEN RETURN NULL; END IF;
- INSERT INTO public.billing_operation(id,workspace_id,kind,environment,account_id,api_version,idempotency_key,request_hash,
-  customer_id,monthly_price_id,onboarding_price_id,currency,monthly_unit_amount,onboarding_unit_amount,integration_identifier,checkout_reference_version)
- VALUES(p_id,p_workspace,'CHECKOUT_CREATE',p_environment,p_account,p_api,p_key,p_hash,p_customer,p_monthly,p_onboarding,p_currency,
-  p_monthly_amount,p_onboarding_amount,p_integration,'operation-v2') ON CONFLICT(workspace_id,environment,account_id,kind) DO NOTHING RETURNING id INTO admitted;
- IF admitted IS NULL THEN SELECT id INTO admitted FROM public.billing_operation WHERE workspace_id=p_workspace
-   AND environment=p_environment AND account_id=p_account AND kind='CHECKOUT_CREATE'; END IF;
- RETURN admitted;
-END $$;
-ALTER FUNCTION app_private.billing_admit_checkout_v2(text,text,uuid,text,text,text,uuid,text,text,text,text,text,text,bigint,bigint,text) OWNER TO workspace_bootstrap;
-REVOKE ALL ON FUNCTION app_private.billing_admit_checkout(text,text,uuid,text,text,text,uuid,text,text,text,text,text,text,bigint,bigint,text) FROM runtime;
-REVOKE ALL ON FUNCTION app_private.billing_admit_checkout_v2(text,text,uuid,text,text,text,uuid,text,text,text,text,text,text,bigint,bigint,text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION app_private.billing_admit_checkout_v2(text,text,uuid,text,text,text,uuid,text,text,text,text,text,text,bigint,bigint,text) TO runtime;
 CREATE FUNCTION app_private.billing_reference_immutable() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $$
 BEGIN IF NEW.checkout_reference_version IS DISTINCT FROM OLD.checkout_reference_version THEN RAISE EXCEPTION 'Checkout reference immutable'; END IF; RETURN NEW; END $$;
 CREATE TRIGGER billing_reference_immutable BEFORE UPDATE ON public.billing_operation FOR EACH ROW EXECUTE FUNCTION app_private.billing_reference_immutable();
@@ -844,10 +845,14 @@ BEGIN
   'deadlineAtMs',floor(extract(epoch FROM c.lease_until)*1000),'event',event,'knownInvoiceIds',known,
   'manifestRevision',c.manifest_revision,'targetProgress',c.target_progress,
   'operation',jsonb_build_object('id',op.id,'workspaceId',op.workspace_id,'kind',op.kind,'phase',op.phase,'environment',op.environment,'accountId',op.account_id,
-   'apiVersion',op.api_version,'idempotencyKey',op.idempotency_key,'requestHash',op.request_hash,'customerId',op.customer_id,'monthlyPriceId',op.monthly_price_id,
+   'apiVersion',op.api_version,'idempotencyKey',op.idempotency_key,'requestHash',op.request_hash,'customerId',op.customer_id,'agreedTermsId',op.agreed_terms_id,'monthlyPriceId',op.monthly_price_id,
    'onboardingPriceId',op.onboarding_price_id,'currency',op.currency,'monthlyUnitAmount',op.monthly_unit_amount,'onboardingUnitAmount',op.onboarding_unit_amount,
    'integrationIdentifier',op.integration_identifier,'checkoutReferenceVersion',op.checkout_reference_version,'stripeObjectId',op.stripe_object_id,
    'checkoutUrl',op.checkout_url,'checkoutExpiresAt',op.checkout_expires_at,'createdAt',op.created_at,'updatedAt',op.updated_at),
+  'agreedTerms',(SELECT jsonb_build_object('id',t.id,'workspaceId',t.workspace_id,'environment',t.environment,'accountId',t.account_id,
+    'revision',t.revision,'monthlyPriceId',t.monthly_price_id,'currency',t.currency,'monthlyUnitAmount',t.monthly_unit_amount)
+    FROM public.billing_agreed_terms t WHERE t.id=op.agreed_terms_id AND t.workspace_id=op.workspace_id
+     AND t.environment=op.environment AND t.account_id=op.account_id),
   'customer',jsonb_build_object('id',customer.id,'workspaceId',customer.workspace_id,'environment',customer.environment,'accountId',customer.account_id,
    'stripeCustomerId',customer.stripe_customer_id,'knownSubscriptionId',customer.known_subscription_id,'createdAt',customer.created_at));
 END $$;
@@ -905,8 +910,8 @@ BEGIN
   OR NOT coalesce(app_private.billing_json_keys(lineage,ARRAY['operationId','workspaceId','environment','accountId','customerId','checkoutSessionId','subscriptionId','invoiceId','boundInvoice']),false)
   OR lineage->>'workspaceId' IS DISTINCT FROM tenant::text THEN RAISE EXCEPTION 'Billing observation rejected'; END IF;
  bound:=lineage->'boundInvoice';
- IF jsonb_typeof(bound) IS DISTINCT FROM 'object' OR NOT bound ?& ARRAY['environment','accountId','customerId','subscriptionId','invoiceId','monthlyPriceId','currency','expectedAmount','periodStart','periodEnd']
-  OR EXISTS(SELECT FROM jsonb_object_keys(bound) k WHERE k<>ALL(ARRAY['environment','accountId','customerId','subscriptionId','invoiceId','monthlyPriceId','currency','expectedAmount','periodStart','periodEnd','firstPeriod','onboarding']))
+ IF jsonb_typeof(bound) IS DISTINCT FROM 'object' OR NOT bound ?& ARRAY['environment','accountId','customerId','subscriptionId','invoiceId','agreedTermsId','monthlyPriceId','currency','expectedAmount','periodStart','periodEnd']
+  OR EXISTS(SELECT FROM jsonb_object_keys(bound) k WHERE k<>ALL(ARRAY['environment','accountId','customerId','subscriptionId','invoiceId','agreedTermsId','monthlyPriceId','currency','expectedAmount','periodStart','periodEnd','firstPeriod','onboarding']))
   OR NOT coalesce(app_private.billing_uint(bound->'expectedAmount') AND app_private.billing_uint(bound->'periodStart') AND app_private.billing_uint(bound->'periodEnd'),false)
   OR (bound->>'expectedAmount')::bigint<=0 OR (bound->>'periodStart')::bigint<=0 OR (bound->>'periodEnd')::bigint<=(bound->>'periodStart')::bigint
   OR EXISTS(SELECT FROM unnest(ARRAY['operationId','workspaceId','environment','accountId','customerId','checkoutSessionId','subscriptionId','invoiceId']) k
@@ -939,6 +944,7 @@ BEGIN
  IF op.id::text IS DISTINCT FROM lineage->>'operationId' OR op.kind<>'CHECKOUT_CREATE' OR op.phase NOT IN ('DISPATCHING','UNKNOWN','SUCCEEDED')
   OR customer.id IS NULL OR op.environment IS DISTINCT FROM lineage->>'environment' OR op.account_id IS DISTINCT FROM lineage->>'accountId'
   OR op.customer_id IS DISTINCT FROM lineage->>'customerId' OR op.monthly_price_id IS DISTINCT FROM bound->>'monthlyPriceId'
+  OR op.agreed_terms_id::text IS DISTINCT FROM bound->>'agreedTermsId'
   OR op.currency IS DISTINCT FROM bound->>'currency'
   OR op.monthly_unit_amount+(CASE WHEN bound->>'firstPeriod'='true' THEN coalesce(op.onboarding_unit_amount,0) ELSE 0 END) IS DISTINCT FROM (bound->>'expectedAmount')::bigint
   OR bound->>'firstPeriod'='true' AND op.onboarding_price_id IS NOT NULL AND
@@ -1419,3 +1425,38 @@ END $$;
 ALTER FUNCTION app_private.billing_complete_cancellation(text,text,uuid,uuid,text) OWNER TO workspace_bootstrap;
 REVOKE ALL ON FUNCTION app_private.billing_complete_cancellation(text,text,uuid,uuid,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION app_private.billing_complete_cancellation(text,text,uuid,uuid,text) TO runtime;
+
+--> statement-breakpoint
+-- No v1/v2 Checkout admission is installed: all executable admissions bind terms.
+ALTER TABLE public.billing_operation ADD CONSTRAINT billing_operation_terms_scope
+ FOREIGN KEY(agreed_terms_id,workspace_id,environment,account_id)
+ REFERENCES public.billing_agreed_terms(id,workspace_id,environment,account_id);
+ALTER TABLE public.billing_operation ADD CONSTRAINT billing_operation_terms_shape
+ CHECK ((kind='CHECKOUT_CREATE')=(agreed_terms_id IS NOT NULL) AND onboarding_price_id IS NULL AND onboarding_unit_amount IS NULL);
+CREATE FUNCTION app_private.billing_terms_insert_guard() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $$
+DECLARE latest bigint;
+BEGIN
+ -- Only the existing migration/administration owner can INSERT. The same
+ -- Workspace lock serializes assignment against native financial admission.
+ PERFORM id FROM public.workspace WHERE id=NEW.workspace_id FOR UPDATE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'Billing Workspace unavailable' USING ERRCODE='23514'; END IF;
+ SELECT max(revision) INTO latest FROM public.billing_agreed_terms
+  WHERE workspace_id=NEW.workspace_id AND environment=NEW.environment AND account_id=NEW.account_id;
+ IF NEW.revision IS DISTINCT FROM coalesce(latest,0)+1 THEN RAISE EXCEPTION 'Billing terms revision rejected' USING ERRCODE='23514'; END IF;
+ RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION app_private.billing_terms_insert_guard() FROM PUBLIC;
+CREATE TRIGGER billing_terms_insert_guard BEFORE INSERT ON public.billing_agreed_terms FOR EACH ROW EXECUTE FUNCTION app_private.billing_terms_insert_guard();
+CREATE TRIGGER billing_terms_immutable BEFORE UPDATE OR DELETE ON public.billing_agreed_terms FOR EACH ROW EXECUTE FUNCTION app_private.billing_immutable();
+CREATE TRIGGER billing_operation_delete_immutable BEFORE DELETE ON public.billing_operation FOR EACH ROW EXECUTE FUNCTION app_private.billing_immutable();
+CREATE FUNCTION app_private.billing_operation_terms_guard() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $$
+BEGIN
+ IF NEW.kind='CHECKOUT_CREATE' AND NOT EXISTS(SELECT FROM public.billing_agreed_terms t
+  WHERE t.id=NEW.agreed_terms_id AND t.workspace_id=NEW.workspace_id AND t.environment=NEW.environment AND t.account_id=NEW.account_id
+   AND t.monthly_price_id=NEW.monthly_price_id AND t.currency=NEW.currency AND t.monthly_unit_amount=NEW.monthly_unit_amount) THEN
+  RAISE EXCEPTION 'Billing operation terms rejected' USING ERRCODE='23514';
+ END IF;
+ RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION app_private.billing_operation_terms_guard() FROM PUBLIC;
+CREATE TRIGGER billing_operation_terms_guard BEFORE INSERT ON public.billing_operation FOR EACH ROW EXECUTE FUNCTION app_private.billing_operation_terms_guard();

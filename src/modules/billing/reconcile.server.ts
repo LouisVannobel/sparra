@@ -44,6 +44,7 @@ export type MonetaryProvider = Readonly<{
 export type BoundMonthlyInvoice = Readonly<{
   environment: 'sandbox' | 'live'; accountId: string; customerId: string
   subscriptionId: string; invoiceId: string; monthlyPriceId: string
+  agreedTermsId: string
   currency: string; expectedAmount: number; periodStart: number; periodEnd: number
   firstPeriod?: boolean
   onboarding?: Readonly<{ priceId: string; amount: number }> | null
@@ -76,17 +77,13 @@ const idOf = (value: unknown): string | null => typeof value === 'string' ? valu
 
 function requireBound(config: StripeConfig, bound: BoundMonthlyInvoice): void {
   if (bound.environment !== config.environment || bound.accountId !== config.accountId
-    || bound.monthlyPriceId !== config.monthlyPriceId || !customerId.test(bound.customerId)
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(bound.agreedTermsId)
+    || !customerId.test(bound.customerId)
     || !subscriptionId.test(bound.subscriptionId) || !invoiceId.test(bound.invoiceId)
     || !priceId.test(bound.monthlyPriceId) || !/^[a-z]{3}$/.test(bound.currency)
     || !positive(bound.expectedAmount) || !positive(bound.periodStart)
     || !positive(bound.periodEnd) || bound.periodEnd <= bound.periodStart
-    || config.onboardingPriceId === null && bound.onboarding != null
-    || config.onboardingPriceId !== null && typeof bound.firstPeriod !== 'boolean'
-    || bound.onboarding != null && (bound.onboarding.priceId !== config.onboardingPriceId
-      || bound.onboarding.priceId === bound.monthlyPriceId || !positive(bound.onboarding.amount))
-    || config.onboardingPriceId !== null && bound.firstPeriod === true && bound.onboarding == null
-    || !positive(bound.expectedAmount - (bound.firstPeriod ? bound.onboarding?.amount ?? 0 : 0))) fail()
+    || bound.onboarding != null) fail()
 }
 
 function checkedInvoice(invoice: MonthlyInvoice, bound: BoundMonthlyInvoice, expectedLive: boolean, unpaid = false): string {

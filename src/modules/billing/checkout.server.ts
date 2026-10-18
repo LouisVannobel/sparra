@@ -7,8 +7,9 @@ import type { AdmittedPrincipal } from '../auth/session.server'
 import type { StripeConfig } from './stripe-config.server'
 import { buildCheckoutParameters, type CheckoutIntent, type createStripeBillingClient } from './stripe.server'
 import { billingAgreement, billingCurrentAgreement, billingCustomer, billingOperation } from './schema.server'
+import { operationMonthlyTerms, readAgreedMonthlyTerms, type AgreedMonthlyTerms } from './agreed-terms.server'
 
-export type BillingClient = ReturnType<typeof createStripeBillingClient>
+export type BillingClient = Pick<ReturnType<typeof createStripeBillingClient>, 'retrievePrice' | 'createCustomer' | 'createCheckout'>
 export type BillingInput = Readonly<{ workspaceId: string }>
 export type BillingSummary = Readonly<{
   availability: 'available' | 'unavailable'
@@ -30,7 +31,8 @@ function options(signal?: AbortSignal) {
 export function parseBillingInput(input: unknown): BillingInput {
   if (input === null || typeof input !== 'object' || Array.isArray(input)
     || Object.keys(input).length !== 1 || !Object.hasOwn(input, 'workspaceId')) throw refusal(400)
-  const selected: unknown = (input as Record<string, unknown>).workspaceId
+  if (!('workspaceId' in input)) throw refusal(400)
+  const selected = input.workspaceId
   if (typeof selected !== 'string' || !uuid.test(selected) || selected === zero) throw refusal(400)
   return { workspaceId: selected }
 }
@@ -109,7 +111,13 @@ export async function readBillingState(owner: AuthTransactions, principal: Admit
     const cancellation = cancellationState(current, config)
     const [pointer] = await lease.db.select().from(billingCurrentAgreement)
       .where(eq(billingCurrentAgreement.workspaceId, lease.workspaceId))
-    if (!pointer) return { availability: 'available', state: state(current), paidThrough: null, cancellation }
+    if (!pointer) {
+      if (!current.checkoutOperation && !current.customer?.knownSubscriptionId
+        && !await readAgreedMonthlyTerms(lease, config.environment, config.accountId)) {
+        return { availability: 'unavailable', state: 'unavailable', paidThrough: null, cancellation }
+      }
+      return { availability: 'available', state: state(current), paidThrough: null, cancellation }
+    }
     const [agreement] = await lease.db.select().from(billingAgreement).where(and(
       eq(billingAgreement.id, pointer.agreementId), eq(billingAgreement.workspaceId, lease.workspaceId),
       eq(billingAgreement.environment, config.environment), eq(billingAgreement.accountId, config.accountId)))
@@ -120,27 +128,24 @@ export async function readBillingState(owner: AuthTransactions, principal: Admit
   })
 }
 
-type Catalog = Readonly<{ currency: string; monthlyAmount: number; onboardingAmount: number | null }>
 function validPrice(price: Stripe.Price, id: string, live: boolean) {
   return price.object === 'price' && price.id === id && price.livemode === live && price.active
     && /^[a-z]{3}$/.test(price.currency) && typeof price.unit_amount === 'number'
     && Number.isSafeInteger(price.unit_amount) && price.unit_amount > 0
 }
-async function catalog(owner: AuthTransactions, config: StripeConfig, client: BillingClient): Promise<Catalog> {
+async function catalog(owner: AuthTransactions, config: StripeConfig, client: BillingClient, terms: AgreedMonthlyTerms): Promise<void> {
   owner.assertNoActiveAuthTransaction()
-  let monthly: Stripe.Price, onboarding: Stripe.Price | null = null
+  let monthly: Stripe.Price
   try {
-    monthly = await client.retrievePrice(config.monthlyPriceId)
-    if (config.onboardingPriceId) onboarding = await client.retrievePrice(config.onboardingPriceId)
+    monthly = await client.retrievePrice(terms.monthlyPriceId)
   } catch { throw refusal(503) }
   const live = config.environment === 'live'
-  if (!validPrice(monthly, config.monthlyPriceId, live) || monthly.type !== 'recurring'
+  if (!validPrice(monthly, terms.monthlyPriceId, live) || monthly.type !== 'recurring'
     || monthly.billing_scheme !== 'per_unit' || monthly.recurring?.interval !== 'month'
     || monthly.recurring.interval_count !== 1 || monthly.recurring.usage_type !== 'licensed'
-    || monthly.recurring.meter != null || config.onboardingPriceId === config.monthlyPriceId
-    || onboarding && (!validPrice(onboarding, config.onboardingPriceId!, live) || onboarding.type !== 'one_time'
-      || onboarding.recurring != null || onboarding.currency !== monthly.currency)) throw refusal(503)
-  return { currency: monthly.currency, monthlyAmount: monthly.unit_amount!, onboardingAmount: onboarding?.unit_amount ?? null }
+    || monthly.recurring.meter != null || monthly.currency !== terms.currency
+    || monthly.transform_quantity != null || monthly.custom_unit_amount != null
+    || monthly.unit_amount !== terms.monthlyUnitAmount) throw refusal(503)
 }
 function customerBody(workspaceId: string) { return JSON.stringify({ metadata: { workspace_id: workspaceId } }) }
 function checkoutBody(config: StripeConfig, intent: CheckoutIntent) { return JSON.stringify(buildCheckoutParameters(config, intent)) }
@@ -150,8 +155,6 @@ function integrationIdentifier(id: string) {
 }
 function matchesConfig(operation: typeof billingOperation.$inferSelect, config: StripeConfig) {
   return operation.environment === config.environment && operation.accountId === config.accountId && operation.apiVersion === config.apiVersion
-    && (operation.kind === 'CUSTOMER_CREATE' || operation.monthlyPriceId === config.monthlyPriceId
-      && operation.onboardingPriceId === config.onboardingPriceId)
 }
 async function customerFor(owner: AuthTransactions, principal: AdmittedPrincipal, workspaceId: string,
   config: StripeConfig, client: BillingClient, signal?: AbortSignal): Promise<string> {
@@ -164,7 +167,7 @@ async function customerFor(owner: AuthTransactions, principal: AdmittedPrincipal
   })
   if (admitted.current.customer) return admitted.current.customer.stripeCustomerId
   const operation = admitted.current.customerOperation
-  if (!admitted.id || !operation || operation.id !== admitted.id || !matchesConfig(operation, config)
+  if (!operation || operation.id !== admitted.id || !matchesConfig(operation, config)
     || operation.requestHash !== hash) throw refusal(503)
   if (operation.id !== newId) throw refusal(409)
   if (operation.phase !== 'ADMITTED') throw refusal(409)
@@ -196,7 +199,10 @@ async function markUnknown(owner: AuthTransactions, principal: AdmittedPrincipal
 
 export async function startCheckout(owner: AuthTransactions, principal: AdmittedPrincipal, config: StripeConfig,
   client: BillingClient, workspaceId: string, signal?: AbortSignal): Promise<{ url: string }> {
-  const initial = await scoped(owner, principal, workspaceId, signal, lease => snapshot(lease, config))
+  const { initial, terms } = await scoped(owner, principal, workspaceId, signal, async lease => {
+    const initial = await snapshot(lease, config)
+    return { initial, terms: initial.checkoutOperation ? null : await readAgreedMonthlyTerms(lease, config.environment, config.accountId) }
+  })
   if (initial.customer?.knownSubscriptionId) throw refusal(409)
   const previous = initial.checkoutOperation
   if (previous) {
@@ -205,36 +211,42 @@ export async function startCheckout(owner: AuthTransactions, principal: Admitted
       if (previous.checkoutExpiresAt !== null && previous.checkoutExpiresAt > initial.observedAtSeconds) return { url: previous.checkoutUrl }
       throw refusal(409)
     }
-    if (previous.phase !== 'ADMITTED') throw refusal(409)
+    // Only the request that inserted an ADMITTED operation owns its send.
+    // A retained slot never acquires another intent, key or provider POST.
+    throw refusal(409)
   }
+  if (!terms) throw refusal(503)
   if (initial.customerOperation && initial.customerOperation.phase !== 'SUCCEEDED'
     && initial.customerOperation.phase !== 'ADMITTED') throw refusal(409)
-  const prices = await catalog(owner, config, client)
+  await catalog(owner, config, client, terms)
   const customerId = initial.customer?.stripeCustomerId ?? await customerFor(owner, principal, workspaceId, config, client, signal)
   const newId = randomUUID(), newKey = `checkout:${newId}`, newIntegration = integrationIdentifier(newId)
-  const proposed: CheckoutIntent = { workspaceId, customerId, idempotencyKey: newKey, integrationIdentifier: newIntegration, operationReference: newId }
+  const proposed: CheckoutIntent = { workspaceId, customerId, idempotencyKey: newKey, integrationIdentifier: newIntegration, operationReference: newId,
+    terms: { id: terms.id, monthlyPriceId: terms.monthlyPriceId, currency: terms.currency, monthlyUnitAmount: terms.monthlyUnitAmount } }
   const hash = sha256(checkoutBody(config, proposed))
   const admitted = await scoped(owner, principal, workspaceId, signal, async lease => {
-    const [result] = await lease.db.select({ id: sql<string | null>`app_private.billing_admit_checkout_v2(${principal.userId},${principal.sessionId},
+    const [result] = await lease.db.select({ id: sql<string | null>`app_private.billing_admit_checkout_v3(${principal.userId},${principal.sessionId},
       ${workspaceId}::uuid,${config.environment},${config.accountId},${config.apiVersion},${newId}::uuid,${newKey},${hash},
-      ${customerId},${config.monthlyPriceId},${config.onboardingPriceId},${prices.currency},${prices.monthlyAmount},
-      ${prices.onboardingAmount},${newIntegration})` }).from(singleRow)
+      ${customerId},${terms.id}::uuid,${terms.revision}::bigint,${terms.monthlyPriceId},${terms.currency},${terms.monthlyUnitAmount}::bigint,${newIntegration})` }).from(singleRow)
     const current = await snapshot(lease, config)
     return { id: result?.id ?? null, current }
   })
   if (admitted.current.customer?.knownSubscriptionId) throw refusal(409)
+  if (!admitted.id) throw refusal(409)
   const operation = admitted.current.checkoutOperation
   if (!admitted.id || !operation || operation.id !== admitted.id || !matchesConfig(operation, config)
-    || operation.customerId !== customerId || operation.currency !== prices.currency
-    || operation.monthlyUnitAmount !== prices.monthlyAmount || operation.onboardingUnitAmount !== prices.onboardingAmount) throw refusal(503)
+    || operation.customerId !== customerId) throw refusal(503)
+  if (operation.id !== newId) throw refusal(409)
+  if (operation.agreedTermsId !== terms.id || operation.monthlyPriceId !== terms.monthlyPriceId || operation.currency !== terms.currency
+    || operation.monthlyUnitAmount !== terms.monthlyUnitAmount || operation.onboardingPriceId !== null || operation.onboardingUnitAmount !== null) throw refusal(503)
   if (operation.phase === 'SUCCEEDED' && operation.checkoutUrl) {
     if (operation.checkoutExpiresAt !== null && operation.checkoutExpiresAt > admitted.current.observedAtSeconds) return { url: operation.checkoutUrl }
     throw refusal(409)
   }
-  if (operation.id !== newId) throw refusal(409)
   if (operation.phase !== 'ADMITTED' || !operation.integrationIdentifier) throw refusal(409)
   const intent: CheckoutIntent = { workspaceId, customerId, idempotencyKey: operation.idempotencyKey,
     integrationIdentifier: operation.integrationIdentifier,
+    terms: operationMonthlyTerms(operation),
     ...(operation.checkoutReferenceVersion === 'operation-v2' ? { operationReference: operation.id } : {}) }
   if (sha256(checkoutBody(config, intent)) !== operation.requestHash) throw refusal(503)
   const claimed = await scoped(owner, principal, workspaceId, signal, async lease => {
