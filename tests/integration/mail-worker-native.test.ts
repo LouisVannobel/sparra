@@ -67,8 +67,23 @@ test('built application relay and native worker consume the real SQL snapshot th
     const code = await bounded(exit, 15000)
     outcome.shutdownBy15s = { processExited: true, scopeStopped: output.includes('Application worker stopped') }
     expect(performance.now()-shutdownAt).toBeLessThanOrEqual(15000)
-    expect(code).toBe(0)
     const lines = output.trim().split(/\r?\n/)
+    const countLine = (line: string) => lines.filter(value => value === line).length
+    const shutdownLogCounts = {
+      ready: countLine('Application worker ready'),
+      nativeStopCompleted: countLine('Application worker lifecycle native-stop-completed'),
+      nativeStopFailed: countLine('Application worker lifecycle native-stop-failed'),
+      nativeStartCompleted: countLine('Application worker lifecycle native-start-completed'),
+      nativeStartResolved: countLine('Application worker lifecycle native-start-resolved'),
+      nativeStartCancelled: countLine('Application worker lifecycle native-start-cancelled'),
+      nativeStartFailed: countLine('Application worker lifecycle native-start-failed'),
+      handlersStopped: countLine('Application worker lifecycle handlers-stopped'),
+      relayStopped: countLine('Application worker lifecycle relay-stopped'),
+      cleanupUnavailable: countLine('Application worker cleanup unavailable'),
+      stopped: countLine('Application worker stopped'),
+    }
+    outcome.shutdownLogCounts = shutdownLogCounts
+    expect(code, JSON.stringify({ shutdownLogCounts, processExited: child.exitCode !== null })).toBe(0)
     const expected = ['Application worker ready','Application worker lifecycle native-stop-completed','Application worker lifecycle native-start-completed','Application worker lifecycle handlers-stopped','Application worker lifecycle relay-stopped','Application worker stopped']
     const nativeOutcomes = ['Application worker lifecycle native-start-resolved','Application worker lifecycle native-start-cancelled']
     // Never place raw child content in assertion diagnostics.

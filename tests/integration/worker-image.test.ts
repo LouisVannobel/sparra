@@ -29,14 +29,25 @@ beforeAll(async () => {
     BILLING_RELAY_DATABASE_URL: billing.relay, BILLING_WORKER_DATABASE_URL: billing.worker,
   })
   running = true
-  await expect.poll(async () => (await stores!.imageLogs(app!.id)).stdout.includes('Application worker ready\n'), { timeout: 30000 }).toBe(true)
+  const readyDeadline = Date.now() + 30000
+  while (Date.now() < readyDeadline) {
+    if ((await stores.imageLogs(app.id)).stdout.includes('Application worker ready\n')) return
+    await new Promise(resolve => setTimeout(resolve, 100))
+  }
+  throw new Error('Worker image readiness deadline exceeded')
 }, 600000)
 
 afterAll(async () => {
   const failures: unknown[] = []
   if (running && app && stores) {
     try { await stores.signalWeb(app.id, 'SIGTERM'); expect(await stores.waitWeb(app.id, 30000)).toBe(0); running = false }
-    catch (error) { failures.push(error) }
+    catch (error) {
+      failures.push(error)
+      // Emergency fixture retirement never proves a normal application stop.
+      // The original failure stays fatal; both signals check exact ownership.
+      try { await stores.signalWeb(app.id, 'SIGKILL') } catch (killError) { failures.push(killError) }
+      try { await stores.waitWeb(app.id, 30000); running = false } catch (waitError) { failures.push(waitError) }
+    }
   }
   if (app) {
     try { await app.retire() } catch (error) { failures.push(error) }
