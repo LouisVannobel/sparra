@@ -66,12 +66,11 @@ function subscriptionCustomer(subscription: Pick<Stripe.Subscription, 'object' |
   if (subscription.object !== 'subscription' || subscription.livemode !== live || subscription.customer_account !== null) fail()
   return reference(subscription.customer, 'customer', live)
 }
-function matchesPrice(price: Stripe.Price | null, id: string, amount: number, currency: string, live: boolean, recurring: boolean): boolean {
+function matchesPrice(price: Stripe.Price | null, id: string, amount: number, currency: string, live: boolean): boolean {
   return price !== null && price.object === 'price' && price.id === id && price.livemode === live
     && price.currency === currency && price.unit_amount === amount && price.billing_scheme === 'per_unit'
-    && (recurring ? price.type === 'recurring' && price.recurring?.interval === 'month'
-      && price.recurring.interval_count === 1 && price.recurring.usage_type === 'licensed' && price.recurring.meter == null
-      : price.type === 'one_time' && price.recurring === null)
+    && price.type === 'recurring' && price.recurring?.interval === 'month'
+    && price.recurring.interval_count === 1 && price.recurring.usage_type === 'licensed' && price.recurring.meter == null
 }
 
 type CheckoutOperation = typeof billingOperation.$inferSelect & {
@@ -97,9 +96,6 @@ function requireCheckoutSnapshot(operation: typeof billingOperation.$inferSelect
     || !operation.currency || !/^[a-z]{3}$/.test(operation.currency)
     || !positive(operation.monthlyUnitAmount) || !operation.integrationIdentifier
     || operation.checkoutReferenceVersion !== 'legacy-v1' && operation.checkoutReferenceVersion !== 'operation-v2'
-    || operation.onboardingPriceId === null && operation.onboardingUnitAmount !== null
-    || operation.onboardingPriceId !== null && (!positive(operation.onboardingUnitAmount)
-      || operation.onboardingPriceId === operation.monthlyPriceId)
     || operation.phase === 'SUCCEEDED' && operation.stripeObjectId === null
     || operation.phase !== 'SUCCEEDED' && operation.stripeObjectId !== null) fail()
 }
@@ -112,7 +108,7 @@ function requireMonthlySubscription(subscription: LineageSubscription, subscript
     || !Array.isArray(subscription.items.data) || subscription.items.data.length !== 1) fail()
   const item = subscription.items.data[0]!
   if (item.object !== 'subscription_item' || item.subscription !== subscription.id || item.quantity !== 1
-    || !matchesPrice(item.price, operation.monthlyPriceId, operation.monthlyUnitAmount, operation.currency, live, true)) fail()
+    || !matchesPrice(item.price, operation.monthlyPriceId, operation.monthlyUnitAmount, operation.currency, live)) fail()
 }
 
 function requireCompletedSession(session: LineageSession, sessionId: string, subscriptionId: string,
@@ -125,43 +121,17 @@ function requireCompletedSession(session: LineageSession, sessionId: string, sub
     || session.currency !== operation.currency || session.status !== 'complete') fail()
 }
 
-type Onboarding = Readonly<{ priceId: string; amount: number }> | null
 function requireExactCheckoutLine(line: LineageItem, priceId: string, amount: number,
-  operation: CheckoutOperation, live: boolean, monthly: boolean): void {
+  operation: CheckoutOperation, live: boolean): void {
   if (line.object !== 'item'
     || line.quantity !== 1 || line.currency !== operation.currency || line.amount_subtotal !== amount
     || line.amount_total !== amount || line.amount_tax !== 0 || line.amount_discount !== 0
-    || !matchesPrice(line.price, priceId, amount, operation.currency, live, monthly)) fail()
+    || !matchesPrice(line.price, priceId, amount, operation.currency, live)) fail()
 }
 
-function requireCheckoutLines(lines: LineageItem[], operation: CheckoutOperation, live: boolean): Onboarding {
-  const onboarding = operation.onboardingPriceId === null ? null
-    : { priceId: operation.onboardingPriceId, amount: operation.onboardingUnitAmount! }
-  if (lines.length !== (onboarding ? 2 : 1)) fail()
-  const expectedPrices = new Set([operation.monthlyPriceId, ...(onboarding ? [onboarding.priceId] : [])])
-  for (const line of lines) {
-    const priceId = line.price?.id
-    const monthly = priceId === operation.monthlyPriceId
-    const amount = monthly ? operation.monthlyUnitAmount : onboarding?.amount
-    if (!priceId || !expectedPrices.delete(priceId) || !amount) fail()
-    requireExactCheckoutLine(line, priceId, amount, operation, live, monthly)
-  }
-  if (expectedPrices.size !== 0) fail()
-
-  return onboarding
-}
-
-function requireOnboardingInvoiceLine(invoice: LineageInvoice, monthlyId: string, subscriptionId: string,
-  operation: CheckoutOperation, onboarding: Exclude<Onboarding, null>, live: boolean): void {
-  const extra = invoice.lines.data.find(row => row.id !== monthlyId)
-  const extraPrice = extra?.pricing?.type === 'price_details' ? extra.pricing.price_details?.price : null
-  if (!extra || extra.object !== 'line_item' || extra.livemode !== live || extra.quantity !== 1
-    || extra.currency !== operation.currency || extra.amount !== onboarding.amount
-    || (typeof extraPrice === 'string' ? extraPrice : extraPrice?.id) !== onboarding.priceId
-    || reference(extra.subscription, 'subscription', live) !== subscriptionId
-    || extra.parent?.type !== 'invoice_item_details'
-    || extra.parent.invoice_item_details?.subscription !== subscriptionId
-    || extra.parent.invoice_item_details.proration !== false) fail()
+function requireCheckoutLines(lines: LineageItem[], operation: CheckoutOperation, live: boolean): void {
+  if (lines.length !== 1) fail()
+  requireExactCheckoutLine(lines[0]!, operation.monthlyPriceId, operation.monthlyUnitAmount, operation, live)
 }
 
 function requireMonthlyServicePeriod(monthly: LineageInvoice['lines']['data'][number], subscriptionId: string,
@@ -175,25 +145,24 @@ function requireMonthlyServicePeriod(monthly: LineageInvoice['lines']['data'][nu
 }
 
 function checkedMonthlyPeriod(invoice: LineageInvoice, subscriptionId: string,
-  operation: CheckoutOperation, firstPeriod: boolean, onboarding: Onboarding, live: boolean) {
+  operation: CheckoutOperation, live: boolean) {
   const monthlyLines = invoice.lines.data.filter(row => row.pricing?.type === 'price_details'
     && (typeof row.pricing.price_details?.price === 'string' ? row.pricing.price_details.price : row.pricing.price_details?.price?.id) === operation.monthlyPriceId)
-  if (monthlyLines.length !== 1 || invoice.lines.data.length !== (firstPeriod && onboarding ? 2 : 1)) fail()
+  if (monthlyLines.length !== 1 || invoice.lines.data.length !== 1) fail()
   const monthly = monthlyLines[0]!
   requireMonthlyServicePeriod(monthly, subscriptionId, operation, live)
   return monthly
 }
 
 function checkedInvoicePeriod(invoice: LineageInvoice, session: LineageSession, invoiceId: string,
-  subscriptionId: string, operation: CheckoutOperation, onboarding: Onboarding, live: boolean) {
+  subscriptionId: string, operation: CheckoutOperation, live: boolean) {
   const firstPeriod = invoice.billing_reason === 'subscription_create'
   if (!firstPeriod && invoice.billing_reason !== 'subscription_cycle'
     || invoice.currency !== operation.currency || invoice.lines?.object !== 'list'
     || invoice.lines.has_more !== false || !Array.isArray(invoice.lines.data)) fail()
   if (firstPeriod && reference(session.invoice, 'invoice', live) !== invoiceId) fail()
-  const monthly = checkedMonthlyPeriod(invoice, subscriptionId, operation, firstPeriod, onboarding, live)
-  if (firstPeriod && onboarding) requireOnboardingInvoiceLine(invoice, monthly.id, subscriptionId, operation, onboarding, live)
-  const expectedAmount = operation.monthlyUnitAmount + (firstPeriod && onboarding ? onboarding.amount : 0)
+  const monthly = checkedMonthlyPeriod(invoice, subscriptionId, operation, live)
+  const expectedAmount = operation.monthlyUnitAmount
   if (!positive(expectedAmount)) fail()
   return { firstPeriod, monthly, expectedAmount }
 }
@@ -249,13 +218,13 @@ export async function proveBillingLineage(config: StripeConfig, provider: Lineag
   const session = await provider.retrieveCheckoutSession(sessionId)
   requireCompletedSession(session, sessionId, subscription.id, customerId, originalReference, operation, live)
   const lines = await collectBillingPages(cursor => provider.listCheckoutLineItems(sessionId, cursor), requireLineagePageRow, fail)
-  const onboarding = requireCheckoutLines(lines, operation, live)
+  requireCheckoutLines(lines, operation, live)
 
-  const { firstPeriod, monthly, expectedAmount } = checkedInvoicePeriod(invoice, session, invoiceId, subscription.id, operation, onboarding, live)
+  const { firstPeriod, monthly, expectedAmount } = checkedInvoicePeriod(invoice, session, invoiceId, subscription.id, operation, live)
   const boundInvoice: BoundMonthlyInvoice = Object.freeze({ environment: config.environment, accountId: config.accountId,
     customerId, subscriptionId: subscription.id, invoiceId, agreedTermsId: terms.id, monthlyPriceId: operation.monthlyPriceId,
     currency: operation.currency, expectedAmount, periodStart: monthly.period.start, periodEnd: monthly.period.end,
-    firstPeriod, onboarding: onboarding ? Object.freeze(onboarding) : null })
+    firstPeriod, onboarding: null })
   return Object.freeze({ operationId: operation.id, workspaceId: operation.workspaceId, environment: config.environment,
     accountId: config.accountId, customerId, checkoutSessionId: sessionId, subscriptionId: subscription.id, invoiceId, boundInvoice })
 }

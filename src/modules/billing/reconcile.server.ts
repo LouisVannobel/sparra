@@ -117,11 +117,11 @@ function requireInvoiceAmounts(invoice: MonthlyInvoice, bound: BoundMonthlyInvoi
     || invoice.total_pretax_credit_amounts.length !== 0) fail()
 }
 
-function requireInvoiceLineEnvelope(invoice: MonthlyInvoice, onboarding: BoundMonthlyInvoice['onboarding']): void {
+function requireInvoiceLineEnvelope(invoice: MonthlyInvoice): void {
   if (!Number.isSafeInteger(invoice.period_start) || invoice.period_start < 0
     || !Number.isSafeInteger(invoice.period_end) || invoice.period_end < invoice.period_start
     || invoice.lines?.object !== 'list' || invoice.lines.has_more !== false
-    || !Array.isArray(invoice.lines.data) || invoice.lines.data.length !== (onboarding ? 2 : 1)) fail()
+    || !Array.isArray(invoice.lines.data) || invoice.lines.data.length !== 1) fail()
 }
 
 function requireMonthlyLineScope(line: MonthlyLine | undefined, bound: BoundMonthlyInvoice,
@@ -146,39 +146,12 @@ function checkedMonthlyLine(invoice: MonthlyInvoice, bound: BoundMonthlyInvoice,
   return line
 }
 
-function requireOnboardingLineScope(extra: MonthlyLine | undefined, bound: BoundMonthlyInvoice,
-  expectedLive: boolean, onboarding: NonNullable<BoundMonthlyInvoice['onboarding']>): asserts extra is MonthlyLine {
-  if (!extra || extra.object !== 'line_item' || extra.livemode !== expectedLive
-    || extra.currency !== bound.currency || extra.amount !== onboarding.amount || extra.quantity !== 1
-    || idOf(extra.subscription) !== bound.subscriptionId || extra.parent?.type !== 'invoice_item_details'
-    || extra.parent.invoice_item_details?.proration !== false
-    || idOf(extra.parent.invoice_item_details.subscription) !== bound.subscriptionId) fail()
-}
-
-function checkedOnboardingLine(invoice: MonthlyInvoice, line: MonthlyLine, bound: BoundMonthlyInvoice,
-  expectedLive: boolean, onboarding: BoundMonthlyInvoice['onboarding']) {
-  const extra = onboarding ? invoice.lines.data.find(row => row.id !== line.id) : undefined
-  if (onboarding) {
-    requireOnboardingLineScope(extra, bound, expectedLive, onboarding)
-    if (extra.pricing?.type !== 'price_details' || idOf(extra.pricing.price_details?.price) !== onboarding.priceId
-      || !Array.isArray(extra.pretax_credit_amounts) || extra.pretax_credit_amounts.length !== 0
-      || !Number.isSafeInteger(extra.period.start) || !Number.isSafeInteger(extra.period.end)
-      || extra.period.start < 0 || extra.period.end < extra.period.start) fail()
-  }
-
-  return extra
-}
-
 function checkedInvoice(invoice: MonthlyInvoice, bound: BoundMonthlyInvoice, expectedLive: boolean, unpaid = false): string {
-  const onboarding = bound.firstPeriod ? bound.onboarding : null
-  const monthlyAmount = bound.expectedAmount - (onboarding?.amount ?? 0)
   requireInvoiceScope(invoice, bound, expectedLive, unpaid)
   requireInvoiceAmounts(invoice, bound, unpaid)
-  requireInvoiceLineEnvelope(invoice, onboarding)
+  requireInvoiceLineEnvelope(invoice)
 
-  const line = checkedMonthlyLine(invoice, bound, expectedLive, monthlyAmount)
-
-  const extra = checkedOnboardingLine(invoice, line, bound, expectedLive, onboarding)
+  const line = checkedMonthlyLine(invoice, bound, expectedLive, bound.expectedAmount)
 
   // Compare values rather than the provider object's identity. A second
   // response can be a different allocation or line snapshot for the same ID.
@@ -190,8 +163,7 @@ function checkedInvoice(invoice: MonthlyInvoice, bound: BoundMonthlyInvoice, exp
     lineId: line.id, lineAmount: line.amount, linePeriod: line.period,
     price: bound.monthlyPriceId, amountPaidOffStripe: invoice.amount_paid_off_stripe ?? 0,
     status: invoice.status, remaining: invoice.amount_remaining,
-    onboarding: extra ? { id: extra.id, amount: extra.amount, period: extra.period,
-      price: onboarding!.priceId, invoiceItem: extra.parent?.invoice_item_details?.invoice_item } : null,
+    onboarding: null,
   })
 }
 

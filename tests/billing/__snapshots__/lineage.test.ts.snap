@@ -1,0 +1,41 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`unpaid canceled allocation preserves null paid amount and no captured charge proof 1`] = `
+{
+  "amountDue": 1500,
+  "amountPaid": 0,
+  "amountRemaining": 1500,
+  "currency": "eur",
+  "customerId": "cus_fixture",
+  "invoiceId": "in_fixture123",
+  "invoicePaymentIds": [
+    "inpay_fixture123",
+  ],
+  "kind": "unpaid-invoice",
+  "observationDigest": "f79a3273896a42ff219c503c20cfb3325a405cf28d4308ebdc74d0050a3cb242",
+  "periodEnd": 1793491200,
+  "periodStart": 1790812800,
+  "status": "open",
+  "subscriptionId": "sub_fixture123",
+}
+`;
+
+exports[`unpaid open allocation preserves null paid amount and no captured charge proof 1`] = `
+{
+  "amountDue": 1500,
+  "amountPaid": 0,
+  "amountRemaining": 1500,
+  "currency": "eur",
+  "customerId": "cus_fixture",
+  "invoiceId": "in_fixture123",
+  "invoicePaymentIds": [
+    "inpay_fixture123",
+  ],
+  "kind": "unpaid-invoice",
+  "observationDigest": "c4dac2ffda4210a76256f70d86d217401b910a73996264a0755350e50b002812",
+  "periodEnd": 1793491200,
+  "periodStart": 1790812800,
+  "status": "open",
+  "subscriptionId": "sub_fixture123",
+}
+`;

@@ -88,6 +88,22 @@ test('conditions and operation binding are immutable and runtime has no terms wr
   const b = await agree(f, 2)
   await expect(stores.administrator.query('UPDATE billing_operation SET agreed_terms_id=$1 WHERE id=$2', [b.id, id])).rejects.toMatchObject({ code: '23514' })
   expect((await stores.administrator.query("SELECT to_regprocedure('app_private.billing_admit_checkout(text,text,uuid,text,text,text,uuid,text,text,text,text,text,text,bigint,bigint,text)') AS v1,to_regprocedure('app_private.billing_admit_checkout_v2(text,text,uuid,text,text,text,uuid,text,text,text,text,text,text,bigint,bigint,text)') AS v2")).rows[0]).toEqual({ v1: null, v2: null })
+  // SAFETY: only the owned disposable database receives these rejected INSERTs.
+  // The paired positive fee passes the historical shape check but must fail the monthly-only constraint.
+  for (const fee of [
+    { price: 'price_onboarding', amount: null, error: { code: '23514' } },
+    { price: null, amount: 100, error: { code: '23514' } },
+    { price: 'price_onboarding', amount: 100, error: { code: '23514', constraint: 'billing_operation_terms_shape' } },
+  ]) {
+    const rejectedId = randomUUID()
+    await expect(stores.administrator.query(`INSERT INTO billing_operation(id,workspace_id,kind,phase,environment,account_id,
+      api_version,idempotency_key,request_hash,customer_id,agreed_terms_id,monthly_price_id,onboarding_price_id,
+      currency,monthly_unit_amount,onboarding_unit_amount,integration_identifier,checkout_reference_version)
+      SELECT $1,workspace_id,kind,phase,environment,account_id,api_version,$2,request_hash,customer_id,agreed_terms_id,
+        monthly_price_id,$3,currency,monthly_unit_amount,$4,integration_identifier,checkout_reference_version
+      FROM billing_operation WHERE id=$5`, [rejectedId, 'checkout:' + rejectedId, fee.price, fee.amount, id]))
+      .rejects.toMatchObject(fee.error)
+  }
   for (const role of ['runtime', 'billing_relay', 'billing_worker']) {
     expect((await stores.administrator.query("SELECT has_table_privilege($1,'billing_agreed_terms','INSERT,UPDATE,DELETE,TRUNCATE') AS writable", [role])).rows[0].writable).toBe(false)
   }

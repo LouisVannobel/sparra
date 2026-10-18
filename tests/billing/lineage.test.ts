@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import Stripe from 'stripe'
 import { expect, test } from 'vitest'
 import { proveBillingLineage, type LineageProvider, type ObservedBillingLineage } from '../../src/modules/billing/lineage.server'
 import { provePaidMonthlyInvoice, proveUnpaidMonthlyInvoice, type BoundMonthlyInvoice, type MonetaryProvider } from '../../src/modules/billing/reconcile.server'
@@ -210,6 +211,7 @@ test.each(['open', 'canceled'] satisfies Array<'open' | 'canceled'>)('unpaid %s 
   expect(result).toMatchObject({ kind: 'unpaid-invoice', amountPaid: 0, amountDue: 1500, amountRemaining: 1500,
     invoicePaymentIds: ['inpay_fixture123'] })
   expect(result).not.toHaveProperty('chargeIds')
+  expect(result).toMatchSnapshot()
 })
 
 test.each([
@@ -234,8 +236,9 @@ test.each([
 test.each([
   { onboardingPriceId: 'price_alias', onboardingUnitAmount: null },
   { onboardingPriceId: null, onboardingUnitAmount: 0 },
+  { onboardingPriceId: 'price_alias', onboardingUnitAmount: 500 },
 ])('lineage refuses forbidden onboarding $onboardingPriceId/$onboardingUnitAmount at entry before provider I/O', async fee => {
-  const input = lineageInputs(), held = holdFirstInvoice(provider())
+  const input = lineageInputs(), held = holdFirstInvoice(provider()); held.release()
   input.operation = { ...input.operation, ...fee }
   await expect(proveBillingLineage(input.config, held.client, input.operation, input.customer, 'in_fixture123', input.terms))
     .rejects.toMatchObject({ name: 'BillingLineageError', message: 'Billing lineage unavailable' })
@@ -243,11 +246,13 @@ test.each([
 })
 
 test.each([
-  { label: 'paid', prove: provePaidMonthlyInvoice },
-  { label: 'unpaid', prove: proveUnpaidMonthlyInvoice },
-])('$label proof refuses nonnull onboarding at entry before provider I/O', async ({ prove }) => {
-  const held = holdFirstInvoice(provider())
-  await expect(prove(config, held.client, { ...originalBound, onboarding: { priceId: 'price_alias', amount: 0 } }))
+  { label: 'paid', prove: provePaidMonthlyInvoice, firstPeriod: true },
+  { label: 'unpaid', prove: proveUnpaidMonthlyInvoice, firstPeriod: true },
+  { label: 'paid', prove: provePaidMonthlyInvoice, firstPeriod: false },
+  { label: 'unpaid', prove: proveUnpaidMonthlyInvoice, firstPeriod: false },
+])('$label proof refuses nonnull onboarding firstPeriod=$firstPeriod at entry before provider I/O', async ({ prove, firstPeriod }) => {
+  const held = holdFirstInvoice(provider()); held.release()
+  await expect(prove(config, held.client, { ...originalBound, firstPeriod, onboarding: { priceId: 'price_alias', amount: 0 } }))
     .rejects.toMatchObject({ name: 'BillingMonetaryError', message: 'Billing monetary proof unavailable' })
   expect(held.requests).toEqual([])
 })
@@ -383,4 +388,54 @@ test('an unpaid allocation and zero received amount cannot erase a captured late
     .rejects.toMatchObject({ name: 'BillingMonetaryError', message: 'Billing monetary proof unavailable' })
   expect(held.requests).toEqual(['invoice:in_fixture123', 'allocations:in_fixture123:', 'invoice:in_fixture123',
     'allocations:in_fixture123:', 'balance:cus_fixture:', 'intent:pi_fixture123', 'charge:ch_fixture123'])
+})
+
+test('monthly lineage refuses an extra zero-amount Checkout line instead of ignoring it', async () => {
+  const client = provider()
+  const extraLine: LineageProvider & MonetaryProvider = { ...client, async listCheckoutLineItems(id, cursor) {
+    const page = await client.listCheckoutLineItems(id, cursor)
+    const extra: (typeof page.data)[number] = { ...page.data[0]!, id: 'li_extraZero', amount_subtotal: 0, amount_total: 0,
+      price: { ...f.price, id: 'price_extraZero', unit_amount: 0, unit_amount_decimal: Stripe.Decimal.from('0'),
+        type: 'one_time', recurring: null } }
+    return { ...page, data: [...page.data, extra] }
+  } }
+  const held = holdFirstInvoice(extraLine); held.release()
+  await expect(proveBillingLineage(config, held.client, checkoutOperation, customer, 'in_fixture123', termsA))
+    .rejects.toMatchObject({ name: 'BillingLineageError', message: 'Billing lineage unavailable' })
+  expect(held.requests).toEqual(['invoice:in_fixture123', 'subscription:sub_fixture123',
+    'sessions:sub_fixture123:cus_fixture:', 'checkout:cs_test_fixture123', 'lines:cs_test_fixture123:'])
+})
+
+test('monthly lineage refuses an extra zero-amount Invoice line instead of ignoring it', async () => {
+  const client = provider()
+  const extraLine: LineageProvider & MonetaryProvider = { ...client, async retrieveInvoice(id) {
+    const invoice = await client.retrieveInvoice(id), monthly = invoice.lines.data[0]!
+    const extra: typeof monthly = { ...monthly, id: 'il_extraZero', amount: 0,
+      pricing: { type: 'price_details', unit_amount_decimal: Stripe.Decimal.from('0'),
+        price_details: { price: 'price_extraZero', product: 'prod_extraZero' } } }
+    return { ...invoice, lines: { ...invoice.lines, data: [...invoice.lines.data, extra] } }
+  } }
+  const held = holdFirstInvoice(extraLine); held.release()
+  await expect(proveBillingLineage(config, held.client, checkoutOperation, customer, 'in_fixture123', termsA))
+    .rejects.toMatchObject({ name: 'BillingLineageError', message: 'Billing lineage unavailable' })
+  expect(held.requests).toEqual(['invoice:in_fixture123', 'subscription:sub_fixture123',
+    'sessions:sub_fixture123:cus_fixture:', 'checkout:cs_test_fixture123', 'lines:cs_test_fixture123:'])
+})
+
+test.each([
+  { label: 'paid', prove: provePaidMonthlyInvoice, unpaid: false },
+  { label: 'unpaid', prove: proveUnpaidMonthlyInvoice, unpaid: true },
+])('$label monthly proof refuses an extra zero-amount Invoice line before later payment reads', async ({ prove, unpaid }) => {
+  const client = unpaid ? unpaidProvider('open') : provider()
+  const extraLine: LineageProvider & MonetaryProvider = { ...client, async retrieveInvoice(id) {
+    const invoice = await client.retrieveInvoice(id), monthly = invoice.lines.data[0]!
+    const extra: typeof monthly = { ...monthly, id: 'il_extraZero', amount: 0,
+      pricing: { type: 'price_details', unit_amount_decimal: Stripe.Decimal.from('0'),
+        price_details: { price: 'price_extraZero', product: 'prod_extraZero' } } }
+    return { ...invoice, lines: { ...invoice.lines, data: [...invoice.lines.data, extra] } }
+  } }
+  const held = holdFirstInvoice(extraLine); held.release()
+  await expect(prove(config, held.client, originalBound))
+    .rejects.toMatchObject({ name: 'BillingMonetaryError', message: 'Billing monetary proof unavailable' })
+  expect(held.requests).toEqual(['invoice:in_fixture123'])
 })
