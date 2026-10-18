@@ -7,7 +7,7 @@ const checkout: Rule = { objectType: 'checkout.session', idPattern: /^cs_(?:test
 const subscription: Rule = { objectType: 'subscription', idPattern: /^sub_[A-Za-z0-9]+$/, kind: 'subscription' }
 const invoice: Rule = { objectType: 'invoice', idPattern: /^in_[A-Za-z0-9]+$/, kind: 'invoice' }
 const charge: Rule = { objectType: 'charge', idPattern: /^ch_[A-Za-z0-9]+$/, kind: 'charge' }
-const dispute: Rule = { objectType: 'dispute', idPattern: /^dp_[A-Za-z0-9]+$/, kind: 'dispute' }
+const dispute: Rule = { objectType: 'dispute', idPattern: /^(dp|du)_[A-Za-z0-9]+$/, kind: 'dispute' }
 const earlyFraudWarning: Rule = {
   objectType: 'radar.early_fraud_warning', idPattern: /^issfr_[A-Za-z0-9]+$/, kind: 'early_fraud_warning',
 }

@@ -8,7 +8,7 @@ export const billingNatural = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0),
 export const billingPositive = billingNatural.check(Schema.isGreaterThan(0))
 const id = (prefix: string) => Schema.String.check(Schema.isMaxLength(255), Schema.isPattern(new RegExp(`^${prefix}_[A-Za-z0-9]+$`)))
 export const billingIds = { invoice: id('in'), charge: id('ch'), intent: id('pi'), customer: id('cus'), subscription: id('sub'),
-  price: id('price'), dispute: id('dp'), warning: id('issfr'), allocation: id('inpay'), account: id('acct'), event: id('evt') }
+  price: id('price'), dispute: id('(dp|du)'), warning: id('issfr'), allocation: id('inpay'), account: id('acct'), event: id('evt') }
 const currency = Schema.String.check(Schema.isPattern(/^[a-z]{3}$/))
 export const billingHash = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/))
 export const billingEnvironment = Schema.Literals(['sandbox', 'live'])

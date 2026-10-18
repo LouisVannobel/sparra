@@ -680,12 +680,12 @@ BEGIN
  WHEN 'charge.dispute.created' THEN 'dispute' WHEN 'charge.dispute.updated' THEN 'dispute' WHEN 'charge.dispute.closed' THEN 'dispute'
  WHEN 'radar.early_fraud_warning.created' THEN 'radar.early_fraud_warning' END;
  pattern:=CASE event_kind WHEN 'checkout.session' THEN '^cs_(test|live)_[A-Za-z0-9]+$' WHEN 'subscription' THEN '^sub_[A-Za-z0-9]+$'
- WHEN 'invoice' THEN '^in_[A-Za-z0-9]+$' WHEN 'charge' THEN '^ch_[A-Za-z0-9]+$' WHEN 'dispute' THEN '^dp_[A-Za-z0-9]+$' ELSE '^issfr_[A-Za-z0-9]+$' END;
+ WHEN 'invoice' THEN '^in_[A-Za-z0-9]+$' WHEN 'charge' THEN '^ch_[A-Za-z0-9]+$' WHEN 'dispute' THEN '^(dp|du)_[A-Za-z0-9]+$' ELSE '^issfr_[A-Za-z0-9]+$' END;
  refs:=p->'references'; e:=p->>'environment'; a:=p->>'accountId'; charge:=refs->>'chargeId'; risk:=event_kind IN ('charge','dispute','radar.early_fraud_warning');
  IF event_kind IS NULL OR p->>'objectType' IS DISTINCT FROM event_kind OR (p->>'objectId')!~pattern OR length(p->>'objectId')>255
  OR EXISTS(SELECT FROM jsonb_each(refs) v WHERE v.value<>'null'::jsonb AND (jsonb_typeof(v.value)<>'string' OR length(v.value#>>'{}')>255
   OR (v.value#>>'{}')!~CASE v.key WHEN 'customerId' THEN '^cus_[A-Za-z0-9]+$' WHEN 'subscriptionId' THEN '^sub_[A-Za-z0-9]+$'
-   WHEN 'paymentIntentId' THEN '^pi_[A-Za-z0-9]+$' WHEN 'chargeId' THEN '^ch_[A-Za-z0-9]+$' ELSE '^(dp|issfr)_[A-Za-z0-9]+$' END))
+   WHEN 'paymentIntentId' THEN '^pi_[A-Za-z0-9]+$' WHEN 'chargeId' THEN '^ch_[A-Za-z0-9]+$' ELSE '^(dp|du|issfr)_[A-Za-z0-9]+$' END))
  OR risk AND charge IS NULL OR event_kind='charge' AND charge IS DISTINCT FROM p->>'objectId'
  OR event_kind IN ('dispute','radar.early_fraud_warning') AND refs->>'riskId' IS DISTINCT FROM p->>'objectId'
  OR event_kind IN ('dispute','radar.early_fraud_warning') AND (refs->>'customerId' IS NOT NULL OR refs->>'subscriptionId' IS NOT NULL)
@@ -1182,7 +1182,7 @@ BEGIN
   IF NOT coalesce(CASE risk_value->>'riskKind' WHEN 'dispute' THEN app_private.billing_json_keys(risk_value,ARRAY['riskId','chargeId','paymentIntentId','status','riskKind'])
     ELSE app_private.billing_json_keys(risk_value,ARRAY['riskId','chargeId','paymentIntentId','actionable','riskKind']) END,false)
    OR NOT (snapshot->'chargeIds') ? (risk_value->>'chargeId')
-   OR NOT coalesce(risk_value->>'riskId' ~ CASE WHEN risk_value->>'riskKind'='dispute' THEN '^dp_[A-Za-z0-9]+$' ELSE '^issfr_[A-Za-z0-9]+$' END,false)
+   OR NOT coalesce(risk_value->>'riskId' ~ CASE WHEN risk_value->>'riskKind'='dispute' THEN '^(dp|du)_[A-Za-z0-9]+$' ELSE '^issfr_[A-Za-z0-9]+$' END,false)
    OR length(risk_value->>'riskId')>255
    OR risk_value->>'riskKind'='dispute' AND NOT coalesce(risk_value->>'status' IN ('lost','needs_response','prevented','under_review','warning_closed','warning_needs_response','warning_under_review','won'),false)
    OR risk_value->>'riskKind'='warning' AND jsonb_typeof(risk_value->'actionable') IS DISTINCT FROM 'boolean'

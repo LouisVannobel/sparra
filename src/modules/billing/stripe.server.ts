@@ -35,7 +35,7 @@ const ids = {
   customerBalanceTransaction: /^cbtxn_[A-Za-z0-9]+$/,
   creditNote: /^cn_[A-Za-z0-9]+$/,
   review: /^prv_[A-Za-z0-9]+$/,
-  dispute: /^dp_[A-Za-z0-9]+$/,
+  dispute: /^(dp|du)_[A-Za-z0-9]+$/,
   earlyFraudWarning: /^issfr_[A-Za-z0-9]+$/,
   lineItem: /^li_[A-Za-z0-9]+$/,
 } as const

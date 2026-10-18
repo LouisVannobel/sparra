@@ -37,7 +37,7 @@ const referencePatterns: Readonly<Record<ReferenceKind, RegExp>> = Object.freeze
   subscription: /^sub_[A-Za-z0-9]+$/,
   payment_intent: /^pi_[A-Za-z0-9]+$/,
   charge: /^ch_[A-Za-z0-9]+$/,
-  dispute: /^dp_[A-Za-z0-9]+$/,
+  dispute: /^(dp|du)_[A-Za-z0-9]+$/,
   'radar.early_fraud_warning': /^issfr_[A-Za-z0-9]+$/,
 })
 

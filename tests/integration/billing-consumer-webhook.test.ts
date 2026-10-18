@@ -157,3 +157,36 @@ test('native server shutdown joins an unfinished webhook body before normal proc
     expect(await receiptCount(id)).toBe(0)
   } finally { call.destroy(); await bounded(closed) }
 })
+
+test.each(['dp', 'du'] as const)('signed native %s Dispute retains one unassigned SQL receipt and no paid right', async prefix => {
+  const { origin } = await application(stripe), id = 'evt_disputeHttp' + prefix
+  const raw = JSON.stringify({ ...payload(id), type: 'charge.dispute.created', data: { object: {
+    id: prefix + '_nativeHttp', object: 'dispute', livemode: false, charge: 'ch_disputeHttp' + prefix,
+    payment_intent: 'pi_disputeHttp' + prefix, status: 'needs_response' } } })
+  for (let duplicate = 0; duplicate < 2; duplicate++) expect(await post(origin, raw)).toEqual({ kind: 'response', status: 204 })
+  expect(await receiptCount(id)).toBe(1)
+  expect((await stores.administrator.query('SELECT projection,charge_id,risk_id FROM billing_event_receipt WHERE event_id=$1', [id])).rows)
+    .toEqual([{ projection: { id, type: 'charge.dispute.created', created: JSON.parse(raw).created,
+      objectId: prefix + '_nativeHttp', objectType: 'dispute', projectionVersion: 1,
+      environment: 'sandbox', accountId: 'acct_fixture', references: { customerId: null, subscriptionId: null,
+        paymentIntentId: 'pi_disputeHttp' + prefix, chargeId: 'ch_disputeHttp' + prefix, riskId: prefix + '_nativeHttp' } },
+    charge_id: 'ch_disputeHttp' + prefix, risk_id: prefix + '_nativeHttp' }])
+  expect((await stores.administrator.query('SELECT count(*)::int AS n FROM billing_command c JOIN billing_event_receipt r ON r.id=c.receipt_id WHERE r.event_id=$1', [id])).rows[0].n).toBe(0)
+  expect((await stores.administrator.query('SELECT count(*)::int AS n FROM billing_agreement')).rows[0].n).toBe(0)
+  expect((await stores.administrator.query('SELECT count(*)::int AS n FROM billing_current_agreement')).rows[0].n).toBe(0)
+})
+
+test.each(['signature', 'account', 'environment', 'object', 'prefix', 'charge'] as const)(
+  'signed native du Dispute keeps %s rejection before any SQL receipt', async mutation => {
+    const { origin } = await application(stripe), id = 'evt_disputeRejected' + mutation
+    const raw = JSON.stringify({ ...payload(id), type: 'charge.dispute.created',
+      ...(mutation === 'account' ? { account: 'acct_foreign' } : {}),
+      ...(mutation === 'environment' ? { livemode: true } : {}), data: { object: {
+        id: mutation === 'prefix' ? 'dx_nativeHttp' : 'du_nativeHttp',
+        object: mutation === 'object' ? 'charge' : 'dispute', livemode: false,
+        charge: mutation === 'charge' ? null : 'ch_nativeHttp', payment_intent: 'pi_nativeHttp' } } })
+    const result = await post(origin, raw, mutation === 'signature' ? 'invalid' : signature(raw))
+    expect(result.kind === 'closed' || result.kind === 'response' && result.status === 503).toBe(true)
+    expect(await receiptCount(id)).toBe(0)
+    expect((await fetch(origin + '/health/ready')).status).toBe(200)
+  })

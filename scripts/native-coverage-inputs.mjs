@@ -132,7 +132,7 @@ function requestsBlobFile(table,file,fileCount,root,seen) {
 function billingBlobFile(table,file,fileCount,root,seen) {
   const filepath=resolve(blobValue(table,file.filepath))
   const consumer=billingConsumers.find(([path])=>filepath===join(root,path))
-  if(fileCount!==7||!consumer||seen.has(filepath))throw new Error('Native billing blob has an unexpected consumer')
+  if(fileCount!==8||!consumer||seen.has(filepath))throw new Error('Native billing blob has an unexpected consumer')
   seen.add(filepath)
   return passedLeafNames(table,file,consumer[1],'Native billing blob has unexpected leaves')
 }
@@ -160,7 +160,7 @@ export function readNativeBlob(filePath, name, root, startedAt, version) {
     count += admitTestFile(table, blobValue(table, reference), name, files.length, root, startedAt, seen)
   }
   if (!count || (name === 'activity' && count !== 12) || (name === 'requests' && count !== 40)
-    || (name === 'billing' && count !== 45)) throw new Error('Native coverage test cardinality mismatch')
+    || (name === 'billing' && count !== 55)) throw new Error('Native coverage test cardinality mismatch')
   const coverage = blobValue(table, envelope[3])
   admitCoverageEntries(table, coverage, root)
   return { table, coverage, digest }
@@ -361,6 +361,14 @@ const billingConsumers=[
     'native webhook rejects oversize before any durable receipt',
     'aborting a native request body closes its client transport and produces no receipt or paid right',
     'native server shutdown joins an unfinished webhook body before normal process and store retirement',
+    'signed native dp Dispute retains one unassigned SQL receipt and no paid right',
+    'signed native du Dispute retains one unassigned SQL receipt and no paid right',
+    'signed native du Dispute keeps signature rejection before any SQL receipt',
+    'signed native du Dispute keeps account rejection before any SQL receipt',
+    'signed native du Dispute keeps environment rejection before any SQL receipt',
+    'signed native du Dispute keeps object rejection before any SQL receipt',
+    'signed native du Dispute keeps prefix rejection before any SQL receipt',
+    'signed native du Dispute keeps charge rejection before any SQL receipt',
   ]],
   ['tests/integration/billing-consumer-browser.test.ts',[
     'compiled billing redirects anonymous navigation and never provisions a null Workspace',
@@ -379,15 +387,19 @@ const billingConsumers=[
   ['tests/integration/mail-worker-native.test.ts',[
     'built application relay and native worker consume the real SQL snapshot through controlled TLS and drain on shutdown',
   ]],
+  ['tests/integration/billing-dispute-namespace.test.ts',[
+    'native SQL receipt authority independently admits du and refuses unknown namespace or inconsistent risk references',
+    'native worker SQL records dp and du facts under the exact observed scope without creating paid entitlement',
+  ]],
 ]
 
 function billingSummaryPassed(report) {
-  const counters={numTotalTests:45,numPassedTests:45,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
+  const counters={numTotalTests:55,numPassedTests:55,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
   return report?.success===true&&Object.entries(counters).every(([key,wanted])=>report[key]===wanted)
 }
 
 export function assertBillingReport(report,root) {
-  if(!billingSummaryPassed(report)||!Array.isArray(report.testResults)||report.testResults.length!==7
+  if(!billingSummaryPassed(report)||!Array.isArray(report.testResults)||report.testResults.length!==8
     ||!billingConsumers.every(([path,names])=>{
       const matches=report.testResults.filter(file=>file?.name===join(root,path).replaceAll('\\','/'))
       const file=matches[0]
@@ -396,7 +408,7 @@ export function assertBillingReport(report,root) {
         &&file.assertionResults.every((test,index)=>test?.status==='passed'&&test.fullName===names[index]
           &&Array.isArray(test.failureMessages)&&test.failureMessages.length===0)
     })) {
-    throw new Error('Native Billing requires its exact seven consumers and 45 passing leaves')
+    throw new Error('Native Billing requires its exact eight consumers and 55 passing leaves')
   }
 }
 
