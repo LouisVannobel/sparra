@@ -1,5 +1,6 @@
 import Stripe from 'stripe'
-import { Redacted } from 'effect'
+import { createStripeTransport, StripeInputError, StripeProviderError } from './stripe-transport.server'
+export { StripeInputError, StripeProviderError } from './stripe-transport.server'
 import type { StripeConfig } from './stripe-config.server'
 
 export type CheckoutIntent = Readonly<{
@@ -19,14 +20,6 @@ export type SubscriptionCancellationIntent = Readonly<{
   idempotencyKey: string
 }>
 export type SubscriptionCancellationObservation = Readonly<{ subscriptionId: string; cancelAtPeriodEnd: true }>
-
-export class StripeInputError extends Error {
-  constructor() { super('Stripe billing input rejected'); this.name = 'StripeInputError' }
-}
-
-export class StripeProviderError extends Error {
-  constructor() { super('Stripe provider outcome unknown'); this.name = 'StripeProviderError' }
-}
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const customer = /^cus_[A-Za-z0-9]+$/
@@ -134,33 +127,15 @@ async function guarded<T>(call: () => Promise<T>): Promise<T> {
   catch { throw new StripeProviderError() }
 }
 
-export function createStripeBillingClient(config: StripeConfig) {
-  // Stripe 23 retries a first ECONNRESET/EPIPE even with maxNetworkRetries: 0.
-  // A rejected makeRequest has no response headers, so normalize every such
-  // failure before the SDK's retry decision. Completed responses still use the
-  // official SDK reader and parser without alteration.
-  const native = Stripe.createNodeHttpClient()
-  const httpClient = {
-    getClientName: () => native.getClientName(),
-    async makeRequest(...args: Parameters<typeof native.makeRequest>) {
-      try { return await native.makeRequest(...args) }
-      catch { throw new Error('Stripe transport outcome unknown') }
-    },
-  }
-  const stripe = new Stripe(Redacted.value(config.apiKey), {
-    apiVersion: '2026-09-30.endive',
-    maxNetworkRetries: 0,
-    timeout: 10000,
-    telemetry: false,
-    emitEventBodies: false,
-    httpClient,
-  })
+export function createStripeBillingClient(config: StripeConfig, signal: AbortSignal, deadlineAtMs: number) {
+  const transport = createStripeTransport(config, signal, deadlineAtMs)
+  const { stripe } = transport
   const expectedLive = config.environment === 'live'
   const reads = createStripeReadMethods(config, stripe)
   return Object.freeze({
     async retrievePrice(id: string): Promise<Stripe.Price> {
       requireId(id, price)
-      return guarded(async () => {
+      return transport.owned(async () => {
         const result = await stripe.prices.retrieve(id)
         if (result.id !== id || result.object !== 'price' || result.livemode !== expectedLive) throw new StripeProviderError()
         return result
@@ -168,7 +143,7 @@ export function createStripeBillingClient(config: StripeConfig) {
     },
     async createCustomer(intent: CustomerCreateIntent): Promise<Readonly<{ id: string }>> {
       requireCustomerIntent(intent)
-      return guarded(async () => {
+      return transport.owned(async () => {
         const result = await stripe.customers.create({ metadata: { workspace_id: intent.workspaceId } },
           { idempotencyKey: intent.idempotencyKey })
         if (!customer.test(result.id) || result.object !== 'customer' || result.livemode !== expectedLive) throw new StripeProviderError()
@@ -177,14 +152,14 @@ export function createStripeBillingClient(config: StripeConfig) {
     },
     async createCheckout(intent: CheckoutIntent): Promise<CheckoutNavigation> {
       const parameters = buildCheckoutParameters(config, intent)
-      return guarded(async () => acceptedSession(
+      return transport.owned(async () => acceptedSession(
         await stripe.checkout.sessions.create(parameters, { idempotencyKey: intent.idempotencyKey }),
         config, intent,
       ))
     },
     async cancelSubscriptionAtPeriodEnd(intent: SubscriptionCancellationIntent): Promise<SubscriptionCancellationObservation> {
       requireCancellationIntent(intent)
-      return guarded(async () => {
+      return transport.owned(async () => {
         const result = await stripe.subscriptions.update(intent.subscriptionId,
           { cancel_at_period_end: true }, { idempotencyKey: intent.idempotencyKey })
         if (result.id !== intent.subscriptionId || result.object !== 'subscription'
@@ -193,12 +168,13 @@ export function createStripeBillingClient(config: StripeConfig) {
         return Object.freeze({ subscriptionId: result.id, cancelAtPeriodEnd: true })
       })
     },
-    retrieveSubscription: reads.retrieveSubscription,
-    retrieveInvoice: reads.retrieveInvoice,
-    listInvoicePayments: reads.listInvoicePayments,
-    retrievePaymentIntent: reads.retrievePaymentIntent,
-    retrieveCharge: reads.retrieveCharge,
-    listCustomerBalanceTransactions: reads.listCustomerBalanceTransactions,
+    retrieveSubscription: (id: string) => transport.owned(() => reads.retrieveSubscription(id)),
+    retrieveInvoice: (id: string) => transport.owned(() => reads.retrieveInvoice(id)),
+    listInvoicePayments: (id: string, cursor?: string) => transport.owned(() => reads.listInvoicePayments(id, cursor)),
+    retrievePaymentIntent: (id: string) => transport.owned(() => reads.retrievePaymentIntent(id)),
+    retrieveCharge: (id: string) => transport.owned(() => reads.retrieveCharge(id)),
+    listCustomerBalanceTransactions: (id: string, cursor?: string) => transport.owned(() => reads.listCustomerBalanceTransactions(id, cursor)),
+    close: transport.close,
   })
 }
 

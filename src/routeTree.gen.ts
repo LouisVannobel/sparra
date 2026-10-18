@@ -18,6 +18,7 @@ import { Route as AppIndexRouteImport } from './routes/app.index'
 import { Route as AppEntrepriseRouteImport } from './routes/app.entreprise'
 import { Route as HealthLiveRouteImport } from './routes/health.live'
 import { Route as HealthReadyRouteImport } from './routes/health.ready'
+import { Route as WebhooksStripeRouteImport } from './routes/webhooks.stripe'
 import { Route as AppDemandesRequestIdRouteImport } from './routes/app.demandes.$requestId'
 import { Route as AuthMagicConfirmRouteImport } from './routes/auth.magic.confirm'
 import { Route as AuthMagicConsumeRouteImport } from './routes/auth.magic.consume'
@@ -72,6 +73,11 @@ const HealthReadyRoute = HealthReadyRouteImport.update({
   path: '/health/ready',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WebhooksStripeRoute = WebhooksStripeRouteImport.update({
+  id: '/webhooks/stripe',
+  path: '/webhooks/stripe',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppDemandesRequestIdRoute = AppDemandesRequestIdRouteImport.update({
   id: '/demandes/$requestId',
   path: '/demandes/$requestId',
@@ -124,6 +130,7 @@ export interface FileRoutesByFullPath {
   '/app/entreprise': typeof AppEntrepriseRoute
   '/health/live': typeof HealthLiveRoute
   '/health/ready': typeof HealthReadyRoute
+  '/webhooks/stripe': typeof WebhooksStripeRoute
   '/app/': typeof AppIndexRoute
   '/app/demandes/$requestId': typeof AppDemandesRequestIdRoute
   '/auth/magic/confirm': typeof AuthMagicConfirmRoute
@@ -142,6 +149,7 @@ export interface FileRoutesByTo {
   '/app/entreprise': typeof AppEntrepriseRoute
   '/health/live': typeof HealthLiveRoute
   '/health/ready': typeof HealthReadyRoute
+  '/webhooks/stripe': typeof WebhooksStripeRoute
   '/app': typeof AppIndexRoute
   '/app/demandes/$requestId': typeof AppDemandesRequestIdRoute
   '/auth/magic/confirm': typeof AuthMagicConfirmRoute
@@ -162,6 +170,7 @@ export interface FileRoutesById {
   '/app/entreprise': typeof AppEntrepriseRoute
   '/health/live': typeof HealthLiveRoute
   '/health/ready': typeof HealthReadyRoute
+  '/webhooks/stripe': typeof WebhooksStripeRoute
   '/app/': typeof AppIndexRoute
   '/app/demandes/$requestId': typeof AppDemandesRequestIdRoute
   '/auth/magic/confirm': typeof AuthMagicConfirmRoute
@@ -183,6 +192,7 @@ export interface FileRouteTypes {
     | '/app/entreprise'
     | '/health/live'
     | '/health/ready'
+    | '/webhooks/stripe'
     | '/app/'
     | '/app/demandes/$requestId'
     | '/auth/magic/confirm'
@@ -201,6 +211,7 @@ export interface FileRouteTypes {
     | '/app/entreprise'
     | '/health/live'
     | '/health/ready'
+    | '/webhooks/stripe'
     | '/app'
     | '/app/demandes/$requestId'
     | '/auth/magic/confirm'
@@ -220,6 +231,7 @@ export interface FileRouteTypes {
     | '/app/entreprise'
     | '/health/live'
     | '/health/ready'
+    | '/webhooks/stripe'
     | '/app/'
     | '/app/demandes/$requestId'
     | '/auth/magic/confirm'
@@ -239,6 +251,7 @@ export interface RootRouteChildren {
   WorkspaceRoute: typeof WorkspaceRoute
   HealthLiveRoute: typeof HealthLiveRoute
   HealthReadyRoute: typeof HealthReadyRoute
+  WebhooksStripeRoute: typeof WebhooksStripeRoute
   AuthMagicConfirmRoute: typeof AuthMagicConfirmRoute
   AuthMagicConsumeRoute: typeof AuthMagicConsumeRoute
   AuthMagicEnrollRoute: typeof AuthMagicEnrollRoute
@@ -311,6 +324,13 @@ declare module '@tanstack/react-router' {
       path: '/health/ready'
       fullPath: '/health/ready'
       preLoaderRoute: typeof HealthReadyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/webhooks/stripe': {
+      id: '/webhooks/stripe'
+      path: '/webhooks/stripe'
+      fullPath: '/webhooks/stripe'
+      preLoaderRoute: typeof WebhooksStripeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/app/demandes/$requestId': {
@@ -394,6 +414,7 @@ const rootRouteChildren: RootRouteChildren = {
   WorkspaceRoute: WorkspaceRoute,
   HealthLiveRoute: HealthLiveRoute,
   HealthReadyRoute: HealthReadyRoute,
+  WebhooksStripeRoute: WebhooksStripeRoute,
   AuthMagicConfirmRoute: AuthMagicConfirmRoute,
   AuthMagicConsumeRoute: AuthMagicConsumeRoute,
   AuthMagicEnrollRoute: AuthMagicEnrollRoute,

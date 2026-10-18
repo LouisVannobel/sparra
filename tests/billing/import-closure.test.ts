@@ -34,7 +34,7 @@ describe('consumer billing import closure', () => {
       const loaded = await import('../../src/modules/billing/billing.server').then(module => ({ module, error: null }), error => ({ module: null, error }))
       expect(loaded.error, 'the native consumer billing module must be importable').toBeNull()
       const owner = createTransactions({ async connect() { throw new Error('Unexpected database checkout') } }, { maxStatementTimeoutMs: 100, maxCleanupTimeoutMs: 100 })
-      const billing = loaded.module!.createApplicationBilling(owner, null, null, null)
+      const billing = loaded.module!.createApplicationBilling(owner, null, null)
       const request = new Request('https://sparra.example/billing')
       await expect(billing.startBillingCheckout(request, { workspaceId: '7caecda8-3e29-4d99-a33e-5d345bba8d07' })).rejects.toMatchObject({ status: 503 })
       await expect(billing.readBilling(request, { workspaceId: '7caecda8-3e29-4d99-a33e-5d345bba8d07' })).rejects.toMatchObject({ status: 503 })

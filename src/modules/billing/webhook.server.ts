@@ -3,14 +3,16 @@ import type { BillingStore } from './store.server'
 import { readStripeWebhook } from './webhook-body.server'
 
 export async function receiveBillingWebhook(config: StripeConfig, store: BillingStore,
-  request: Request, deadlineAtMs: number): Promise<Response> {
+  request: Request, deadlineAtMs: number, ownerSignal: AbortSignal = request.signal): Promise<Response> {
   const deadline = Math.min(deadlineAtMs, Date.now() + 10000)
   const cancellation = new AbortController()
+  const signal = AbortSignal.any([request.signal, ownerSignal])
   const abort = () => cancellation.abort()
-  request.signal.addEventListener('abort', abort, { once: true })
+  signal.addEventListener('abort', abort, { once: true })
+  if (signal.aborted) abort()
   const timer = setTimeout(abort, Math.max(0, deadline - Date.now()))
   try {
-    const event = await readStripeWebhook(config, request, deadline)
+    const event = await readStripeWebhook(config, request, deadline, cancellation.signal)
     if (cancellation.signal.aborted || Date.now() >= deadline) throw new Error('Billing ingress unavailable')
     const result = await store.receive(event, cancellation.signal)
     if (cancellation.signal.aborted || Date.now() >= deadline || result === 'unassigned-risk') {
@@ -18,5 +20,5 @@ export async function receiveBillingWebhook(config: StripeConfig, store: Billing
     }
     return new Response(null, { status: 204 })
   } catch { return new Response('Billing unavailable', { status: 503 }) }
-  finally { clearTimeout(timer); request.signal.removeEventListener('abort', abort) }
+  finally { clearTimeout(timer); signal.removeEventListener('abort', abort) }
 }

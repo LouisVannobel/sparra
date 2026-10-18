@@ -35,16 +35,18 @@ export async function readStripeWebhook(
   config: StripeConfig,
   request: Request,
   deadlineAtMs: number,
+  ownerSignal: AbortSignal = request.signal,
 ): Promise<VerifiedStripeEvent> {
   const startedAtMs = Date.now()
   const transport = ownedTransport(request)
   if (!transport) throw new StripeWebhookError()
   const { req, socket } = transport
+  const signal = AbortSignal.any([request.signal, ownerSignal])
   const effectiveDeadlineAtMs = Math.min(deadlineAtMs, startedAtMs + maxIngressMs)
   let stopped = false
   const stop = () => { stopped = true; req.destroy(); socket.destroy() }
   const onAbort = () => stop()
-  request.signal.addEventListener('abort', onAbort, { once: true })
+  signal.addEventListener('abort', onAbort, { once: true })
   const timer = Number.isSafeInteger(deadlineAtMs) && deadlineAtMs > startedAtMs
     ? setTimeout(stop, Math.max(0, effectiveDeadlineAtMs - Date.now())) : null
   let complete = false
@@ -52,27 +54,27 @@ export async function readStripeWebhook(
   try {
     const signature = request.headers.get('Stripe-Signature')
     if (!Number.isSafeInteger(deadlineAtMs) || deadlineAtMs <= startedAtMs
-      || request.signal.aborted || !signature || signature.length > 8192
+      || signal.aborted || !signature || signature.length > 8192
       || req.method !== 'POST' || stopped) throw new StripeWebhookError()
 
     const chunks: Uint8Array[] = []
     let totalBytes = 0
     for await (const chunk of req) {
-      if (stopped || request.signal.aborted || Date.now() >= effectiveDeadlineAtMs
+      if (stopped || signal.aborted || Date.now() >= effectiveDeadlineAtMs
         || !(chunk instanceof Uint8Array) || chunk.byteLength > maxBodyBytes - totalBytes) {
         throw new StripeWebhookError()
       }
       totalBytes += chunk.byteLength
       chunks.push(Uint8Array.from(chunk))
     }
-    if (stopped || request.signal.aborted || Date.now() >= effectiveDeadlineAtMs || !req.complete) {
+    if (stopped || signal.aborted || Date.now() >= effectiveDeadlineAtMs || !req.complete) {
       throw new StripeWebhookError()
     }
     const raw = new Uint8Array(totalBytes)
     let offset = 0
     for (const chunk of chunks) { raw.set(chunk, offset); offset += chunk.byteLength }
     const verified = verifyStripeWebhook(config, raw, signature, Date.now())
-    if (stopped || request.signal.aborted || Date.now() >= effectiveDeadlineAtMs) {
+    if (stopped || signal.aborted || Date.now() >= effectiveDeadlineAtMs) {
       throw new StripeWebhookError()
     }
     complete = true
@@ -80,7 +82,7 @@ export async function readStripeWebhook(
   } catch { throw new StripeWebhookError() }
   finally {
     if (timer !== null) clearTimeout(timer)
-    request.signal.removeEventListener('abort', onAbort)
+    signal.removeEventListener('abort', onAbort)
     if (!complete) await closeOwnedTransport(req, socket)
   }
 }
