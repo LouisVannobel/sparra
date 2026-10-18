@@ -1,8 +1,11 @@
+import { createHash } from 'node:crypto'
 import { expect, test } from 'vitest'
-import { proveBillingLineage, type LineageProvider } from '../../src/modules/billing/lineage.server'
-import { provePaidMonthlyInvoice, type MonetaryProvider } from '../../src/modules/billing/reconcile.server'
+import { proveBillingLineage, type LineageProvider, type ObservedBillingLineage } from '../../src/modules/billing/lineage.server'
+import { provePaidMonthlyInvoice, proveUnpaidMonthlyInvoice, type BoundMonthlyInvoice, type MonetaryProvider } from '../../src/modules/billing/reconcile.server'
 import { config, checkoutOperation, customer, termsA, termsB } from '../helpers/billing-fixtures'
 import * as f from '../helpers/billing-provider-fixtures'
+import type { billingCustomer, billingOperation } from '../../src/modules/billing/schema.server'
+import { buildCheckoutParameters } from '../../src/modules/billing/stripe.server'
 
 function provider(open = false) {
   // SAFETY: these frozen synthetic read fixtures contain every field consumed by lineage and monetary proof; no runtime adapter is installed.
@@ -57,4 +60,232 @@ test('monthly paid proof refuses a newly observed customer adjustment during cap
   } }
   await expect(provePaidMonthlyInvoice(config, withChangingBalance, lineage.boundInvoice)).rejects.toThrow('Billing monetary proof unavailable')
   expect(balanceRead).toBe(2)
+})
+const originalBound: BoundMonthlyInvoice = {
+  environment: 'sandbox', accountId: 'acct_fixture', customerId: 'cus_fixture', subscriptionId: 'sub_fixture123',
+  invoiceId: 'in_fixture123', agreedTermsId: termsA.id, monthlyPriceId: 'price_negotiatedA', currency: 'eur',
+  expectedAmount: 1500, periodStart: 1790812800, periodEnd: 1793491200, firstPeriod: true, onboarding: null,
+}
+const originalLineage: ObservedBillingLineage = {
+  operationId: checkoutOperation.id, workspaceId: checkoutOperation.workspaceId, environment: 'sandbox', accountId: 'acct_fixture',
+  customerId: 'cus_fixture', checkoutSessionId: 'cs_test_fixture123', subscriptionId: 'sub_fixture123', invoiceId: 'in_fixture123',
+  boundInvoice: originalBound,
+}
+const originalPaidProof = {
+  invoiceId: 'in_fixture123', subscriptionId: 'sub_fixture123', customerId: 'cus_fixture', currency: 'eur', amount: 1500,
+  periodStart: 1790812800, periodEnd: 1793491200, allocationIds: ['inpay_fixture123'],
+  paymentIntentIds: ['pi_fixture123'], chargeIds: ['ch_fixture123'],
+}
+
+function lineageInputs() {
+  const operation: typeof billingOperation.$inferSelect = { ...checkoutOperation }
+  const customerInput: typeof billingCustomer.$inferSelect = { ...customer }
+  return { config: { ...config }, operation, customer: customerInput, terms: { ...termsA } }
+}
+
+function holdFirstInvoice(client: LineageProvider & MonetaryProvider) {
+  let release!: () => void, entered!: () => void, first = true
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const started = new Promise<void>(resolve => { entered = resolve })
+  const requests: string[] = []
+  const observed: LineageProvider & MonetaryProvider = {
+    async retrieveInvoice(id) {
+      requests.push(`invoice:${id}`)
+      if (first) { first = false; entered(); await gate }
+      return client.retrieveInvoice(id)
+    },
+    retrieveSubscription(id) { requests.push(`subscription:${id}`); return client.retrieveSubscription(id) },
+    retrieveCheckoutSession(id) { requests.push(`checkout:${id}`); return client.retrieveCheckoutSession(id) },
+    listCheckoutSessions(subscriptionId, customerId, cursor) {
+      requests.push(`sessions:${subscriptionId}:${customerId}:${cursor ?? ''}`)
+      return client.listCheckoutSessions(subscriptionId, customerId, cursor)
+    },
+    listCheckoutLineItems(id, cursor) { requests.push(`lines:${id}:${cursor ?? ''}`); return client.listCheckoutLineItems(id, cursor) },
+    listInvoicePayments(id, cursor) { requests.push(`allocations:${id}:${cursor ?? ''}`); return client.listInvoicePayments(id, cursor) },
+    listCustomerBalanceTransactions(id, cursor) {
+      requests.push(`balance:${id}:${cursor ?? ''}`)
+      return client.listCustomerBalanceTransactions(id, cursor)
+    },
+    retrievePaymentIntent(id) { requests.push(`intent:${id}`); return client.retrievePaymentIntent(id) },
+    retrieveCharge(id) { requests.push(`charge:${id}`); return client.retrieveCharge(id) },
+  }
+  return { client: observed, started, release, requests }
+}
+
+const lineageMutations: ReadonlyArray<{ label: string; mutate(input: ReturnType<typeof lineageInputs>): void }> = [
+  { label: 'operation identity', mutate(input) {
+    input.operation.id = '11111111-1111-4111-8111-111111111111'
+    input.operation.workspaceId = '22222222-2222-4222-8222-222222222222'
+  } },
+  { label: 'config and agreement identity', mutate(input) {
+    input.config.environment = 'live'; input.config.accountId = 'acct_alias'; input.config.origin = 'https://alias.example.invalid'
+    input.terms.id = termsB.id; input.terms.monthlyPriceId = termsB.monthlyPriceId; input.terms.monthlyUnitAmount = termsB.monthlyUnitAmount
+  } },
+  { label: 'monthly operation scalars', mutate(input) {
+    input.operation.monthlyPriceId = termsB.monthlyPriceId; input.operation.monthlyUnitAmount = termsB.monthlyUnitAmount
+    input.operation.currency = 'usd'; input.operation.integrationIdentifier = 'alias_ABCDEFGH'
+  } },
+  { label: 'known subscription and completed Session', mutate(input) {
+    input.customer.knownSubscriptionId = 'sub_alias'; input.customer.stripeCustomerId = 'cus_alias'
+    input.operation.stripeObjectId = 'cs_test_alias'
+  } },
+  { label: 'forbidden onboarding alias', mutate(input) { input.operation.onboardingPriceId = 'price_alias' } },
+]
+
+test.each(lineageMutations)('lineage owns $label before its first provider await', async ({ mutate }) => {
+  const input = lineageInputs(), held = holdFirstInvoice(provider())
+  const pending = proveBillingLineage(input.config, held.client, input.operation, input.customer, 'in_fixture123', input.terms)
+  try {
+    await Promise.race([held.started, pending.then(() => { throw new Error('Lineage completed before the invoice barrier') })])
+    mutate(input); held.release()
+    expect(await pending).toEqual(originalLineage)
+    expect(held.requests).toEqual(['invoice:in_fixture123', 'subscription:sub_fixture123',
+      'sessions:sub_fixture123:cus_fixture:', 'checkout:cs_test_fixture123', 'lines:cs_test_fixture123:'])
+  } finally { held.release(); await pending.catch(() => undefined) }
+})
+
+function unpaidProvider(status: 'open' | 'canceled'): LineageProvider & MonetaryProvider {
+  const client = provider()
+  return {
+    ...client,
+    async retrieveInvoice(id) {
+      const invoice = await client.retrieveInvoice(id)
+      return { ...invoice, status: 'open', amount_paid: 0, amount_remaining: 1500 }
+    },
+    async listInvoicePayments(id, cursor) {
+      const page = await client.listInvoicePayments(id, cursor)
+      return { ...page, data: page.data.map(payment => ({ ...payment, status, amount_paid: null,
+        status_transitions: { paid_at: null, canceled_at: status === 'canceled' ? 1790812802 : null } })) }
+    },
+    async retrievePaymentIntent(id) {
+      const intent = await client.retrievePaymentIntent(id)
+      return { ...intent, status: status === 'canceled' ? 'canceled' : 'requires_payment_method', amount_received: 0, latest_charge: null }
+    },
+  }
+}
+
+const monetaryMutations: ReadonlyArray<{ label: string; mutate(bound: ReturnType<typeof mutableBound>): void }> = [
+  { label: 'identity', mutate(bound) {
+    bound.invoiceId = 'in_alias'; bound.customerId = 'cus_alias'; bound.subscriptionId = 'sub_alias'
+  } },
+  { label: 'monthly amount and period', mutate(bound) {
+    bound.monthlyPriceId = 'price_alias'; bound.currency = 'usd'; bound.expectedAmount = 2900
+    bound.periodStart = 1793491200; bound.periodEnd = 1796083200
+  } },
+  { label: 'first-period witness', mutate(bound) { bound.firstPeriod = false } },
+  { label: 'forbidden onboarding alias', mutate(bound) { bound.onboarding = { priceId: 'price_alias', amount: 0 } } },
+]
+function mutableBound() { return { ...originalBound } }
+
+test.each(monetaryMutations)('paid proof owns bound $label before its first provider await', async ({ mutate }) => {
+  const bound = mutableBound(), held = holdFirstInvoice(provider())
+  const pending = provePaidMonthlyInvoice({ ...config }, held.client, bound)
+  try {
+    await Promise.race([held.started, pending.then(() => { throw new Error('Paid proof completed before the invoice barrier') })])
+    mutate(bound); held.release()
+    expect(await pending).toEqual(originalPaidProof)
+    expect(held.requests).toEqual(['invoice:in_fixture123', 'allocations:in_fixture123:', 'invoice:in_fixture123',
+      'allocations:in_fixture123:', 'balance:cus_fixture:', 'intent:pi_fixture123', 'charge:ch_fixture123', 'balance:cus_fixture:'])
+  } finally { held.release(); await pending.catch(() => undefined) }
+})
+
+test.each(monetaryMutations)('unpaid proof owns bound $label and cannot acquire paid rights', async ({ mutate }) => {
+  const baseline = await proveUnpaidMonthlyInvoice(config, unpaidProvider('open'), originalBound)
+  const bound = mutableBound(), held = holdFirstInvoice(unpaidProvider('open'))
+  const pending = proveUnpaidMonthlyInvoice({ ...config }, held.client, bound)
+  try {
+    await Promise.race([held.started, pending.then(() => { throw new Error('Unpaid proof completed before the invoice barrier') })])
+    mutate(bound); held.release()
+    expect(await pending).toEqual(baseline)
+    expect(baseline).toEqual({ kind: 'unpaid-invoice', invoiceId: 'in_fixture123', customerId: 'cus_fixture',
+      subscriptionId: 'sub_fixture123', currency: 'eur', status: 'open', amountDue: 1500, amountPaid: 0, amountRemaining: 1500,
+      periodStart: 1790812800, periodEnd: 1793491200, invoicePaymentIds: ['inpay_fixture123'], observationDigest: expect.stringMatching(/^[0-9a-f]{64}$/) })
+    expect(held.requests).toEqual(['invoice:in_fixture123', 'allocations:in_fixture123:', 'invoice:in_fixture123',
+      'allocations:in_fixture123:', 'balance:cus_fixture:', 'intent:pi_fixture123', 'balance:cus_fixture:'])
+  } finally { held.release(); await pending.catch(() => undefined) }
+})
+
+test.each(['open', 'canceled'] satisfies Array<'open' | 'canceled'>)('unpaid %s allocation preserves null paid amount and no captured charge proof', async status => {
+  const result = await proveUnpaidMonthlyInvoice(config, unpaidProvider(status), originalBound)
+  expect(result).toMatchObject({ kind: 'unpaid-invoice', amountPaid: 0, amountDue: 1500, amountRemaining: 1500,
+    invoicePaymentIds: ['inpay_fixture123'] })
+  expect(result).not.toHaveProperty('chargeIds')
+})
+
+test.each([
+  { firstPeriod: true, onboarding: null }, { firstPeriod: true, onboarding: undefined },
+  { firstPeriod: undefined, onboarding: null }, { firstPeriod: undefined, onboarding: undefined },
+  { firstPeriod: false, onboarding: null }, { firstPeriod: false, onboarding: undefined },
+])('monthly witnesses firstPeriod=$firstPeriod onboarding=$onboarding preserve both proof results', async witness => {
+  const client = provider(), bound = { ...originalBound, ...witness }
+  const cycleClient: LineageProvider & MonetaryProvider = { ...client, async retrieveInvoice(id) {
+    const invoice = await client.retrieveInvoice(id)
+    return { ...invoice, billing_reason: witness.firstPeriod === false ? 'subscription_cycle' : 'subscription_create' }
+  } }
+  expect(await provePaidMonthlyInvoice(config, cycleClient, bound)).toEqual(originalPaidProof)
+  const unpaid = unpaidProvider('open')
+  const unpaidCycle: LineageProvider & MonetaryProvider = { ...unpaid, async retrieveInvoice(id) {
+    const invoice = await unpaid.retrieveInvoice(id)
+    return { ...invoice, billing_reason: witness.firstPeriod === false ? 'subscription_cycle' : 'subscription_create' }
+  } }
+  expect(await proveUnpaidMonthlyInvoice(config, unpaidCycle, bound)).toMatchObject({ kind: 'unpaid-invoice', amountPaid: 0 })
+})
+
+test.each([
+  { onboardingPriceId: 'price_alias', onboardingUnitAmount: null },
+  { onboardingPriceId: null, onboardingUnitAmount: 0 },
+])('lineage refuses forbidden onboarding $onboardingPriceId/$onboardingUnitAmount at entry before provider I/O', async fee => {
+  const input = lineageInputs(), held = holdFirstInvoice(provider())
+  input.operation = { ...input.operation, ...fee }
+  await expect(proveBillingLineage(input.config, held.client, input.operation, input.customer, 'in_fixture123', input.terms))
+    .rejects.toMatchObject({ name: 'BillingLineageError', message: 'Billing lineage unavailable' })
+  expect(held.requests).toEqual([])
+})
+
+test.each([
+  { label: 'paid', prove: provePaidMonthlyInvoice },
+  { label: 'unpaid', prove: proveUnpaidMonthlyInvoice },
+])('$label proof refuses nonnull onboarding at entry before provider I/O', async ({ prove }) => {
+  const held = holdFirstInvoice(provider())
+  await expect(prove(config, held.client, { ...originalBound, onboarding: { priceId: 'price_alias', amount: 0 } }))
+    .rejects.toMatchObject({ name: 'BillingMonetaryError', message: 'Billing monetary proof unavailable' })
+  expect(held.requests).toEqual([])
+})
+function legacyInputs() {
+  const input = lineageInputs()
+  input.operation.checkoutReferenceVersion = 'legacy-v1'
+  input.operation.phase = 'SUCCEEDED'
+  input.operation.stripeObjectId = 'cs_test_fixture123'
+  input.operation.requestHash = createHash('sha256').update(JSON.stringify(buildCheckoutParameters(input.config, {
+    workspaceId: input.operation.workspaceId, customerId: 'cus_fixture', idempotencyKey: input.operation.idempotencyKey,
+    integrationIdentifier: 'template_ABCDEFGH', terms: {
+      id: termsA.id, monthlyPriceId: 'price_negotiatedA', currency: 'eur', monthlyUnitAmount: 1500,
+    },
+  }))).digest('hex')
+  return input
+}
+
+test('monthly lineage preserves the original legacy Session witness and exact legacy request hash', async () => {
+  const input = legacyInputs(), client = provider()
+  const legacy: LineageProvider & MonetaryProvider = { ...client, async retrieveCheckoutSession(id) {
+    const session = await client.retrieveCheckoutSession(id)
+    return { ...session, client_reference_id: input.operation.workspaceId }
+  } }
+  expect(await proveBillingLineage(input.config, legacy, input.operation, input.customer, 'in_fixture123', input.terms)).toEqual(originalLineage)
+})
+
+test('legacy without an original positive Session witness refuses before provider I/O', async () => {
+  const input = legacyInputs(), held = holdFirstInvoice(provider())
+  input.operation.phase = 'UNKNOWN'; input.operation.stripeObjectId = null
+  await expect(proveBillingLineage(input.config, held.client, input.operation, input.customer, 'in_fixture123', input.terms))
+    .rejects.toMatchObject({ name: 'BillingLineageError', message: 'Billing lineage unavailable' })
+  expect(held.requests).toEqual([])
+})
+
+test('wrong original request hash still refuses before provider I/O', async () => {
+  const input = lineageInputs(), held = holdFirstInvoice(provider())
+  input.operation.requestHash = '0'.repeat(64)
+  await expect(proveBillingLineage(input.config, held.client, input.operation, input.customer, 'in_fixture123', input.terms))
+    .rejects.toMatchObject({ name: 'BillingLineageError', message: 'Billing lineage unavailable' })
+  expect(held.requests).toEqual([])
 })

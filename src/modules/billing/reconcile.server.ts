@@ -75,6 +75,12 @@ function fail(): never { throw new BillingMonetaryError() }
 const idOf = (value: unknown): string | null => typeof value === 'string' ? value
   : value !== null && typeof value === 'object' && 'id' in value && typeof value.id === 'string' ? value.id : null
 
+function ownedBound(bound: BoundMonthlyInvoice): BoundMonthlyInvoice {
+  const snapshot = { ...bound }
+  if (snapshot.onboarding != null) snapshot.onboarding = { ...snapshot.onboarding }
+  return snapshot
+}
+
 function requireBound(config: StripeConfig, bound: BoundMonthlyInvoice): void {
   if (bound.environment !== config.environment || bound.accountId !== config.accountId
     || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(bound.agreedTermsId)
@@ -334,6 +340,8 @@ async function capturedAllocation(provider: MonetaryProvider, allocation: Return
 
 export async function provePaidMonthlyInvoice(config: StripeConfig, provider: MonetaryProvider,
   bound: BoundMonthlyInvoice): Promise<PaidMonthlyInvoiceProof> {
+  config = config && { ...config }
+  bound = bound && ownedBound(bound)
   requireBound(config, bound)
   const expectedLive = config.environment === 'live'
   const firstInvoice = checkedInvoice(await provider.retrieveInvoice(bound.invoiceId), bound, expectedLive)
@@ -440,6 +448,8 @@ async function observeUnpaidIntent(provider: MonetaryProvider, allocation: Await
 
 export async function proveUnpaidMonthlyInvoice(config: StripeConfig, provider: MonetaryProvider,
   bound: BoundMonthlyInvoice): Promise<UnpaidInvoiceObservation> {
+  config = config && { ...config }
+  bound = bound && ownedBound(bound)
   requireBound(config, bound)
   const live = config.environment === 'live'
   const invoice = await provider.retrieveInvoice(bound.invoiceId)

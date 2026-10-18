@@ -201,6 +201,11 @@ function checkedInvoicePeriod(invoice: LineageInvoice, session: LineageSession, 
 export async function proveBillingLineage(config: StripeConfig, provider: LineageProvider,
   operation: typeof billingOperation.$inferSelect, customer: typeof billingCustomer.$inferSelect,
   invoiceId: string, terms: AgreedMonthlyTerms): Promise<ObservedBillingLineage> {
+  // Own the used scalar values before any provider code can mutate caller aliases.
+  config = config && { ...config }
+  operation = operation && { ...operation }
+  customer = customer && { ...customer }
+  terms = terms && { ...terms }
   const live = config.environment === 'live'
   requireCheckoutScope(config, operation, customer)
   requireMonthlySnapshot(operation, terms)
