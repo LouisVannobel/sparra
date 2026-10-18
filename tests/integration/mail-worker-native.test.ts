@@ -60,15 +60,20 @@ test('built application relay and native worker consume the real SQL snapshot th
     })
     exit = new Promise<number | null>((done, reject) => { child!.once('error', reject); child!.once('close', done) })
     const deadline = performance.now()+35000
-    let queued = false, admitted = false
-    while (performance.now()<deadline) {
-      if (child.exitCode !== null) break
-      const row = (await stores.administrator.query('SELECT d.provider_state,d.ciphertext IS NULL AS purged,d.verifier_hash IS NOT NULL AS verifier,o.admission_state FROM email_delivery d JOIN auth_email_outbox o ON o.delivery_id=d.id WHERE d.id=$1', [delivery!.id])).rows[0]
-      queued = row.provider_state === 'plunk_queued' && row.purged && row.verifier
-      admitted = row.admission_state === 'admitted'
-      if (queued && admitted) break
-      await new Promise(resolve => setTimeout(resolve, 100))
+    const ownedChild = child, administrator = stores.administrator
+    async function waitForDelivery(deliveryId: string) {
+      let queued = false, admitted = false
+      while (performance.now()<deadline) {
+        if (ownedChild.exitCode !== null) break
+        const row = (await administrator.query('SELECT d.provider_state,d.ciphertext IS NULL AS purged,d.verifier_hash IS NOT NULL AS verifier,o.admission_state FROM email_delivery d JOIN auth_email_outbox o ON o.delivery_id=d.id WHERE d.id=$1', [deliveryId])).rows[0]
+        queued = row.provider_state === 'plunk_queued' && row.purged && row.verifier
+        admitted = row.admission_state === 'admitted'
+        if (queued && admitted) break
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+      return { queued, admitted }
     }
+    const { queued, admitted } = await waitForDelivery(delivery!.id)
     expect({ queued, admitted, ready: output.includes('Application worker ready') }).toEqual({ queued: true, admitted: true, ready: true })
     expect(peer.evidence()).toEqual({ calls: 1, directFragment: true })
     // The real SDK heartbeat thread runs every four seconds. A controlled
@@ -76,6 +81,17 @@ test('built application relay and native worker consume the real SQL snapshot th
     await engine.withEngineStopped(async () => { await new Promise(resolve => setTimeout(resolve, 8500)) })
     expect({ onlyReady: output.trim() === 'Application worker ready', outputBytes: Buffer.byteLength(output) }).toEqual({ onlyReady: true, outputBytes: Buffer.byteLength('Application worker ready\n') })
     expect(child.exitCode).toBeNull()
+    // HTTP readiness does not prove the existing worker's gRPC recovery. A new
+    // real obligation must traverse that worker within the original deadline.
+    const recoveryCommand = await owner.withAuthPromise(options(), lease => authorizeEmailRequest(lease, { email: 'owned-recovered-synthetic@example.test', purpose: 'magic-link', locale: 'en', expectedGeneration: 0, lifetimeSeconds: 600 }))
+    const recoveryDelivery = await owner.withAuthPromise(options(), lease => materializeDelivery(lease, recoveryCommand.id, codec, { appOrigin: 'https://app.example.test', apiOrigin, projectId: 'fixture', credentialId: 'native', from: { name: 'Product', email: 'auth@example.test' }, reply: 'reply@example.test', replayWindowSeconds: null }))
+    expect(recoveryDelivery).not.toBeNull()
+    expect(recoveryDelivery!.id).not.toBe(delivery!.id)
+    const recovered = await waitForDelivery(recoveryDelivery!.id)
+    expect({ ...recovered, childAlive: child.exitCode === null }).toEqual({ queued: true, admitted: true, childAlive: true })
+    expect(peer.evidence()).toEqual({ calls: 2, directFragment: true })
+    expect({ onlyReady: output.trim() === 'Application worker ready', outputBytes: Buffer.byteLength(output) }).toEqual({ onlyReady: true, outputBytes: Buffer.byteLength('Application worker ready\n') })
+    outcome.recovery = recovered
     shutdownAt = performance.now(); child.send('shutdown')
     const code = await bounded(exit, 15000)
     outcome.shutdownBy15s = { processExited: true, scopeStopped: output.includes('Application worker stopped') }
@@ -105,7 +121,7 @@ test('built application relay and native worker consume the real SQL snapshot th
       expectedCounts: expected.map(line => lines.filter(value => value === line).length),
       nativeOutcomeCount: lines.filter(line => nativeOutcomes.includes(line)).length,
     }).toEqual({ unexpectedLines: 0, expectedCounts: [1,1,1,1,1,1], nativeOutcomeCount: 1 })
-    expect(peer.evidence()).toEqual({ calls: 1, directFragment: true })
+    expect(peer.evidence()).toEqual({ calls: 2, directFragment: true })
     outcome = { ...outcome, queued, admitted, exitCode: code, ...peer.evidence(), outputSanitized: true, controlledEngineOutageMs: 8500, shutdownElapsedMs: performance.now()-shutdownAt }
   } finally {
     if (shutdownAt !== undefined) outcome.shutdownBy15s ??= { processExited: false, scopeStopped: output.includes('Application worker stopped') }
