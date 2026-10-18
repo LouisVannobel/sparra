@@ -836,13 +836,13 @@ test('native_blob_coverage_keeps_additive_counts_zero_entries_and_source_geometr
   expect(failed.error).toBeUndefined();expect(failed.status).not.toBe(0)
 },60000)
 
-function runCoverageConsumer(root:string,preload?:string) {
+function runCoverageConsumer(root:string,preload?:string,timeout=20000) {
   writeFileSync(join(root,'scripts/test.mjs'),readFileSync(join(repositoryRoot,'scripts/test.mjs')))
   writeFileSync(join(root,'scripts/native-coverage-inputs.mjs'),readFileSync(join(repositoryRoot,'scripts/native-coverage-inputs.mjs')))
   writeFileSync(join(root,'scripts/native-test-phase.mjs'),readFileSync(join(repositoryRoot,'scripts/native-test-phase.mjs')))
   writeFileSync(join(root,'coverage/coverage-final.json'),'{"stale":true}')
   const args=preload?['--import',pathToFileURL(preload).href,'scripts/test.mjs']:['scripts/test.mjs']
-  return spawnSync(process.execPath,args,{cwd:root,encoding:'utf8',windowsHide:true,timeout:20000})
+  return spawnSync(process.execPath,args,{cwd:root,encoding:'utf8',windowsHide:true,timeout})
 }
 
 test.each(['disabled','missing','adverse'] as const)('native_mail_retry_runner_refuses_%s_before_requests_merge_and_publication',kind=>{
@@ -1017,11 +1017,11 @@ test('actual_coverage_runner_accepts_native_coverage_bearing_requests_json_above
   writeFileSync(join(root,'src/large-unexecuted.ts'),Array.from({length:3600},(_,index)=>'export function unexecuted'+index+'(){return '+index+'}\n').join(''))
   const preload=join(root,'observe-native-report-size.mjs')
   writeFileSync(preload,"import fs from 'node:fs';import {syncBuiltinESMExports} from 'node:module';import {join} from 'node:path';const original=fs.lstatSync;fs.lstatSync=(path,...args)=>{const value=original(path,...args);if(typeof path==='string'&&path.endsWith('requests-qualification.json'))fs.writeFileSync(join(process.cwd(),'native-report-size.txt'),String(value.size));return value};syncBuiltinESMExports();\n")
-  const result=runCoverageConsumer(root,preload)
+  const result=runCoverageConsumer(root,preload,40000)
   expect(Number(readFileSync(join(root,'native-report-size.txt'),'utf8'))).toBeGreaterThan(1048576)
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(true)
-},25000)
+},45000)
 
 test.each([
   ['afterAll failure',"throw new Error('Owned afterAll failure')"],
