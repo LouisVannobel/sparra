@@ -151,6 +151,7 @@ test('harness history uses the run ID for details and observed task ID for task 
   ])
   expect(result).toEqual({ status: 'CANCELLED', events: [{ id: 7, taskId: identity.taskId, timestamp: '2026-09-11T00:00:00Z', eventType: 'FAILED', retryCount: 0, attempt: 1,
     code: 'AUTH_MAIL_CAPACITY_BUSY', unclassifiedError: false }] })
+  expect(fixture.phases).toEqual(['run-details-request', 'identity-decoding', 'task-events-request', 'identity-decoding', 'history-sanitization'])
   expect(JSON.stringify(result).includes('private')).toBe(false)
 })
 test('harness history rejects a missing observed task ID before making a task-dependent request', async () => {
@@ -161,18 +162,47 @@ test('harness history rejects a missing observed task ID before making a task-de
 })
 test('harness history preserves all run, task, workflow, tenant and single-task correlations', async () => {
   const task = published.tasks[0]
-  for (const state of [
-    { ...published, run: { ...published.run, metadata: { id: identity.taskId } } },
-    { ...published, tasks: [{ ...task, taskExternalId: identity.runId }] },
-    { ...published, tasks: [{ ...task, workflowRunExternalId: identity.taskId }] },
-    { ...published, run: { ...published.run, tenantId: identity.runId } },
-    { ...published, tasks: [{ ...task, tenantId: identity.runId }] },
-    { ...published, tasks: [] }, { ...published, tasks: [task, task] },
-  ]) {
+  for (const [state, phase] of [
+    [{ ...published, run: { ...published.run, metadata: { id: identity.taskId } } }, 'identity-run-id-mismatch'],
+    [{ ...published, tasks: [{ ...task, taskExternalId: identity.runId }] }, 'identity-task-id-mismatch'],
+    [{ ...published, tasks: [{ ...task, workflowRunExternalId: identity.taskId }] }, 'identity-task-run-mismatch'],
+    [{ ...published, run: { ...published.run, tenantId: identity.runId } }, 'identity-run-tenant-mismatch'],
+    [{ ...published, tasks: [{ ...task, tenantId: identity.runId }] }, 'identity-task-tenant-mismatch'],
+    [{ ...published, tasks: [] }, 'identity-tasks-empty'], [{ ...published, tasks: [task, task] }, 'identity-task-count'],
+  ] as const) {
     const fixture = historyFixture(state)
     await expect(fixture.read()).rejects.toThrow('MAIL_RETRY_FIXTURE_REJECTED')
-    expect(fixture.phases.at(-1)).toBe('identity-decoding')
+    expect(fixture.phases.at(-1)).toBe(phase)
+    const receipts: unknown[] = []
+    appendRetryCommandReceipt(receipts, { id: 1, op: 'history', label: 'B', ok: false, phase: fixture.phases.at(-1) })
+    expect(receipts).toEqual([{ id: 1, op: 'history', label: 'B', ok: false, phase }])
+    expect(JSON.stringify(receipts)).not.toMatch(/private|aaaaaaaa|bbbbbbbb|cccccccc|https/)
   }
+})
+test('harness history reduces malformed and hostile identity data to one finite shape refusal without raw fallback', async () => {
+  const hostile = Object.defineProperty({}, 'run', { get() { throw new Error('private-identity-access https://private.invalid') } })
+  for (const state of [null, { run: undefined }, 'private-raw-identity', hostile, { ...published, tasks: 'private-tasks' },
+    { ...published, run: { ...published.run, metadata: { id: 'private-run' } } },
+    { ...published, run: { ...published.run, status: 'private-status' } },
+    { ...published, tasks: [{ ...published.tasks[0], taskExternalId: 'private-task' }] },
+  ]) {
+    const fixture = historyFixture(state)
+    const failure: unknown = await fixture.read().catch(error => error)
+    expect(failure).toBeInstanceOf(Error)
+    expect(failure instanceof Error && failure.message).toBe('MAIL_RETRY_FIXTURE_REJECTED')
+    expect(fixture.phases.at(-1)).toBe('identity-shape')
+    const receipts: unknown[] = []
+    appendRetryCommandReceipt(receipts, { id: 1, op: 'history', label: 'B', ok: false, phase: fixture.phases.at(-1) })
+    expect(receipts).toEqual([{ id: 1, op: 'history', label: 'B', ok: false, phase: 'identity-shape' }])
+    expect(JSON.stringify(receipts)).not.toMatch(/private|aaaaaaaa|bbbbbbbb|cccccccc|https/)
+  }
+})
+test('harness history reports cardinality before binding and emits no details for a rejected multi-task response', async () => {
+  const fixture = historyFixture({ ...published, run: { ...published.run, tenantId: identity.runId },
+    tasks: [published.tasks[0], { private: 'private-unknown-task https://private.invalid' }] })
+  await expect(fixture.read()).rejects.toThrow('MAIL_RETRY_FIXTURE_REJECTED')
+  expect(fixture.phases.at(-1)).toBe('identity-task-count')
+  expect(fixture.requests).toHaveLength(2)
 })
 test('harness history rejects 100 task-event rows despite empty pagination metadata', async () => {
   const fixture = historyFixture(published, { rows: Array.from({ length: 100 }, (_, id) => ({ ...taskEvent, id })), pagination: {} })

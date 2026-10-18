@@ -7,7 +7,9 @@ export const retryLabels = ['A', 'B', 'C', 'D', 'E'] as const
 export type RetryLabel = typeof retryLabels[number]
 export const deferredCodes = ['AUTH_MAIL_WORKER_STOPPING', 'AUTH_MAIL_OUTBOX_IN_FLIGHT', 'AUTH_MAIL_CAPACITY_BUSY', 'AUTH_MAIL_CLAIM_UNRESOLVED'] as const
 export const retryCommandOperation = Schema.Literals(['begin', 'configure', 'admit', 'bind', 'release', 'release-lookup', 'cancel-A', 'history', 'shutdown'])
-export const retryChildPhase = Schema.Literals(['run-details-request', 'task-events-request', 'identity-decoding', 'history-sanitization'])
+export const retryChildPhase = Schema.Literals(['run-details-request', 'task-events-request', 'identity-decoding', 'history-sanitization',
+  'identity-shape', 'identity-tasks-empty', 'identity-task-count', 'identity-run-id-mismatch', 'identity-run-tenant-mismatch',
+  'identity-task-id-mismatch', 'identity-task-run-mismatch', 'identity-task-tenant-mismatch'])
 const retryParentPhase = Schema.Literals(['a-sql-check-started', 'a-sql-check-completed', 'a-cancel-started', 'a-cancel-completed', 'a-first-history-started', 'a-first-history-completed'])
 const commandReceipt = Schema.Struct({ id: Schema.Int, op: retryCommandOperation, label: Schema.NullOr(Schema.Literals(retryLabels)), ok: Schema.Boolean, phase: Schema.optional(retryChildPhase) })
 export function safeRetryParentPhase(input: unknown) {
@@ -129,14 +131,31 @@ export function expiryGate(row: unknown, phase: 'before-failure' | 'after-expiry
 }
 
 const uuid = Schema.String.check(Schema.isUUID())
+const retryRun = Schema.Struct({ metadata: Schema.Struct({ id: uuid }), tenantId: uuid, status: Schema.Literals(Object.values(V1TaskStatus)) })
+const retryTask = Schema.Struct({ taskExternalId: uuid, workflowRunExternalId: uuid, tenantId: uuid })
+const retryRunDetails = Schema.Struct({ run: retryRun, tasks: Schema.Array(retryTask).check(Schema.isMinLength(1), Schema.isMaxLength(1)) })
 export function safeRetryRunIdentity(input: unknown, expected: { runId: string; taskId: string; tenantId: string }) {
   try {
-    const value = Schema.decodeUnknownSync(Schema.Struct({ run: Schema.Struct({ metadata: Schema.Struct({ id: uuid }), tenantId: uuid, status: Schema.Literals(Object.values(V1TaskStatus)) }),
-      tasks: Schema.Array(Schema.Struct({ taskExternalId: uuid, workflowRunExternalId: uuid, tenantId: uuid })).check(Schema.isMinLength(1), Schema.isMaxLength(1)) }))(input)
+    const value = Schema.decodeUnknownSync(retryRunDetails)(input)
     if (value.run.metadata.id !== expected.runId || value.run.tenantId !== expected.tenantId
       || value.tasks[0].taskExternalId !== expected.taskId || value.tasks[0].workflowRunExternalId !== expected.runId || value.tasks[0].tenantId !== expected.tenantId) throw retryFixtureError()
     return { status: value.run.status }
   } catch { throw retryFixtureError() }
+}
+function retryIdentityRefusal(input: unknown, expected: Parameters<typeof safeRetryRunIdentity>[1]): typeof retryChildPhase.Type {
+  try {
+    const { run, tasks } = Schema.decodeUnknownSync(Schema.Struct({ run: retryRun, tasks: Schema.Unknown }))(input)
+    if (!Array.isArray(tasks)) return 'identity-shape'
+    if (tasks.length === 0) return 'identity-tasks-empty'
+    if (tasks.length !== 1) return 'identity-task-count'
+    const task = Schema.decodeUnknownSync(retryTask)(tasks[0])
+    if (run.metadata.id !== expected.runId) return 'identity-run-id-mismatch'
+    if (run.tenantId !== expected.tenantId) return 'identity-run-tenant-mismatch'
+    if (task.taskExternalId !== expected.taskId) return 'identity-task-id-mismatch'
+    if (task.workflowRunExternalId !== expected.runId) return 'identity-task-run-mismatch'
+    if (task.tenantId !== expected.tenantId) return 'identity-task-tenant-mismatch'
+    return 'identity-shape'
+  } catch { return 'identity-shape' }
 }
 export async function readRetryHistory(client: Pick<HatchetClient, 'api' | 'tenantId'>,
   value: { runId?: string; taskId?: string } | undefined,
@@ -151,7 +170,10 @@ export async function readRetryHistory(client: Pick<HatchetClient, 'api' | 'tena
   setPhase('task-events-request')
   const events = await observed((signal, timeout) => client.api.v1TaskEventList(observedTaskId, { limit: 100 }, { signal, timeout, maxContentLength: 65536 }))
   setPhase('identity-decoding')
-  const decoded = safeRetryRunIdentity(state.data, { runId: value.runId, taskId: observedTaskId, tenantId: client.tenantId })
+  const expected = { runId: value.runId, taskId: observedTaskId, tenantId: client.tenantId }
+  let decoded: ReturnType<typeof safeRetryRunIdentity>
+  try { decoded = safeRetryRunIdentity(state.data, expected) }
+  catch { setPhase(retryIdentityRefusal(state.data, expected)); throw retryFixtureError() }
   setPhase('history-sanitization')
   return { status: decoded.status, events: safeRetryHistory(events.data) }
 }

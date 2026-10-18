@@ -163,8 +163,11 @@ test.each(['dp', 'du'] as const)('signed native %s Dispute retains one unassigne
   const raw = JSON.stringify({ ...payload(id), type: 'charge.dispute.created', data: { object: {
     id: prefix + '_nativeHttp', object: 'dispute', livemode: false, charge: 'ch_disputeHttp' + prefix,
     payment_intent: 'pi_disputeHttp' + prefix, status: 'needs_response' } } })
-  for (let duplicate = 0; duplicate < 2; duplicate++) expect(await post(origin, raw)).toEqual({ kind: 'response', status: 204 })
-  expect(await receiptCount(id)).toBe(1)
+  // Retain unassigned risk for retry without acknowledging a command/outbox handoff.
+  for (let duplicate = 0; duplicate < 2; duplicate++) {
+    expect(await post(origin, raw)).toEqual({ kind: 'response', status: 503 })
+    expect(await receiptCount(id)).toBe(1)
+  }
   expect((await stores.administrator.query('SELECT projection,charge_id,risk_id FROM billing_event_receipt WHERE event_id=$1', [id])).rows)
     .toEqual([{ projection: { id, type: 'charge.dispute.created', created: JSON.parse(raw).created,
       objectId: prefix + '_nativeHttp', objectType: 'dispute', projectionVersion: 1,
