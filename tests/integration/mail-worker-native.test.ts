@@ -11,6 +11,7 @@ import { bounded } from '../helpers/web-process'
 import { createTransactions } from '../../src/platform/db/transactions.server'
 import { authorizeEmailRequest, materializeDelivery } from '../../src/modules/auth/auth-email-store.server'
 import { createAuthEmailEnvelope } from '../../src/modules/auth/auth-email-envelope.server'
+import { MAIL_CLEANUP_CODES } from '../helpers/mail-process.mjs'
 
 test('built application relay and native worker consume the real SQL snapshot through controlled TLS and drain on shutdown', async () => {
   const runId = randomUUID()
@@ -20,6 +21,7 @@ test('built application relay and native worker consume the real SQL snapshot th
   let child: ReturnType<typeof spawn> | undefined, exit: Promise<number | null> | undefined
   let pool: Pool | undefined
   let output = '', outcome: Record<string, unknown> = {}, shutdownAt: number | undefined
+  const cleanupDiagnostics: Array<{ outcome: 'FULFILLED' | 'REJECTED'; codes: string[] }> = []
   try {
     peer = await startMailHttpPeer()
     stores = await startDisposableStores()
@@ -36,7 +38,7 @@ test('built application relay and native worker consume the real SQL snapshot th
     child = spawn(process.execPath, ['--import', pathToFileURL(resolve('tests/helpers/mail-process.mjs')).href, resolve('.output/worker/index.mjs')], {
       windowsHide: true, stdio: ['ignore','pipe','pipe','ipc'], env: {
         PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, TEMP: process.env.TEMP, TMP: process.env.TMP,
-        NODE_ENV: 'test', NODE_EXTRA_CA_CERTS: peer.certificate,
+        NODE_ENV: 'test', NODE_EXTRA_CA_CERTS: peer.certificate, FIXTURE_MAIL_SHUTDOWN_DIAGNOSTICS: 'yes',
         AUTH_MAIL_RELAY_DATABASE_URL: stores.mailRelayUrl, AUTH_MAIL_WORKER_DATABASE_URL: stores.mailWorkerUrl,
         AUTH_MAIL_KEY_ID: 'native', AUTH_MAIL_KEYS_JSON: JSON.stringify({ native: key.toString('base64') }),
         AUTH_MAIL_PROJECT_ID: 'fixture', AUTH_MAIL_CREDENTIAL_ID: 'native', AUTH_MAIL_API_ORIGIN: peer.origin, AUTH_MAIL_PLUNK_SECRET: 'sk_controlled_local_fixture_only',
@@ -45,6 +47,17 @@ test('built application relay and native worker consume the real SQL snapshot th
     })
     key.fill(0)
     child.stdout!.on('data', chunk => { output += String(chunk) }); child.stderr!.on('data', chunk => { output += String(chunk) })
+    child.on('message', (message: unknown) => {
+      if (!message || typeof message !== 'object' || !('type' in message) || message.type !== 'fixture-mail-cleanup' ||
+        !('outcome' in message) || message.outcome !== 'FULFILLED' && message.outcome !== 'REJECTED' ||
+        !('codes' in message) || !Array.isArray(message.codes) || message.codes.length > MAIL_CLEANUP_CODES.length || cleanupDiagnostics.length >= 2) return
+      const codes: string[] = []
+      for (const code of message.codes) {
+        if (typeof code !== 'string' || !MAIL_CLEANUP_CODES.includes(code)) return
+        codes.push(code)
+      }
+      cleanupDiagnostics.push({ outcome: message.outcome, codes })
+    })
     exit = new Promise<number | null>((done, reject) => { child!.once('error', reject); child!.once('close', done) })
     const deadline = performance.now()+35000
     let queued = false, admitted = false
@@ -83,7 +96,8 @@ test('built application relay and native worker consume the real SQL snapshot th
       stopped: countLine('Application worker stopped'),
     }
     outcome.shutdownLogCounts = shutdownLogCounts
-    expect(code, JSON.stringify({ shutdownLogCounts, processExited: child.exitCode !== null })).toBe(0)
+    outcome.cleanupDiagnostics = cleanupDiagnostics
+    expect(code, JSON.stringify({ shutdownLogCounts, cleanupDiagnostics, processExited: child.exitCode !== null })).toBe(0)
     const expected = ['Application worker ready','Application worker lifecycle native-stop-completed','Application worker lifecycle native-start-completed','Application worker lifecycle handlers-stopped','Application worker lifecycle relay-stopped','Application worker stopped']
     const nativeOutcomes = ['Application worker lifecycle native-start-resolved','Application worker lifecycle native-start-cancelled']
     // Never place raw child content in assertion diagnostics.
