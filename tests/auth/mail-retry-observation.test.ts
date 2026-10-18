@@ -612,7 +612,7 @@ test('last completed command diagnostic returns null for absent, malformed, extr
 
 // Real installed Api -> Axios fetch adapter; only the Fetch endpoint is controlled.
 function diagnosticHistoryFixture(options: { status?: number; network?: boolean; hold?: boolean;
-  afterApiResponse?: () => void; decorateFailure?: (error: unknown) => void; beforeObserved?: () => void;
+  afterApiResponse?: () => void; decorateFailure?: (error: unknown) => void; beforeObserved?: () => void; onPhase?: (phase: string) => void;
   responses?: readonly { status: number; body?: unknown }[]; deadlineMs?: number } = {}) {
   const controllers = [new AbortController(), new AbortController()], controller = controllers[0]
   const requests: string[] = [], phases: string[] = [], detailsTimeouts: number[] = []
@@ -653,7 +653,7 @@ function diagnosticHistoryFixture(options: { status?: number; network?: boolean;
     return call(controllers[index].signal, 120)
   }
   return { controller, controllers, requests, phases, api, client, command, detailsTimeouts, observationCount: () => observations,
-    read: () => readRetryHistory(client, command, observed, phase => { phases.push(phase) }) }
+    read: () => readRetryHistory(client, command, observed, phase => { phases.push(phase); options.onPhase?.(phase) }) }
 }
 function checkedDetailsDiagnostic(phases: string[], expected: string) {
   expect(phases.at(-1)).toBe(expected)
@@ -986,5 +986,39 @@ test.each(['abort', 'deadline'] as const)('a real rejected404 at owner%s is refu
     stop?.()
     try { await vi.runAllTimersAsync(); await joined; expect(vi.getTimerCount()).toBe(0) }
     finally { timers.mockRestore(); vi.useRealTimers() }
+  }
+})
+test('404 then owned-empty200 joins a projection pause entered with an already-aborted details signal', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  let stop: (() => void) | undefined
+  let joined: Promise<unknown> = Promise.resolve(undefined)
+  let emptySeen = false
+  try {
+    const fixture = diagnosticHistoryFixture({ responses: [missingProjection, { status: 200, body: { ...published, tasks: [] } }, matchingProjection, matchingTaskEvents], deadlineMs: 125,
+      onPhase(phase) {
+        if (phase === 'identity-tasks-empty') { emptySeen = true; fixture.controller.abort() }
+      } })
+    stop = () => { for (const controller of fixture.controllers) controller.abort() }
+    let settled = false
+    const outcome = fixture.read().then(value => { settled = true; return value }, error => { settled = true; return error })
+    joined = outcome
+    await vi.advanceTimersByTimeAsync(50)
+    expect(emptySeen).toBe(true)
+    expect(fixture.controller.signal.aborted).toBe(true)
+    expect(settled).toBe(true)
+    expect(await outcome).toBeInstanceOf(Error)
+    expect(fixture.phases).toContain('run-details-http-404')
+    expect(fixture.phases.at(-1)).toBe('identity-tasks-empty')
+    expect(fixture.requests).toEqual([`/api/v1/stable/workflow-runs/${identity.runId}`, `/api/v1/stable/workflow-runs/${identity.runId}`])
+    expect(fixture.observationCount()).toBe(1)
+    expect(vi.getTimerCount()).toBe(0)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(fixture.requests).toHaveLength(2)
+    expect(fixture.observationCount()).toBe(1)
+    expect(vi.getTimerCount()).toBe(0)
+  } finally {
+    stop?.()
+    try { await vi.runAllTimersAsync(); await joined; expect(vi.getTimerCount()).toBe(0) }
+    finally { vi.useRealTimers() }
   }
 })

@@ -159,10 +159,16 @@ function retryIdentityRefusal(input: unknown, expected: Parameters<typeof safeRe
     return 'identity-shape'
   } catch { return 'identity-shape' }
 }
-function decodeRetryHistoryIdentity(state: { data: unknown }, expected: Parameters<typeof safeRetryRunIdentity>[1],
-  setPhase: (phase: typeof retryChildPhase.Type) => void) {
+type RetryRunMembership = { kind: 'PENDING' } | { kind: 'IDENTITY'; value: ReturnType<typeof safeRetryRunIdentity> }
+function inspectRetryRunResponse(state: { data: unknown }, expected: Parameters<typeof safeRetryRunIdentity>[1],
+  setPhase: (phase: typeof retryChildPhase.Type) => void): RetryRunMembership {
+  if (ownDiagnosticValue(state, 'status') !== 200) { setPhase('run-details-http-other'); throw retryFixtureError() }
+  if (ownedEmptyRetryProjection(state.data, expected)) {
+    setPhase('identity-tasks-empty')
+    return { kind: 'PENDING' }
+  }
   setPhase('identity-decoding')
-  try { return safeRetryRunIdentity(state.data, expected) }
+  try { return { kind: 'IDENTITY', value: safeRetryRunIdentity(state.data, expected) } }
   catch { setPhase(retryIdentityRefusal(state.data, expected)); throw retryFixtureError() }
 }
 
@@ -196,24 +202,25 @@ function ownDiagnosticValue(input: unknown, key: 'isAxiosError' | 'status' | 'co
   throw retryFixtureError()
 }
 const runDetailsTransportCodes: readonly string[] = ['ERR_NETWORK', 'ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN', 'EPIPE']
-function runDetailsFailurePhase(input: unknown): typeof retryChildPhase.Type {
+type RetryRunFailure = { phase: typeof retryChildPhase.Type; pending404: boolean }
+function runDetailsFailure(input: unknown): RetryRunFailure {
   try {
-    if (typeof input !== 'object' || input === null) return 'run-details-rejected'
+    if (typeof input !== 'object' || input === null) return { phase: 'run-details-rejected', pending404: false }
     const marker = ownDiagnosticValue(input, 'isAxiosError')
     const status = ownDiagnosticValue(input, 'status')
     const code = ownDiagnosticValue(input, 'code')
-    if (marker !== true) return 'run-details-rejected'
-    if (status === 404) return 'run-details-http-404'
+    if (marker !== true) return { phase: 'run-details-rejected', pending404: false }
+    if (status === 404) return { phase: 'run-details-http-404', pending404: code === 'ERR_BAD_REQUEST' }
     if (typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599
-      && (status < 200 || status >= 300)) return 'run-details-http-other'
-    if (typeof code === 'string' && runDetailsTransportCodes.includes(code)) return 'run-details-transport'
+      && (status < 200 || status >= 300)) return { phase: 'run-details-http-other', pending404: false }
+    if (typeof code === 'string' && runDetailsTransportCodes.includes(code)) return { phase: 'run-details-transport', pending404: false }
     switch (code) {
-      case 'ERR_CANCELED': return 'run-details-cancelled'
+      case 'ERR_CANCELED': return { phase: 'run-details-cancelled', pending404: false }
       case 'ECONNABORTED':
-      case 'ETIMEDOUT': return 'run-details-timeout'
-      default: return 'run-details-rejected'
+      case 'ETIMEDOUT': return { phase: 'run-details-timeout', pending404: false }
+      default: return { phase: 'run-details-rejected', pending404: false }
     }
-  } catch { return 'run-details-rejected' }
+  } catch { return { phase: 'run-details-rejected', pending404: false } }
 }
 
 export async function readRetryHistory(client: Pick<HatchetClient, 'api' | 'tenantId'>,
@@ -242,18 +249,23 @@ export async function readRetryHistory(client: Pick<HatchetClient, 'api' | 'tena
     }
     for (;;) {
       const requestTimeout = checkedAllowance('before', timeout)
-      let state: Awaited<ReturnType<typeof client.api.v1WorkflowRunGet>>
+      let read: { kind: 'RESPONSE'; state: Awaited<ReturnType<typeof client.api.v1WorkflowRunGet>> } | { kind: 'NOT_PROJECTED' }
       try {
-        state = await client.api.v1WorkflowRunGet(expected.runId, { signal, timeout: requestTimeout, maxContentLength: 65536 })
-      } catch (error) { setPhase(runDetailsFailurePhase(error)); throw error }
+        read = { kind: 'RESPONSE', state: await client.api.v1WorkflowRunGet(expected.runId, { signal, timeout: requestTimeout, maxContentLength: 65536 }) }
+      } catch (error) {
+        const failure = runDetailsFailure(error)
+        setPhase(failure.phase)
+        if (!failure.pending404) throw error
+        // Eligible rejected 404; visibility and ownership remain unverified.
+        read = { kind: 'NOT_PROJECTED' }
+      }
       checkedAllowance('after', 10000)
-      if (!ownedEmptyRetryProjection(state.data, expected)) {
-        const identity = decodeRetryHistoryIdentity(state, expected, setPhase)
+      const membership: RetryRunMembership = read.kind === 'RESPONSE' ? inspectRetryRunResponse(read.state, expected, setPhase) : { kind: 'PENDING' }
+      if (membership.kind === 'IDENTITY') {
         if (signal.aborted) throw retryFixtureError()
         budget.remaining(10000)
-        return identity
+        return membership.value
       }
-      setPhase('identity-tasks-empty')
       await pauseRetryProjection(signal, budget.remaining(50))
       if (signal.aborted) throw retryFixtureError()
       budget.remaining(10000)
