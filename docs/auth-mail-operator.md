@@ -106,7 +106,7 @@ Queued200 purges ciphertext/nonce/tag while preserving an admissible verifier. M
 
 Use the repository's pinned Node `24.14.0`/pnpm `10.32.1`, one lockfile and
 `pnpm install --frozen-lockfile`. `pnpm build` builds web and
-`.output/worker/index.mjs`; `pnpm start:worker` starts only the mail worker, with
+`.output/worker/index.mjs`; `pnpm start:worker` starts the configured application worker, with
 no web HTTP listener. Keep production `node_modules` alongside the output: SDK
 `1.28.2` remains external because its heartbeat thread resolves package-relative
 JavaScript. The build emits an empty owned Hatchet YAML file; no existing
@@ -135,6 +135,29 @@ plus `BILLING_RELAY_DATABASE_URL` and `BILLING_WORKER_DATABASE_URL` registers
 binding. Google/passkey authentication remains independent in the Web process.
 No global Price setting is used: each admitted operation retains its agreed
 Workspace conditions.
+
+The Dockerfile's separate `worker` target packages that same entrypoint and the
+intact pruned production dependencies. The final/default target remains `web`;
+the Web image does not contain this worker. `worker-source-manifest.json` binds
+the pinned toolchain, lockfile, Dockerfile, build configuration, patches and
+application sources. Image acceptance checks all 28 patched runtime files and
+six SDK entrypoint/heartbeat/config-loader assets, including both selected
+grpc-js resolutions 1.14.5. The retained production graph is shared with the
+migrator; no independent dependency installation or version selection occurs.
+
+`pnpm test:worker-image` exercises the actual image only on the owned Linux
+qualification runner. It uses explicit synthetic settings, a disposable native
+Hatchet tenant and two disposable billing SQL logins. Its test-only host network
+keeps those fixtures' loopback endpoints valid. It uses no checkout, test/probe
+mount, IPC preload or inherited provider credentials. Native registration and
+normal SIGTERM exit with retired SQL clients precede the UID/GID 10001:10001
+assertion. Unsupported host transport fails explicitly. A finite test timeout
+does not establish a hard process-shutdown bound.
+
+This prepares an installable image candidate; it does not activate billing,
+qualify operator secret delivery or establish a real Stripe payment. Neither a
+real Stripe account/key nor a production worker is configured by this fixture.
+The existing native process and Web/migrator image gates remain independent.
 
 A partial or invalid capability is explicitly reported as
 `mail-config-rejected` or `billing-config-rejected` and is not registered or

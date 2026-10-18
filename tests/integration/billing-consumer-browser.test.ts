@@ -287,6 +287,7 @@ test('compiled protected refresh ignores a late departed read and clears private
       expect(await f.page.locator('.sparra-billing time').count()).toBe(0)
       await f.page.evaluate(() => window.__sparraBillingDeferred?.release())
       await f.page.waitForURL(url => url.pathname === '/login')
+      await f.page.getByRole('heading', { name: 'Sign in', exact: true }).waitFor()
     } finally { await restoreWorkspaceRead() }
     expect(await f.page.getByText(workspace.displayName, { exact: true }).count()).toBe(0)
     expect(await f.page.locator('main time').count()).toBe(0)

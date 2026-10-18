@@ -8,8 +8,9 @@ async function publishedImage(reference:string,args:readonly string[]) {
   if(metadata.length!==2||!/^sha256:[0-9a-f]{64}$/.test(metadata[0])||metadata[1]!=='linux/amd64')throw new Error('Pulled image mismatch')
   return metadata[0]
 }
-export async function nativeImage(target: 'web' | 'migrator') {
-  const selected = target === 'migrator' ? process.env.SPARRA_TEST_MIGRATOR_IMAGE_ID : process.env.SPARRA_TEST_WEB_IMAGE_ID
+export async function nativeImage(target: 'web' | 'migrator' | 'worker') {
+  const selected = target === 'worker' ? process.env.SPARRA_TEST_WORKER_IMAGE_ID
+    : target === 'migrator' ? process.env.SPARRA_TEST_MIGRATOR_IMAGE_ID : process.env.SPARRA_TEST_WEB_IMAGE_ID
   const reference = target === 'web' ? process.env.SPARRA_TEST_IMAGE_REFERENCE : undefined
   if(reference!==undefined&&selected!==undefined)throw new Error('Ambiguous image authority')
   if(reference!==undefined&&!/^ghcr\.io\/louisvannobel\/sparra-web@sha256:[0-9a-f]{64}$/.test(reference))throw new Error('Immutable published web image required')

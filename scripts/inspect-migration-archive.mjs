@@ -147,7 +147,7 @@ async function readMigrationLayers(path,blobs,image,config,expectedFiles) {
 
 async function readArchiveCarrier(path) {
   const blobs=new Map(),documents=new Map()
-  await tar(createReadStream(path),1073741824,async entry=>{
+  const archive=await tar(createReadStream(path),1073741824,async entry=>{
     if(entry.type==='5'&&['blobs','blobs/sha256'].includes(entry.name)){await entry.consume();return}
     if(entry.type!=='0'||!(/^(?:index\.json|oci-layout|manifest\.json|blobs\/sha256\/[0-9a-f]{64})$/.test(entry.name)))fail()
     if(blobs.size+documents.size>256)fail()
@@ -158,10 +158,10 @@ async function readArchiveCarrier(path) {
     else documents.set(entry.name,data)
   })
   if(json(documents.get('oci-layout')).imageLayoutVersion!=='1.0.0')fail()
-  return {blobs,carrier:json(documents.get('index.json'))}
+  return {blobs,carrier:json(documents.get('index.json')),archiveHash:archive.hash}
 }
 
-function selectMigrationImage(blobs,carrier,imageId) {
+function selectImage(blobs,carrier,imageId) {
   const id=digest(imageId)
   if(carrier.schemaVersion!==2||carrier.mediaType!==indexType||carrier.manifests?.length!==1||digest(carrier.manifests[0].digest)!==id)fail()
   const metadata=reference=>{
@@ -177,8 +177,12 @@ function selectMigrationImage(blobs,carrier,imageId) {
   }
   if(descriptor.mediaType!==manifestType||image.mediaType!==manifestType||image.schemaVersion!==2||!Array.isArray(image.layers)||image.layers.length<1||image.layers.length>64)fail()
   const config=metadata(image.config),configId='sha256:'+digest(image.config.digest)
-  assertMigrationConfig(config,image.layers.length)
   return {image,config,configId}
+}
+function selectMigrationImage(blobs,carrier,imageId) {
+  const selected=selectImage(blobs,carrier,imageId)
+  assertMigrationConfig(selected.config,selected.image.layers.length)
+  return selected
 }
 
 function assertMigrationConfig(config,layerCount) {
@@ -206,4 +210,20 @@ export async function inspectMigrationArchive(path,imageId,expectedManifest,expe
   if(subject?.annotations?.some(item=>typeof item.comment!=='string'))fail()
   bindWebSbom(spdx,configId,config.rootfs.diff_ids,imageId)
   return {configId,diffIds:config.rootfs.diff_ids}
+}
+
+/** Fixed worker companion: transported content is requalified by the native image consumer after load. */
+export async function inspectWorkerArchive(path,imageId,spdx) {
+  const {blobs,carrier,archiveHash}=await readArchiveCarrier(path)
+  const {image,config,configId}=selectImage(blobs,carrier,imageId)
+  if(config.os!=='linux'||config.architecture!=='amd64'||config.config?.User!=='10001:10001'||config.config?.WorkingDir!=='/app'
+    ||JSON.stringify(config.config?.Entrypoint)!=='["node",".output/worker/index.mjs"]'||config.rootfs?.type!=='layers'||config.rootfs.diff_ids?.length!==image.layers.length)fail()
+  for(const layer of image.layers){
+    const blob=blobs.get(digest(layer.digest))
+    if(!blob||blob.size!==layer.size||!['application/vnd.oci.image.layer.v1.tar','application/vnd.oci.image.layer.v1.tar+gzip','application/vnd.docker.image.rootfs.diff.tar.gzip'].includes(layer.mediaType))fail()
+  }
+  const subject=spdx.packages?.find(item=>item.primaryPackagePurpose==='CONTAINER')
+  if(subject?.annotations?.some(item=>typeof item.comment!=='string'))fail()
+  bindWebSbom(spdx,configId,config.rootfs.diff_ids,imageId)
+  return {configId,diffIds:config.rootfs.diff_ids,archiveHash}
 }

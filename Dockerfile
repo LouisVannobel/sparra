@@ -11,7 +11,7 @@ COPY public ./public
 COPY scripts ./scripts
 COPY tools ./tools
 COPY drizzle ./drizzle
-RUN pnpm run build && node scripts/migration-source-manifest.mjs --write && node scripts/web-source-manifest.mjs --write
+RUN pnpm run build && node scripts/migration-source-manifest.mjs --write && node scripts/web-source-manifest.mjs --write && node scripts/worker-source-manifest.mjs --write
 
 FROM builder AS migration-dependencies
 # The native Node migrator never invokes Drizzle Kit's retained esbuild compilers.
@@ -45,6 +45,13 @@ COPY --from=builder /app/src/modules/auth/auth-email-normalization.server.ts ./s
 RUN chmod -R a-w /app
 USER 10001:10001
 ENTRYPOINT ["node","scripts/start-migrate.mjs"]
+
+FROM runtime-base AS worker
+COPY --from=migration-dependencies /app/package.json ./
+COPY --from=migration-dependencies /app/node_modules ./node_modules
+COPY --from=builder /app/.output/worker ./.output/worker
+COPY --from=builder /app/worker-source-manifest.json ./
+ENTRYPOINT ["node",".output/worker/index.mjs"]
 
 FROM runtime-base AS web
 COPY --from=builder /app/web-source-manifest.json ./

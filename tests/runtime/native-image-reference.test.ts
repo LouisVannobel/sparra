@@ -23,10 +23,11 @@ const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform')!
 const targets = [
   { target: 'web', selectedKey: 'SPARRA_TEST_WEB_IMAGE_ID' },
   { target: 'migrator', selectedKey: 'SPARRA_TEST_MIGRATOR_IMAGE_ID' },
+  { target: 'worker', selectedKey: 'SPARRA_TEST_WORKER_IMAGE_ID' },
 ] as const
 
 beforeEach(() => {
-  for (const key of ['SPARRA_TEST_IMAGE_REFERENCE', 'SPARRA_TEST_WEB_IMAGE_ID', 'SPARRA_TEST_MIGRATOR_IMAGE_ID']) vi.stubEnv(key, undefined)
+  for (const key of ['SPARRA_TEST_IMAGE_REFERENCE', 'SPARRA_TEST_WEB_IMAGE_ID', 'SPARRA_TEST_MIGRATOR_IMAGE_ID', 'SPARRA_TEST_WORKER_IMAGE_ID']) vi.stubEnv(key, undefined)
   for (const [key, value] of Object.entries({
     ...dockerEnvironment, ProgramFiles: programFiles, DOCKER_HOST: 'tcp://remote.invalid:2376',
     DOCKER_CONTEXT: 'remote', DOCKER_TLS_VERIFY: '1', DOCKER_CERT_PATH: '/synthetic/certs',
@@ -167,6 +168,36 @@ test('migrator builds when only unconsumed invalid web selectors are present', a
   ], { env: dockerEnvironment, windowsHide: true, timeout: 600000, maxBuffer: 8 * 1024 * 1024 })
   expect(boundary.exec).toHaveBeenNthCalledWith(2, 'docker', [
     '--host', 'unix:///var/run/docker.sock', 'image', 'inspect', 'sparra-migrator:qualification', '--format', '{{.Id}}',
+  ], { env: dockerEnvironment, windowsHide: true })
+})
+
+test('worker reuses only its own immutable ID when web and migrator selectors are present', async () => {
+  vi.stubEnv('SPARRA_TEST_IMAGE_REFERENCE', reference)
+  vi.stubEnv('SPARRA_TEST_WEB_IMAGE_ID', otherId)
+  vi.stubEnv('SPARRA_TEST_MIGRATOR_IMAGE_ID', otherId)
+  vi.stubEnv('SPARRA_TEST_WORKER_IMAGE_ID', id)
+  boundary.exec.mockResolvedValueOnce({ stdout: id + '|linux/amd64', stderr: '' })
+
+  expect(await nativeImage('worker')).toBe(id)
+  expect(boundary.exec).toHaveBeenCalledExactlyOnceWith('docker', [
+    '--host', 'unix:///var/run/docker.sock', 'image', 'inspect', id, '--format', '{{.Id}}|{{.Os}}/{{.Architecture}}',
+  ], { env: dockerEnvironment, windowsHide: true })
+})
+
+test('worker builds its own target when only unconsumed invalid foreign selectors are present', async () => {
+  vi.stubEnv('SPARRA_TEST_IMAGE_REFERENCE', 'ghcr.io/louisvannobel/sparra-web:latest')
+  vi.stubEnv('SPARRA_TEST_WEB_IMAGE_ID', 'invalid-web-id')
+  vi.stubEnv('SPARRA_TEST_MIGRATOR_IMAGE_ID', 'invalid-migrator-id')
+  boundary.exec.mockResolvedValueOnce({ stdout: '', stderr: '' })
+  boundary.exec.mockResolvedValueOnce({ stdout: id, stderr: '' })
+
+  expect(await nativeImage('worker')).toBe(id)
+  expect(boundary.exec).toHaveBeenCalledTimes(2)
+  expect(boundary.exec).toHaveBeenNthCalledWith(1, 'docker', [
+    '--host', 'unix:///var/run/docker.sock', 'build', '--platform', 'linux/amd64', '--target', 'worker', '--tag', 'sparra-worker:qualification', '.',
+  ], { env: dockerEnvironment, windowsHide: true, timeout: 600000, maxBuffer: 8 * 1024 * 1024 })
+  expect(boundary.exec).toHaveBeenNthCalledWith(2, 'docker', [
+    '--host', 'unix:///var/run/docker.sock', 'image', 'inspect', 'sparra-worker:qualification', '--format', '{{.Id}}',
   ], { env: dockerEnvironment, windowsHide: true })
 })
 
