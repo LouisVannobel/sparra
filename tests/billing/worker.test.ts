@@ -5,6 +5,7 @@ import { config, termsB } from '../helpers/billing-fixtures'
 import { billingWorkerClaim, billingWorkerInput, installBillingReadReplies } from '../helpers/billing-worker-fixture'
 import { startStripeFinancialPeer } from '../helpers/stripe-financial-protocol-peer'
 import * as provider from '../helpers/billing-provider-fixtures'
+import type Stripe from 'stripe'
 
 const peers: Awaited<ReturnType<typeof startStripeFinancialPeer>>[] = []
 const handlers: ReturnType<typeof createBillingHandler>[] = []
@@ -230,4 +231,120 @@ test('a fraud-warning event cannot silently discard a previously known invoice m
   expect(f.owner.recordRisk).not.toHaveBeenCalled()
   expect(f.peer.requests().some(request => request.path === '/v1/radar/early_fraud_warnings/issfr_fixture123')).toBe(true)
   expect(f.peer.requests().some(request => request.path === allocationPath)).toBe(true)
+})
+
+const authorizedOutcome: Stripe.Charge.Outcome = {
+  advice_code: null, network_advice_code: null, network_decline_code: null,
+  network_status: 'approved_by_network', reason: null, risk_level: 'normal',
+  seller_message: 'Synthetic authorized payment', type: 'authorized',
+}
+
+test.each([
+  { label: 'normal authorization', riskLevel: 'normal', reason: null },
+  { label: 'an unassessed custom allow rule', riskLevel: 'not_assessed', reason: 'rule' },
+])('worker still requires and grants exact captured funds with $label', async ({ riskLevel, reason }) => {
+  const f = await fixture()
+  f.peer.setReply('/v1/charges/ch_fixture123', { body: { ...provider.charge,
+    outcome: { ...authorizedOutcome, risk_level: riskLevel, reason },
+  } })
+  expect(await f.run()).toEqual({ state: 'applied', commandCompleted: true })
+  expect(f.decisions).toEqual([{ kind: 'paid', proof: {
+    invoiceId: 'in_fixture123', subscriptionId: 'sub_fixture123', customerId: 'cus_fixture', currency: 'eur', amount: 1500,
+    periodStart: 1790812800, periodEnd: 1793491200, allocationIds: ['inpay_fixture123'],
+    paymentIntentIds: ['pi_fixture123'], chargeIds: ['ch_fixture123'],
+  } }])
+  expect(f.peer.requests().filter(request => request.path === '/v1/charges/ch_fixture123').map(request => request.method))
+    .toEqual(['GET', 'GET', 'GET'])
+})
+
+test.each([
+  { label: 'an open Radar review', review: 'prv_fixture123', outcome: authorizedOutcome },
+  { label: 'a manual-review outcome', review: null,
+    outcome: { ...authorizedOutcome, type: 'manual_review', risk_level: 'elevated', reason: 'elevated_risk_level' } },
+])('captured funds with $label cannot become a worker paid grant', async ({ review, outcome }) => {
+  const f = await fixture()
+  f.peer.setReply('/v1/charges/ch_fixture123', { body: { ...provider.charge, review, outcome } })
+  expect(await f.run()).toEqual({ state: 'deferred', commandCompleted: false })
+  expect(f.decisions).toEqual([{ kind: 'unresolved' }])
+  expect(f.risks).toEqual([{ chargeObservations: [{
+    chargeId: 'ch_fixture123', paymentIntentId: 'pi_fixture123', customerId: 'cus_fixture', currency: 'eur',
+    amountRefunded: 0, refunded: false, disputed: false, stripeFraudReport: null, userFraudReport: null,
+  }], disputes: [], earlyFraudWarnings: [] }])
+})
+
+test('a refused payment retaining its failed uncaptured Charge becomes an exact observation without a paid grant', async () => {
+  const f = await fixture({ invoice: { status: 'open', amount_paid: 0, amount_remaining: 1500 } })
+  f.owner.claim.mockResolvedValue(claimEvent({ type: 'invoice.payment_failed' }))
+  f.peer.setReply('/v1/invoice_payments?invoice=in_fixture123&limit=100', { body: provider.list('/v1/invoice_payments', [{
+    ...provider.allocation, status: 'open', amount_paid: null, status_transitions: { paid_at: null, canceled_at: null },
+  }]) })
+  f.peer.setReply('/v1/payment_intents/pi_fixture123', { body: {
+    ...provider.pi, status: 'requires_payment_method', amount_received: 0,
+  } })
+  f.peer.setReply('/v1/charges/ch_fixture123', { body: {
+    ...provider.charge, status: 'failed', amount_captured: 0, captured: false, paid: false,
+    outcome: { ...authorizedOutcome, type: 'issuer_declined', network_status: 'declined_by_network',
+      reason: 'generic_decline', seller_message: 'Synthetic declined payment' },
+  } })
+  expect(await f.run()).toEqual({ state: 'applied', commandCompleted: true })
+  expect(f.decisions).toEqual([{ kind: 'observedNoGrant', evidence: {
+    kind: 'unpaid-invoice', invoiceId: 'in_fixture123', customerId: 'cus_fixture', subscriptionId: 'sub_fixture123',
+    currency: 'eur', status: 'open', amountDue: 1500, amountPaid: 0, amountRemaining: 1500,
+    periodStart: 1790812800, periodEnd: 1793491200, invoicePaymentIds: ['inpay_fixture123'],
+    observationDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+  } }])
+  expect(f.risks).toEqual([{ chargeObservations: [{
+    chargeId: 'ch_fixture123', paymentIntentId: 'pi_fixture123', customerId: 'cus_fixture', currency: 'eur',
+    amountRefunded: 0, refunded: false, disputed: false, stripeFraudReport: null, userFraudReport: null,
+  }], disputes: [], earlyFraudWarnings: [] }])
+  expect(f.owner.observe.mock.calls[0]?.[2].paymentEdges)
+    .toEqual([{ chargeId: 'ch_fixture123', paymentIntentId: 'pi_fixture123', invoiceId: 'in_fixture123' }])
+  expect(f.peer.requests().filter(request => request.path === '/v1/charges/ch_fixture123').map(request => request.method))
+    .toEqual(['GET', 'GET', 'GET'])
+  expect(f.owner.recordRisk.mock.invocationCallOrder[0]).toBeLessThan(f.owner.apply.mock.invocationCallOrder[0]!)
+})
+
+const listedDispute: Pick<Stripe.Dispute, 'id' | 'object' | 'livemode' | 'charge' | 'payment_intent' | 'currency' | 'status'> = {
+  id: 'dp_fixture123', object: 'dispute', livemode: false, charge: 'ch_fixture123',
+  payment_intent: 'pi_fixture123', currency: 'eur', status: 'needs_response',
+}
+
+test.each([
+  { label: 'its owning PaymentIntent', paymentIntentId: 'pi_fixture123' },
+  { label: 'a nullable PaymentIntent witness', paymentIntentId: null },
+])('worker rereads a listed dispute with $label and records the current held facts before money settlement', async ({ paymentIntentId }) => {
+  const f = await fixture({ charge: { disputed: true } })
+  f.peer.setReply('/v1/disputes?charge=ch_fixture123&limit=100', { body: provider.list('/v1/disputes', [listedDispute]) })
+  f.peer.setReply('/v1/disputes/dp_fixture123', { body: {
+    ...listedDispute, payment_intent: paymentIntentId, status: 'under_review',
+  } })
+  f.owner.recordRisk.mockImplementation(async (_claim, _observation, facts) => {
+    f.risks.push(facts); return { targetDisposition: 'held', commandCompleted: true }
+  })
+  expect(await f.run()).toEqual({ state: 'held', commandCompleted: true })
+  expect(f.risks).toEqual([{ chargeObservations: [{
+    chargeId: 'ch_fixture123', paymentIntentId: 'pi_fixture123', customerId: 'cus_fixture', currency: 'eur',
+    amountRefunded: 0, refunded: false, disputed: true, stripeFraudReport: null, userFraudReport: null,
+  }], disputes: [{ riskId: 'dp_fixture123', chargeId: 'ch_fixture123', paymentIntentId, status: 'under_review' }], earlyFraudWarnings: [] }])
+  expect(f.decisions).toEqual([])
+  expect(f.owner.apply).not.toHaveBeenCalled()
+  expect(f.peer.requests().filter(request => request.path.startsWith('/v1/disputes')).map(request => `${request.method} ${request.path}`))
+    .toEqual(['GET /v1/disputes?charge=ch_fixture123&limit=100', 'GET /v1/disputes/dp_fixture123'])
+})
+
+test.each([
+  { label: 'another Charge', changes: { charge: 'ch_other' } },
+  { label: 'another PaymentIntent', changes: { payment_intent: 'pi_other' } },
+  { label: 'another currency', changes: { currency: 'usd' } },
+])('worker defers when a listed dispute rereads as $label without recording risk or granting money', async ({ changes }) => {
+  const f = await fixture({ charge: { disputed: true } })
+  f.peer.setReply('/v1/disputes?charge=ch_fixture123&limit=100', { body: provider.list('/v1/disputes', [listedDispute]) })
+  f.peer.setReply('/v1/disputes/dp_fixture123', { body: { ...listedDispute, ...changes } })
+  expect(await f.run()).toEqual({ state: 'deferred', commandCompleted: false })
+  expect(f.risks).toEqual([])
+  expect(f.decisions).toEqual([])
+  expect(f.owner.recordRisk).not.toHaveBeenCalled()
+  expect(f.owner.apply).not.toHaveBeenCalled()
+  expect(f.peer.requests().filter(request => request.path.startsWith('/v1/disputes')).map(request => `${request.method} ${request.path}`))
+    .toEqual(['GET /v1/disputes?charge=ch_fixture123&limit=100', 'GET /v1/disputes/dp_fixture123'])
 })

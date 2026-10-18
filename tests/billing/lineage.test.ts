@@ -289,3 +289,98 @@ test('wrong original request hash still refuses before provider I/O', async () =
     .rejects.toMatchObject({ name: 'BillingLineageError', message: 'Billing lineage unavailable' })
   expect(held.requests).toEqual([])
 })
+
+test.each([
+  { label: 'another workspace', changes: { workspaceId: '22222222-2222-4222-8222-222222222222' } },
+  { label: 'another Stripe account', changes: { accountId: 'acct_other' } },
+])('checkout lineage refuses a Customer binding from $label before provider reads', async ({ changes }) => {
+  const held = holdFirstInvoice(provider())
+  await expect(proveBillingLineage(config, held.client, checkoutOperation, { ...customer, ...changes }, 'in_fixture123', termsA))
+    .rejects.toMatchObject({ name: 'BillingLineageError', message: 'Billing lineage unavailable' })
+  expect(held.requests).toEqual([])
+})
+
+test('a completed Session for the same Customer cannot substitute another original Checkout operation', async () => {
+  const client = provider()
+  const substituted: LineageProvider & MonetaryProvider = { ...client, async retrieveCheckoutSession(id) {
+    return { ...await client.retrieveCheckoutSession(id), client_reference_id: '11111111-1111-4111-8111-111111111111' }
+  } }
+  const held = holdFirstInvoice(substituted); held.release()
+  await expect(proveBillingLineage(config, held.client, checkoutOperation, customer, 'in_fixture123', termsA))
+    .rejects.toMatchObject({ name: 'BillingLineageError', message: 'Billing lineage unavailable' })
+  expect(held.requests).toEqual(['invoice:in_fixture123', 'subscription:sub_fixture123',
+    'sessions:sub_fixture123:cus_fixture:', 'checkout:cs_test_fixture123'])
+})
+
+test.each([
+  { label: 'a proration', proration: true, period: { start: 1790812800, end: 1793491200 } },
+  { label: 'a zero-duration service period', proration: false, period: { start: 1790812800, end: 1790812800 } },
+])('monthly lineage cannot bind $label as the agreed monthly service', async ({ proration, period }) => {
+  const client = provider()
+  const changed: LineageProvider & MonetaryProvider = { ...client, async retrieveInvoice(id) {
+    const invoice = await client.retrieveInvoice(id), monthly = invoice.lines.data[0]!
+    return { ...invoice, lines: { ...invoice.lines, data: [{ ...monthly, period,
+      parent: { ...monthly.parent!, subscription_item_details: { ...monthly.parent!.subscription_item_details!, proration } },
+    }] } }
+  } }
+  const held = holdFirstInvoice(changed); held.release()
+  await expect(proveBillingLineage(config, held.client, checkoutOperation, customer, 'in_fixture123', termsA))
+    .rejects.toMatchObject({ name: 'BillingLineageError', message: 'Billing lineage unavailable' })
+  expect(held.requests).toEqual(['invoice:in_fixture123', 'subscription:sub_fixture123',
+    'sessions:sub_fixture123:cus_fixture:', 'checkout:cs_test_fixture123', 'lines:cs_test_fixture123:'])
+})
+
+test.each([
+  { label: 'a different subscription', changes: { subscription: 'sub_other' } },
+  { label: 'a different service period', changes: { period: { start: 1793491200, end: 1796083200 } } },
+  { label: 'a line amount below the agreement', changes: { amount: 1499 } },
+])('paid invoice totals cannot hide $label on the monthly service line', async ({ changes }) => {
+  const client = provider()
+  const changed: LineageProvider & MonetaryProvider = { ...client, async retrieveInvoice(id) {
+    const invoice = await client.retrieveInvoice(id)
+    return { ...invoice, lines: { ...invoice.lines, data: invoice.lines.data.map(line => ({ ...line, ...changes })) } }
+  } }
+  const held = holdFirstInvoice(changed); held.release()
+  await expect(provePaidMonthlyInvoice(config, held.client, originalBound))
+    .rejects.toMatchObject({ name: 'BillingMonetaryError', message: 'Billing monetary proof unavailable' })
+  expect(held.requests).toEqual(['invoice:in_fixture123'])
+})
+
+test.each([
+  { label: 'another invoice', changes: { invoice: 'in_other' } },
+  { label: 'an amount different from its paid allocation', changes: { amount_requested: 1600 } },
+])('paid proof refuses an InvoicePayment describing $label before reading a PaymentIntent', async ({ changes }) => {
+  const client = provider()
+  const changed: LineageProvider & MonetaryProvider = { ...client, async listInvoicePayments(id, cursor) {
+    const page = await client.listInvoicePayments(id, cursor)
+    return { ...page, data: page.data.map(payment => ({ ...payment, ...changes })) }
+  } }
+  const held = holdFirstInvoice(changed); held.release()
+  await expect(provePaidMonthlyInvoice(config, held.client, originalBound))
+    .rejects.toMatchObject({ name: 'BillingMonetaryError', message: 'Billing monetary proof unavailable' })
+  expect(held.requests).toEqual(['invoice:in_fixture123', 'allocations:in_fixture123:'])
+})
+
+test('a partially captured Charge cannot prove the full negotiated monthly amount despite paid invoice and allocation', async () => {
+  const client = provider()
+  const partial: LineageProvider & MonetaryProvider = { ...client, async retrieveCharge(id) {
+    return { ...await client.retrieveCharge(id), amount_captured: 1499 }
+  } }
+  const held = holdFirstInvoice(partial); held.release()
+  await expect(provePaidMonthlyInvoice(config, held.client, originalBound))
+    .rejects.toMatchObject({ name: 'BillingMonetaryError', message: 'Billing monetary proof unavailable' })
+  expect(held.requests).toEqual(['invoice:in_fixture123', 'allocations:in_fixture123:', 'invoice:in_fixture123',
+    'allocations:in_fixture123:', 'balance:cus_fixture:', 'intent:pi_fixture123', 'charge:ch_fixture123'])
+})
+
+test('an unpaid allocation and zero received amount cannot erase a captured latest Charge', async () => {
+  const client = unpaidProvider('open')
+  const inconsistent: LineageProvider & MonetaryProvider = { ...client, async retrievePaymentIntent(id) {
+    return { ...await client.retrievePaymentIntent(id), latest_charge: 'ch_fixture123' }
+  } }
+  const held = holdFirstInvoice(inconsistent); held.release()
+  await expect(proveUnpaidMonthlyInvoice(config, held.client, originalBound))
+    .rejects.toMatchObject({ name: 'BillingMonetaryError', message: 'Billing monetary proof unavailable' })
+  expect(held.requests).toEqual(['invoice:in_fixture123', 'allocations:in_fixture123:', 'invoice:in_fixture123',
+    'allocations:in_fixture123:', 'balance:cus_fixture:', 'intent:pi_fixture123', 'charge:ch_fixture123'])
+})

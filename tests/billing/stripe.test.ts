@@ -2,6 +2,7 @@ import { afterEach, expect, test } from 'vitest'
 import { buildCheckoutParameters, createStripeBillingClient } from '../../src/modules/billing/stripe.server'
 import { config } from '../helpers/billing-fixtures'
 import { startStripeFinancialPeer } from '../helpers/stripe-financial-protocol-peer'
+import { charge } from '../helpers/billing-provider-fixtures'
 
 const clients: ReturnType<typeof createStripeBillingClient>[] = []
 const peers: Awaited<ReturnType<typeof startStripeFinancialPeer>>[] = []
@@ -72,6 +73,21 @@ test('invalid negotiated currency refuses Checkout before even verifying the pro
   const { peer, client } = await financialFixture()
   await expect(client.createCheckout({ ...intent, terms: { ...intent.terms, currency: 'EUR' } })).rejects.toMatchObject({ name: 'StripeInputError' })
   expect(peer.requests()).toEqual([])
+  await client.close()
+  await expect.poll(peer.evidence).toEqual({ clientSockets: 0, serverSockets: 0, requests: 0, responses: 0 })
+})
+
+test.each([
+  { label: 'an omitted fraud assessment', changes: { fraud_details: undefined } },
+  { label: 'a foreign object as its review reference', changes: { review: 'dp_fixture123' } },
+  { label: 'a non-string authorization network status', changes: { outcome: { type: 'authorized', reason: null, network_status: 200 } } },
+])('the real Charge adapter refuses $label without accepting a payment observation', async ({ changes }) => {
+  const { peer, client } = await financialFixture()
+  peer.setReply('/v1/charges/ch_fixture123', { body: { ...charge, ...changes } })
+  await expect(client.retrieveCharge('ch_fixture123'))
+    .rejects.toMatchObject({ name: 'StripeProviderError', message: 'Stripe provider outcome unknown' })
+  expect(peer.requests().map(request => `${request.method} ${request.path}`))
+    .toEqual(['GET /v1/account', 'GET /v1/charges/ch_fixture123'])
   await client.close()
   await expect.poll(peer.evidence).toEqual({ clientSockets: 0, serverSockets: 0, requests: 0, responses: 0 })
 })
