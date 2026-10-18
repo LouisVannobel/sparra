@@ -32,18 +32,7 @@ function fixture(initial: typeof termsA | null = termsA, existing: Partial<Opera
     const keys = Object.keys(getTableColumns(table)) as Array<keyof Table['$inferSelect']>
     return keys.map(key => { const field = value[key]; return field instanceof Date ? field.toISOString() : field })
   }
-  const db = drizzle(async (query, params) => {
-    function stringAt(index: number) { const value = params[index]; if (typeof value !== 'string') throw new Error('Expected text SQL argument'); return value }
-    if (query.includes('billing_admit_checkout_v3')) {
-      effects.push('admit-v3')
-      if (params[10] !== currentTerms?.id || params[11] !== currentTerms?.revision) return { rows: [[null]] }
-      operation = { ...checkoutOperation, id: stringAt(6), idempotencyKey: stringAt(7),
-        requestHash: stringAt(8), agreedTermsId: stringAt(10), integrationIdentifier: stringAt(15), phase: 'ADMITTED' }
-      return { rows: [[operation.id]] }
-    }
-    if (query.includes('billing_admit_checkout_v2')) { effects.push('admit-v2'); return { rows: [[null]] } }
-    if (query.includes('billing_claim_operation')) { operation = { ...operation!, phase: 'DISPATCHING' }; return { rows: [[true]] } }
-    if (query.includes('billing_mark_unknown')) { operation = { ...operation!, phase: 'UNKNOWN' }; return { rows: [[true]] } }
+  function retainedBillingRows(query: string): { rows: unknown[][] } | null {
     if (query.includes('from "billing_customer"')) {
       const retained = visibility.customer === undefined ? customer : visibility.customer
       return { rows: retained ? [rows(billingCustomer, retained)] : [] }
@@ -57,6 +46,22 @@ function fixture(initial: typeof termsA | null = termsA, existing: Partial<Opera
     if (query.includes('from "billing_agreement"')) return {
       rows: visibility.agreement ? [rows(billingAgreement, visibility.agreement)] : [],
     }
+    return null
+  }
+  const db = drizzle(async (query, params) => {
+    function stringAt(index: number) { const value = params[index]; if (typeof value !== 'string') throw new Error('Expected text SQL argument'); return value }
+    if (query.includes('billing_admit_checkout_v3')) {
+      effects.push('admit-v3')
+      if (params[10] !== currentTerms?.id || params[11] !== currentTerms?.revision) return { rows: [[null]] }
+      operation = { ...checkoutOperation, id: stringAt(6), idempotencyKey: stringAt(7),
+        requestHash: stringAt(8), agreedTermsId: stringAt(10), integrationIdentifier: stringAt(15), phase: 'ADMITTED' }
+      return { rows: [[operation.id]] }
+    }
+    if (query.includes('billing_admit_checkout_v2')) { effects.push('admit-v2'); return { rows: [[null]] } }
+    if (query.includes('billing_claim_operation')) { operation = { ...operation!, phase: 'DISPATCHING' }; return { rows: [[true]] } }
+    if (query.includes('billing_mark_unknown')) { operation = { ...operation!, phase: 'UNKNOWN' }; return { rows: [[true]] } }
+    const retained = retainedBillingRows(query)
+    if (retained) return retained
     if (query.includes('from "billing_agreed_terms"')) {
       effects.push('terms')
       return { rows: currentTerms ? [[currentTerms.id, currentTerms.workspaceId, currentTerms.environment, currentTerms.accountId,

@@ -198,14 +198,20 @@ function checkedInvoicePeriod(invoice: LineageInvoice, session: LineageSession, 
   return { firstPeriod, monthly, expectedAmount }
 }
 
-export async function proveBillingLineage(config: StripeConfig, provider: LineageProvider,
-  operation: typeof billingOperation.$inferSelect, customer: typeof billingCustomer.$inferSelect,
-  invoiceId: string, terms: AgreedMonthlyTerms): Promise<ObservedBillingLineage> {
-  // Own the used scalar values before any provider code can mutate caller aliases.
+// Own the four caller data inputs as one synchronous boundary before provider code runs.
+function ownedLineageInputs(config: StripeConfig, operation: typeof billingOperation.$inferSelect,
+  customer: typeof billingCustomer.$inferSelect, terms: AgreedMonthlyTerms) {
   config = config && { ...config }
   operation = operation && { ...operation }
   customer = customer && { ...customer }
   terms = terms && { ...terms }
+  return { config, operation, customer, terms }
+}
+
+export async function proveBillingLineage(config: StripeConfig, provider: LineageProvider,
+  operation: typeof billingOperation.$inferSelect, customer: typeof billingCustomer.$inferSelect,
+  invoiceId: string, terms: AgreedMonthlyTerms): Promise<ObservedBillingLineage> {
+  ({ config, operation, customer, terms } = ownedLineageInputs(config, operation, customer, terms))
   const live = config.environment === 'live'
   requireCheckoutScope(config, operation, customer)
   requireMonthlySnapshot(operation, terms)
