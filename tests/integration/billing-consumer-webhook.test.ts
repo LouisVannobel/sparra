@@ -80,7 +80,7 @@ test.each(['absent', 'partial'] as const)('native Google session and persisted c
     const row = (await stores.administrator.query('SELECT w.id FROM workspace w JOIN "user" u ON u.id=w.owner_user_id WHERE u.email=$1', [subject + '@example.test'])).rows[0]
     expect(row?.id).toEqual(expect.any(String))
     const callId = randomUUID()
-    await stores.administrator.query("INSERT INTO sparra_call(id,workspace_id,deployment_id,provider_call_control_id,admitted_at,retention_until,status) VALUES($1,$2,'billing-http',$1::text,clock_timestamp(),clock_timestamp()+interval '30 days','pending')", [callId, row.id])
+    await stores.administrator.query("INSERT INTO sparra_call(id,workspace_id,deployment_id,provider_call_control_id,admitted_at,retention_until,status) VALUES($1::uuid,$2,'billing-http',$1::text,clock_timestamp(),clock_timestamp()+interval '30 days','pending')", [callId, row.id])
     expect((await page.goto(origin + '/app?lang=en'))?.status()).toBe(200)
     await page.getByRole('heading', { name: 'Call inbox', exact: true }).waitFor()
     expect((await page.goto(origin + '/app/demandes/' + callId + '?lang=en'))?.status()).toBe(200)
