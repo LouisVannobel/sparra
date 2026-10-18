@@ -24,7 +24,7 @@
     {
       "package": "hatchet",
       "path": "clients/dispatcher/dispatcher-client.js",
-      "sha256": "d26c504f38098cc1e3751cd530c5928fb340efe687857aef75ce255361b375df"
+      "sha256": "b89f91de0faabe77f1fbf9c02ef776699615907616fa4b523a3fab3f0bc81bd0"
     },
     {
       "package": "hatchet",
@@ -104,7 +104,7 @@
     {
       "package": "hatchet",
       "path": "v1/client/worker/worker-internal.js",
-      "sha256": "fb90ef5602b3e19cb37a6736f23b4f133f04daf3c1c743e6d7402fb06edcfee0"
+      "sha256": "39a0c0df420b2364f14b024881a5eae0719090c1581ca160b31a5da6612392bc"
     },
     {
       "package": "hatchet",

@@ -1,5 +1,5 @@
 diff --git a/README.md b/README.md
-index 38453e7bc993cc934889c01e2c0dc6b040ac1b3490cbcd4f45511ec8a1b1802c..3e4f9e169135234b56d51c6330e91491888dfeb147779cc8b8469dce300bb41b 100644
+index e645e6a5d065145357736c9f2cc2b84118543fa8..757d26cdefa1cb736395cddf33633fce45bc1131 100644
 --- a/README.md
 +++ b/README.md
 @@ -1,5 +1,69 @@
@@ -73,7 +73,7 @@ index 38453e7bc993cc934889c01e2c0dc6b040ac1b3490cbcd4f45511ec8a1b1802c..3e4f9e16
  
  [![npm version](https://badge.fury.io/js/@hatchet-dev%2Ftypescript-sdk.svg)](https://badge.fury.io/js/@hatchet-dev%2Ftypescript-sdk)
 diff --git a/clients/dispatcher/action-listener.d.ts b/clients/dispatcher/action-listener.d.ts
-index 086c875e04090ba8b02f35c9fe1eb4d78549a1c80f16b62723a6ca7df503d341..d027142d7f53692b7d14d330c06b6b494e0990fa9fe1c394187e1648dbb239a8 100644
+index 813b8389b7e99790e0bd8022c916a7b761408ba3..ad3abd0d2cdf6eff4351c2beb32a08200d03a808 100644
 --- a/clients/dispatcher/action-listener.d.ts
 +++ b/clients/dispatcher/action-listener.d.ts
 @@ -3,6 +3,7 @@ import { ClientConfig } from '../hatchet-client/client-config';
@@ -97,7 +97,7 @@ index 086c875e04090ba8b02f35c9fe1eb4d78549a1c80f16b62723a6ca7df503d341..d027142d
      actions: () => AsyncGenerator<Action, void, unknown>;
      setListenStrategy(strategy: ListenStrategy): Promise<void>;
 diff --git a/clients/dispatcher/action-listener.js b/clients/dispatcher/action-listener.js
-index b0385cfae2e754f4142ca148e79f7595ef8f00115b6294534fcab31d438c8960..ca4c763de031a75a6eb4c8e9379fa6836be63fd1d006a3fa9afe1b9c7c576e47 100644
+index 4c346e40017143d6071da8415ea98b7534da206f..e41b23a74bd7acd31cb77b3deaf749bc8a354e6f 100644
 --- a/clients/dispatcher/action-listener.js
 +++ b/clients/dispatcher/action-listener.js
 @@ -169,6 +169,62 @@ class ActionListener {
@@ -178,7 +178,7 @@ index b0385cfae2e754f4142ca148e79f7595ef8f00115b6294534fcab31d438c8960..ca4c763d
              this.done = true;
              this.heartbeat.stop();
 diff --git a/clients/dispatcher/dispatcher-client.d.ts b/clients/dispatcher/dispatcher-client.d.ts
-index 47a8afe1d0ae994682121bf5650842d3a759881cf55e027c70fd773b742cde16..031c367b2bfb5873ebf8f7ba16b2e2f6c8d0e18066f2e39ffaab6da94164fa1b 100644
+index 5052ff694a538f2c829301760ba855b40c7d1bac..f4823f8fe498a19ffca9dc2366aa444a0c5e74c0 100644
 --- a/clients/dispatcher/dispatcher-client.d.ts
 +++ b/clients/dispatcher/dispatcher-client.d.ts
 @@ -4,6 +4,7 @@ import { ClientConfig } from '../hatchet-client/client-config';
@@ -210,20 +210,25 @@ index 47a8afe1d0ae994682121bf5650842d3a759881cf55e027c70fd773b742cde16..031c367b
       * Reports a lifecycle event (STARTED, COMPLETED, or FAILED) covering one or more
       * members of a batch task's execution.
 diff --git a/clients/dispatcher/dispatcher-client.js b/clients/dispatcher/dispatcher-client.js
-index 3d187f8c80e2aa4debf0a9221ad3b65d1379d2cce2e65b1564435c319078bddf..aca2f682e3b8b5e290d476e974b6b5657217d86eaf8bd4f57b8f6999a7451aeb 100644
+index 31095bc0fdfb2074f24c8eb2e0af6075e75ce48b..cae05555bee0257c5df57ab05510fdc3b65530c9 100644
 --- a/clients/dispatcher/dispatcher-client.js
 +++ b/clients/dispatcher/dispatcher-client.js
-@@ -29,7 +29,8 @@ const version_1 = require("../../version");
+@@ -28,8 +28,13 @@ const retrier_1 = require("../../util/retrier");
+ const version_1 = require("../../version");
  const slot_types_1 = require("../../v1/slot-types");
  const action_listener_1 = require("./action-listener");
++const { waitForChannelReady } = require("nice-grpc");
  class DispatcherClient {
 -    constructor(config, channel, factory) {
 +    constructor(config, channel, factory, lifecycle) {
 +        this._workerLifecycle = lifecycle;
++        if (lifecycle) {
++            this._waitForOwnedCleanupReady = (deadline) => waitForChannelReady(channel, deadline);
++        }
          this.config = config;
          this.client = factory.create(dispatcher_1.DispatcherDefinition, channel);
          this.logger = config.logger(`Dispatcher`, config.log_level);
-@@ -50,14 +51,19 @@ class DispatcherClient {
+@@ -50,14 +55,19 @@ class DispatcherClient {
                      ? Object.assign(Object.assign({}, (options.slots || options.maxRuns
                          ? { [slot_types_1.SlotType.Default]: options.slots || options.maxRuns || 0 }
                          : {})), (options.durableSlots ? { [slot_types_1.SlotType.Durable]: options.durableSlots } : {})) : undefined);
@@ -245,7 +250,7 @@ index 3d187f8c80e2aa4debf0a9221ad3b65d1379d2cce2e65b1564435c319078bddf..aca2f682
              return new action_listener_1.ActionListener(this, registration.workerId);
          });
      }
-@@ -67,14 +73,28 @@ class DispatcherClient {
+@@ -67,14 +77,28 @@ class DispatcherClient {
       */
      getVersion() {
          return __awaiter(this, void 0, void 0, function* () {
@@ -277,7 +282,7 @@ index 3d187f8c80e2aa4debf0a9221ad3b65d1379d2cce2e65b1564435c319078bddf..aca2f682
                  return yield (0, retrier_1.retrier)(() => __awaiter(this, void 0, void 0, function* () { return this.client.sendStepActionEvent(event); }), this.logger);
              }
 diff --git a/clients/dispatcher/heartbeat/heartbeat-controller.d.ts b/clients/dispatcher/heartbeat/heartbeat-controller.d.ts
-index e602affedc7332b2769cda67b2739b89a6cba8e9ab3b449b783722cb2ce87732..21210da55ecb8c5ee7e923832f3b9508162d1e08bba332ba38bb58607ca6a251 100644
+index 54f922e0a32ad61a4b850b84a50f53620ae447a1..46028b91d9f1662c0d6a7dd014336cbab2a544e7 100644
 --- a/clients/dispatcher/heartbeat/heartbeat-controller.d.ts
 +++ b/clients/dispatcher/heartbeat/heartbeat-controller.d.ts
 @@ -4,6 +4,7 @@ import { Worker } from 'worker_threads';
@@ -303,7 +308,7 @@ index e602affedc7332b2769cda67b2739b89a6cba8e9ab3b449b783722cb2ce87732..21210da5
      start(): Promise<void>;
      stop(): Promise<void>;
 diff --git a/clients/dispatcher/heartbeat/heartbeat-controller.js b/clients/dispatcher/heartbeat/heartbeat-controller.js
-index d2c9a08eb25585bc239cbece7db92bcc268c716b4b14aae4a7ea24020c536125..b7d0ac681a05cc6470f5b5f547b265065588a633a405bd9a5dca3e1f029198b7 100644
+index 2e2d47bb5f2e78253b2c39226559ee7b478861ba..a7a21b9f9151be7863daea20e190cf1e291a6b01 100644
 --- a/clients/dispatcher/heartbeat/heartbeat-controller.js
 +++ b/clients/dispatcher/heartbeat/heartbeat-controller.js
 @@ -36,12 +36,43 @@ exports.isHeartbeatMessage = isHeartbeatMessage;
@@ -389,7 +394,7 @@ index d2c9a08eb25585bc239cbece7db92bcc268c716b4b14aae4a7ea24020c536125..b7d0ac68
              var _a, _b;
              (_a = this.heartbeatWorker) === null || _a === void 0 ? void 0 : _a.postMessage(exports.STOP_HEARTBEAT);
 diff --git a/util/retrier.d.ts b/util/retrier.d.ts
-index de9df02eeaa0a5bad1b40907ac084e529a5207a2c7c7645b0351d61901086aac..44b728054ea17d8b244d2b3531b23f5eb1d9b8576ecd57c243ccf0ba6c5c39bc 100644
+index 998f93e3af23208d2d1da67380bdc0bb012b587f..4bf484a411106a65931cbc969d222de97e1668ee 100644
 --- a/util/retrier.d.ts
 +++ b/util/retrier.d.ts
 @@ -3,6 +3,8 @@ export declare const DEFAULT_RETRY_INTERVAL = 0.1;
@@ -402,7 +407,7 @@ index de9df02eeaa0a5bad1b40907ac084e529a5207a2c7c7645b0351d61901086aac..44b72805
      initialInterval?: number;
      maxJitter?: number;
 diff --git a/util/retrier.js b/util/retrier.js
-index 9ecd5383a7551b1bc53c93d804b71cfa354d0f30fd3806345e71841330897db4..b3ff2678919102f43ec0e965ae75013bb73422954644127b07192e4dfc9a5a43 100644
+index 2735b367c3620f6b86a5159ece2b8a3db81b0e12..ebba80b814c0cf89a935b4ab28f9b6d42194d416 100644
 --- a/util/retrier.js
 +++ b/util/retrier.js
 @@ -27,6 +27,7 @@ function retrier(fn, logger, config) {
@@ -436,7 +441,7 @@ index 9ecd5383a7551b1bc53c93d804b71cfa354d0f30fd3806345e71841330897db4..b3ff2678
          }
 diff --git a/util/worker-lifecycle.d.ts b/util/worker-lifecycle.d.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000000000000000000000000000..0218b84aaea9baefd0f47311ae07c01217bfadfba2fd99fb09ae8d83fac9e26a
+index 0000000000000000000000000000000000000000..3691d85a44a1623dd873e933b68c7e1144a83f5b
 --- /dev/null
 +++ b/util/worker-lifecycle.d.ts
 @@ -0,0 +1,51 @@
@@ -493,7 +498,7 @@ index 0000000000000000000000000000000000000000000000000000000000000000..0218b84a
 +}
 diff --git a/util/worker-lifecycle.js b/util/worker-lifecycle.js
 new file mode 100644
-index 0000000000000000000000000000000000000000000000000000000000000000..e40aef03f64344c0ff32a3059990dcae3de5ecb748c6931a6acb59c865070171
+index 0000000000000000000000000000000000000000..f8935986d33cc0f06680092f570b6960d82166ff
 --- /dev/null
 +++ b/util/worker-lifecycle.js
 @@ -0,0 +1,294 @@
@@ -792,7 +797,7 @@ index 0000000000000000000000000000000000000000000000000000000000000000..e40aef03
 +}
 +exports.OwnedWorkerLifecycle = OwnedWorkerLifecycle;
 diff --git a/v1/client/admin.d.ts b/v1/client/admin.d.ts
-index 3128838b2bec593dc7fdf5d9fce17d12aa7b01d404ede5f73d2ba01db3b1caab..47b0383fa25e08a430b454e5a240e1c7593539d7e19037ba7cd60f2fcc279b1f 100644
+index aff3721162e3e9b7608c17fc158c04df1ea5d95a..2e234f1511c8feb27693fd66c989dd538a4ea1f5 100644
 --- a/v1/client/admin.d.ts
 +++ b/v1/client/admin.d.ts
 @@ -6,6 +6,7 @@ import { Api } from '../../clients/rest/generated/Api';
@@ -814,7 +819,7 @@ index 3128838b2bec593dc7fdf5d9fce17d12aa7b01d404ede5f73d2ba01db3b1caab..47b0383f
       * Creates a new workflow or updates an existing workflow via the v1 admin service.
       * @param workflow a workflow definition to create
 diff --git a/v1/client/admin.js b/v1/client/admin.js
-index 71e3ae811cc9c8adc264afb0f763f45aab2afa0899a4b494b991ffe117b063b6..affe8b95b85906811dd7f354a9ee5c4fa37b02d55acdb7b4c60ecc02b2185807 100644
+index dc637ec477154ec95eef5c1eda8b85869156b627..58849971bc95549bc7586000062c9b3232ecf0f7 100644
 --- a/v1/client/admin.js
 +++ b/v1/client/admin.js
 @@ -131,13 +131,20 @@ function convertDesiredWorkerLabels(labels) {
@@ -855,7 +860,7 @@ index 71e3ae811cc9c8adc264afb0f763f45aab2afa0899a4b494b991ffe117b063b6..affe8b95
              try {
                  return yield (0, retrier_1.retrier)(() => __awaiter(this, void 0, void 0, function* () { return this.adminGrpc.putWorkflow(workflow); }), this.logger);
 diff --git a/v1/client/client.d.ts b/v1/client/client.d.ts
-index 853f2b90c1f73069c630f8a82aa7e5366938fe1d7663c0511fadcaaab652448d..a3eed404923a5b9c4c5ef368518b3607c8494f2b9cf187803b49c2f1119cbeef 100644
+index acbbbdfd2ad63397e0082d648cec8345cc69edb7..e7ad062eea43f9da6c6c31f4a98bf3a8bbee6d28 100644
 --- a/v1/client/client.d.ts
 +++ b/v1/client/client.d.ts
 @@ -22,6 +22,19 @@ import { CELClient, CronClient, FiltersClient, LogsClient, MetricsClient, Rateli
@@ -914,7 +919,7 @@ index 853f2b90c1f73069c630f8a82aa7e5366938fe1d7663c0511fadcaaab652448d..a3eed404
       * Attaches middleware to this client and returns a re-typed instance
       * with inferred pre/post middleware types.
 diff --git a/v1/client/client.js b/v1/client/client.js
-index d8fd4bbbd2b46415446c43e01368e43fcc30c0c808d1f6cd986139bd6c90311f..fc3f022c6044c0c8aef751347111cdfb259f0d973b9e3d70a68f1e3f3f070c46 100644
+index 19bdd477c9ae7de44cb4da0d98a6ded593ffd246..9a0bbd59d198ba02bd70cbe2a733da5279860f5a 100644
 --- a/v1/client/client.js
 +++ b/v1/client/client.js
 @@ -35,6 +35,7 @@ const legacy_transformer_1 = require("../../legacy/legacy-transformer");
@@ -1076,7 +1081,7 @@ index d8fd4bbbd2b46415446c43e01368e43fcc30c0c808d1f6cd986139bd6c90311f..fc3f022c
      }
      runRef(id) {
 diff --git a/v1/client/features/tenant.d.ts b/v1/client/features/tenant.d.ts
-index 94c9ccf11ae5e71d47de6486221e37d3289924fe1a603e7a410649b728943839..18d6610d621d1297c79c0f13e44241cc462fd6a7803c12cc64ceba828ed8582c 100644
+index 17355a9c26f84d16a4ba22ffee8bfa44541c67d5..9734db21aea430b3754659ae3bd4dba234977f24 100644
 --- a/v1/client/features/tenant.d.ts
 +++ b/v1/client/features/tenant.d.ts
 @@ -7,6 +7,7 @@ import { HatchetClient } from '../client';
@@ -1088,7 +1093,7 @@ index 94c9ccf11ae5e71d47de6486221e37d3289924fe1a603e7a410649b728943839..18d6610d
      tenantId: string;
      constructor(client: HatchetClient);
 diff --git a/v1/client/features/tenant.js b/v1/client/features/tenant.js
-index 3bb8af2109a3661ae24dff2daef4f9c9c2f27d948c8da37c865dd11ed06294df..6b95de95bd51515ae842c92e0a9c9413be2cfe80436c0edd179f8994e60857d9 100644
+index d34a96c92c59c115e8b0e35e473d8f8ff283c17c..b139d92fff3838cf0a1c60fa4bee0f993c179eff 100644
 --- a/v1/client/features/tenant.js
 +++ b/v1/client/features/tenant.js
 @@ -15,6 +15,7 @@ exports.TenantClient = void 0;
@@ -1108,7 +1113,7 @@ index 3bb8af2109a3661ae24dff2daef4f9c9c2f27d948c8da37c865dd11ed06294df..6b95de95
          });
      }
 diff --git a/v1/client/features/workers.d.ts b/v1/client/features/workers.d.ts
-index 1a09fc0454f9eb8193082540895d868976a8da7029326b66b8599a5b947c5e92..2d107c55173ccc972c2952ed4ba4a704125dac7d81f37cc9dabac309ec6d55e2 100644
+index 1ee44f917b5cf3923d0ce57adf2bed7005248300..2c3654fee5a48218541ff2d556d3507f4e55ae47 100644
 --- a/v1/client/features/workers.d.ts
 +++ b/v1/client/features/workers.d.ts
 @@ -3,6 +3,7 @@ import { HatchetClient } from '../client';
@@ -1120,7 +1125,7 @@ index 1a09fc0454f9eb8193082540895d868976a8da7029326b66b8599a5b947c5e92..2d107c55
      tenantId: string;
      constructor(client: HatchetClient);
 diff --git a/v1/client/features/workers.js b/v1/client/features/workers.js
-index 0dbc93b7d29b327c355ef9ffc10b22b9824cf50e7907315e147a9e5af0287886..e1974a7c35828fb480a015c7ba729284e1eb03d045545f9f6a8425869b36089f 100644
+index 87d5464054763c0c484b9494de390b83ac2df166..7c2db2592f392ed308cb70a1c6225dd923e12649 100644
 --- a/v1/client/features/workers.js
 +++ b/v1/client/features/workers.js
 @@ -15,6 +15,7 @@ exports.WorkersClient = void 0;
@@ -1140,7 +1145,7 @@ index 0dbc93b7d29b327c355ef9ffc10b22b9824cf50e7907315e147a9e5af0287886..e1974a7c
                  isPaused: true,
              });
 diff --git a/v1/client/worker/worker-internal.d.ts b/v1/client/worker/worker-internal.d.ts
-index b067591a103c78673225abd2438ee2b00d11ed25eb457d8308190bbbf46b4f19..b3bf3715dc4349dba29db5475346d8971f5807aba5809b85aeb87263d904722c 100644
+index f24f1b6ef66850abfca6587608b843aeaf518389..87595a5c499a9e6ec9289b9658452a3b1b474642 100644
 --- a/v1/client/worker/worker-internal.d.ts
 +++ b/v1/client/worker/worker-internal.d.ts
 @@ -12,6 +12,7 @@ import { Context } from './context';
@@ -1169,7 +1174,7 @@ index b067591a103c78673225abd2438ee2b00d11ed25eb457d8308190bbbf46b4f19..b3bf3715
      name: string;
      workerId: string | undefined;
 diff --git a/v1/client/worker/worker-internal.js b/v1/client/worker/worker-internal.js
-index eb0df03ef694176625e51b393da042830ce425e1d0c2e0bdabb07085856fdd03..4385f213b8cdbdf7a793e389ab955160af86428925447ddb43b2c5e03e792af7 100644
+index 90bfb0def1a6db4219223812b1a57141eeb17cc6..2e1ec08f80fbaba2bb2933baa5ef3b2f5f0360f6 100644
 --- a/v1/client/worker/worker-internal.js
 +++ b/v1/client/worker/worker-internal.js
 @@ -90,6 +90,9 @@ class InternalWorker {
@@ -1338,7 +1343,7 @@ index eb0df03ef694176625e51b393da042830ce425e1d0c2e0bdabb07085856fdd03..4385f213
          return __awaiter(this, void 0, void 0, function* () {
              var _a;
              this.killing = true;
-@@ -842,6 +901,58 @@ class InternalWorker {
+@@ -842,6 +901,63 @@ class InternalWorker {
              }
          });
      }
@@ -1362,9 +1367,14 @@ index eb0df03ef694176625e51b393da042830ce425e1d0c2e0bdabb07085856fdd03..4385f213
 +        // method is called, including the response-exposed terminal race.
 +        if (workerId) {
 +            operations.push(Promise.resolve().then(() => this.client.workers.pause(workerId)));
-+            operations.push(Promise.resolve().then(() => this.listener
-+                ? this.listener.unregister()
-+                : owner.unary((options) => this.client.dispatcher.client.unsubscribe({ workerId }, options), 'cleanup')));
++            operations.push(Promise.resolve().then(async () => {
++                owner.assertCleanup();
++                await this.client.dispatcher._waitForOwnedCleanupReady(new Date(owner.cleanupDeadlineAt));
++                owner.assertCleanup();
++                return this.listener
++                    ? this.listener.unregister()
++                    : owner.unary((options) => this.client.dispatcher.client.unsubscribe({ workerId }, options), 'cleanup');
++            }));
 +        }
 +        if (this.healthServer) operations.push(this.healthServer.stop());
 +        const results = await Promise.allSettled(operations);
@@ -1397,7 +1407,7 @@ index eb0df03ef694176625e51b393da042830ce425e1d0c2e0bdabb07085856fdd03..4385f213
      /**
       * Creates an action listener by registering the worker with the dispatcher.
       * Override in subclasses to change registration behavior (e.g. legacy engines).
-@@ -866,6 +977,7 @@ class InternalWorker {
+@@ -866,6 +982,7 @@ class InternalWorker {
                      yield this.healthServer.start();
                  }
                  catch (e) {
@@ -1405,7 +1415,7 @@ index eb0df03ef694176625e51b393da042830ce425e1d0c2e0bdabb07085856fdd03..4385f213
                      this.logger.error(`Could not start health server: ${e.message}`);
                      this.setStatus(health_server_1.workerStatus.UNHEALTHY);
                      return;
-@@ -878,10 +990,12 @@ class InternalWorker {
+@@ -878,10 +995,12 @@ class InternalWorker {
              }
              try {
                  this.listener = yield this.createListener();
@@ -1418,7 +1428,7 @@ index eb0df03ef694176625e51b393da042830ce425e1d0c2e0bdabb07085856fdd03..4385f213
                  try {
                      for (var _d = true, generator_1 = __asyncValues(generator), generator_1_1; generator_1_1 = yield generator_1.next(), _a = generator_1_1.done, !_a; _d = true) {
                          _c = generator_1_1.value;
-@@ -889,7 +1003,8 @@ class InternalWorker {
+@@ -889,7 +1008,8 @@ class InternalWorker {
                          const action = _c;
                          const receivedType = (0, logger_1.actionMap)(action.actionType);
                          this.logger.info((0, logger_1.taskRunLog)(action.taskName, action.taskRunExternalId, `${receivedType}`));
@@ -1428,7 +1438,7 @@ index eb0df03ef694176625e51b393da042830ce425e1d0c2e0bdabb07085856fdd03..4385f213
                      }
                  }
                  catch (e_1_1) { e_1 = { error: e_1_1 }; }
-@@ -902,6 +1017,10 @@ class InternalWorker {
+@@ -902,6 +1022,10 @@ class InternalWorker {
              }
              catch (e) {
                  this.setStatus(health_server_1.workerStatus.UNHEALTHY);
@@ -1440,7 +1450,7 @@ index eb0df03ef694176625e51b393da042830ce425e1d0c2e0bdabb07085856fdd03..4385f213
                      this.logger.info(`Exiting worker, ignoring error: ${e.message}`);
                      return;
 diff --git a/v1/client/worker/worker.d.ts b/v1/client/worker/worker.d.ts
-index b549b4618bc5d16ef70b986bf8e71091000cad62b22c6bbabd78e33f9fa5f9f0..bc0e0b7f393bc6bcb854510c2749b95b4a73e41dc3097114dae38856b8acf19f 100644
+index f921e608b8d6e4323e1c7c16f476f02b6420bcc3..885c5f8994064fcf8a8e47be61fcceaf142d13b1 100644
 --- a/v1/client/worker/worker.d.ts
 +++ b/v1/client/worker/worker.d.ts
 @@ -27,6 +27,7 @@ export declare class Worker {
@@ -1452,7 +1462,7 @@ index b549b4618bc5d16ef70b986bf8e71091000cad62b22c6bbabd78e33f9fa5f9f0..bc0e0b7f
       * Creates a new HatchetWorker instance
       * @param nonDurable - The V0 worker implementation
 diff --git a/v1/client/worker/worker.js b/v1/client/worker/worker.js
-index 7d43f6144958cecf6aca44847721596fa586dc0bcb953d028da391461137b1e7..6f14c2fe372c2055df90cc65c662a931047735a948abceeab4bd76ae03ba8110 100644
+index e25877cc6262d32ac34e88a15101ee35b3443c49..bfb0a4f91c7ecf30f0865de2c95cc698f2d812c5 100644
 --- a/v1/client/worker/worker.js
 +++ b/v1/client/worker/worker.js
 @@ -46,11 +46,22 @@ class Worker {

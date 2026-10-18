@@ -174,6 +174,20 @@ requires joined acquisition, native execution/ACKs, relay REST, handlers and
 provider transports. A rejected or unproved close rejects disposal and keeps
 the SQL scope retained; canceled work alone is not a successful close receipt.
 
+The 18 October consumer branch adds a cleanup-ordering delta to that baseline:
+only `clients/dispatcher/dispatcher-client.js` and
+`v1/client/worker/worker-internal.js` change. The SDK patch moves from
+`e669fb6c4cb5e2f9c45af82ad7418bba1c9b121f46f729c17b93663676e732af` to
+`d4c0f21c2f37dd7b888618297f73dc4c1b2739bfd56a87a1f584e6df06e50f74`;
+the nice-grpc patch and remaining 26 postimages plus six assets stay unchanged.
+Cleanup awaits public channel readiness on the same already-owned dispatcher
+channel, inside its existing join and original absolute cleanup deadline, before
+its one unsubscribe. Readiness failure, late readiness or ordinary unsubscribe
+failure still rejects cleanup. This candidate remains unqualified until the
+unchanged native I4 consumer passes; the earlier 116-test baseline does not
+qualify the new patch or prove business recovery. No SDK version or app runtime
+changes, extra RPC, retry or new timeout setting accompany this delta.
+
 SIGINT/SIGTERM stop new owned work, cancel the relay/handlers, then join the real handlers, HTTP sockets, native DNS callbacks, SDK lifecycle and per-login pools. SDK `stop()` alone is not drain evidence. DNS lookup has no Node cancellation API: the business deadline destroys the socket but capacity and shutdown remain held until its callback completes. Consequently no hard OS/process shutdown bound is claimed, and an external forced kill leaves the durable attempting marker for later safe reconciliation.
 
 ## Qualification boundary
