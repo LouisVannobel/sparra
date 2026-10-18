@@ -195,6 +195,7 @@ function ownDiagnosticValue(input: unknown, key: 'isAxiosError' | 'status' | 'co
   if (value === null || value === undefined || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value
   throw retryFixtureError()
 }
+const runDetailsTransportCodes: readonly string[] = ['ERR_NETWORK', 'ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN', 'EPIPE']
 function runDetailsFailurePhase(input: unknown): typeof retryChildPhase.Type {
   try {
     if (typeof input !== 'object' || input === null) return 'run-details-rejected'
@@ -205,16 +206,11 @@ function runDetailsFailurePhase(input: unknown): typeof retryChildPhase.Type {
     if (status === 404) return 'run-details-http-404'
     if (typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599
       && (status < 200 || status >= 300)) return 'run-details-http-other'
+    if (typeof code === 'string' && runDetailsTransportCodes.includes(code)) return 'run-details-transport'
     switch (code) {
       case 'ERR_CANCELED': return 'run-details-cancelled'
       case 'ECONNABORTED':
       case 'ETIMEDOUT': return 'run-details-timeout'
-      case 'ERR_NETWORK':
-      case 'ECONNREFUSED':
-      case 'ECONNRESET':
-      case 'ENOTFOUND':
-      case 'EAI_AGAIN':
-      case 'EPIPE': return 'run-details-transport'
       default: return 'run-details-rejected'
     }
   } catch { return 'run-details-rejected' }
