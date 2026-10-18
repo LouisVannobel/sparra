@@ -222,6 +222,13 @@ function runDetailsFailure(input: unknown): RetryRunFailure {
     }
   } catch { return { phase: 'run-details-rejected', pending404: false } }
 }
+function inspectRetryRunRejection(error: unknown, setPhase: (phase: typeof retryChildPhase.Type) => void): { kind: 'NOT_PROJECTED' } {
+  const failure = runDetailsFailure(error)
+  setPhase(failure.phase)
+  if (!failure.pending404) throw error
+  // Eligible rejected 404; visibility and ownership remain unverified.
+  return { kind: 'NOT_PROJECTED' }
+}
 
 export async function readRetryHistory(client: Pick<HatchetClient, 'api' | 'tenantId'>,
   value: { runId?: string; taskId?: string; deadlineAtMs?: number } | undefined,
@@ -252,13 +259,7 @@ export async function readRetryHistory(client: Pick<HatchetClient, 'api' | 'tena
       let read: { kind: 'RESPONSE'; state: Awaited<ReturnType<typeof client.api.v1WorkflowRunGet>> } | { kind: 'NOT_PROJECTED' }
       try {
         read = { kind: 'RESPONSE', state: await client.api.v1WorkflowRunGet(expected.runId, { signal, timeout: requestTimeout, maxContentLength: 65536 }) }
-      } catch (error) {
-        const failure = runDetailsFailure(error)
-        setPhase(failure.phase)
-        if (!failure.pending404) throw error
-        // Eligible rejected 404; visibility and ownership remain unverified.
-        read = { kind: 'NOT_PROJECTED' }
-      }
+      } catch (error) { read = inspectRetryRunRejection(error, setPhase) }
       checkedAllowance('after', 10000)
       const membership: RetryRunMembership = read.kind === 'RESPONSE' ? inspectRetryRunResponse(read.state, expected, setPhase) : { kind: 'PENDING' }
       if (membership.kind === 'IDENTITY') {
