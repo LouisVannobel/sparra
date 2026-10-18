@@ -48,8 +48,8 @@ jobs:
           sudo apt-get install --no-install-recommends -y ffmpeg
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm run build
-      - name: Native worker image closure, registration and retirement
-        run: pnpm run test:worker-image
+      - name: Native worker image and compiled mail retirement
+        run: pnpm exec vitest run --config vitest.integration.config.ts tests/integration/worker-image.test.ts tests/integration/mail-worker-native.test.ts --maxWorkers=1
       - name: Ordinary source consumers on the installed graph and build
         run: pnpm test
       - name: Actual Linux stores, direct ingress and caller-free recovery

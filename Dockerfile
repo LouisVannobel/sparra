@@ -51,6 +51,8 @@ COPY --from=migration-dependencies /app/package.json ./
 COPY --from=migration-dependencies /app/node_modules ./node_modules
 COPY --from=builder /app/.output/worker ./.output/worker
 COPY --from=builder /app/worker-source-manifest.json ./
+RUN chmod -R a-w /app
+USER 10001:10001
 ENTRYPOINT ["node",".output/worker/index.mjs"]
 
 FROM runtime-base AS web
