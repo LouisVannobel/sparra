@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AccountRouteImport } from './routes/account'
 import { Route as AppRouteImport } from './routes/app'
+import { Route as BillingRouteImport } from './routes/billing'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as WorkspaceRouteImport } from './routes/workspace'
 import { Route as AppIndexRouteImport } from './routes/app.index'
@@ -41,6 +42,11 @@ const AccountRoute = AccountRouteImport.update({
 const AppRoute = AppRouteImport.update({
   id: '/app',
   path: '/app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BillingRoute = BillingRouteImport.update({
+  id: '/billing',
+  path: '/billing',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -125,6 +131,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
   '/app': typeof AppRouteWithChildren
+  '/billing': typeof BillingRoute
   '/login': typeof LoginRoute
   '/workspace': typeof WorkspaceRoute
   '/app/entreprise': typeof AppEntrepriseRoute
@@ -144,6 +151,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
+  '/billing': typeof BillingRoute
   '/login': typeof LoginRoute
   '/workspace': typeof WorkspaceRoute
   '/app/entreprise': typeof AppEntrepriseRoute
@@ -165,6 +173,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
   '/app': typeof AppRouteWithChildren
+  '/billing': typeof BillingRoute
   '/login': typeof LoginRoute
   '/workspace': typeof WorkspaceRoute
   '/app/entreprise': typeof AppEntrepriseRoute
@@ -187,6 +196,7 @@ export interface FileRouteTypes {
     | '/'
     | '/account'
     | '/app'
+    | '/billing'
     | '/login'
     | '/workspace'
     | '/app/entreprise'
@@ -206,6 +216,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/account'
+    | '/billing'
     | '/login'
     | '/workspace'
     | '/app/entreprise'
@@ -226,6 +237,7 @@ export interface FileRouteTypes {
     | '/'
     | '/account'
     | '/app'
+    | '/billing'
     | '/login'
     | '/workspace'
     | '/app/entreprise'
@@ -247,6 +259,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AccountRoute: typeof AccountRoute
   AppRoute: typeof AppRouteWithChildren
+  BillingRoute: typeof BillingRoute
   LoginRoute: typeof LoginRoute
   WorkspaceRoute: typeof WorkspaceRoute
   HealthLiveRoute: typeof HealthLiveRoute
@@ -282,6 +295,13 @@ declare module '@tanstack/react-router' {
       path: '/app'
       fullPath: '/app'
       preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/billing': {
+      id: '/billing'
+      path: '/billing'
+      fullPath: '/billing'
+      preLoaderRoute: typeof BillingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -410,6 +430,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AccountRoute: AccountRoute,
   AppRoute: AppRouteWithChildren,
+  BillingRoute: BillingRoute,
   LoginRoute: LoginRoute,
   WorkspaceRoute: WorkspaceRoute,
   HealthLiveRoute: HealthLiveRoute,

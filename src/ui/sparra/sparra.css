@@ -97,3 +97,9 @@
 .sparra-app-state > [role=status] { width:100%; padding:16px; background:var(--sp-canvas); border-radius:8px; color:var(--sp-muted); }
 .sparra-app-state > [role=alert] { border-inline-start:3px solid var(--sp-ink); padding-inline-start:12px; }
 .sparra-app-state > a { color:var(--sp-ink); text-underline-offset:.25em; min-height:44px; display:inline-flex; align-items:center; }
+.sparra-billing { max-width:48rem; }
+.sparra-billing-summary { padding:24px; background:var(--sp-paper); border:1px solid #e5e4e2; border-radius:var(--sp-radius); }
+.sparra-billing-summary > p { margin:0 0 20px; }
+.sparra-billing [role=alert] { border-inline-start:3px solid var(--sp-ink); padding-inline-start:12px; }
+.sparra-billing [tabindex="-1"]:focus { outline:2px solid var(--sp-ink); outline-offset:4px; }
+.sparra-billing-actions { display:flex; flex-wrap:wrap; gap:12px; }
