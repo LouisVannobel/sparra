@@ -18,7 +18,7 @@ function fixture() {
   mkdirSync(build, { recursive: true }); mkdirSync(evidence)
   const startedAt = Date.now(), evidenceId = randomUUID()
   const paths = ['src/modules/auth/mail-worker.server.ts', 'src/modules/auth/mail-hatchet.server.ts', 'src/modules/auth/plunk.server.ts',
-    'tests/helpers/mail-retry-harness.ts', 'tests/helpers/mail-retry-observation.ts', 'tests/helpers/vite.mail-retry.config.ts',
+    'tests/helpers/mail-retry-harness.ts', 'tests/helpers/mail-retry-entry.ts', 'tests/helpers/mail-retry-observation.ts', 'tests/helpers/vite.mail-retry.config.ts',
     'tests/integration/mail-retry-native.test.ts', '.output/worker/index.mjs',
     ...['harness.mjs', 'hatchet-empty.yaml'].map(name => relative(root, join(build, name)).replaceAll('\\', '/'))]
   for (const path of paths) {
@@ -46,6 +46,7 @@ function buildFixture() {
   writeFileSync(join(item.root, 'scripts/native-coverage-inputs.mjs'), readFileSync(join(repositoryRoot, 'scripts/native-coverage-inputs.mjs')))
   writeFileSync(config, readFileSync(join(repositoryRoot, 'tests/helpers/vite.mail-retry.config.ts')))
   writeFileSync(join(item.root, 'tests/helpers/mail-retry-harness.ts'), 'export const sentinel = import.meta.env.VITE_SPARRA_I3_FIXTURE_SENTINEL\n')
+  writeFileSync(join(item.root, 'tests/helpers/mail-retry-entry.ts'), "export { sentinel } from './mail-retry-harness'\n")
   mkdirSync(join(item.root, 'public'))
   writeFileSync(join(item.root, 'public/i3-public-copy-marker.txt'), 'owned public fixture marker\n')
   writeFileSync(join(item.root, '.env'), 'VITE_SPARRA_I3_FIXTURE_SENTINEL=owned-root-env-marker\n')

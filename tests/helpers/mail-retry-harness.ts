@@ -2,6 +2,7 @@ import { Effect, Exit, Schema, Scope } from 'effect'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import dns from 'node:dns'
+import type { Serializable } from 'node:child_process'
 import { HATCHET_VERSION } from '@hatchet-dev/typescript-sdk/version.js'
 import { readMailWorkerConfig } from '../../src/platform/mail-runtime.server'
 import { acquireDatabase } from '../../src/platform/db/resources.server'
@@ -17,10 +18,20 @@ const commandSchema = Schema.Struct({ id: Schema.Int, op: retryCommandOperation,
   label: Schema.optional(Schema.Literals(retryLabels)), outboxId: Schema.optional(uuid), runId: Schema.optional(uuid), hookId: Schema.optional(Schema.String.check(Schema.isMaxLength(128))), deadlineAtMs: Schema.optional(Schema.Number) })
 const jobSchema = Schema.Struct({ outboxId: uuid })
 type Case = { outboxId: string; runId?: string; observedRunId?: string; taskId?: string }
+type RetryResult = boolean | Awaited<ReturnType<typeof relayAuthMailOnce>> | Awaited<ReturnType<typeof readRetryHistory>>
+type RetryParent = {
+  env: Readonly<Record<string, string | undefined>>
+  connected: boolean
+  send?(message: Serializable, callback: (error: Error | null) => void): boolean
+  on(event: 'message', listener: (message: unknown) => void): void
+  removeListener(event: 'message', listener: (message: unknown) => void): void
+  disconnect?(): void
+  exitCode: NodeJS.Process['exitCode']
+}
 
-async function main() {
-  if (!process.send) throw retryFixtureError()
-  const workerConfig = readMailWorkerConfig(process.env)
+export async function main(parent: RetryParent): Promise<void> {
+  if (!parent.send) throw retryFixtureError()
+  const workerConfig = readMailWorkerConfig(parent.env)
   const config = workerConfig.mail
   if (!config) throw retryFixtureError()
   const scope = Effect.runSync(Scope.make())
@@ -44,8 +55,8 @@ async function main() {
   let startupDone!: () => void
   const startupSettled = new Promise<void>(resolve => { startupDone = resolve })
   let cleanup: Promise<void> | undefined
-  function emit(event: object) {
-    if (process.connected) process.send?.(event, () => {})
+  function emit(event: Serializable) {
+    if (parent.connected) parent.send?.(event, () => {})
   }
   function findLabel(input: unknown) {
     const { outboxId } = Schema.decodeUnknownSync(jobSchema)(input, { onExcessProperty: 'error' })
@@ -98,15 +109,15 @@ async function main() {
       Object.defineProperty(dns, 'lookup', { value: originalLookup, configurable: true, writable: true })
       await Effect.runPromise(Scope.close(scope, Exit.void))
       emit({ type: 'stopped', nativeStartState, nativeStopState, pendingHooks: barriers.pending(), commandsJoined: true })
-      if (nativeStartState === 'rejected' || nativeStopState === 'rejected') process.exitCode = 1
+      if (nativeStartState === 'rejected' || nativeStopState === 'rejected') parent.exitCode = 1
       finish()
-    })().catch(() => { emit({ type: 'fatal' }); process.exitCode = 1; finish() })
+    })().catch(() => { emit({ type: 'fatal' }); parent.exitCode = 1; finish() })
     return cleanup
   }
   const earlyShutdown = (raw: unknown) => {
     if (typeof raw === 'object' && raw !== null && 'op' in raw && raw.op === 'shutdown') void shutdown()
   }
-  process.on('message', earlyShutdown)
+  parent.on('message', earlyShutdown)
   try {
     const relayDb = await Effect.runPromise(Scope.provide(acquireDatabase(config.relay, 'auth_mail_relay'), scope))
     if (closing) throw retryFixtureError()
@@ -142,13 +153,19 @@ async function main() {
     })
     Object.defineProperty(dns, 'lookup', { configurable: true, writable: true, value: (...args: unknown[]) => {
       const callback = args.at(-1)
+      // Preserve every native lookup overload and its dns receiver on passthrough.
+      // oxlint-disable-next-line anti-slop/no-reflect-apply
       if (!holdLookup || args[0] !== new URL(config.binding.apiOrigin).hostname || typeof callback !== 'function') return Reflect.apply(originalLookup, dns, args)
       holdLookup = false
       const wrapped = (...values: unknown[]) => {
+        // Preserve the native single/all-address callback arguments and undefined receiver.
+        // oxlint-disable-next-line anti-slop/no-reflect-apply
         releaseLookup = () => { releaseLookup = () => {}; Reflect.apply(callback, undefined, values); emit({ type: 'lookup-returned', label: 'A' }) }
         if (closing) releaseLookup()
         else emit({ type: 'lookup-held', label: 'A' })
       }
+      // Replace only the owned callback; preserve all option overloads and dns receiver.
+      // oxlint-disable-next-line anti-slop/no-reflect-apply
       return Reflect.apply(originalLookup, dns, [...args.slice(0, -1), wrapped])
     } })
     if (HATCHET_VERSION !== '1.28.2') throw retryFixtureError()
@@ -179,7 +196,7 @@ async function main() {
       if (message.op === 'shutdown') return
       const current = (async () => {
         let phase: typeof retryChildPhase.Type | undefined
-        const respond = (ok: boolean, value?: unknown) => emit({ type: 'reply', id: message.id, op: message.op, label: message.label ?? null, ok,
+        const respond = (ok: boolean, value?: RetryResult) => emit({ type: 'reply', id: message.id, op: message.op, label: message.label ?? null, ok,
           ...(value !== undefined ? { value } : {}), ...(!ok && phase ? { phase } : {}) })
         try {
           if (closing || !ready) throw retryFixtureError()
@@ -190,7 +207,7 @@ async function main() {
           if (!budget) throw retryFixtureError()
           budget.remaining(10000)
           const value = message.label ? cases.get(message.label) : undefined
-          let result: unknown = true
+          let result: RetryResult = true
           switch (message.op) {
             case 'configure':
               configureCase(message); break
@@ -218,13 +235,11 @@ async function main() {
       ownedCommands.add(current)
       void current.finally(() => ownedCommands.delete(current))
     }
-    process.on('message', onMessage)
+    parent.on('message', onMessage)
     emit({ type: 'ready', sdk: HATCHET_VERSION, engine: version.version, tenantId: client.tenantId,
       policy: { retries: task.taskDef.retries, factor: task.taskDef.backoff?.factor, cap: task.taskDef.backoff?.maxSeconds, execution: task.taskDef.executionTimeout, schedule: task.taskDef.scheduleTimeout, ttl: 600000, clientAttempts: client.config.retrier?.maxAttempts } })
     await finished
-    process.removeListener('message', onMessage)
-  } catch { startupDone(); emit({ type: 'fatal' }); process.exitCode = 1; await shutdown() }
-  finally { process.removeListener('message', earlyShutdown); if (process.connected) process.disconnect?.() }
+    parent.removeListener('message', onMessage)
+  } catch { startupDone(); emit({ type: 'fatal' }); parent.exitCode = 1; await shutdown() }
+  finally { parent.removeListener('message', earlyShutdown); if (parent.connected) parent.disconnect?.() }
 }
-
-void main().catch(() => { process.exitCode = 1; if (process.connected) { process.send?.({ type: 'fatal' }); process.disconnect?.() } })

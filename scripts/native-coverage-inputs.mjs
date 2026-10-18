@@ -371,7 +371,7 @@ function readMailRetryRecord(path, startedAt) {
 
 function assertMailRetryHashes(receipt, root, buildDirectory) {
   const paths = ['src/modules/auth/mail-worker.server.ts', 'src/modules/auth/mail-hatchet.server.ts', 'src/modules/auth/plunk.server.ts',
-    'tests/helpers/mail-retry-harness.ts', 'tests/helpers/mail-retry-observation.ts', 'tests/helpers/vite.mail-retry.config.ts',
+    'tests/helpers/mail-retry-harness.ts', 'tests/helpers/mail-retry-entry.ts', 'tests/helpers/mail-retry-observation.ts', 'tests/helpers/vite.mail-retry.config.ts',
     'tests/integration/mail-retry-native.test.ts', '.output/worker/index.mjs',
     ...['harness.mjs', 'hatchet-empty.yaml'].map(name => relative(root, join(buildDirectory, name)).replaceAll('\\', '/'))]
   const hashes = receipt?.beforeLaunchSha256

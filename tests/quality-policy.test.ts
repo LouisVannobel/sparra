@@ -301,6 +301,7 @@ export async function prepareVoiceSource({appRoot}){const scope=join(appRoot,'co
   for(const file of ['src/modules/auth/mail-worker.server.ts','src/modules/auth/mail-hatchet.server.ts','src/modules/auth/plunk.server.ts',
     'tests/helpers/mail-retry-observation.ts','.output/worker/index.mjs'])writeFileSync(join(root,file),'export const runnerWiringCanary = true\n')
   writeFileSync(join(root,'tests/helpers/mail-retry-harness.ts'),'export const runnerWiringCanary = import.meta.env.VITE_SPARRA_I3_FIXTURE_SENTINEL\n')
+  writeFileSync(join(root,'tests/helpers/mail-retry-entry.ts'),"export { runnerWiringCanary } from './mail-retry-harness'\n")
   writeFileSync(join(root,'tests/integration/mail-retry-native.test.ts'),`import {expect,test} from 'vitest';import {createHash,randomUUID} from 'node:crypto';import {readFileSync,readdirSync,writeFileSync} from 'node:fs';import {join,relative} from 'node:path';
 test('I3 one owned native retry fixture: retained A/B, transient C, expired E, exhausted D',()=>{
   const build=process.env.SPARRA_MAIL_RETRY_BUILD_DIR!,evidence=process.env.SPARRA_MAIL_RETRY_EVIDENCE_DIR!,evidenceId=randomUUID();
@@ -308,7 +309,7 @@ test('I3 one owned native retry fixture: retained A/B, transient C, expired E, e
   expect(readdirSync(build).sort()).toEqual(['harness.mjs','hatchet-empty.yaml']);
   const harness=readFileSync(join(build,'harness.mjs'),'utf8');expect(harness).not.toContain('owned-mail-retry-root-env-marker');expect(harness).not.toContain('owned-mail-retry-production-env-marker');
   const paths=['src/modules/auth/mail-worker.server.ts','src/modules/auth/mail-hatchet.server.ts','src/modules/auth/plunk.server.ts',
-    'tests/helpers/mail-retry-harness.ts','tests/helpers/mail-retry-observation.ts','tests/helpers/vite.mail-retry.config.ts',
+    'tests/helpers/mail-retry-harness.ts','tests/helpers/mail-retry-entry.ts','tests/helpers/mail-retry-observation.ts','tests/helpers/vite.mail-retry.config.ts',
     'tests/integration/mail-retry-native.test.ts','.output/worker/index.mjs',...['harness.mjs','hatchet-empty.yaml'].map(name=>relative(process.cwd(),join(build,name)).replaceAll('\\\\','/'))];
   const beforeLaunchSha256=Object.fromEntries(paths.map(path=>[path,createHash('sha256').update(readFileSync(path)).digest('hex')]));
   const receipts={rowLockReleased:true,childClosed:true,webPoolClosed:true,engineRemoved:true,storesRemoved:true,tlsClosedAndMaterialsRemoved:true};
@@ -1104,14 +1105,15 @@ test('fallow_declares_only_native_subprocess_and_actual_browser_roots_and_exact_
   writeFileSync(join(root,'tests/helpers/runtime-probe.mjs'),"console.log('synthetic preload');\n")
   writeFileSync(join(root,'tests/helpers/inbox-panel-fixture.tsx'),"console.log('synthetic declared browser entry');\n")
   writeFileSync(join(root,'tests/helpers/undeclared-browser-sibling.tsx'),"console.log('synthetic undeclared browser sibling');\n")
-  writeFileSync(join(root,'tests/helpers/mail-retry-harness.ts'),"import {dirname,join} from 'node:path';import {fileURLToPath} from 'node:url';console.log(join(dirname(fileURLToPath(import.meta.url)),'hatchet-empty.yaml'));\n")
+  writeFileSync(join(root,'tests/helpers/mail-retry-harness.ts'),"import {dirname,join} from 'node:path';import {fileURLToPath} from 'node:url';export function main(){console.log(join(dirname(fileURLToPath(import.meta.url)),'hatchet-empty.yaml'))}\n")
+  writeFileSync(join(root,'tests/helpers/mail-retry-entry.ts'),"import {main} from './mail-retry-harness';main();\n")
   writeFileSync(join(root,'tests/helpers/undeclared-mail-retry-sibling.ts'),"console.log('synthetic undeclared mail retry sibling');\n")
   writeFileSync(join(root,'scripts/start-web.mjs'),"await import('../.output/server/index.mjs');\nawait import('../.output/server/genuinely-missing.mjs');\n")
   writeFileSync(join(root,'scripts/test-prerequisites.mjs'),"console.log('synthetic prerequisite decoder');\n")
   writeFileSync(join(root,'scripts/undeclared-prerequisite-sibling.mjs'),"console.log('synthetic undeclared sibling');\n")
   writeFileSync(join(root,'src/main.tsx'),readFileSync(join(root,'src/main.tsx'),'utf8')+"import './genuinely-missing';\nimport './genuinely-missing.yaml';\n")
   const fixtureConfig: {entry:string[];health:{coverage:string|null}} = JSON.parse(readFileSync(join(repositoryRoot,'.fallowrc.json'),'utf8'))
-  expect(fixtureConfig.entry).toEqual(['scripts/start-web.mjs','scripts/test-prerequisites.mjs','tests/helpers/generate-native-voice-envelope.ts','tests/helpers/inbox-panel-fixture.tsx','tests/helpers/mail-retry-harness.ts'])
+  expect(fixtureConfig.entry).toEqual(['scripts/start-web.mjs','scripts/test-prerequisites.mjs','tests/helpers/generate-native-voice-envelope.ts','tests/helpers/inbox-panel-fixture.tsx','tests/helpers/mail-retry-entry.ts'])
   fixtureConfig.health.coverage = null
   writeFileSync(join(root,'.fallowrc.json'),JSON.stringify(fixtureConfig))
   const result=runQuality('fallow',['audit','--no-css','--base',base],root)
@@ -1128,6 +1130,7 @@ test('fallow_declares_only_native_subprocess_and_actual_browser_roots_and_exact_
   expect(output).not.toContain('runtime-probe.mjs')
   expect(output).not.toContain('inbox-panel-fixture.tsx')
   expect(output).not.toMatch(/(?:^|[\\/])mail-retry-harness\.ts/)
+  expect(output).not.toMatch(/(?:^|[\\/])mail-retry-entry\.ts/)
   expect(output).not.toContain('hatchet-empty.yaml')
   expect(output).not.toMatch(/(?:^|[\\/])test-prerequisites\.mjs/)
   expect(output).not.toContain('../.output/server/index.mjs')

@@ -206,7 +206,7 @@ test('I3 one owned native retry fixture: retained A/B, transient C, expired E, e
   try {
     const hashes: Record<string, string> = {}
     for (const path of ['src/modules/auth/mail-worker.server.ts', 'src/modules/auth/mail-hatchet.server.ts', 'src/modules/auth/plunk.server.ts',
-      'tests/helpers/mail-retry-harness.ts', 'tests/helpers/mail-retry-observation.ts', 'tests/helpers/vite.mail-retry.config.ts',
+      'tests/helpers/mail-retry-harness.ts', 'tests/helpers/mail-retry-entry.ts', 'tests/helpers/mail-retry-observation.ts', 'tests/helpers/vite.mail-retry.config.ts',
       'tests/integration/mail-retry-native.test.ts', '.output/worker/index.mjs',
       relative(process.cwd(), join(buildDirectory, 'harness.mjs')).replaceAll('\\', '/'),
       relative(process.cwd(), join(buildDirectory, 'hatchet-empty.yaml')).replaceAll('\\', '/')]) {

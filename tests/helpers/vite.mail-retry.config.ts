@@ -10,6 +10,6 @@ export default defineConfig({
     },
     generateBundle() { this.emitFile({ type: 'asset', fileName: 'hatchet-empty.yaml', source: '{}\n' }) },
   }],
-  build: { ssr: 'tests/helpers/mail-retry-harness.ts', outDir: '.output/test-mail-retry', emptyOutDir: true, copyPublicDir: false,
+  build: { ssr: 'tests/helpers/mail-retry-entry.ts', outDir: '.output/test-mail-retry', emptyOutDir: true, copyPublicDir: false,
     rollupOptions: { external: [/^@hatchet-dev\//], output: { entryFileNames: 'harness.mjs' } } },
 })
