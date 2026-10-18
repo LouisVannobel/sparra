@@ -1,6 +1,6 @@
 import { Cause, Effect, Exit, Schema } from 'effect'
 import { inspect } from 'node:util'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { describe, expect, it, vi } from 'vitest'
 import { user } from '../../../src/modules/auth/schema.server'
 import { PgTransactionError } from '../../../src/platform/db/auth-pg-lease.server'
@@ -13,6 +13,82 @@ const select = 'select "id" from "user"'
 const commit = { text: 'COMMIT', command: 'COMMIT', status: 'I' as const }
 const rollback = { text: 'ROLLBACK', command: 'ROLLBACK', status: 'I' as const }
 const tick = () => new Promise<void>(resolve => setImmediate(resolve))
+
+describe('billing transaction authority', () => {
+  const principal = Object.freeze({ userId: 'billing-user', sessionId: 'billing-session', name: 'Fixture', email: 'fixture@example.test' })
+  const workspaceId = '7caecda8-3e29-4d99-a33e-5d345bba8d07'
+  const authority = (selected: string | null = workspaceId) => [
+    ...initialization(),
+    { text: "SELECT set_config('app.correlation_id', $1, true)", values: [options().correlationId] },
+    { text: 'SELECT app_private.resolve_billing_workspace($1,$2,$3::uuid) AS workspace_id', values: [principal.userId, principal.sessionId, workspaceId], rows: [{ workspace_id: selected }] },
+  ]
+  const tenant = [
+    { text: "SELECT set_config('app.tenant_id', $1, true) AS tenant_id", values: [workspaceId], rows: [{ tenant_id: workspaceId }] },
+    { text: "SELECT current_setting('app.tenant_id', true) AS tenant_id", rows: [{ tenant_id: workspaceId }] },
+  ]
+
+  it('resolves financial authority before exposing a SELECT-only lease and revokes escaped builders', async () => {
+    const f = fixture([...authority(), ...tenant, { text: 'select 1 from (select 1) as fixture', values: [], rows: [[1]] }, commit])
+    const tx = createTransactions({ connect: async () => f.client }, limits)
+    expect(tx).toHaveProperty('withBillingWorkspacePromise', expect.any(Function))
+    let escaped: PromiseLike<unknown> | undefined
+    const result = await tx.withBillingWorkspacePromise(options(), principal, workspaceId, async lease => {
+      expect(lease?.workspaceId).toBe(workspaceId)
+      expect(Object.keys(lease!.db)).toEqual(['select'])
+      escaped = lease!.db.select({ value: sql<number>`1` }).from(sql`(select 1) as fixture`)
+      return await escaped
+    })
+    expect(result).toEqual([{ value: 1 }])
+    await expect(Promise.resolve(escaped)).rejects.toBeDefined()
+    expect(f.remaining()).toBe(0)
+    expect(f.releases).toEqual([undefined])
+  })
+
+  it('returns no lease when native financial authority denies the request', async () => {
+    const f = fixture([...authority(null), commit])
+    const tx = createTransactions({ connect: async () => f.client }, limits)
+    expect(tx).toHaveProperty('withBillingWorkspacePromise', expect.any(Function))
+    expect(await tx.withBillingWorkspacePromise(options(), principal, workspaceId, async lease => lease)).toBeNull()
+    expect(f.remaining()).toBe(0)
+    expect(f.releases).toEqual([undefined])
+  })
+
+  it('rolls back when the resolver returns another Workspace', async () => {
+    const f = fixture([...authority('cf17d566-58df-4ac9-aaea-418ce5fa39f9'), rollback])
+    const tx = createTransactions({ connect: async () => f.client }, limits)
+    expect(tx).toHaveProperty('withBillingWorkspacePromise', expect.any(Function))
+    await expect(tx.withBillingWorkspacePromise(options(), principal, workspaceId, async () => 'must-not-publish')).rejects.toBeInstanceOf(PgTransactionError)
+    expect(f.remaining()).toBe(0)
+    expect(f.releases).toEqual([undefined])
+  })
+
+  it('joins only the same financial principal, Workspace and invocation options', async () => {
+    const f = fixture([...authority(), ...tenant, rollback])
+    const tx = createTransactions({ connect: async () => f.client }, limits)
+    expect(tx).toHaveProperty('withBillingWorkspacePromise', expect.any(Function))
+    const opts = options()
+    await expect(tx.withBillingWorkspacePromise(opts, principal, workspaceId, async lease => {
+      expect(await tx.withBillingWorkspacePromise(opts, principal, workspaceId, async nested => nested)).toBe(lease)
+      return tx.withBillingWorkspacePromise(opts, { ...principal, sessionId: 'foreign-session' }, workspaceId, async () => 'must-not-publish')
+    })).rejects.toBeInstanceOf(PgTransactionError)
+    expect(f.remaining()).toBe(0)
+    expect(f.releases).toEqual([undefined])
+  })
+
+  it('refuses switching from financial scope to unrestricted auth and provider I/O', async () => {
+    const f = fixture([...authority(), ...tenant, rollback])
+    const tx = createTransactions({ connect: async () => f.client }, limits)
+    expect(tx).toHaveProperty('withBillingWorkspacePromise', expect.any(Function))
+    const opts = options()
+    await expect(tx.withBillingWorkspacePromise(opts, principal, workspaceId, async () => {
+      expect(() => tx.currentDb()).toThrow(PgTransactionError)
+      expect(() => tx.assertNoActiveAuthTransaction()).toThrow(PgTransactionError)
+      return tx.withAuthPromise(opts, async () => 'must-not-publish')
+    })).rejects.toBeInstanceOf(PgTransactionError)
+    expect(f.remaining()).toBe(0)
+    expect(f.releases).toEqual([undefined])
+  })
+})
 
 describe('shared auth transaction owner', () => {
   it('allows provider work only outside an enclosing physical lease', async () => {
