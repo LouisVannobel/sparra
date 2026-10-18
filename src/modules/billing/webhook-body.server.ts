@@ -12,6 +12,8 @@ type NativeRequest = Request & {
 }
 
 function ownedTransport(request: Request): { req: IncomingMessage; socket: Socket } | null {
+  // SAFETY: Only optional unknown runtime fields are exposed here; the native
+  // request/response classes and their exact request/socket identities are checked below.
   const runtime = (request as NativeRequest).runtime
   const req = runtime?.node?.req
   const res = runtime?.node?.res

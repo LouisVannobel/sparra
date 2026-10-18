@@ -40,7 +40,7 @@ function snapshotOption(value: unknown) { return Array.isArray(value) ? [...valu
 
 function sameSerializer(actual: unknown, expected: unknown) {
   return actual === expected || (typeof expected === 'function' && actual !== null && typeof actual === 'object'
-    && Reflect.get(actual, 'serialize') === expected)
+    && 'serialize' in actual && actual.serialize === expected)
 }
 
 function nativeAgent(protocol: string, configured: unknown) {
@@ -49,12 +49,12 @@ function nativeAgent(protocol: string, configured: unknown) {
   const agent = configured ?? (protocol === 'https:' ? httpsGlobalAgent : httpGlobalAgent)
   const expected = protocol === 'https:' ? HttpsAgent : HttpAgent
   if (!(agent instanceof expected) || Object.getPrototypeOf(agent) !== expected.prototype) throw new TypeError('Billing relay native agent rejected')
-  const options: unknown = Reflect.get(agent, 'options')
-  if (options && typeof options === 'object' && Reflect.get(options, 'proxyEnv') != null) throw new TypeError('Billing relay proxy agent rejected')
-  if (protocol === 'https:' && options && typeof options === 'object' && Reflect.get(options, 'rejectUnauthorized') === false) {
+  const options = 'options' in agent ? agent.options : undefined
+  if (options && typeof options === 'object' && 'proxyEnv' in options && options.proxyEnv != null) throw new TypeError('Billing relay proxy agent rejected')
+  if (protocol === 'https:' && options && typeof options === 'object' && 'rejectUnauthorized' in options && options.rejectUnauthorized === false) {
     throw new TypeError('Billing relay TLS validation rejected')
   }
-  if (Reflect.get(agent, 'proxyEnv') != null) throw new TypeError('Billing relay proxy agent rejected')
+  if ('proxyEnv' in agent && agent.proxyEnv != null) throw new TypeError('Billing relay proxy agent rejected')
 }
 
 function validateDefaults(binding: Binding) {
@@ -76,12 +76,12 @@ function requestClosed(request: ClientRequest) {
 
 function publicRequest(outcome: unknown, rejected: boolean): ClientRequest | undefined {
   if (!outcome || typeof outcome !== 'object') return undefined
-  const direct = Reflect.get(outcome, 'request')
-  const response = rejected ? Reflect.get(outcome, 'response') : undefined
-  const nested = response && typeof response === 'object' ? Reflect.get(response, 'request') : undefined
+  const direct = 'request' in outcome ? outcome.request : undefined
+  const response = rejected && 'response' in outcome ? outcome.response : undefined
+  const nested = response && typeof response === 'object' && 'request' in response ? response.request : undefined
   const candidates = [direct, nested].filter(value => value !== undefined && value !== null)
-  return candidates.length > 0 && candidates.every(value => value instanceof ClientRequest && value === candidates[0])
-    ? candidates[0] as ClientRequest : undefined
+  const first = candidates[0]
+  return first instanceof ClientRequest && candidates.every(value => value === first) ? first : undefined
 }
 
 function nativeRequest<T>(binding: Binding, params: RequestParams, method: 'get' | 'post', path: string,

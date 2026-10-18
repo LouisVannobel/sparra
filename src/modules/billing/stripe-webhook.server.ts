@@ -1,5 +1,5 @@
 import Stripe from 'stripe'
-import { Redacted } from 'effect'
+import { Redacted, Schema } from 'effect'
 import { classifyBillingEvent } from './events.server'
 import type { StripeConfig } from './stripe-config.server'
 
@@ -27,7 +27,7 @@ export class StripeWebhookError extends Error {
   constructor() { super('Stripe webhook rejected'); this.name = 'StripeWebhookError' }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isRecord(value: Schema.Json | undefined): value is Schema.JsonObject {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
@@ -41,7 +41,7 @@ const referencePatterns: Readonly<Record<ReferenceKind, RegExp>> = Object.freeze
   'radar.early_fraud_warning': /^issfr_[A-Za-z0-9]+$/,
 })
 
-function reference(value: unknown, kind: ReferenceKind, live: boolean, required = false): string | null {
+function reference(value: Schema.Json | undefined, kind: ReferenceKind, live: boolean, required = false): string | null {
   if (value === undefined || value === null) {
     if (required) throw new StripeWebhookError()
     return null
@@ -56,7 +56,7 @@ function reference(value: unknown, kind: ReferenceKind, live: boolean, required 
   return id
 }
 
-function linkedCustomer(value: unknown, live: boolean): string | null {
+function linkedCustomer(value: Schema.Json | undefined, live: boolean): string | null {
   if (!isRecord(value) || !Object.hasOwn(value, 'customer')) return null
   return reference(value.customer, 'customer', live)
 }
@@ -66,7 +66,7 @@ function consistentCustomers(...ids: Array<string | null>): void {
   if (first !== undefined && ids.some(id => id !== null && id !== first)) throw new StripeWebhookError()
 }
 
-function invoiceSubscription(object: Record<string, unknown>, live: boolean,
+function invoiceSubscription(object: Schema.JsonObject, live: boolean,
   customerId: string | null): string | null {
   const parent = object.parent
   if (parent === undefined || parent === null) return null
@@ -79,7 +79,7 @@ function invoiceSubscription(object: Record<string, unknown>, live: boolean,
   return subscriptionId
 }
 
-function riskCharge(object: Record<string, unknown>, paymentIntentId: string | null, live: boolean): string {
+function riskCharge(object: Schema.JsonObject, paymentIntentId: string | null, live: boolean): string {
   const chargeId = reference(object.charge, 'charge', live, true)!
   if (isRecord(object.charge) && Object.hasOwn(object.charge, 'payment_intent')) {
     const nestedPaymentIntentId = reference(object.charge.payment_intent, 'payment_intent', live)
@@ -92,7 +92,7 @@ function riskCharge(object: Record<string, unknown>, paymentIntentId: string | n
 }
 
 function projectReferences(kind: ReturnType<typeof classifyBillingEvent>['kind'],
-  object: Record<string, unknown>, objectId: string, live: boolean): StripeEventReferences {
+  object: Schema.JsonObject, objectId: string, live: boolean): StripeEventReferences {
   let customerId: string | null = null
   let subscriptionId: string | null = null
   let paymentIntentId: string | null = null
@@ -144,14 +144,14 @@ export function verifyStripeWebhook(
     || typeof signature !== 'string' || signature.length === 0 || signature.length > 8192
     || !Number.isSafeInteger(nowMs) || nowMs < 0) throw new StripeWebhookError()
 
-  let verified: unknown
+  let verified: Schema.JsonObject
   try {
-    verified = Stripe.webhooks.constructEvent(
+    const snapshot = Stripe.webhooks.constructEvent(
       raw, signature, Redacted.value(config.webhookSecret), 300, undefined, nowMs,
     )
+    verified = Schema.decodeUnknownSync(Schema.JsonObject)(snapshot)
   } catch { throw new StripeWebhookError() }
 
-  if (!isRecord(verified)) throw new StripeWebhookError()
   const id = verified.id
   const type = verified.type
   const created = verified.created
