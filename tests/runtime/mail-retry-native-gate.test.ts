@@ -1,11 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, truncateSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, truncateSync, utimesSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, relative } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, expect, test } from 'vitest'
-import { assertMailRetryQualification, assertMailRetryReport } from '../../scripts/native-coverage-inputs.mjs'
+import { assertMailRetryBuildConfig, assertMailRetryQualification, assertMailRetryReport, readMailRetryBuildIdentity } from '../../scripts/native-coverage-inputs.mjs'
 
 const roots: string[] = []
 const repositoryRoot = process.cwd()
@@ -42,6 +42,8 @@ function fixture() {
 function buildFixture() {
   const item = fixture(), config = join(item.root, 'tests/helpers/vite.mail-retry.config.ts')
   writeFileSync(join(item.root, 'package.json'), JSON.stringify({ name: 'synthetic-i3-build', private: true, type: 'module' }))
+  mkdirSync(join(item.root, 'scripts'))
+  writeFileSync(join(item.root, 'scripts/native-coverage-inputs.mjs'), readFileSync(join(repositoryRoot, 'scripts/native-coverage-inputs.mjs')))
   writeFileSync(config, readFileSync(join(repositoryRoot, 'tests/helpers/vite.mail-retry.config.ts')))
   writeFileSync(join(item.root, 'tests/helpers/mail-retry-harness.ts'), 'export const sentinel = import.meta.env.VITE_SPARRA_I3_FIXTURE_SENTINEL\n')
   mkdirSync(join(item.root, 'public'))
@@ -59,11 +61,79 @@ function buildFixture() {
   return { ...item, buildProcess: build }
 }
 
+function buildAdmissionFixture() {
+  const item = fixture(), root = realpathSync(item.root), build = realpathSync(item.build), run = dirname(build)
+  const config: Parameters<typeof assertMailRetryBuildConfig>[2] = { root, envDir: false, build: { outDir: build, copyPublicDir: false } }
+  writeFileSync(join(build, 'harness.mjs'), 'export const retained = true\n')
+  writeFileSync(join(build, 'hatchet-empty.yaml'), '{}\n')
+  for (const name of ['harness.mjs', 'hatchet-empty.yaml']) utimesSync(join(build, name), new Date(2000), new Date(2000))
+  return { ...item, root, run, build, config, buildStartedAt: 2000 }
+}
+
 afterEach(() => {
   for (const root of roots.splice(0)) {
     if (dirname(root) !== tmpdir() || !basename(root).startsWith('sparra-mail-retry-gate-')) throw new Error('Refusing non-owned mail retry canary cleanup')
     rmSync(root, { recursive: true })
   }
+})
+
+test('mail retry build admission binds the resolved root output options and native run shape before writes', () => {
+  const item = buildAdmissionFixture(), refusal = 'Native mail retry build ownership refused'
+  expect(() => assertMailRetryBuildConfig(item.root, item.build, item.config)).not.toThrow()
+  for (const output of [undefined, 'relative-build']) {
+    expect(() => assertMailRetryBuildConfig(item.root, output, item.config)).toThrow(refusal)
+  }
+  const foreign = join(item.root, 'foreign'), witness = join(foreign, 'preserved.txt')
+  mkdirSync(foreign); writeFileSync(witness, 'owned admission witness\n')
+  for (const config of [
+    { ...item.config, root: foreign },
+    { ...item.config, build: { ...item.config.build, outDir: foreign } },
+    { ...item.config, envDir: item.root },
+    { ...item.config, build: { ...item.config.build, copyPublicDir: true } },
+  ]) expect(() => assertMailRetryBuildConfig(item.root, item.build, config)).toThrow(refusal)
+  for (const output of [join(item.run, 'foreign-build'), join(item.root, 'coverage/unowned/mail-retry-build'),
+    join(item.root, 'foreign', basename(item.run), 'mail-retry-build')]) {
+    mkdirSync(output, { recursive: true })
+    expect(() => assertMailRetryBuildConfig(item.root, output, { ...item.config, build: { ...item.config.build, outDir: output } })).toThrow(refusal)
+  }
+  expect(readFileSync(witness, 'utf8')).toBe('owned admission witness\n')
+  expect(readdirSync(item.build).sort()).toEqual(['harness.mjs', 'hatchet-empty.yaml'])
+})
+
+test.each(['coverage', 'run', 'output'] as const)('mail retry build admission refuses a linked %s without modifying its foreign witness', kind => {
+  const item = buildAdmissionFixture(), foreign = join(item.root, 'foreign'), witness = join(foreign, 'preserved.txt')
+  const link = kind === 'coverage' ? dirname(item.run) : kind === 'run' ? item.run : item.build
+  mkdirSync(join(foreign, relative(link, item.build)), { recursive: true }); writeFileSync(witness, 'owned linked admission witness\n')
+  rmSync(link, { recursive: true })
+  symlinkSync(foreign, link, process.platform === 'win32' ? 'junction' : 'dir')
+  expect(() => assertMailRetryBuildConfig(item.root, item.build, item.config)).toThrow('Native mail retry build ownership refused')
+  expect(readFileSync(witness, 'utf8')).toBe('owned linked admission witness\n')
+})
+
+test('mail retry build identity binds ordered resource bytes and exact YAML at the freshness boundary', () => {
+  const item = buildAdmissionFixture()
+  const expected = '4bbd8325132addfb5b382ab4ebb58c5f31943270e6e922f33ec579c5637c4dbb'
+  expect(readMailRetryBuildIdentity(item.build, item.buildStartedAt)).toBe(expected)
+  writeFileSync(join(item.build, 'harness.mjs'), 'export const retained = false\n')
+  expect(readMailRetryBuildIdentity(item.build, item.buildStartedAt)).not.toBe(expected)
+  writeFileSync(join(item.build, 'hatchet-empty.yaml'), '{ }\n')
+  expect(() => readMailRetryBuildIdentity(item.build, item.buildStartedAt)).toThrow('Native mail retry configuration changed')
+})
+
+test.each(['missing', 'extra', 'stale', 'empty', 'oversized', 'directory', 'linked'] as const)('mail retry build identity refuses %s resources without altering a witness', kind => {
+  const item = buildAdmissionFixture(), target = join(item.build, 'harness.mjs'), foreign = join(item.root, 'foreign')
+  mkdirSync(foreign); const witness = join(foreign, 'preserved.txt'); writeFileSync(witness, 'owned resource witness\n')
+  switch (kind) {
+    case 'missing': rmSync(target); break
+    case 'extra': writeFileSync(join(item.build, 'unreviewed.mjs'), 'owned extra\n'); break
+    case 'stale': utimesSync(target, new Date(1000), new Date(1000)); break
+    case 'empty': writeFileSync(target, ''); break
+    case 'oversized': truncateSync(target, 268435457); break
+    case 'directory': rmSync(target); mkdirSync(target); break
+    case 'linked': rmSync(target); symlinkSync(foreign, target, process.platform === 'win32' ? 'junction' : 'dir'); break
+  }
+  expect(() => readMailRetryBuildIdentity(item.build, item.buildStartedAt)).toThrow('Native mail retry build')
+  expect(readFileSync(witness, 'utf8')).toBe('owned resource witness\n')
 })
 
 test('mail retry gate admits one exact parent with a fresh source-bound unforced receipt', () => {

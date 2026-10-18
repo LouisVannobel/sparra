@@ -157,6 +157,13 @@ function retryIdentityRefusal(input: unknown, expected: Parameters<typeof safeRe
     return 'identity-shape'
   } catch { return 'identity-shape' }
 }
+function decodeRetryHistoryIdentity(state: { data: unknown }, expected: Parameters<typeof safeRetryRunIdentity>[1],
+  setPhase: (phase: typeof retryChildPhase.Type) => void) {
+  setPhase('identity-decoding')
+  try { return safeRetryRunIdentity(state.data, expected) }
+  catch { setPhase(retryIdentityRefusal(state.data, expected)); throw retryFixtureError() }
+}
+
 function ownedEmptyRetryProjection(input: unknown, expected: { runId: string; tenantId: string }) {
   try {
     const { run, tasks } = Schema.decodeUnknownSync(Schema.Struct({ run: retryRun, tasks: Schema.Unknown }))(input)
@@ -193,10 +200,7 @@ export async function readRetryHistory(client: Pick<HatchetClient, 'api' | 'tena
       if (signal.aborted) throw retryFixtureError()
       budget.remaining(10000)
       if (!ownedEmptyRetryProjection(state.data, expected)) {
-        setPhase('identity-decoding')
-        let identity: ReturnType<typeof safeRetryRunIdentity>
-        try { identity = safeRetryRunIdentity(state.data, expected) }
-        catch { setPhase(retryIdentityRefusal(state.data, expected)); throw retryFixtureError() }
+        const identity = decodeRetryHistoryIdentity(state, expected, setPhase)
         if (signal.aborted) throw retryFixtureError()
         budget.remaining(10000)
         return identity

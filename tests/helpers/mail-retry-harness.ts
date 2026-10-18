@@ -168,6 +168,10 @@ async function main() {
       cancellationUsed = true
       return observed((signal, timeout) => client.api.v1TaskCancel(client.tenantId, { externalIds: [value.runId!] }, { signal, timeout }))
     }
+    function beginObservation(message: typeof commandSchema.Type) {
+      if (budget || message.deadlineAtMs === undefined) throw retryFixtureError()
+      budget = retryBudget(message.deadlineAtMs)
+    }
     const onMessage = (raw: unknown) => {
       let message: typeof commandSchema.Type
       try { message = Schema.decodeUnknownSync(commandSchema)(raw, { onExcessProperty: 'error' }) }
@@ -180,8 +184,7 @@ async function main() {
         try {
           if (closing || !ready) throw retryFixtureError()
           if (message.op === 'begin') {
-            if (budget || message.deadlineAtMs === undefined) throw retryFixtureError()
-            budget = retryBudget(message.deadlineAtMs)
+            beginObservation(message)
             respond(true, true); return
           }
           if (!budget) throw retryFixtureError()

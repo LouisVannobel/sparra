@@ -105,18 +105,21 @@ test('built application relay and native worker consume the real SQL snapshot th
   } finally {
     if (shutdownAt !== undefined) outcome.shutdownBy15s ??= { processExited: false, scopeStopped: output.includes('Application worker stopped') }
     if (shutdownAt !== undefined) outcome.shutdownObservation = { elapsedMs: performance.now()-shutdownAt, scopeStopped: output.includes('Application worker stopped'), nativeStopCompleted: output.includes('Application worker lifecycle native-stop-completed'), nativeStartCompleted: output.includes('Application worker lifecycle native-start-completed'), nativeStartResolved: output.includes('Application worker lifecycle native-start-resolved'), nativeStartCancelled: output.includes('Application worker lifecycle native-start-cancelled'), nativeStartFailed: output.includes('Application worker lifecycle native-start-failed'), handlersStopped: output.includes('Application worker lifecycle handlers-stopped'), relayStopped: output.includes('Application worker lifecycle relay-stopped'), processExitedBeforeCleanup: child !== undefined && child.exitCode !== null }
-    const cleanupFailures: string[] = []
-    try {
-      if (child && child.exitCode === null && child.signalCode === null) { outcome.forcedCleanup = true; child.kill('SIGKILL') }
-      if (exit) await bounded(exit, 6000)
-    } catch { cleanupFailures.push('child') }
-    // Keep reverse acquisition order, and continue through every owned cleanup.
-    try { await pool?.end() } catch { cleanupFailures.push('pool') }
-    try { await engine?.cleanup() } catch { cleanupFailures.push('engine') }
-    try { await stores?.cleanup() } catch { cleanupFailures.push('stores') }
-    try { await peer?.close() } catch { cleanupFailures.push('peer') }
-    await mkdir(resolve('.superpowers/sdd/2026-09-10-functional-auth'), { recursive: true })
-    await writeFile(resolve(`.superpowers/sdd/2026-09-10-functional-auth/task-7-i4-maintenance-native-${runId}.json`), JSON.stringify({ runId, outcome, cleanupFailures, appStores: stores?.evidence, engine: engine?.evidence }, null, 2)+'\n', { flag: 'wx' })
-    expect(cleanupFailures).toEqual([])
+    async function retireOwnedWorkerFixture() {
+      const cleanupFailures: string[] = []
+      try {
+        if (child && child.exitCode === null && child.signalCode === null) { outcome.forcedCleanup = true; child.kill('SIGKILL') }
+        if (exit) await bounded(exit, 6000)
+      } catch { cleanupFailures.push('child') }
+      // Keep reverse acquisition order, and continue through every owned cleanup.
+      try { await pool?.end() } catch { cleanupFailures.push('pool') }
+      try { await engine?.cleanup() } catch { cleanupFailures.push('engine') }
+      try { await stores?.cleanup() } catch { cleanupFailures.push('stores') }
+      try { await peer?.close() } catch { cleanupFailures.push('peer') }
+      await mkdir(resolve('.superpowers/sdd/2026-09-10-functional-auth'), { recursive: true })
+      await writeFile(resolve(`.superpowers/sdd/2026-09-10-functional-auth/task-7-i4-maintenance-native-${runId}.json`), JSON.stringify({ runId, outcome, cleanupFailures, appStores: stores?.evidence, engine: engine?.evidence }, null, 2)+'\n', { flag: 'wx' })
+      expect(cleanupFailures).toEqual([])
+    }
+    await retireOwnedWorkerFixture()
   }
 }, 150000)

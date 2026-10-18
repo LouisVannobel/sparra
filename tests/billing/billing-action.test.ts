@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { executeBillingAction } from '../../src/ui/billing/billing-action'
+import { billingActionIsLive, canStartBillingAction, executeBillingAction } from '../../src/ui/billing/billing-action'
 import type { BillingInput, BillingSummary } from '../../src/modules/billing/checkout.server'
 import type { WorkspaceDto } from '../../src/modules/workspaces/personal.server'
 
@@ -205,4 +205,88 @@ test('a returned unauthorized response from a stale read stays inert before rout
   await executeBillingAction('refresh', workspace.id, f.lifetime, f.operations)
   expect(f.published).toEqual([]); expect(f.assigned).toEqual([])
   expect(f.trace).toEqual(['workspace:1', 'live', 'live'])
+})
+
+type AdmissionContext = Parameters<typeof canStartBillingAction>[1]
+type CurrentBillingContext = Parameters<typeof billingActionIsLive>[0]
+
+function billingContext(controller = new AbortController()) {
+  const captured = { controller, source: { workspace, summary }, locale: 'en' as const, href: '/billing?lang=en' }
+  const current: CurrentBillingContext = {
+    mounted: true, operation: controller, source: captured.source, locale: 'en', href: captured.href, pathname: '/billing',
+  }
+  return { captured, current }
+}
+
+test.each(['refresh', 'checkout', 'cancel'] satisfies Action[])('%s admission requires current hydration, mount and a free operation before starting', action => {
+  const current: AdmissionContext = { hydrated: true, mounted: true, operation: undefined, data: { workspace, summary } }
+  expect(canStartBillingAction(action, current)).toBe(true)
+  for (const refused of [
+    { ...current, hydrated: false },
+    { ...current, mounted: false },
+    { ...current, operation: new AbortController() },
+  ]) expect(canStartBillingAction(action, refused)).toBe(false)
+})
+
+test.each(['checkout', 'cancel'] satisfies Action[])('%s admission refuses absent display data and an absent financial Workspace', action => {
+  for (const data of [null, { workspace: null, summary: null }]) {
+    expect(canStartBillingAction(action, { hydrated: true, mounted: true, operation: undefined, data })).toBe(false)
+  }
+})
+
+test('Refresh admission remains available with no display data or Workspace', () => {
+  for (const data of [null, { workspace: null, summary: null }]) {
+    expect(canStartBillingAction('refresh', { hydrated: true, mounted: true, operation: undefined, data })).toBe(true)
+  }
+})
+
+test('Billing freshness admits only the same owned action and current route context', () => {
+  const f = billingContext()
+  expect(billingActionIsLive(f.current, f.captured)).toBe(true)
+  expect(billingActionIsLive({ ...f.current, source: f.captured.source }, f.captured)).toBe(true)
+  expect(f.captured.controller.signal.aborted).toBe(false)
+})
+
+test.each([
+  { name: 'unmounted route', change: (current: CurrentBillingContext) => ({ ...current, mounted: false }) },
+  { name: 'released operation', change: (current: CurrentBillingContext) => ({ ...current, operation: undefined }) },
+  { name: 'another non-aborted operation', change: (current: CurrentBillingContext) => ({ ...current, operation: new AbortController() }) },
+  { name: 'missing loader source', change: (current: CurrentBillingContext) => ({ ...current, source: undefined }) },
+  { name: 'equal loader contents under a new identity', change: (current: CurrentBillingContext) => ({ ...current, source: { workspace, summary } }) },
+  { name: 'changed locale with the same href', change: (current: CurrentBillingContext) => ({ ...current, locale: 'fr' as const }) },
+  { name: 'changed href on the same pathname', change: (current: CurrentBillingContext) => ({ ...current, href: '/billing?lang=en#later' }) },
+  { name: 'departed pathname with the same captured href', change: (current: CurrentBillingContext) => ({ ...current, pathname: '/account' }) },
+] satisfies { name: string; change(current: CurrentBillingContext): CurrentBillingContext }[])('Billing freshness refuses $name independently', row => {
+  const f = billingContext(), current = row.change(f.current)
+  expect(billingActionIsLive(current, f.captured)).toBe(false)
+  expect(f.captured.controller.signal.aborted).toBe(false)
+})
+
+test('Billing freshness refuses the captured aborted signal even when operation and every context value still match', () => {
+  const f = billingContext()
+  f.captured.controller.abort()
+  expect(f.current.operation).toBe(f.captured.controller)
+  expect(billingActionIsLive(f.current, f.captured)).toBe(false)
+})
+
+test.each([
+  { action: 'refresh', step: 'billing', divergence: 'locale' },
+  { action: 'checkout', step: 'checkout', divergence: 'source' },
+  { action: 'checkout', step: 'workspace:2', divergence: 'locale' },
+  { action: 'cancel', step: 'cancel', divergence: 'source' },
+] satisfies { action: Action; step: Step; divergence: 'source' | 'locale' }[])('$action uses the real freshness predicate after $step when the current $divergence changes', async row => {
+  const f = fixture(row.step), context = billingContext(f.controller)
+  let current = context.current
+  f.lifetime.live = () => billingActionIsLive({ ...current }, context.captured)
+  const running = executeBillingAction(row.action, workspace.id, f.lifetime, f.operations)
+  try {
+    await f.started
+    current = row.divergence === 'source'
+      ? { ...current, source: { workspace, summary } }
+      : { ...current, locale: 'fr' }
+    f.release(); await running
+    expect(f.published).toEqual([]); expect(f.assigned).toEqual([])
+    expect(f.trace).not.toContain('invalidate'); expect(f.trace).not.toContain('handoff')
+    expect(f.controller.signal.aborted).toBe(false)
+  } finally { f.release(); await running }
 })

@@ -11,6 +11,31 @@ export function assertDirectory(path, owner) {
   return stat
 }
 
+export function assertMailRetryBuildConfig(root, output, config) {
+  if (!output || !isAbsolute(output) || resolve(config.root) !== root || realpathSync(config.root) !== root
+    || resolve(config.build.outDir) !== output || config.envDir !== false || config.build.copyPublicDir !== false) throw new Error('Native mail retry build ownership refused')
+  const run = dirname(output)
+  if (dirname(run) !== join(root, 'coverage') || !/^\.native-[0-9a-f-]{36}$/.test(basename(run))
+    || basename(output) !== 'mail-retry-build') throw new Error('Native mail retry build ownership refused')
+  for (const path of [root, join(root, 'coverage'), run, output]) {
+    const stat = lstatSync(path)
+    if (!stat.isDirectory() || stat.isSymbolicLink() || realpathSync(path) !== path) throw new Error('Native mail retry build ownership refused')
+  }
+}
+
+export function readMailRetryBuildIdentity(buildDirectory, startedAt) {
+  assertDirectory(buildDirectory)
+  if (readdirSync(buildDirectory).sort().join('|') !== 'harness.mjs|hatchet-empty.yaml') throw new Error('Native mail retry build requires its exact resources')
+  const digest = createHash('sha256')
+  for (const name of ['harness.mjs', 'hatchet-empty.yaml']) {
+    const path = join(buildDirectory, name), stat = lstatSync(path)
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.mtimeMs < startedAt || stat.size === 0 || stat.size > 268435456) throw new Error('Native mail retry build is stale or invalid')
+    digest.update(name).update('\0').update(readFileSync(path)).update('\0')
+  }
+  if (readFileSync(join(buildDirectory, 'hatchet-empty.yaml'), 'utf8') !== '{}\n') throw new Error('Native mail retry configuration changed')
+  return digest.digest('hex')
+}
+
 export function assertRunTree(path) {
   for (const name of readdirSync(path)) {
     const child = join(path, name), stat = lstatSync(child)

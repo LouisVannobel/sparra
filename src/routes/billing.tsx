@@ -2,11 +2,11 @@ import { Button } from '@astryxdesign/core/Button'
 import { Heading } from '@astryxdesign/core/Heading'
 import { createFileRoute, redirect, useHydrated, useRouter } from '@tanstack/react-router'
 import { useServerFn } from '@tanstack/react-start'
-import { useEffect, useRef, useState, type RefObject } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { getWorkspace } from '../modules/workspaces/workspace.functions'
 import { getBilling, startBillingCheckout, cancelBillingAtPeriodEnd } from '../modules/billing/billing.functions'
 import { BillingPanel } from '../ui/billing/billing-panel'
-import { executeBillingAction, type BillingAction, type BillingActionData as Loaded, type PendingBillingAction } from '../ui/billing/billing-action'
+import { billingActionIsLive, canStartBillingAction, executeBillingAction, type BillingAction, type BillingActionData as Loaded, type PendingBillingAction } from '../ui/billing/billing-action'
 import { billingMessages } from '../ui/billing/messages'
 import { AppShell } from '../ui/sparra/app-shell'
 import stylesheet from '../ui/sparra/sparra.css?url'
@@ -50,24 +50,6 @@ function BillingUnavailable({ onRefresh, pending = false, focusIssue = false }: 
   </section>
 }
 
-type BillingSource = ReturnType<typeof Route.useLoaderData>
-type BillingView = Readonly<{
-  mounted: RefObject<boolean>
-  operation: RefObject<AbortController | undefined>
-  latest: RefObject<{ loaded: BillingSource; lang: keyof typeof billingMessages }>
-  router: ReturnType<typeof useRouter>
-}>
-
-function canStartBillingAction(hydrated: boolean, view: BillingView, action: BillingAction, current: { data: Loaded | null }) {
-  return !(!hydrated || !view.mounted.current || view.operation.current || action !== 'refresh' && !current.data?.workspace)
-}
-function billingActionIsLive(view: BillingView, controller: AbortController, source: BillingSource,
-  locale: keyof typeof billingMessages, href: string) {
-  return view.mounted.current && view.operation.current === controller && !controller.signal.aborted
-    && view.latest.current.loaded === source && view.latest.current.lang === locale && view.router.state.location.href === href
-    && view.router.state.location.pathname === '/billing'
-}
-
 function Billing() {
   const { lang } = Route.useSearch(), loaded = Route.useLoaderData(), router = useRouter(), hydrated = useHydrated()
   const workspaceRead = useServerFn(getWorkspace), billingRead = useServerFn(getBilling)
@@ -92,15 +74,31 @@ function Billing() {
     }
   }, [loaded, lang, router])
 
-  const view: BillingView = { mounted, operation, latest, router }
   async function run(action: BillingAction) {
-    if (!canStartBillingAction(hydrated, view, action, current)) return
+    if (!canStartBillingAction(action, { hydrated, mounted: mounted.current, operation: operation.current, data: current.data })) return
     const controller = new AbortController(), source = loaded, locale = lang, href = router.state.location.href
     const selected = current.data?.workspace?.id
     operation.current = controller
-    const live = () => billingActionIsLive(view, controller, source, locale, href)
+    const captured = { controller, source, locale, href }
+    const live = () => billingActionIsLive({
+      mounted: mounted.current, operation: operation.current, source: latest.current.loaded, locale: latest.current.lang,
+      href: router.state.location.href, pathname: router.state.location.pathname,
+    }, captured)
     setDisplay({ source, data: current.data, pending: true, focusIssue: false })
     let handedOff = false
+    async function showFailure(error: unknown) {
+      if (!live()) return
+      setDisplay({ source, data: null, pending: false, focusIssue: true })
+      if (error instanceof Response && error.status === 401) {
+        await router.navigate({ to: '/login', search: { lang: locale, error: undefined } }).catch(() => {})
+      }
+    }
+    function finishAction() {
+      if (!handedOff) {
+        if (live()) setDisplay(value => value.source === source ? { ...value, pending: false } : value)
+        if (operation.current === controller) operation.current = undefined
+      }
+    }
     const lifetime: PendingBillingAction = { signal: controller.signal, live }
     try {
       return await executeBillingAction(action, selected, lifetime, {
@@ -111,16 +109,9 @@ function Billing() {
         invalidate: () => router.invalidate({ sync: true }),
       })
     } catch (error) {
-      if (!live()) return
-      setDisplay({ source, data: null, pending: false, focusIssue: true })
-      if (error instanceof Response && error.status === 401) {
-        await router.navigate({ to: '/login', search: { lang: locale, error: undefined } }).catch(() => {})
-      }
+      await showFailure(error)
     } finally {
-      if (!handedOff) {
-        if (live()) setDisplay(value => value.source === source ? { ...value, pending: false } : value)
-        if (operation.current === controller) operation.current = undefined
-      }
+      finishAction()
     }
   }
   return <AppShell locale={lang}>{current.data

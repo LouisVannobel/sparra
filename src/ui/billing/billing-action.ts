@@ -1,9 +1,32 @@
 import type { BillingInput, BillingSummary } from '../../modules/billing/checkout.server'
 import type { WorkspaceDto } from '../../modules/workspaces/personal.server'
+import type { Locale } from '../auth/messages'
 
 export type BillingAction = 'refresh' | 'checkout' | 'cancel'
 export type BillingActionData = { workspace: WorkspaceDto | null; summary: BillingSummary | null }
 export type PendingBillingAction = Readonly<{ signal: AbortSignal; live(): boolean }>
+
+type BillingActionAdmission = Readonly<{
+  hydrated: boolean; mounted: boolean; operation: AbortController | undefined; data: BillingActionData | null
+}>
+type CapturedBillingAction = Readonly<{
+  controller: AbortController; source: BillingActionData | undefined; locale: Locale; href: string
+}>
+type CurrentBillingAction = Readonly<{
+  mounted: boolean; operation: AbortController | undefined; source: BillingActionData | undefined
+  locale: Locale; href: string; pathname: string
+}>
+
+export function canStartBillingAction(action: BillingAction, current: BillingActionAdmission) {
+  return !(!current.hydrated || !current.mounted || current.operation || action !== 'refresh' && !current.data?.workspace)
+}
+
+export function billingActionIsLive(current: CurrentBillingAction, captured: CapturedBillingAction) {
+  return current.mounted && current.operation === captured.controller && !captured.controller.signal.aborted
+    && current.source === captured.source && current.locale === captured.locale && current.href === captured.href
+    && current.pathname === '/billing'
+}
+
 type WorkspaceRequest = Readonly<{ data: Record<string, never>; signal: AbortSignal }>
 type BillingRequest = Readonly<{ data: BillingInput; signal: AbortSignal }>
 type BillingActionOperations = Readonly<{

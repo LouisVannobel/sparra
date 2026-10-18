@@ -70,9 +70,7 @@ function reportNativeRetryFailure(success: boolean, diagnostic: NativeRetryFailu
   ]))
 }
 
-// Explicitly excluded from every non-native command. timeout:0 keeps the WHOLE
-// acquisition/cleanup lifecycle awaited; it does not extend observation/stop.
-test('I3 one owned native retry fixture: retained A/B, transient C, expired E, exhausted D', { timeout: 0 }, async () => {
+async function readOwnedRetryDirectories() {
   const evidenceDirectory = process.env.SPARRA_MAIL_RETRY_EVIDENCE_DIR, buildDirectory = process.env.SPARRA_MAIL_RETRY_BUILD_DIR
   if (!evidenceDirectory || !buildDirectory || !isAbsolute(evidenceDirectory) || !isAbsolute(buildDirectory)
     || basename(evidenceDirectory) !== 'mail-retry-evidence' || basename(buildDirectory) !== 'mail-retry-build'
@@ -83,6 +81,13 @@ test('I3 one owned native retry fixture: retained A/B, transient C, expired E, e
     if (!stat.isDirectory() || stat.isSymbolicLink() || await realpath(path) !== path) throw retryFixtureError()
   }
   const evidenceOwner = await lstat(evidenceDirectory)
+  return { evidenceDirectory, buildDirectory, evidenceOwner }
+}
+
+// Explicitly excluded from every non-native command. timeout:0 keeps the WHOLE
+// acquisition/cleanup lifecycle awaited; it does not extend observation/stop.
+test('I3 one owned native retry fixture: retained A/B, transient C, expired E, exhausted D', { timeout: 0 }, async () => {
+  const { evidenceDirectory, buildDirectory, evidenceOwner } = await readOwnedRetryDirectories()
   type NativeRetryCommandFields = {
     label?: Hook['label']; outboxId?: Hook['outboxId']; runId?: Hook['runId']; hookId?: Hook['hookId']
     deadlineAtMs?: ReturnType<typeof retryBudget>['deadlineAtMs']
@@ -265,58 +270,68 @@ test('I3 one owned native retry fixture: retained A/B, transient C, expired E, e
       return first
     }
     const failed = (code: typeof deferredCodes[number]) => (value: History) => value.events.some(row => row.eventType === 'FAILED' && row.code === code)
-    await create('A')
-    await waitFor(() => events.find(event => event.type === 'lookup-held'))
-    phases.push(safeRetryParentPhase('a-sql-check-started'))
-    requireFact((await delivery('A')).fence === 1)
-    phases.push(safeRetryParentPhase('a-sql-check-completed'))
-    phases.push(safeRetryParentPhase('a-cancel-started'))
-    requireFact(await ask('cancel-A', { label: 'A' }))
-    phases.push(safeRetryParentPhase('a-cancel-completed'))
-    await nativeUntil('A', value => value.status === 'CANCELLED')
-    await create('B')
-    await nativeUntil('B', failed('AUTH_MAIL_CAPACITY_BUSY'))
-    requireFact(!events.some(event => event.type === 'handler-settled' && event.label === 'A'))
-    received('A-retained-B-capacity-busy', 0)
-    requireFact(await ask('release-lookup'))
-    await waitFor(() => events.find(event => event.type === 'lookup-returned'))
-    await waitFor(() => events.find(event => event.type === 'handler-settled' && event.label === 'A'))
-    received('A-real-handler-joined-before-B-retry', 0)
-    const b = await hook('B', 1); requireFact(b.gated); requireFact(await ask('release', { hookId: b.hookId }))
-    await nativeUntil('B', value => value.status === 'COMPLETED')
-    requireFact((await delivery('B')).providerState === 'plunk_queued'); received('B-recovered', 1)
+    async function verifyRetainedCapacityAndRecovery() {
+      await create('A')
+      await waitFor(() => events.find(event => event.type === 'lookup-held'))
+      phases.push(safeRetryParentPhase('a-sql-check-started'))
+      requireFact((await delivery('A')).fence === 1)
+      phases.push(safeRetryParentPhase('a-sql-check-completed'))
+      phases.push(safeRetryParentPhase('a-cancel-started'))
+      requireFact(await ask('cancel-A', { label: 'A' }))
+      phases.push(safeRetryParentPhase('a-cancel-completed'))
+      await nativeUntil('A', value => value.status === 'CANCELLED')
+      await create('B')
+      await nativeUntil('B', failed('AUTH_MAIL_CAPACITY_BUSY'))
+      requireFact(!events.some(event => event.type === 'handler-settled' && event.label === 'A'))
+      received('A-retained-B-capacity-busy', 0)
+      requireFact(await ask('release-lookup'))
+      await waitFor(() => events.find(event => event.type === 'lookup-returned'))
+      await waitFor(() => events.find(event => event.type === 'handler-settled' && event.label === 'A'))
+      received('A-real-handler-joined-before-B-retry', 0)
+      const b = await hook('B', 1); requireFact(b.gated); requireFact(await ask('release', { hookId: b.hookId }))
+      await nativeUntil('B', value => value.status === 'COMPLETED')
+      requireFact((await delivery('B')).providerState === 'plunk_queued'); received('B-recovered', 1)
 
-    const c = await create('C'); requireFact(c.gated); await lock('C')
-    requireFact(await ask('release', { hookId: c.hookId }))
-    await nativeUntil('C', failed('AUTH_MAIL_CLAIM_UNRESOLVED')); await unlock()
-    await nativeUntil('C', value => value.status === 'COMPLETED')
-    requireFact((await delivery('C')).providerState === 'plunk_queued'); received('C-recovered', 2)
+    }
 
-    const e = await create('E'); requireFact(e.gated); await lock('E')
-    requireFact(await ask('release', { hookId: e.hookId }))
-    await nativeUntil('E', failed('AUTH_MAIL_CLAIM_UNRESOLVED'))
-    const beforeExpiry = await delivery('E'); requireFact(expiryGate(beforeExpiry, 'before-failure') && beforeExpiry.lifetimeSeconds === 10); evidence.eBeforeExpiry = beforeExpiry
-    await unlock()
-    const eRetry = await hook('E', 1); requireFact(eRetry.gated)
-    for (;;) { if (expiryGate(await delivery('E'), 'after-expiry')) break; await pause(budget.remaining(25)) }
-    requireFact(await ask('release', { hookId: eRetry.hookId }))
-    await waitFor(() => events.find(event => event.type === 'outcome' && event.label === 'E' && event.retryCount === 1 && event.outcome.state === 'inert'))
-    await nativeUntil('E', value => value.status === 'COMPLETED')
-    const expired = await delivery('E'); requireFact(expired.state === 'expired' && expired.fence === 0 && expired.unattempted && expired.expiry === beforeExpiry.expiry && expired.created === beforeExpiry.created)
-    evidence.eAfterExpiry = expired; received('E-real-function-after-expiry', 2)
+    async function verifyTransientClaimRecovery() {
+      const c = await create('C'); requireFact(c.gated); await lock('C')
+      requireFact(await ask('release', { hookId: c.hookId }))
+      await nativeUntil('C', failed('AUTH_MAIL_CLAIM_UNRESOLVED')); await unlock()
+      await nativeUntil('C', value => value.status === 'COMPLETED')
+      requireFact((await delivery('C')).providerState === 'plunk_queued'); received('C-recovered', 2)
 
-    const d = await create('D'); requireFact(d.gated); await lock('D')
-    const configRows = await query(engine.administrator, `SELECT s.retries, t.retry_backoff_factor AS factor, t.retry_max_backoff AS cap,
+    }
+
+    async function verifyExpiredCommandRemainsInert(budget: ReturnType<typeof retryBudget>) {
+      const e = await create('E'); requireFact(e.gated); await lock('E')
+      requireFact(await ask('release', { hookId: e.hookId }))
+      await nativeUntil('E', failed('AUTH_MAIL_CLAIM_UNRESOLVED'))
+      const beforeExpiry = await delivery('E'); requireFact(expiryGate(beforeExpiry, 'before-failure') && beforeExpiry.lifetimeSeconds === 10); evidence.eBeforeExpiry = beforeExpiry
+      await unlock()
+      const eRetry = await hook('E', 1); requireFact(eRetry.gated)
+      for (;;) { if (expiryGate(await delivery('E'), 'after-expiry')) break; await pause(budget.remaining(25)) }
+      requireFact(await ask('release', { hookId: eRetry.hookId }))
+      await waitFor(() => events.find(event => event.type === 'outcome' && event.label === 'E' && event.retryCount === 1 && event.outcome.state === 'inert'))
+      await nativeUntil('E', value => value.status === 'COMPLETED')
+      const expired = await delivery('E'); requireFact(expired.state === 'expired' && expired.fence === 0 && expired.unattempted && expired.expiry === beforeExpiry.expiry && expired.created === beforeExpiry.created)
+      evidence.eAfterExpiry = expired; received('E-real-function-after-expiry', 2)
+
+    }
+
+    async function verifyNativeRetryExhaustion(budget: ReturnType<typeof retryBudget>, engine: Awaited<ReturnType<typeof startDisposableHatchet>>) {
+      const d = await create('D'); requireFact(d.gated); await lock('D')
+      const configRows = await query(engine.administrator, `SELECT s.retries, t.retry_backoff_factor AS factor, t.retry_max_backoff AS cap,
       t.step_timeout AS execution, t.schedule_timeout AS schedule FROM v1_task t JOIN "Step" s ON s.id=t.step_id WHERE t.tenant_id=$1 AND t.external_id=$2`, [engine.tenantId, d.taskId])
-    requireFact(configRows.length === 1)
-    evidence.enginePolicy = decode(Schema.Struct({ retries: Schema.Literal(4), factor: Schema.Literal(5), cap: Schema.Literal(30), execution: Schema.Literal('30s'), schedule: Schema.Literal('10m') }), configRows[0])
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const current = await hook('D', attempt); requireFact(current.gated)
-      const lower = decode(Schema.Struct({ clock: stamp }), (await query(engine.administrator, 'SELECT clock_timestamp()::text AS clock'))[0]).clock
-      requireFact(await ask('release', { hookId: current.hookId }))
-      if (attempt === 4) break
-      for (;;) {
-        const rows = await query(engine.administrator, `WITH observed AS MATERIALIZED (SELECT clock_timestamp() AS upper_clock)
+      requireFact(configRows.length === 1)
+      evidence.enginePolicy = decode(Schema.Struct({ retries: Schema.Literal(4), factor: Schema.Literal(5), cap: Schema.Literal(30), execution: Schema.Literal('30s'), schedule: Schema.Literal('10m') }), configRows[0])
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const current = await hook('D', attempt); requireFact(current.gated)
+        const lower = decode(Schema.Struct({ clock: stamp }), (await query(engine.administrator, 'SELECT clock_timestamp()::text AS clock'))[0]).clock
+        requireFact(await ask('release', { hookId: current.hookId }))
+        if (attempt === 4) break
+        for (;;) {
+          const rows = await query(engine.administrator, `WITH observed AS MATERIALIZED (SELECT clock_timestamp() AS upper_clock)
           SELECT q.task_id::text AS "taskId", q.task_inserted_at::text AS "taskInsertedAt", q.task_retry_count AS "taskRetryCount",
             t.app_retry_count AS "appRetryIndex", t.retry_backoff_factor AS factor, t.retry_max_backoff AS cap,
             $3::timestamptz::text AS "lowerClock", observed.upper_clock::text AS "upperClock", q.retry_after::text AS "retryAfter",
@@ -325,16 +340,22 @@ test('I3 one owned native retry fixture: retained A/B, transient C, expired E, e
             extract(epoch FROM (observed.upper_clock-$3::timestamptz))::text AS "widthSeconds"
           FROM v1_retry_queue_item q JOIN v1_task t ON t.id=q.task_id AND t.inserted_at=q.task_inserted_at AND t.retry_count=q.task_retry_count
           CROSS JOIN observed WHERE t.tenant_id=$1 AND q.tenant_id=$1 AND t.external_id=$2 AND t.app_retry_count=$4`, [engine.tenantId, current.taskId, lower, attempt + 1])
-        if (rows.length) { intervals.push(checkedRetryInterval(rows)); break }
-        await pause(budget.remaining(25))
+          if (rows.length) { intervals.push(checkedRetryInterval(rows)); break }
+          await pause(budget.remaining(25))
+        }
       }
+      const exhausted = await nativeUntil('D', value => value.status === 'FAILED' && value.events.filter(row => row.eventType === 'FAILED' && row.code === 'AUTH_MAIL_CLAIM_UNRESOLVED').length === 5)
+      requireFact(exhausted.events.filter(row => row.eventType === 'FAILED' && row.code === 'AUTH_MAIL_CLAIM_UNRESOLVED').map(row => row.retryCount).sort().join(',') === '0,1,2,3,4')
+      requireFact(events.filter(event => event.type === 'before' && event.label === 'D').length === 5)
+      await unlock()
+      const finalD = await delivery('D'); requireFact(finalD.fence === 0 && finalD.unattempted && finalD.providerState === 'unattempted')
+      evidence.dFinal = finalD; received('D-exhausted', 2)
     }
-    const exhausted = await nativeUntil('D', value => value.status === 'FAILED' && value.events.filter(row => row.eventType === 'FAILED' && row.code === 'AUTH_MAIL_CLAIM_UNRESOLVED').length === 5)
-    requireFact(exhausted.events.filter(row => row.eventType === 'FAILED' && row.code === 'AUTH_MAIL_CLAIM_UNRESOLVED').map(row => row.retryCount).sort().join(',') === '0,1,2,3,4')
-    requireFact(events.filter(event => event.type === 'before' && event.label === 'D').length === 5)
-    await unlock()
-    const finalD = await delivery('D'); requireFact(finalD.fence === 0 && finalD.unattempted && finalD.providerState === 'unattempted')
-    evidence.dFinal = finalD; received('D-exhausted', 2)
+
+    await verifyRetainedCapacityAndRecovery()
+    await verifyTransientClaimRecovery()
+    await verifyExpiredCommandRemainsInert(budget)
+    await verifyNativeRetryExhaustion(budget, engine)
     for (const which of retryLabels) await history(which)
     key.fill(0)
     success = true
@@ -350,39 +371,55 @@ test('I3 one owned native retry fixture: retained A/B, transient C, expired E, e
       try { await action(); cleanupReceipts[name] = true }
       catch { cleanupReceipts[name] = false; success = false }
     }
-    if (child && exited) {
-      const stopStarted = performance.now()
-      if (!processClosed && child.connected) child.send({ id: ++nextCommand, op: 'shutdown' }, () => {})
-      while (!processClosed && !events.some(event => event.type === 'closing') && performance.now() - stopStarted < 15000) await pause(25)
-      // Only release the SQL perturbation after closing has aborted owned work
-      // and before hooks, or after the exact child is confirmed terminated.
-      if (!processClosed && !events.some(event => event.type === 'closing')) { forced = true; child.kill('SIGKILL'); await exited }
-      await clean('rowLockReleased', unlock)
-      while (!processClosed && performance.now() - stopStarted < 15000) await pause(25)
-      const stopped = events.find(event => event.type === 'stopped')
-      evidence.normalStop = { elapsedMs: performance.now() - stopStarted, processClosed, receipt: stopped ?? null }
-      if (!processClosed) { forced = true; child.kill('SIGKILL') }
-      await clean('childClosed', async () => { await exited })
+    function recordNormalStop(stopped: Observation | undefined) {
       if (forced || !stopped || stopped.type !== 'stopped' || stopped.nativeStartState !== 'resolved' || stopped.nativeStopState !== 'resolved' || stopped.pendingHooks !== 0 || !stopped.commandsJoined || processCode !== 0 || outputBytes !== 0) success = false
-    } else await clean('rowLockReleased', unlock)
-    for (const reply of replies.values()) reply.reject()
-    if (pool) await clean('webPoolClosed', () => pool!.end())
-    // Nested inventory must be gone before enclosing inventory is compared.
-    if (engine) await clean('engineRemoved', () => engine!.cleanup())
-    if (stores) await clean('storesRemoved', () => stores!.cleanup())
-    if (peer) {
-      await clean('tlsClosedAndMaterialsRemoved', () => peer!.close())
-      evidence.finalPeer = peer.evidence()
-      if (success && peer.evidence().calls !== 2) success = false
     }
-    evidence.cleanup = { receipts: cleanupReceipts, elapsedMs: performance.now() - cleanupStarted, forced, processCode, exactOutputEmpty: outputBytes === 0 }
-    evidence.cases = Object.fromEntries(cases); evidence.events = events; evidence.histories = histories; evidence.intervals = intervals; evidence.peer = peerReceipts
-    evidence.phases = phases; evidence.commandReceipts = commandReceipts
-    evidence.appStores = stores?.evidence; evidence.engine = engine?.evidence; evidence.passed = success
-    const currentEvidenceOwner = await lstat(evidenceDirectory)
-    if (!currentEvidenceOwner.isDirectory() || currentEvidenceOwner.isSymbolicLink() || await realpath(evidenceDirectory) !== evidenceDirectory
-      || currentEvidenceOwner.dev !== evidenceOwner.dev || currentEvidenceOwner.ino !== evidenceOwner.ino) throw retryFixtureError()
-    await writeFile(join(evidenceDirectory, `task-7-i3-native-${evidenceId}.json`), JSON.stringify(evidence, null, 2) + '\n', { flag: 'wx', mode: 0o600 })
+
+    async function stopAndJoinOwnedChild() {
+      if (child && exited) {
+        const stopStarted = performance.now()
+        if (!processClosed && child.connected) child.send({ id: ++nextCommand, op: 'shutdown' }, () => {})
+        while (!processClosed && !events.some(event => event.type === 'closing') && performance.now() - stopStarted < 15000) await pause(25)
+        // Only release the SQL perturbation after closing has aborted owned work
+        // and before hooks, or after the exact child is confirmed terminated.
+        if (!processClosed && !events.some(event => event.type === 'closing')) { forced = true; child.kill('SIGKILL'); await exited }
+        await clean('rowLockReleased', unlock)
+        while (!processClosed && performance.now() - stopStarted < 15000) await pause(25)
+        const stopped = events.find(event => event.type === 'stopped')
+        evidence.normalStop = { elapsedMs: performance.now() - stopStarted, processClosed, receipt: stopped ?? null }
+        if (!processClosed) { forced = true; child.kill('SIGKILL') }
+        await clean('childClosed', async () => { await exited })
+        recordNormalStop(stopped)
+      } else await clean('rowLockReleased', unlock)
+    }
+
+    async function retireAcquiredDependencies() {
+      for (const reply of replies.values()) reply.reject()
+      if (pool) await clean('webPoolClosed', () => pool!.end())
+      // Nested inventory must be gone before enclosing inventory is compared.
+      if (engine) await clean('engineRemoved', () => engine!.cleanup())
+      if (stores) await clean('storesRemoved', () => stores!.cleanup())
+      if (peer) {
+        await clean('tlsClosedAndMaterialsRemoved', () => peer!.close())
+        evidence.finalPeer = peer.evidence()
+        if (success && peer.evidence().calls !== 2) success = false
+      }
+    }
+
+    async function publishOwnedEvidence() {
+      evidence.cleanup = { receipts: cleanupReceipts, elapsedMs: performance.now() - cleanupStarted, forced, processCode, exactOutputEmpty: outputBytes === 0 }
+      evidence.cases = Object.fromEntries(cases); evidence.events = events; evidence.histories = histories; evidence.intervals = intervals; evidence.peer = peerReceipts
+      evidence.phases = phases; evidence.commandReceipts = commandReceipts
+      evidence.appStores = stores?.evidence; evidence.engine = engine?.evidence; evidence.passed = success
+      const currentEvidenceOwner = await lstat(evidenceDirectory)
+      if (!currentEvidenceOwner.isDirectory() || currentEvidenceOwner.isSymbolicLink() || await realpath(evidenceDirectory) !== evidenceDirectory
+        || currentEvidenceOwner.dev !== evidenceOwner.dev || currentEvidenceOwner.ino !== evidenceOwner.ino) throw retryFixtureError()
+      await writeFile(join(evidenceDirectory, `task-7-i3-native-${evidenceId}.json`), JSON.stringify(evidence, null, 2) + '\n', { flag: 'wx', mode: 0o600 })
+    }
+
+    await stopAndJoinOwnedChild()
+    await retireAcquiredDependencies()
+    await publishOwnedEvidence()
   }
   reportNativeRetryFailure(success, {
     tlsAcquiredMs: evidence.tlsAcquiredMs, storesAcquiredMs: evidence.storesAcquiredMs,

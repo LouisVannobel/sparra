@@ -40,12 +40,13 @@ function billingAction(summary: BillingSummary | null) {
 function BillingActions({ locale, summary, pending, failed, onCheckout, onCancel, onRefresh, hydrated }:
   Pick<Props, 'locale' | 'summary' | 'pending' | 'failed' | 'onCheckout' | 'onCancel' | 'onRefresh'> & Readonly<{ hydrated: boolean }>) {
   const t = billingMessages[locale], action = billingAction(summary)
+  const inactive = !hydrated || pending, financialInactive = inactive || failed
   return <div className="sparra-billing-actions">
     {(action === 'checkout' || action === 'resume') && <Button label={action === 'resume' ? t.resume : t.checkout} size="lg"
-      isDisabled={!hydrated || pending || failed} onClick={() => { if (!pending && !failed) void onCheckout() }} />}
-    {action === 'cancel' && <Button label={t.cancel} size="lg" isDisabled={!hydrated || pending || failed}
+      isDisabled={financialInactive} onClick={() => { if (!pending && !failed) void onCheckout() }} />}
+    {action === 'cancel' && <Button label={t.cancel} size="lg" isDisabled={financialInactive}
       onClick={() => { if (!pending && !failed) void onCancel() }} />}
-    <Button label={t.refresh} variant="secondary" size="lg" isDisabled={!hydrated || pending}
+    <Button label={t.refresh} variant="secondary" size="lg" isDisabled={inactive}
       onClick={() => { if (!pending) void onRefresh() }} />
   </div>
 }

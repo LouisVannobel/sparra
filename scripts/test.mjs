@@ -1,8 +1,8 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { closeSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { admitCommonGeometry, assertBillingQualification, assertDirectory, assertRunTree, assertRecordingReceiptQualification, assertRequestsQualification, assertMailRetryQualification, readNativeBlob, sourceIdentity } from './native-coverage-inputs.mjs'
+import { admitCommonGeometry, assertBillingQualification, assertDirectory, assertRunTree, assertRecordingReceiptQualification, assertRequestsQualification, assertMailRetryQualification, readMailRetryBuildIdentity, readNativeBlob, sourceIdentity } from './native-coverage-inputs.mjs'
 import { prepareVoiceSource } from './prepare-voice-source.mjs'
 import { runNativePhase } from './native-test-phase.mjs'
 
@@ -33,20 +33,7 @@ function assertOwnedRun() {
 function assertFrozenIdentity() {
   assertOwnedRun()
   if (sourceIdentity(root) !== frozenIdentity) throw new Error('Native coverage source or build changed')
-  if (mailRetryBuildIdentity && retryBuildIdentity() !== mailRetryBuildIdentity) throw new Error('Native mail retry build changed')
-}
-
-function retryBuildIdentity() {
-  assertDirectory(mailRetryBuild)
-  if (readdirSync(mailRetryBuild).sort().join('|') !== 'harness.mjs|hatchet-empty.yaml') throw new Error('Native mail retry build requires its exact resources')
-  const digest = createHash('sha256')
-  for (const name of ['harness.mjs', 'hatchet-empty.yaml']) {
-    const path = join(mailRetryBuild, name), stat = lstatSync(path)
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.mtimeMs < startedAt || stat.size === 0 || stat.size > 268435456) throw new Error('Native mail retry build is stale or invalid')
-    digest.update(name).update('\0').update(readFileSync(path)).update('\0')
-  }
-  if (readFileSync(join(mailRetryBuild, 'hatchet-empty.yaml'), 'utf8') !== '{}\n') throw new Error('Native mail retry configuration changed')
-  return digest.digest('hex')
+  if (mailRetryBuildIdentity && readMailRetryBuildIdentity(mailRetryBuild, startedAt) !== mailRetryBuildIdentity) throw new Error('Native mail retry build changed')
 }
 
 async function runPhase(name, args, timeout) {
@@ -113,7 +100,7 @@ try {
   frozenIdentity = sourceIdentity(root)
   await runPhase('prerequisites', [join(root, 'scripts/test-prerequisites.mjs')], 300000)
   await runPhase('mail retry build', [join(root, 'node_modules/vite/bin/vite.js'), 'build', '--config', 'tests/helpers/vite.mail-retry.config.ts', '--outDir', mailRetryBuild], 120000)
-  mailRetryBuildIdentity = retryBuildIdentity()
+  mailRetryBuildIdentity = readMailRetryBuildIdentity(mailRetryBuild, startedAt)
   voice = await prepareVoiceSource({ appRoot: root })
   await voice.assertIdentity()
   const blobs = join(runDirectory, 'blobs')
