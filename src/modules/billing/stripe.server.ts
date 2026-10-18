@@ -1,6 +1,6 @@
 import Stripe from 'stripe'
 import { createStripeTransport, StripeInputError, StripeProviderError } from './stripe-transport.server'
-export { StripeInputError, StripeProviderError } from './stripe-transport.server'
+import { hasCustomerBalanceTransactionScalars } from './provider-shapes.server'
 import type { StripeConfig } from './stripe-config.server'
 
 export type CheckoutIntent = Readonly<{
@@ -12,14 +12,14 @@ export type CheckoutIntent = Readonly<{
   terms: Readonly<{ id: string; monthlyPriceId: string; currency: string; monthlyUnitAmount: number }>
 }>
 
-export type CheckoutNavigation = Readonly<{ id: string; url: string; expiresAt: number }>
-export type CustomerCreateIntent = Readonly<{ workspaceId: string; idempotencyKey: string }>
-export type SubscriptionCancellationIntent = Readonly<{
+type CheckoutNavigation = Readonly<{ id: string; url: string; expiresAt: number }>
+type CustomerCreateIntent = Readonly<{ workspaceId: string; idempotencyKey: string }>
+type SubscriptionCancellationIntent = Readonly<{
   subscriptionId: string
   customerId: string
   idempotencyKey: string
 }>
-export type SubscriptionCancellationObservation = Readonly<{ subscriptionId: string; cancelAtPeriodEnd: true }>
+type SubscriptionCancellationObservation = Readonly<{ subscriptionId: string; cancelAtPeriodEnd: true }>
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const customer = /^cus_[A-Za-z0-9]+$/
@@ -178,6 +178,35 @@ export function createStripeBillingClient(config: StripeConfig, signal: AbortSig
   })
 }
 
+function requireChargeIdentity(result: Stripe.Charge, id: string, expectedLive: boolean): void {
+  if (result.id !== id || result.object !== 'charge' || result.livemode !== expectedLive
+    || !customer.test(idOf(result.customer) ?? '')
+    || !ids.paymentIntent.test(idOf(result.payment_intent) ?? '')) throw new StripeProviderError()
+}
+
+function requireChargeIdentityAndAmounts(result: Stripe.Charge, id: string, expectedLive: boolean): void {
+  requireChargeIdentity(result, id, expectedLive)
+  if (!Number.isSafeInteger(result.amount) || result.amount <= 0
+    || !Number.isSafeInteger(result.amount_captured) || result.amount_captured < 0
+    || result.amount_captured > result.amount
+    || !Number.isSafeInteger(result.amount_refunded) || result.amount_refunded < 0
+    || result.amount_refunded > result.amount_captured
+    || typeof result.captured !== 'boolean' || typeof result.paid !== 'boolean'
+    || typeof result.disputed !== 'boolean' || typeof result.refunded !== 'boolean'
+    || !/^[a-z]{3}$/.test(result.currency)
+    || typeof result.status !== 'string' || result.status.length === 0) throw new StripeProviderError()
+}
+
+function requireChargeRiskShape(result: Stripe.Charge, review: string | null): void {
+  if (result.fraud_details === undefined || result.fraud_details !== null
+      && (typeof result.fraud_details !== 'object' || Array.isArray(result.fraud_details))
+    || result.review === undefined || review !== null && !ids.review.test(review ?? '')
+    || result.outcome === undefined || result.outcome !== null
+      && (typeof result.outcome.type !== 'string' || result.outcome.type.length === 0
+          || result.outcome.reason !== null && typeof result.outcome.reason !== 'string'
+          || result.outcome.network_status !== null && typeof result.outcome.network_status !== 'string')) throw new StripeProviderError()
+}
+
 // Concrete SDK composition shared by the original billing client and the
 // owned GET client. The original client projects only its existing surface.
 export function createStripeReadMethods(config: StripeConfig, stripe: Stripe) {
@@ -254,27 +283,8 @@ export function createStripeReadMethods(config: StripeConfig, stripe: Stripe) {
       return guarded(async () => {
         const result = await stripe.charges.retrieve(id)
         const review = result.review === null ? null : idOf(result.review)
-        if (result.id !== id || result.object !== 'charge' || result.livemode !== expectedLive
-          || !customer.test(idOf(result.customer) ?? '')
-          || !ids.paymentIntent.test(idOf(result.payment_intent) ?? '')
-          || !Number.isSafeInteger(result.amount) || result.amount <= 0
-          || !Number.isSafeInteger(result.amount_captured) || result.amount_captured < 0
-          || result.amount_captured > result.amount
-          || !Number.isSafeInteger(result.amount_refunded) || result.amount_refunded < 0
-          || result.amount_refunded > result.amount_captured
-          || typeof result.captured !== 'boolean' || typeof result.paid !== 'boolean'
-          || typeof result.disputed !== 'boolean' || typeof result.refunded !== 'boolean'
-          || !/^[a-z]{3}$/.test(result.currency)
-          || typeof result.status !== 'string' || result.status.length === 0
-          || result.fraud_details === undefined || result.fraud_details !== null
-            && (typeof result.fraud_details !== 'object' || Array.isArray(result.fraud_details))
-          || result.review === undefined || review !== null && !ids.review.test(review ?? '')
-          || result.outcome === undefined || result.outcome !== null
-            && (typeof result.outcome.type !== 'string' || result.outcome.type.length === 0
-              || result.outcome.reason !== null && typeof result.outcome.reason !== 'string'
-              || result.outcome.network_status !== null && typeof result.outcome.network_status !== 'string')) {
-          throw new StripeProviderError()
-        }
+        requireChargeIdentityAndAmounts(result, id, expectedLive)
+        requireChargeRiskShape(result, review)
         return result
       })
     },
@@ -289,14 +299,7 @@ export function createStripeReadMethods(config: StripeConfig, stripe: Stripe) {
         if (result.object !== 'list' || !Array.isArray(result.data) || result.data.length > 100
           || typeof result.has_more !== 'boolean' || result.has_more && result.data.length === 0
           || result.url !== `/v1/customers/${customerId}/balance_transactions`
-          || result.data.some(row => row.object !== 'customer_balance_transaction'
-            || !ids.customerBalanceTransaction.test(row.id)
-            || row.livemode !== expectedLive || idOf(row.customer) !== customerId
-            || row.customer_account !== null
-            || !Number.isSafeInteger(row.amount) || !Number.isSafeInteger(row.ending_balance)
-            || !Number.isSafeInteger(row.created) || row.created < 0
-            || !/^[a-z]{3}$/.test(row.currency)
-            || typeof row.type !== 'string' || row.type.length === 0
+          || result.data.some(row => !hasCustomerBalanceTransactionScalars(row, customerId, expectedLive)
             || row.invoice !== null && !ids.invoice.test(idOf(row.invoice) ?? '')
             || row.checkout_session !== null && !expectedCheckout.test(idOf(row.checkout_session) ?? '')
             || row.credit_note !== null && !ids.creditNote.test(idOf(row.credit_note) ?? ''))) throw new StripeProviderError()

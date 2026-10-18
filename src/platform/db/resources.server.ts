@@ -5,7 +5,29 @@ import { randomUUID } from 'node:crypto'
 import type { readDatabaseConfig } from './config.server'
 import { createTransactions } from './transactions.server'
 
-export const acquireDatabase = Effect.fn('acquireDatabase')(function* (database: ReturnType<typeof readDatabaseConfig>, expectedLogin?: 'auth_mail_relay' | 'auth_mail_worker' | 'billing_relay' | 'billing_worker') {
+type DatabaseLogin = 'auth_mail_relay' | 'auth_mail_worker' | 'billing_relay' | 'billing_worker'
+type DatabaseReadiness = {
+  version: string; login?: string; currentUser?: string; canImpersonate?: boolean
+  superuser: string; bypassrls: string; databaseOwner: string; tableOwner: string
+  fsync: string; fullPageWrites: string; synchronousCommit: string; schemaReady: string
+  billingReady?: string; workspaceReady?: string
+}
+
+function validateDatabaseIdentity(observed: DatabaseReadiness, expectedLogin: DatabaseLogin | undefined) {
+  if (expectedLogin && (observed.login !== expectedLogin || observed.currentUser !== expectedLogin || observed.canImpersonate)
+    || observed.version !== '160015' || observed.superuser !== 'false' || observed.bypassrls !== 'false'
+    || observed.databaseOwner !== 'false' || observed.tableOwner !== 'false') throw new Error('Database contract mismatch')
+}
+
+function validateDatabaseReadiness(observed: DatabaseReadiness | undefined, expectedLogin: DatabaseLogin | undefined, billingLogin: boolean) {
+  if (!observed) throw new Error('Database contract mismatch')
+  validateDatabaseIdentity(observed, expectedLogin)
+  if (observed.fsync !== 'on' || observed.fullPageWrites !== 'on' || observed.synchronousCommit !== 'on'
+    || observed.schemaReady !== 'true' || billingLogin && observed.billingReady !== 'true'
+    || !expectedLogin && observed.workspaceReady !== 'true') throw new Error('Database contract mismatch')
+}
+
+export const acquireDatabase = Effect.fn('acquireDatabase')(function* (database: ReturnType<typeof readDatabaseConfig>, expectedLogin?: DatabaseLogin) {
   let stopping = false, databaseFault = false
   const billingLogin = expectedLogin === 'billing_relay' || expectedLogin === 'billing_worker'
   const clients = new Set<PoolClient>()
@@ -119,9 +141,7 @@ export const acquireDatabase = Effect.fn('acquireDatabase')(function* (database:
             and not has_table_privilege(current_user,'public.workspace_audit','SELECT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
           ),false)::text` } : {}),
         }).from(sql`pg_roles`).where(sql`rolname = current_user`)
-        if (!observed || expectedLogin && (observed.login !== expectedLogin || observed.currentUser !== expectedLogin || observed.canImpersonate) || observed.version !== '160015' || observed.superuser !== 'false' || observed.bypassrls !== 'false'
-          || observed.databaseOwner !== 'false' || observed.tableOwner !== 'false' || observed.fsync !== 'on'
-          || observed.fullPageWrites !== 'on' || observed.synchronousCommit !== 'on' || observed.schemaReady !== 'true' || billingLogin && observed.billingReady !== 'true' || !expectedLogin && observed.workspaceReady !== 'true') throw new Error('Database contract mismatch')
+        validateDatabaseReadiness(observed, expectedLogin, billingLogin)
       }),
       catch: () => new Error('Application stores unavailable'),
     })

@@ -31,6 +31,26 @@ async function closeOwnedTransport(req: IncomingMessage, socket: Socket): Promis
   await Promise.all([reqClosed, socketClosed])
 }
 
+function ingressSignature(request: Request, req: IncomingMessage, deadlineAtMs: number,
+  startedAtMs: number, signal: AbortSignal, stopped: boolean): string {
+  const signature = request.headers.get('Stripe-Signature')
+  if (!Number.isSafeInteger(deadlineAtMs) || deadlineAtMs <= startedAtMs
+    || signal.aborted || !signature || signature.length > 8192
+    || req.method !== 'POST' || stopped) throw new StripeWebhookError()
+  return signature
+}
+
+function appendWebhookChunk(chunk: unknown, chunks: Uint8Array[], totalBytes: number,
+  stopped: boolean, signal: AbortSignal, effectiveDeadlineAtMs: number): number {
+  if (stopped || signal.aborted || Date.now() >= effectiveDeadlineAtMs
+    || !(chunk instanceof Uint8Array) || chunk.byteLength > maxBodyBytes - totalBytes) {
+    throw new StripeWebhookError()
+  }
+  totalBytes += chunk.byteLength
+  chunks.push(Uint8Array.from(chunk))
+  return totalBytes
+}
+
 export async function readStripeWebhook(
   config: StripeConfig,
   request: Request,
@@ -52,20 +72,12 @@ export async function readStripeWebhook(
   let complete = false
 
   try {
-    const signature = request.headers.get('Stripe-Signature')
-    if (!Number.isSafeInteger(deadlineAtMs) || deadlineAtMs <= startedAtMs
-      || signal.aborted || !signature || signature.length > 8192
-      || req.method !== 'POST' || stopped) throw new StripeWebhookError()
+    const signature = ingressSignature(request, req, deadlineAtMs, startedAtMs, signal, stopped)
 
     const chunks: Uint8Array[] = []
     let totalBytes = 0
     for await (const chunk of req) {
-      if (stopped || signal.aborted || Date.now() >= effectiveDeadlineAtMs
-        || !(chunk instanceof Uint8Array) || chunk.byteLength > maxBodyBytes - totalBytes) {
-        throw new StripeWebhookError()
-      }
-      totalBytes += chunk.byteLength
-      chunks.push(Uint8Array.from(chunk))
+      totalBytes = appendWebhookChunk(chunk, chunks, totalBytes, stopped, signal, effectiveDeadlineAtMs)
     }
     if (stopped || signal.aborted || Date.now() >= effectiveDeadlineAtMs || !req.complete) {
       throw new StripeWebhookError()

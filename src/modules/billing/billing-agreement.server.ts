@@ -17,7 +17,7 @@ export function decodeBilling<A>(schema: Schema.ConstraintDecoder<A>, value: unk
   try { return Schema.decodeUnknownSync(schema)(value, { onExcessProperty: 'error' }) }
   catch { throw new BillingStoreError() }
 }
-export const bindingSchema = Schema.Struct({ chargeId: billingIds.charge, paymentIntentId: billingIds.intent, invoiceId: billingIds.invoice })
+const bindingSchema = Schema.Struct({ chargeId: billingIds.charge, paymentIntentId: billingIds.intent, invoiceId: billingIds.invoice })
 export type ObservedChargeBinding = typeof bindingSchema.Type
 export const observationInputSchema = Schema.Struct({
   candidateInvoiceIds: bounded(billingIds.invoice).check(Schema.isMinLength(1)), paymentEdges: bounded(bindingSchema),
@@ -30,8 +30,7 @@ export const targetProgressSchema = Schema.Struct({ invoiceId: billingIds.invoic
   riskSettlement: Schema.NullOr(Schema.Struct({ revision: billingPositive, disposition: Schema.Literals(['held', 'risk-recorded']),
     riskObservationIds: bounded(billingUuid) })),
 })
-export type TargetProgress = typeof targetProgressSchema.Type
-export const boundInvoiceSchema = Schema.Struct({ environment: billingEnvironment, accountId: billingIds.account,
+const boundInvoiceSchema = Schema.Struct({ environment: billingEnvironment, accountId: billingIds.account,
   customerId: billingIds.customer, subscriptionId: billingIds.subscription, invoiceId: billingIds.invoice,
   agreedTermsId: billingUuid, monthlyPriceId: billingIds.price, currency, expectedAmount: billingPositive, periodStart: billingPositive, periodEnd: billingPositive,
   firstPeriod: Schema.optionalKey(Schema.Boolean),
@@ -54,7 +53,7 @@ const paidSchema = Schema.Struct({ invoiceId: billingIds.invoice, subscriptionId
   customerId: billingIds.customer, currency, amount: billingPositive, periodStart: billingPositive, periodEnd: billingPositive,
   allocationIds: Schema.Array(billingIds.allocation), paymentIntentIds: Schema.Array(billingIds.intent), chargeIds: Schema.Array(billingIds.charge),
 })
-export const unpaidSchema = Schema.Struct({ kind: Schema.Literal('unpaid-invoice'), invoiceId: billingIds.invoice,
+const unpaidSchema = Schema.Struct({ kind: Schema.Literal('unpaid-invoice'), invoiceId: billingIds.invoice,
   customerId: billingIds.customer, subscriptionId: billingIds.subscription, currency, status: Schema.Literals(['open', 'uncollectible']),
   amountDue: billingPositive, amountPaid: Schema.Literal(0), amountRemaining: billingPositive,
   periodStart: billingPositive, periodEnd: billingPositive, invoicePaymentIds: bounded(billingIds.allocation), observationDigest: billingHash,
@@ -76,7 +75,7 @@ export const riskFactsSchema = Schema.Struct({
     paymentIntentId: Schema.NullOr(billingIds.intent), actionable: Schema.Boolean })),
 })
 export type VerifiedRiskFacts = typeof riskFactsSchema.Type
-export const effectResultSchema = Schema.Struct({ targetDisposition: Schema.Literals([
+const effectResultSchema = Schema.Struct({ targetDisposition: Schema.Literals([
   'applied', 'duplicate', 'held', 'observed-no-grant', 'risk-recorded', 'stale', 'incomplete', 'unresolved',
 ]), commandCompleted: Schema.Boolean })
 export type BillingEffectResult = typeof effectResultSchema.Type

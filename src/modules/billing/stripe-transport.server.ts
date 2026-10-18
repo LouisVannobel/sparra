@@ -10,6 +10,18 @@ export class StripeProviderError extends Error {
   constructor() { super('Stripe provider outcome unknown'); this.name = 'StripeProviderError' }
 }
 
+function stripeRequestDestination(input: string | URL, init: RequestInit | undefined) {
+  const url = new URL(input)
+  const read = init?.method === 'GET' && init.body == null
+  const write = init?.method === 'POST' && (url.pathname === '/v1/customers'
+    || url.pathname === '/v1/checkout/sessions' || /^\/v1\/subscriptions\/sub_[A-Za-z0-9]+$/.test(url.pathname))
+  const headers = new Headers(init?.headers)
+  if (url.origin !== 'https://api.stripe.com' || url.username || url.password
+    || !read && !write || init?.body != null && typeof init.body !== 'string'
+    || headers.has('stripe-account') || headers.has('stripe-context')) throw new StripeProviderError()
+  return { url, headers, init, body: init.body }
+}
+
 // Own complete SDK calls, including FetchHttpClient.toJSON, rather than only
 // the fetch promise that resolves as soon as response headers arrive.
 export function createStripeTransport(config: StripeConfig, signal: AbortSignal, deadlineAtMs: number) {
@@ -96,21 +108,14 @@ export function createStripeTransport(config: StripeConfig, signal: AbortSignal,
     try {
       if (stopped || signal.aborted || Date.now() >= deadline
         || typeof input !== 'string' && !(input instanceof URL)) throw new StripeProviderError()
-      const url = new URL(input)
-      const read = init?.method === 'GET' && init.body == null
-      const write = init?.method === 'POST' && (url.pathname === '/v1/customers'
-        || url.pathname === '/v1/checkout/sessions' || /^\/v1\/subscriptions\/sub_[A-Za-z0-9]+$/.test(url.pathname))
-      const headers = new Headers(init?.headers)
-      if (url.origin !== 'https://api.stripe.com' || url.username || url.password
-        || !read && !write || init?.body != null && typeof init.body !== 'string'
-        || headers.has('stripe-account') || headers.has('stripe-context')) throw new StripeProviderError()
-      const requestSignal = AbortSignal.any([stop.signal, signal, ...(init.signal ? [init.signal] : [])])
+      const { url, headers, init: requestInit, body: requestBody } = stripeRequestDestination(input, init)
+      const requestSignal = AbortSignal.any([stop.signal, signal, ...(requestInit.signal ? [requestInit.signal] : [])])
       // Headers do not complete the SDK body. Keep this bridge owned until
       // client stop, even when fetch has already returned its Response.
       requestSignals.add(requestSignal)
       requestSignal.addEventListener('abort', cancel, { once: true })
       if (requestSignal.aborted) { cancel(); throw new StripeProviderError() }
-      const response = await nativeFetch(url, { method: init.method, headers: [...headers], body: init.body,
+      const response = await nativeFetch(url, { method: requestInit.method, headers: [...headers], body: requestBody,
         signal: requestSignal, redirect: 'error', dispatcher })
       // Stripe23 types require the platform Response. Undici7's header/body
       // types differ, so bridge its stream with backpressure and cancellation;

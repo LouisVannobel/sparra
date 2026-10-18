@@ -10,13 +10,13 @@ import { billingUuid, billingNatural, billingPositive, billingIds, billingHash, 
   decodeBilling, decodeBillingResult, BillingStoreError, lineageSchema, observationSchema, observationInputSchema,
   decisionSchema, riskFactsSchema, targetProgressSchema,
   type BillingObservation, type BillingObservationInput, type BillingApplyDecision, type VerifiedRiskFacts } from './billing-agreement.server'
-export type { BillingObservation, BillingObservationInput, ObservedChargeBinding, TargetProgress, BillingApplyDecision,
-  VerifiedRiskFacts, BillingEffectResult, UnpaidInvoiceObservation } from './billing-agreement.server'
+export type { BillingObservation, ObservedChargeBinding, BillingApplyDecision,
+  VerifiedRiskFacts, BillingEffectResult } from './billing-agreement.server'
 
 const jobSchema = Schema.Struct({ outboxId: billingUuid, tenantId: billingUuid })
 export type BillingJobInput = typeof jobSchema.Type
 const completedClaimSchema = Schema.Struct({ input: jobSchema, commandCompleted: Schema.Literal(true) })
-export type BillingCompletedClaim = typeof completedClaimSchema.Type
+type BillingCompletedClaim = typeof completedClaimSchema.Type
 const admissionResultSchema = Schema.Union([
   Schema.Struct({ state: Schema.Literal('admitted'), runId: billingUuid }),
   Schema.Struct({ state: Schema.Literal('unknown') }),

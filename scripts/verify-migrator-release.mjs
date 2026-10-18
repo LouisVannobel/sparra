@@ -1,3 +1,4 @@
+import { runReleaseVerification } from './release-cli.mjs'
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { lstat, readdir, readFile, realpath } from 'node:fs/promises'
@@ -52,9 +53,5 @@ export async function verifyMigratorArtifact(inputDirectory,commit,phase='releas
   return receipt
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){
-  try{
-    if(process.argv.length!==6||process.argv[2]!=='--directory'||process.argv[4]!=='--commit')fail()
-    await verifyMigratorArtifact(process.argv[3],process.argv[5])
-    process.stdout.write('Migrator artifact verified\n')
-  }catch{process.stderr.write('Migrator artifact verification failed\n');process.exitCode=1}
+  await runReleaseVerification(verifyMigratorArtifact,'Migrator artifact verified\n','Migrator artifact verification failed\n')
 }

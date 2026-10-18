@@ -95,7 +95,7 @@ test('isolated native reconstruction preserves source security/configuration, au
   try {
     stores=await startDisposableStores();await stores.migrate()
     const migrations=readMigrationFiles({migrationsFolder:'drizzle'})
-    expect(migrations).toHaveLength(23)
+    expect(migrations).toHaveLength(24)
     const journal=(await stores.administrator.query<SyntheticSourceBinding['journal'][number]>('SELECT id,hash,created_at::text FROM drizzle.__drizzle_migrations ORDER BY id')).rows
     expect(journal.map(r=>r.hash)).toEqual(migrations.map(r=>r.hash))
     const source:SyntheticSourceBinding={app_commit:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8',windowsHide:true}).trim(),app_tree:execFileSync('git',['rev-parse','HEAD^{tree}'],{encoding:'utf8',windowsHide:true}).trim(),

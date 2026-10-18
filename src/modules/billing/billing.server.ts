@@ -15,6 +15,12 @@ export function createApplicationBilling(owner: AuthTransactions, auth: Pick<Ret
   const active = new Set<{ cancel: AbortController; promise: Promise<unknown> }>()
   let stopping = false, cleanupFailed = false
   let stopped: Promise<void> | undefined
+  function track<A>(cancel: AbortController, promise: Promise<A>): Promise<A> {
+    const entry = { cancel, promise }
+    active.add(entry)
+    void promise.then(() => active.delete(entry), () => active.delete(entry))
+    return promise
+  }
   async function safe<A>(work: () => Promise<A>): Promise<A> {
     try { return await work() }
     catch (error) {
@@ -52,10 +58,7 @@ export function createApplicationBilling(owner: AuthTransactions, auth: Pick<Ret
         }
       }
     })()
-    const entry = { cancel, promise }
-    active.add(entry)
-    void promise.then(() => active.delete(entry), () => active.delete(entry))
-    return promise
+    return track(cancel, promise)
   }
   function stop(): Promise<void> {
     stopping = true
@@ -80,10 +83,7 @@ export function createApplicationBilling(owner: AuthTransactions, auth: Pick<Ret
         } catch { return new Response('Billing unavailable', { status: 503 }) }
         finally { request.signal.removeEventListener('abort', abort) }
       })()
-      const entry = { cancel, promise }
-      active.add(entry)
-      void promise.then(() => active.delete(entry), () => active.delete(entry))
-      return promise
+      return track(cancel, promise)
     },
     startBillingCheckout(request: Request, input: unknown): Promise<{ url: string }> {
       return safe(() => financial(request, input, (selected, principal, client, workspaceId, signal) =>

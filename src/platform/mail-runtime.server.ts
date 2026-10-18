@@ -61,6 +61,16 @@ export function readMailWorkerConfig(env: Readonly<Record<string, string | undef
 type MailResources = { failure: Promise<void>; isReady(): boolean }
 class Resources extends Context.Service<Resources, MailResources>()('app/auth-mail/resources') {}
 
+function workerWorkflows(task: ReturnType<typeof createAuthMailTask> | null, billingTask: ReturnType<typeof createBillingTask> | null) {
+  const workflows = [...(task ? [task] : []), ...(billingTask ? [billingTask] : [])]
+  if (workflows.length === 0) throw new Error('Application worker has no configured task')
+  return workflows
+}
+
+function validateWorkerEngine(info: Awaited<ReturnType<ReturnType<typeof createAuthMailHatchet>['getStartupInfo']>>) {
+  if (info.tenantVersion !== 'V1' || info.engineVersion !== 'v0.101.27') throw new Error('Application worker engine contract rejected')
+}
+
 export type MailStopEvent = 'native-stop-completed' | 'native-stop-failed' | 'native-start-completed' | 'native-start-resolved' | 'native-start-cancelled' | 'native-start-failed' | 'handlers-stopped' | 'billing-handler-stopped' | 'relay-stopped' | 'mail-config-rejected' | 'billing-config-rejected'
 export function createMailWorkerResources(env: Readonly<Record<string, string | undefined>>, emptyConfigPath: string, observeStop: (event: MailStopEvent) => void = () => {}) {
   const config = readMailWorkerConfig(env)
@@ -140,11 +150,14 @@ export function createMailWorkerResources(env: Readonly<Record<string, string | 
     const relayStore = relayDb ? createMailStore(relayDb.transactions) : null
     const workerStore = workerDb ? createMailStore(workerDb.transactions) : null
     const billingRelayStore = billingRelayDb ? createBillingStore(billingRelayDb.transactions) : null
-    if (config.mail && workerStore) {
-      transport = createPlunkTransport(config.mail.binding)
-      handler = createAuthMailHandler(workerStore, config.mail.envelope, transport)
+    function acquireHandlers() {
+      if (config.mail && workerStore) {
+        transport = createPlunkTransport(config.mail.binding)
+        handler = createAuthMailHandler(workerStore, config.mail.envelope, transport)
+      }
+      if (config.billing && billingWorkerDb) billingHandler = createBillingHandler(config.billing.stripe, createBillingStore(billingWorkerDb.transactions))
     }
-    if (config.billing && billingWorkerDb) billingHandler = createBillingHandler(config.billing.stripe, createBillingStore(billingWorkerDb.transactions))
+    acquireHandlers()
     const deadlineAt = Date.now() + 15000
     client = createAuthMailHatchet(config.hatchet, emptyConfigPath, {
       startup: { signal: startupOwner.signal, deadlineAt }, lifetimeSignal: owner.signal, cleanupTimeoutMs: 15000,
@@ -152,13 +165,12 @@ export function createMailWorkerResources(env: Readonly<Record<string, string | 
     const ownedClient = client
     const task = handler ? createAuthMailTask(client, handler) : null
     billingTask = billingHandler ? createBillingTask(client, billingHandler) : null
-    const workflows = [...(task ? [task] : []), ...(billingTask ? [billingTask] : [])]
-    if (workflows.length === 0) throw new Error('Application worker has no configured task')
+    const workflows = workerWorkflows(task, billingTask)
     acquisition = (async () => {
       check()
       const info = await ownedClient.getStartupInfo()
       check()
-      if (info.tenantVersion !== 'V1' || info.engineVersion !== 'v0.101.27') throw new Error('Application worker engine contract rejected')
+      validateWorkerEngine(info)
       worker = await ownedClient.worker('auth-email-worker', { workflows, slots: 1, handleKill: false })
       check()
       started = worker.start().then(() => {

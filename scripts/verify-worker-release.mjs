@@ -1,3 +1,4 @@
+import { runReleaseVerification } from './release-cli.mjs'
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { lstat, readdir, readFile, realpath } from 'node:fs/promises'
@@ -51,9 +52,5 @@ export async function verifyWorkerArtifact(inputDirectory,commit,phase='release'
   return receipt
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){
-  try{
-    if(process.argv.length!==6||process.argv[2]!=='--directory'||process.argv[4]!=='--commit')fail()
-    await verifyWorkerArtifact(process.argv[3],process.argv[5])
-    process.stdout.write('Worker artifact verified\n')
-  }catch{process.stderr.write('Worker artifact verification failed\n');process.exitCode=1}
+  await runReleaseVerification(verifyWorkerArtifact,'Worker artifact verified\n','Worker artifact verification failed\n')
 }

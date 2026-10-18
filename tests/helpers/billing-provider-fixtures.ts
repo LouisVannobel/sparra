@@ -16,7 +16,7 @@ export const subscription = { id: 'sub_fixture123', object: 'subscription', live
   items: { object: 'list', has_more: false, url: '/v1/subscription_items?subscription=sub_fixture123', data: [
     { id: 'si_fixture123', object: 'subscription_item', price, quantity: 1, subscription: 'sub_fixture123',
       current_period_start: 1790812800, current_period_end: 1793491200 }] } }
-export const invoiceLine = { id: 'il_fixture123', object: 'line_item', livemode: false, currency: 'eur', amount: 1500,
+const invoiceLine = { id: 'il_fixture123', object: 'line_item', livemode: false, currency: 'eur', amount: 1500,
   quantity: 1, subscription: 'sub_fixture123', period: { start: 1790812800, end: 1793491200 }, pretax_credit_amounts: [],
   parent: { type: 'subscription_item_details', invoice_item_details: null, subscription_item_details: {
     invoice_item: null, proration: false, proration_details: null, subscription: 'sub_fixture123', subscription_item: 'si_fixture123' } },

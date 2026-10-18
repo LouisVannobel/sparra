@@ -37,8 +37,7 @@ beforeAll(async () => {
   throw new Error('Worker image readiness deadline exceeded')
 }, 600000)
 
-afterAll(async () => {
-  const failures: unknown[] = []
+async function stopOwnedWorkerImage(failures:unknown[]) {
   if (running && app && stores) {
     try { await stores.signalWeb(app.id, 'SIGTERM'); expect(await stores.waitWeb(app.id, 30000)).toBe(0); running = false }
     catch (error) {
@@ -49,9 +48,13 @@ afterAll(async () => {
       try { await stores.waitWeb(app.id, 30000); running = false } catch (waitError) { failures.push(waitError) }
     }
   }
+}
+async function retireOwnedWorkerImage(failures:unknown[]) {
   if (app) {
     try { await app.retire() } catch (error) { failures.push(error) }
   }
+}
+async function cleanupOwnedImageFixtures(failures:unknown[]) {
   // The nested engine must retire before the stores' unrelated-inventory check.
   for (const fixture of [engine, stores]) {
     if (!fixture) continue
@@ -60,6 +63,12 @@ afterAll(async () => {
       expect(fixture.evidence.unrelatedUnchanged).toBe(true); expect(fixture.evidence.inventoryDelta).toEqual([])
     } catch (error) { failures.push(error) }
   }
+}
+afterAll(async () => {
+  const failures: unknown[] = []
+  await stopOwnedWorkerImage(failures)
+  await retireOwnedWorkerImage(failures)
+  await cleanupOwnedImageFixtures(failures)
   if (failures.length) throw new AggregateError(failures, 'Worker image fixture retirement failed')
 }, 90000)
 

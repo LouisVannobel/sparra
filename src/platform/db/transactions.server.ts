@@ -70,17 +70,25 @@ function sameMode(a: Mode, b: Mode) {
     && a.principal.sessionId === b.principal.sessionId && a.workspaceId === b.workspaceId
 }
 
+function validateTransactionBudget(options: AuthTxOptions) {
+  if (!positive(options.deadlineAtMs) || !positive(options.statementTimeoutMs) || !positive(options.cleanupTimeoutMs)
+    || !uuid.test(options.correlationId) || options.deadlineAtMs <= Date.now() || options.signal?.aborted) throw failure(options)
+}
+
+function validateTransactionMode(options: AuthTxOptions, mode: Mode) {
+  if (mode.kind === 'personal' && (!mode.principal?.userId || !mode.principal.sessionId || typeof mode.createIfMissing !== 'boolean')
+    || mode.kind === 'billing' && (!mode.principal?.userId || !mode.principal.sessionId || !uuid.test(mode.workspaceId))) throw failure(options)
+}
+
 export function createTransactions(pool: { connect(): Promise<PoolClient> }, limits: AuthTxLimits) {
   const owner = {}
   if (!positive(limits.maxStatementTimeoutMs) || !positive(limits.maxCleanupTimeoutMs)) throw failure()
   const ceilings = { ...limits }
 
   function validate(options: AuthTxOptions, inherited?: Invocation, mode: Mode = authMode) {
-    if (!positive(options.deadlineAtMs) || !positive(options.statementTimeoutMs) || !positive(options.cleanupTimeoutMs)
-      || !uuid.test(options.correlationId) || options.deadlineAtMs <= Date.now() || options.signal?.aborted
-      || mode.kind === 'personal' && (!mode.principal?.userId || !mode.principal.sessionId || typeof mode.createIfMissing !== 'boolean')
-      || mode.kind === 'billing' && (!mode.principal?.userId || !mode.principal.sessionId || !uuid.test(mode.workspaceId))
-      || inherited && (inherited.owner !== owner || !same(inherited.options, options) || !sameMode(inherited.mode, mode) || inherited.scope?.isClosed())) throw failure(options)
+    validateTransactionBudget(options)
+    validateTransactionMode(options, mode)
+    if (inherited && (inherited.owner !== owner || !same(inherited.options, options) || !sameMode(inherited.mode, mode) || inherited.scope?.isClosed())) throw failure(options)
   }
   function context(scope: OwnedScope): Invocation { return { owner: scope.owner, options: scope.options, scope, mode: scope.mode } }
 

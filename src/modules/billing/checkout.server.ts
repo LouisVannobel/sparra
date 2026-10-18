@@ -72,21 +72,32 @@ async function snapshot(lease: BillingWorkspaceLease, config: StripeConfig): Pro
     cancellationOperation: operations.find(operation => operation.kind === 'CANCEL_AT_PERIOD_END') ?? null,
     observedAtSeconds: clock.seconds }
 }
+function cancellationBindingMismatch(operation: typeof billingOperation.$inferSelect, customer: typeof billingCustomer.$inferSelect,
+  checkout: typeof billingOperation.$inferSelect, config: StripeConfig) {
+  return checkout.customerId !== customer.stripeCustomerId
+    || checkout.apiVersion !== config.apiVersion || !['DISPATCHING', 'SUCCEEDED', 'UNKNOWN'].includes(checkout.phase)
+    || operation.workspaceId !== customer.workspaceId || operation.environment !== config.environment
+    || operation.accountId !== config.accountId || operation.apiVersion !== config.apiVersion
+    || operation.customerId !== customer.stripeCustomerId
+}
+function cancellationIntentMismatch(operation: typeof billingOperation.$inferSelect) {
+  return operation.idempotencyKey !== `cancel:${operation.id}`
+    || operation.requestHash !== sha256(JSON.stringify({ cancel_at_period_end: true }))
+}
+function cancellationHasCheckoutFields(operation: typeof billingOperation.$inferSelect) {
+  return operation.monthlyPriceId !== null || operation.onboardingPriceId !== null || operation.currency !== null
+    || operation.monthlyUnitAmount !== null || operation.onboardingUnitAmount !== null || operation.integrationIdentifier !== null
+    || operation.checkoutUrl !== null || operation.checkoutExpiresAt !== null
+}
 function cancellationState(current: Snapshot, config: StripeConfig): BillingSummary['cancellation'] {
   const operation = current.cancellationOperation
   if (!operation) return 'none'
   const customer = current.customer, checkout = current.checkoutOperation
   // CANCEL has no Price fields. Its canonical literal-true intention and the
   // immutable Customer -> subscription binding are independent of today's price.
-  if (!customer?.knownSubscriptionId || !checkout || checkout.customerId !== customer.stripeCustomerId
-    || checkout.apiVersion !== config.apiVersion || !['DISPATCHING', 'SUCCEEDED', 'UNKNOWN'].includes(checkout.phase)
-    || operation.workspaceId !== customer.workspaceId || operation.environment !== config.environment
-    || operation.accountId !== config.accountId || operation.apiVersion !== config.apiVersion
-    || operation.customerId !== customer.stripeCustomerId || operation.idempotencyKey !== `cancel:${operation.id}`
-    || operation.requestHash !== sha256(JSON.stringify({ cancel_at_period_end: true }))
-    || operation.monthlyPriceId !== null || operation.onboardingPriceId !== null || operation.currency !== null
-    || operation.monthlyUnitAmount !== null || operation.onboardingUnitAmount !== null || operation.integrationIdentifier !== null
-    || operation.checkoutUrl !== null || operation.checkoutExpiresAt !== null) return 'incident'
+  if (!customer?.knownSubscriptionId || !checkout) return 'incident'
+  if (cancellationBindingMismatch(operation, customer, checkout, config)
+    || cancellationIntentMismatch(operation) || cancellationHasCheckoutFields(operation)) return 'incident'
   if (operation.phase === 'SUCCEEDED') return operation.stripeObjectId === customer.knownSubscriptionId ? 'confirmed' : 'incident'
   if (operation.stripeObjectId !== null || operation.phase === 'UNKNOWN') return 'incident'
   return operation.phase === 'ADMITTED' || operation.phase === 'DISPATCHING' ? 'pending' : 'incident'
@@ -156,6 +167,18 @@ function integrationIdentifier(id: string) {
 function matchesConfig(operation: typeof billingOperation.$inferSelect, config: StripeConfig) {
   return operation.environment === config.environment && operation.accountId === config.accountId && operation.apiVersion === config.apiVersion
 }
+function claimOperation(owner: AuthTransactions, principal: AdmittedPrincipal, workspaceId: string,
+  operationId: string, signal?: AbortSignal): Promise<boolean> {
+  return scoped(owner, principal, workspaceId, signal, async lease => {
+    const [row] = await lease.db.select({ claimed: sql<boolean>`app_private.billing_claim_operation(${principal.userId},${principal.sessionId},${workspaceId}::uuid,${operationId}::uuid)` }).from(singleRow)
+    return row?.claimed === true
+  })
+}
+async function rejectUnknownOperation(owner: AuthTransactions, principal: AdmittedPrincipal, workspaceId: string,
+  operationId: string, signal?: AbortSignal): Promise<never> {
+  await markUnknown(owner, principal, workspaceId, operationId, signal)
+  throw refusal(503)
+}
 async function customerFor(owner: AuthTransactions, principal: AdmittedPrincipal, workspaceId: string,
   config: StripeConfig, client: BillingClient, signal?: AbortSignal): Promise<string> {
   const newId = randomUUID(), newKey = `customer:${newId}`, hash = sha256(customerBody(workspaceId))
@@ -171,18 +194,12 @@ async function customerFor(owner: AuthTransactions, principal: AdmittedPrincipal
     || operation.requestHash !== hash) throw refusal(503)
   if (operation.id !== newId) throw refusal(409)
   if (operation.phase !== 'ADMITTED') throw refusal(409)
-  const claimed = await scoped(owner, principal, workspaceId, signal, async lease => {
-    const [row] = await lease.db.select({ claimed: sql<boolean>`app_private.billing_claim_operation(${principal.userId},${principal.sessionId},${workspaceId}::uuid,${operation.id}::uuid)` }).from(singleRow)
-    return row?.claimed === true
-  })
+  const claimed = await claimOperation(owner, principal, workspaceId, operation.id, signal)
   if (!claimed) throw refusal(409)
   owner.assertNoActiveAuthTransaction()
   let customer: { id: string }
   try { customer = await client.createCustomer({ workspaceId, idempotencyKey: operation.idempotencyKey }) }
-  catch {
-    await markUnknown(owner, principal, workspaceId, operation.id, signal)
-    throw refusal(503)
-  }
+  catch { return rejectUnknownOperation(owner, principal, workspaceId, operation.id, signal) }
   const persisted = await scoped(owner, principal, workspaceId, signal, async lease => {
     const [row] = await lease.db.select({ persisted: sql<boolean>`app_private.billing_complete_customer(${principal.userId},${principal.sessionId},
       ${workspaceId}::uuid,${operation.id}::uuid,${customer.id})` }).from(singleRow)
@@ -197,12 +214,14 @@ async function markUnknown(owner: AuthTransactions, principal: AdmittedPrincipal
   }) } catch { /* A retained DISPATCHING fact is already an unresolved incident. */ }
 }
 
-export async function startCheckout(owner: AuthTransactions, principal: AdmittedPrincipal, config: StripeConfig,
-  client: BillingClient, workspaceId: string, signal?: AbortSignal): Promise<{ url: string }> {
-  const { initial, terms } = await scoped(owner, principal, workspaceId, signal, async lease => {
+function readCheckoutAdmission(owner: AuthTransactions, principal: AdmittedPrincipal, config: StripeConfig,
+  workspaceId: string, signal?: AbortSignal) {
+  return scoped(owner, principal, workspaceId, signal, async lease => {
     const initial = await snapshot(lease, config)
     return { initial, terms: initial.checkoutOperation ? null : await readAgreedMonthlyTerms(lease, config.environment, config.accountId) }
   })
+}
+function previousCheckoutNavigation(initial: Snapshot, config: StripeConfig): { url: string } | null {
   if (initial.customer?.knownSubscriptionId) throw refusal(409)
   const previous = initial.checkoutOperation
   if (previous) {
@@ -215,6 +234,52 @@ export async function startCheckout(owner: AuthTransactions, principal: Admitted
     // A retained slot never acquires another intent, key or provider POST.
     throw refusal(409)
   }
+  return null
+}
+function admitCheckout(owner: AuthTransactions, principal: AdmittedPrincipal, config: StripeConfig, workspaceId: string,
+  customerId: string, terms: AgreedMonthlyTerms, newId: string, newKey: string, hash: string, newIntegration: string,
+  signal?: AbortSignal) {
+  return scoped(owner, principal, workspaceId, signal, async lease => {
+    const [result] = await lease.db.select({ id: sql<string | null>`app_private.billing_admit_checkout_v3(${principal.userId},${principal.sessionId},
+      ${workspaceId}::uuid,${config.environment},${config.accountId},${config.apiVersion},${newId}::uuid,${newKey},${hash},
+      ${customerId},${terms.id}::uuid,${terms.revision}::bigint,${terms.monthlyPriceId},${terms.currency},${terms.monthlyUnitAmount}::bigint,${newIntegration})` }).from(singleRow)
+    const current = await snapshot(lease, config)
+    return { id: result?.id ?? null, current }
+  })
+}
+function admittedCheckoutOperation(admitted: Awaited<ReturnType<typeof admitCheckout>>, config: StripeConfig,
+  customerId: string, newId: string, terms: AgreedMonthlyTerms) {
+  if (admitted.current.customer?.knownSubscriptionId) throw refusal(409)
+  if (!admitted.id) throw refusal(409)
+  const operation = admitted.current.checkoutOperation
+  if (!admitted.id || !operation || operation.id !== admitted.id || !matchesConfig(operation, config)
+    || operation.customerId !== customerId) throw refusal(503)
+  if (operation.id !== newId) throw refusal(409)
+  if (operation.agreedTermsId !== terms.id || operation.monthlyPriceId !== terms.monthlyPriceId || operation.currency !== terms.currency
+    || operation.monthlyUnitAmount !== terms.monthlyUnitAmount || operation.onboardingPriceId !== null || operation.onboardingUnitAmount !== null) throw refusal(503)
+  return operation
+}
+function checkoutDispatchIntent(config: StripeConfig, workspaceId: string, customerId: string,
+  operation: typeof billingOperation.$inferSelect): CheckoutIntent {
+  if (operation.phase !== 'ADMITTED' || !operation.integrationIdentifier) throw refusal(409)
+  const intent: CheckoutIntent = { workspaceId, customerId, idempotencyKey: operation.idempotencyKey,
+    integrationIdentifier: operation.integrationIdentifier,
+    terms: operationMonthlyTerms(operation),
+    ...(operation.checkoutReferenceVersion === 'operation-v2' ? { operationReference: operation.id } : {}) }
+  if (sha256(checkoutBody(config, intent)) !== operation.requestHash) throw refusal(503)
+  return intent
+}
+async function completeCheckout(lease: BillingWorkspaceLease, principal: AdmittedPrincipal, workspaceId: string,
+  operationId: string, navigation: { id: string; url: string; expiresAt: number }): Promise<boolean> {
+  const [row] = await lease.db.select({ persisted: sql<boolean>`app_private.billing_complete_checkout(${principal.userId},${principal.sessionId},
+      ${workspaceId}::uuid,${operationId}::uuid,${navigation.id},${navigation.url},${navigation.expiresAt}::bigint)` }).from(singleRow)
+  return row?.persisted === true
+}
+export async function startCheckout(owner: AuthTransactions, principal: AdmittedPrincipal, config: StripeConfig,
+  client: BillingClient, workspaceId: string, signal?: AbortSignal): Promise<{ url: string }> {
+  const { initial, terms } = await readCheckoutAdmission(owner, principal, config, workspaceId, signal)
+  const previous = previousCheckoutNavigation(initial, config)
+  if (previous) return previous
   if (!terms) throw refusal(503)
   if (initial.customerOperation && initial.customerOperation.phase !== 'SUCCEEDED'
     && initial.customerOperation.phase !== 'ADMITTED') throw refusal(409)
@@ -224,48 +289,21 @@ export async function startCheckout(owner: AuthTransactions, principal: Admitted
   const proposed: CheckoutIntent = { workspaceId, customerId, idempotencyKey: newKey, integrationIdentifier: newIntegration, operationReference: newId,
     terms: { id: terms.id, monthlyPriceId: terms.monthlyPriceId, currency: terms.currency, monthlyUnitAmount: terms.monthlyUnitAmount } }
   const hash = sha256(checkoutBody(config, proposed))
-  const admitted = await scoped(owner, principal, workspaceId, signal, async lease => {
-    const [result] = await lease.db.select({ id: sql<string | null>`app_private.billing_admit_checkout_v3(${principal.userId},${principal.sessionId},
-      ${workspaceId}::uuid,${config.environment},${config.accountId},${config.apiVersion},${newId}::uuid,${newKey},${hash},
-      ${customerId},${terms.id}::uuid,${terms.revision}::bigint,${terms.monthlyPriceId},${terms.currency},${terms.monthlyUnitAmount}::bigint,${newIntegration})` }).from(singleRow)
-    const current = await snapshot(lease, config)
-    return { id: result?.id ?? null, current }
-  })
-  if (admitted.current.customer?.knownSubscriptionId) throw refusal(409)
-  if (!admitted.id) throw refusal(409)
-  const operation = admitted.current.checkoutOperation
-  if (!admitted.id || !operation || operation.id !== admitted.id || !matchesConfig(operation, config)
-    || operation.customerId !== customerId) throw refusal(503)
-  if (operation.id !== newId) throw refusal(409)
-  if (operation.agreedTermsId !== terms.id || operation.monthlyPriceId !== terms.monthlyPriceId || operation.currency !== terms.currency
-    || operation.monthlyUnitAmount !== terms.monthlyUnitAmount || operation.onboardingPriceId !== null || operation.onboardingUnitAmount !== null) throw refusal(503)
+  const admitted = await admitCheckout(owner, principal, config, workspaceId, customerId, terms, newId, newKey, hash, newIntegration, signal)
+  const operation = admittedCheckoutOperation(admitted, config, customerId, newId, terms)
   if (operation.phase === 'SUCCEEDED' && operation.checkoutUrl) {
     if (operation.checkoutExpiresAt !== null && operation.checkoutExpiresAt > admitted.current.observedAtSeconds) return { url: operation.checkoutUrl }
     throw refusal(409)
   }
-  if (operation.phase !== 'ADMITTED' || !operation.integrationIdentifier) throw refusal(409)
-  const intent: CheckoutIntent = { workspaceId, customerId, idempotencyKey: operation.idempotencyKey,
-    integrationIdentifier: operation.integrationIdentifier,
-    terms: operationMonthlyTerms(operation),
-    ...(operation.checkoutReferenceVersion === 'operation-v2' ? { operationReference: operation.id } : {}) }
-  if (sha256(checkoutBody(config, intent)) !== operation.requestHash) throw refusal(503)
-  const claimed = await scoped(owner, principal, workspaceId, signal, async lease => {
-    const [row] = await lease.db.select({ claimed: sql<boolean>`app_private.billing_claim_operation(${principal.userId},${principal.sessionId},${workspaceId}::uuid,${operation.id}::uuid)` }).from(singleRow)
-    return row?.claimed === true
-  })
+  const intent = checkoutDispatchIntent(config, workspaceId, customerId, operation)
+  const claimed = await claimOperation(owner, principal, workspaceId, operation.id, signal)
   if (!claimed) throw refusal(409)
   owner.assertNoActiveAuthTransaction()
   let navigation: { id: string; url: string; expiresAt: number }
   try { navigation = await client.createCheckout(intent) }
-  catch {
-    await markUnknown(owner, principal, workspaceId, operation.id, signal)
-    throw refusal(503)
-  }
-  const persisted = await scoped(owner, principal, workspaceId, signal, async lease => {
-    const [row] = await lease.db.select({ persisted: sql<boolean>`app_private.billing_complete_checkout(${principal.userId},${principal.sessionId},
-      ${workspaceId}::uuid,${operation.id}::uuid,${navigation.id},${navigation.url},${navigation.expiresAt}::bigint)` }).from(singleRow)
-    return row?.persisted === true
-  })
+  catch { return rejectUnknownOperation(owner, principal, workspaceId, operation.id, signal) }
+  const persisted = await scoped(owner, principal, workspaceId, signal,
+    lease => completeCheckout(lease, principal, workspaceId, operation.id, navigation))
   if (!persisted) throw refusal(503)
   return { url: navigation.url }
 }

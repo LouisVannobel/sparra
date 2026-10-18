@@ -12,26 +12,29 @@ const billingErrors = createMiddleware({ type: 'function' }).server(async ({ nex
   }
 })
 
+function billingRequest() {
+  const request = getRequest(), resources = requestResources(request)
+  if (!resources.billing) throw new Response('Billing unavailable', { status: 503 })
+  return { request, billing: resources.billing }
+}
+
 export const getBilling = createServerFn({ method: 'GET' }).middleware([billingErrors])
-  .validator((input: unknown) => parseBillingInput(input))
+  .validator(parseBillingInput)
   .handler(async ({ data }) => {
-    const request = getRequest(), resources = requestResources(request)
-    if (!resources.billing) throw new Response('Billing unavailable', { status: 503 })
-    return resources.billing.readBilling(request, data)
+    const { request, billing } = billingRequest()
+    return billing.readBilling(request, data)
   })
 
 export const startBillingCheckout = createServerFn({ method: 'POST' }).middleware([billingErrors])
-  .validator((input: unknown) => parseBillingInput(input))
+  .validator(parseBillingInput)
   .handler(async ({ data }) => {
-    const request = getRequest(), resources = requestResources(request)
-    if (!resources.billing) throw new Response('Billing unavailable', { status: 503 })
-    return resources.billing.startBillingCheckout(request, data)
+    const { request, billing } = billingRequest()
+    return billing.startBillingCheckout(request, data)
   })
 
 export const cancelBillingAtPeriodEnd = createServerFn({ method: 'POST' }).middleware([billingErrors])
-  .validator((input: unknown) => parseBillingInput(input))
+  .validator(parseBillingInput)
   .handler(async ({ data }) => {
-    const request = getRequest(), resources = requestResources(request)
-    if (!resources.billing) throw new Response('Billing unavailable', { status: 503 })
-    return resources.billing.cancelBillingAtPeriodEnd(request, data)
+    const { request, billing } = billingRequest()
+    return billing.cancelBillingAtPeriodEnd(request, data)
   })

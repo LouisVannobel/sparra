@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { collectBillingPages } from './read-pages.server'
 import type Stripe from 'stripe'
 import type { StripeConfig } from './stripe-config.server'
 import type { StripeReadClient } from './stripe-read.server'
@@ -15,7 +16,7 @@ export type ObservedBillingLineage = Readonly<{
   boundInvoice: BoundMonthlyInvoice
 }>
 
-export class BillingLineageError extends Error {
+class BillingLineageError extends Error {
   constructor() { super('Billing lineage unavailable'); this.name = 'BillingLineageError' }
 }
 function fail(): never { throw new BillingLineageError() }
@@ -51,25 +52,8 @@ function checkoutId(id: string, live: boolean): void {
   if (!(live ? /^cs_live_[A-Za-z0-9]+$/ : /^cs_test_[A-Za-z0-9]+$/).test(id)) fail()
 }
 
-// Three consumers use the same Stripe list contract; never auto-paginate and
-// never accept an unexhausted fifth page or duplicate/cycling provider IDs.
-async function completePages<T extends { id: string }>(
-  read: (cursor?: string) => Promise<{ object: 'list'; data: T[]; has_more: boolean }>,
-): Promise<T[]> {
-  const all: T[] = [], seen = new Set<string>()
-  let cursor: string | undefined
-  for (let count = 0; count < 5; count++) {
-    const page = await read(cursor)
-    if (page.object !== 'list' || !Array.isArray(page.data) || page.data.length > 100
-      || typeof page.has_more !== 'boolean' || page.has_more && page.data.length === 0) fail()
-    for (const row of page.data) {
-      if (typeof row.id !== 'string' || row.id.length === 0 || seen.has(row.id)) fail()
-      seen.add(row.id); all.push(row)
-    }
-    if (!page.has_more) return all
-    cursor = page.data.at(-1)!.id
-  }
-  return fail()
+function requireLineagePageRow(row: { id: string }, seen: ReadonlySet<string>): void {
+  if (typeof row.id !== 'string' || row.id.length === 0 || seen.has(row.id)) fail()
 }
 
 function invoiceScope(invoice: LineageInvoice, live: boolean) {
@@ -90,21 +74,26 @@ function matchesPrice(price: Stripe.Price | null, id: string, amount: number, cu
       : price.type === 'one_time' && price.recurring === null)
 }
 
-export async function proveBillingLineage(config: StripeConfig, provider: LineageProvider,
-  operation: typeof billingOperation.$inferSelect, customer: typeof billingCustomer.$inferSelect,
-  invoiceId: string, terms: AgreedMonthlyTerms): Promise<ObservedBillingLineage> {
-  const live = config.environment === 'live'
+type CheckoutOperation = typeof billingOperation.$inferSelect & {
+  monthlyPriceId: string; monthlyUnitAmount: number; currency: string; integrationIdentifier: string
+}
+function requireCheckoutScope(config: StripeConfig, operation: typeof billingOperation.$inferSelect,
+  customer: typeof billingCustomer.$inferSelect): asserts operation is typeof billingOperation.$inferSelect & { monthlyPriceId: string } {
   if (!uuid.test(operation.id) || !uuid.test(operation.workspaceId) || operation.kind !== 'CHECKOUT_CREATE'
     || !['DISPATCHING', 'UNKNOWN', 'SUCCEEDED'].includes(operation.phase)
     || operation.environment !== config.environment || operation.accountId !== config.accountId
     || operation.apiVersion !== config.apiVersion || customer.environment !== config.environment
     || customer.accountId !== config.accountId || customer.workspaceId !== operation.workspaceId
-    || operation.customerId !== customer.stripeCustomerId || !operation.monthlyPriceId
-    || !terms || operation.agreedTermsId !== terms.id || terms.workspaceId !== operation.workspaceId
+    || operation.customerId !== customer.stripeCustomerId || !operation.monthlyPriceId) fail()
+}
+function requireMonthlySnapshot(operation: typeof billingOperation.$inferSelect, terms: AgreedMonthlyTerms): void {
+  if (!terms || operation.agreedTermsId !== terms.id || terms.workspaceId !== operation.workspaceId
     || terms.environment !== operation.environment || terms.accountId !== operation.accountId
     || !positive(terms.revision) || terms.monthlyPriceId !== operation.monthlyPriceId
-    || terms.currency !== operation.currency || terms.monthlyUnitAmount !== operation.monthlyUnitAmount
-    || operation.onboardingPriceId !== null || operation.onboardingUnitAmount !== null
+    || terms.currency !== operation.currency || terms.monthlyUnitAmount !== operation.monthlyUnitAmount) fail()
+}
+function requireCheckoutSnapshot(operation: typeof billingOperation.$inferSelect & { monthlyPriceId: string }): asserts operation is CheckoutOperation {
+  if (operation.onboardingPriceId !== null || operation.onboardingUnitAmount !== null
     || !operation.currency || !/^[a-z]{3}$/.test(operation.currency)
     || !positive(operation.monthlyUnitAmount) || !operation.integrationIdentifier
     || operation.checkoutReferenceVersion !== 'legacy-v1' && operation.checkoutReferenceVersion !== 'operation-v2'
@@ -113,6 +102,109 @@ export async function proveBillingLineage(config: StripeConfig, provider: Lineag
       || operation.onboardingPriceId === operation.monthlyPriceId)
     || operation.phase === 'SUCCEEDED' && operation.stripeObjectId === null
     || operation.phase !== 'SUCCEEDED' && operation.stripeObjectId !== null) fail()
+}
+
+function requireMonthlySubscription(subscription: LineageSubscription, subscriptionId: string,
+  customerId: string, operation: CheckoutOperation, live: boolean): void {
+  if (subscription.id !== subscriptionId || subscriptionCustomer(subscription, live) !== customerId
+    || subscription.currency !== operation.currency || subscription.collection_method !== 'charge_automatically'
+    || subscription.items?.object !== 'list' || subscription.items.has_more !== false
+    || !Array.isArray(subscription.items.data) || subscription.items.data.length !== 1) fail()
+  const item = subscription.items.data[0]!
+  if (item.object !== 'subscription_item' || item.subscription !== subscription.id || item.quantity !== 1
+    || !matchesPrice(item.price, operation.monthlyPriceId, operation.monthlyUnitAmount, operation.currency, live, true)) fail()
+}
+
+function requireCompletedSession(session: LineageSession, sessionId: string, subscriptionId: string,
+  customerId: string, originalReference: string, operation: CheckoutOperation, live: boolean): void {
+  if (session.id !== sessionId || session.object !== 'checkout.session' || session.livemode !== live
+    || session.mode !== 'subscription' || session.customer_account !== null
+    || reference(session.customer, 'customer', live) !== customerId
+    || reference(session.subscription, 'subscription', live) !== subscriptionId
+    || session.client_reference_id !== originalReference || session.integration_identifier !== operation.integrationIdentifier
+    || session.currency !== operation.currency || session.status !== 'complete') fail()
+}
+
+type Onboarding = Readonly<{ priceId: string; amount: number }> | null
+function requireExactCheckoutLine(line: LineageItem, priceId: string, amount: number,
+  operation: CheckoutOperation, live: boolean, monthly: boolean): void {
+  if (line.object !== 'item'
+    || line.quantity !== 1 || line.currency !== operation.currency || line.amount_subtotal !== amount
+    || line.amount_total !== amount || line.amount_tax !== 0 || line.amount_discount !== 0
+    || !matchesPrice(line.price, priceId, amount, operation.currency, live, monthly)) fail()
+}
+
+function requireCheckoutLines(lines: LineageItem[], operation: CheckoutOperation, live: boolean): Onboarding {
+  const onboarding = operation.onboardingPriceId === null ? null
+    : { priceId: operation.onboardingPriceId, amount: operation.onboardingUnitAmount! }
+  if (lines.length !== (onboarding ? 2 : 1)) fail()
+  const expectedPrices = new Set([operation.monthlyPriceId, ...(onboarding ? [onboarding.priceId] : [])])
+  for (const line of lines) {
+    const priceId = line.price?.id
+    const monthly = priceId === operation.monthlyPriceId
+    const amount = monthly ? operation.monthlyUnitAmount : onboarding?.amount
+    if (!priceId || !expectedPrices.delete(priceId) || !amount) fail()
+    requireExactCheckoutLine(line, priceId, amount, operation, live, monthly)
+  }
+  if (expectedPrices.size !== 0) fail()
+
+  return onboarding
+}
+
+function requireOnboardingInvoiceLine(invoice: LineageInvoice, monthlyId: string, subscriptionId: string,
+  operation: CheckoutOperation, onboarding: Exclude<Onboarding, null>, live: boolean): void {
+  const extra = invoice.lines.data.find(row => row.id !== monthlyId)
+  const extraPrice = extra?.pricing?.type === 'price_details' ? extra.pricing.price_details?.price : null
+  if (!extra || extra.object !== 'line_item' || extra.livemode !== live || extra.quantity !== 1
+    || extra.currency !== operation.currency || extra.amount !== onboarding.amount
+    || (typeof extraPrice === 'string' ? extraPrice : extraPrice?.id) !== onboarding.priceId
+    || reference(extra.subscription, 'subscription', live) !== subscriptionId
+    || extra.parent?.type !== 'invoice_item_details'
+    || extra.parent.invoice_item_details?.subscription !== subscriptionId
+    || extra.parent.invoice_item_details.proration !== false) fail()
+}
+
+function requireMonthlyServicePeriod(monthly: LineageInvoice['lines']['data'][number], subscriptionId: string,
+  operation: CheckoutOperation, live: boolean): void {
+  if (monthly.object !== 'line_item' || monthly.livemode !== live || monthly.quantity !== 1
+    || monthly.currency !== operation.currency || reference(monthly.subscription, 'subscription', live) !== subscriptionId
+    || monthly.parent?.type !== 'subscription_item_details'
+    || monthly.parent.subscription_item_details?.subscription !== subscriptionId
+    || monthly.parent.subscription_item_details.proration !== false
+    || !positive(monthly.period?.start) || !positive(monthly.period.end) || monthly.period.end <= monthly.period.start) fail()
+}
+
+function checkedMonthlyPeriod(invoice: LineageInvoice, subscriptionId: string,
+  operation: CheckoutOperation, firstPeriod: boolean, onboarding: Onboarding, live: boolean) {
+  const monthlyLines = invoice.lines.data.filter(row => row.pricing?.type === 'price_details'
+    && (typeof row.pricing.price_details?.price === 'string' ? row.pricing.price_details.price : row.pricing.price_details?.price?.id) === operation.monthlyPriceId)
+  if (monthlyLines.length !== 1 || invoice.lines.data.length !== (firstPeriod && onboarding ? 2 : 1)) fail()
+  const monthly = monthlyLines[0]!
+  requireMonthlyServicePeriod(monthly, subscriptionId, operation, live)
+  return monthly
+}
+
+function checkedInvoicePeriod(invoice: LineageInvoice, session: LineageSession, invoiceId: string,
+  subscriptionId: string, operation: CheckoutOperation, onboarding: Onboarding, live: boolean) {
+  const firstPeriod = invoice.billing_reason === 'subscription_create'
+  if (!firstPeriod && invoice.billing_reason !== 'subscription_cycle'
+    || invoice.currency !== operation.currency || invoice.lines?.object !== 'list'
+    || invoice.lines.has_more !== false || !Array.isArray(invoice.lines.data)) fail()
+  if (firstPeriod && reference(session.invoice, 'invoice', live) !== invoiceId) fail()
+  const monthly = checkedMonthlyPeriod(invoice, subscriptionId, operation, firstPeriod, onboarding, live)
+  if (firstPeriod && onboarding) requireOnboardingInvoiceLine(invoice, monthly.id, subscriptionId, operation, onboarding, live)
+  const expectedAmount = operation.monthlyUnitAmount + (firstPeriod && onboarding ? onboarding.amount : 0)
+  if (!positive(expectedAmount)) fail()
+  return { firstPeriod, monthly, expectedAmount }
+}
+
+export async function proveBillingLineage(config: StripeConfig, provider: LineageProvider,
+  operation: typeof billingOperation.$inferSelect, customer: typeof billingCustomer.$inferSelect,
+  invoiceId: string, terms: AgreedMonthlyTerms): Promise<ObservedBillingLineage> {
+  const live = config.environment === 'live'
+  requireCheckoutScope(config, operation, customer)
+  requireMonthlySnapshot(operation, terms)
+  requireCheckoutSnapshot(operation)
   const customerId = reference(customer.stripeCustomerId, 'customer', live)
   reference(invoiceId, 'invoice', live)
   const originalReference = operation.checkoutReferenceVersion === 'operation-v2' ? operation.id : operation.workspaceId
@@ -133,79 +225,120 @@ export async function proveBillingLineage(config: StripeConfig, provider: Lineag
   if (scope.customerId !== customerId || customer.knownSubscriptionId !== null
     && customer.knownSubscriptionId !== scope.subscriptionId) fail()
   const subscription = await provider.retrieveSubscription(scope.subscriptionId)
-  if (subscription.id !== scope.subscriptionId || subscriptionCustomer(subscription, live) !== customerId
-    || subscription.currency !== operation.currency || subscription.collection_method !== 'charge_automatically'
-    || subscription.items?.object !== 'list' || subscription.items.has_more !== false
-    || !Array.isArray(subscription.items.data) || subscription.items.data.length !== 1) fail()
-  const item = subscription.items.data[0]!
-  if (item.object !== 'subscription_item' || item.subscription !== subscription.id || item.quantity !== 1
-    || !matchesPrice(item.price, operation.monthlyPriceId, operation.monthlyUnitAmount, operation.currency, live, true)) fail()
+  requireMonthlySubscription(subscription, scope.subscriptionId, customerId, operation, live)
 
   let sessionId = operation.stripeObjectId
   if (sessionId === null) {
-    const sessions = await completePages(cursor => provider.listCheckoutSessions(subscription.id, customerId, cursor))
+    const sessions = await collectBillingPages(cursor => provider.listCheckoutSessions(subscription.id, customerId, cursor), requireLineagePageRow, fail)
     const matching = sessions.filter(row => row.client_reference_id === originalReference)
     if (matching.length !== 1) fail()
     sessionId = matching[0]!.id
   }
   checkoutId(sessionId, live)
   const session = await provider.retrieveCheckoutSession(sessionId)
-  if (session.id !== sessionId || session.object !== 'checkout.session' || session.livemode !== live
-    || session.mode !== 'subscription' || session.customer_account !== null
-    || reference(session.customer, 'customer', live) !== customerId
-    || reference(session.subscription, 'subscription', live) !== subscription.id
-    || session.client_reference_id !== originalReference || session.integration_identifier !== operation.integrationIdentifier
-    || session.currency !== operation.currency || session.status !== 'complete') fail()
-  const lines = await completePages(cursor => provider.listCheckoutLineItems(sessionId, cursor))
-  const onboarding = operation.onboardingPriceId === null ? null
-    : { priceId: operation.onboardingPriceId, amount: operation.onboardingUnitAmount! }
-  if (lines.length !== (onboarding ? 2 : 1)) fail()
-  const expectedPrices = new Set([operation.monthlyPriceId, ...(onboarding ? [onboarding.priceId] : [])])
-  for (const line of lines) {
-    const priceId = line.price?.id
-    const monthly = priceId === operation.monthlyPriceId
-    const amount = monthly ? operation.monthlyUnitAmount : onboarding?.amount
-    if (!priceId || !expectedPrices.delete(priceId) || !amount || line.object !== 'item'
-      || line.quantity !== 1 || line.currency !== operation.currency || line.amount_subtotal !== amount
-      || line.amount_total !== amount || line.amount_tax !== 0 || line.amount_discount !== 0
-      || !matchesPrice(line.price, priceId, amount, operation.currency, live, monthly)) fail()
-  }
-  if (expectedPrices.size !== 0) fail()
+  requireCompletedSession(session, sessionId, subscription.id, customerId, originalReference, operation, live)
+  const lines = await collectBillingPages(cursor => provider.listCheckoutLineItems(sessionId, cursor), requireLineagePageRow, fail)
+  const onboarding = requireCheckoutLines(lines, operation, live)
 
-  const firstPeriod = invoice.billing_reason === 'subscription_create'
-  if (!firstPeriod && invoice.billing_reason !== 'subscription_cycle'
-    || invoice.currency !== operation.currency || invoice.lines?.object !== 'list'
-    || invoice.lines.has_more !== false || !Array.isArray(invoice.lines.data)) fail()
-  if (firstPeriod && reference(session.invoice, 'invoice', live) !== invoiceId) fail()
-  const monthlyLines = invoice.lines.data.filter(row => row.pricing?.type === 'price_details'
-    && (typeof row.pricing.price_details?.price === 'string' ? row.pricing.price_details.price : row.pricing.price_details?.price?.id) === operation.monthlyPriceId)
-  if (monthlyLines.length !== 1 || invoice.lines.data.length !== (firstPeriod && onboarding ? 2 : 1)) fail()
-  const monthly = monthlyLines[0]!
-  if (monthly.object !== 'line_item' || monthly.livemode !== live || monthly.quantity !== 1
-    || monthly.currency !== operation.currency || reference(monthly.subscription, 'subscription', live) !== subscription.id
-    || monthly.parent?.type !== 'subscription_item_details'
-    || monthly.parent.subscription_item_details?.subscription !== subscription.id
-    || monthly.parent.subscription_item_details.proration !== false
-    || !positive(monthly.period?.start) || !positive(monthly.period.end) || monthly.period.end <= monthly.period.start) fail()
-  if (firstPeriod && onboarding) {
-    const extra = invoice.lines.data.find(row => row.id !== monthly.id)
-    const extraPrice = extra?.pricing?.type === 'price_details' ? extra.pricing.price_details?.price : null
-    if (!extra || extra.object !== 'line_item' || extra.livemode !== live || extra.quantity !== 1
-      || extra.currency !== operation.currency || extra.amount !== onboarding.amount
-      || (typeof extraPrice === 'string' ? extraPrice : extraPrice?.id) !== onboarding.priceId
-      || reference(extra.subscription, 'subscription', live) !== subscription.id
-      || extra.parent?.type !== 'invoice_item_details'
-      || extra.parent.invoice_item_details?.subscription !== subscription.id
-      || extra.parent.invoice_item_details.proration !== false) fail()
-  }
-  const expectedAmount = operation.monthlyUnitAmount + (firstPeriod && onboarding ? onboarding.amount : 0)
-  if (!positive(expectedAmount)) fail()
+  const { firstPeriod, monthly, expectedAmount } = checkedInvoicePeriod(invoice, session, invoiceId, subscription.id, operation, onboarding, live)
   const boundInvoice: BoundMonthlyInvoice = Object.freeze({ environment: config.environment, accountId: config.accountId,
     customerId, subscriptionId: subscription.id, invoiceId, agreedTermsId: terms.id, monthlyPriceId: operation.monthlyPriceId,
     currency: operation.currency, expectedAmount, periodStart: monthly.period.start, periodEnd: monthly.period.end,
     firstPeriod, onboarding: onboarding ? Object.freeze(onboarding) : null })
   return Object.freeze({ operationId: operation.id, workspaceId: operation.workspaceId, environment: config.environment,
     accountId: config.accountId, customerId, checkoutSessionId: sessionId, subscriptionId: subscription.id, invoiceId, boundInvoice })
+}
+
+async function subscriptionEventSubject(provider: StripeReadClient, live: boolean,
+  selected: ReturnType<typeof classifyBillingEvent>) {
+  let subscriptionId: string, sessionInvoice: string | null = null, sessionCustomer: string | null = null
+  if (selected.kind === 'checkout') {
+    checkoutId(selected.id, live)
+    const session = await provider.retrieveCheckoutSession(selected.id)
+    if (session.id !== selected.id) fail()
+    subscriptionId = reference(session.subscription, 'subscription', live)
+    sessionCustomer = reference(session.customer, 'customer', live)
+    if (session.invoice !== null) sessionInvoice = reference(session.invoice, 'invoice', live)
+  } else subscriptionId = selected.id
+  return { subscriptionId, sessionInvoice, sessionCustomer }
+}
+
+async function resolveSubscriptionInvoices(provider: StripeReadClient, live: boolean,
+  selected: ReturnType<typeof classifyBillingEvent>, event: VerifiedStripeEvent, knownInvoiceIds: readonly string[]): Promise<readonly string[]> {
+  const { subscriptionId, sessionInvoice, sessionCustomer } = await subscriptionEventSubject(provider, live, selected)
+  const subscription = await provider.retrieveSubscription(subscriptionId)
+  if (subscription.id !== subscriptionId) fail()
+  const customerId = subscriptionCustomer(subscription, live)
+  if (sessionCustomer !== null && sessionCustomer !== customerId) fail()
+  if (event.references.customerId !== null && event.references.customerId !== customerId
+    || event.references.subscriptionId !== null && event.references.subscriptionId !== subscriptionId) fail()
+  const candidates = new Set(knownInvoiceIds)
+  if (sessionInvoice !== null) candidates.add(sessionInvoice)
+  if (subscription.latest_invoice !== null) candidates.add(reference(subscription.latest_invoice, 'invoice', live))
+  if (candidates.size === 0) fail()
+  for (const id of candidates) {
+    const invoice = await provider.retrieveInvoice(id)
+    const scope = invoiceScope(invoice, live)
+    if (invoice.id !== id || scope.customerId !== customerId || scope.subscriptionId !== subscriptionId) fail()
+  }
+  return Object.freeze([...candidates].sort())
+}
+
+async function chargeEventSubject(provider: StripeReadClient, live: boolean,
+  selected: ReturnType<typeof classifyBillingEvent>) {
+  let chargeId = selected.id, riskIntent: string | null = null
+  if (selected.kind === 'dispute' || selected.kind === 'early_fraud_warning') {
+    const risk = selected.kind === 'dispute' ? await provider.retrieveDispute(selected.id)
+      : await provider.retrieveEarlyFraudWarning(selected.id)
+    if (risk.id !== selected.id || risk.livemode !== live) fail()
+    chargeId = reference(risk.charge, 'charge', live)
+    if (risk.payment_intent != null) riskIntent = reference(risk.payment_intent, 'payment_intent', live)
+  }
+  return { chargeId, riskIntent }
+}
+
+async function readChargeEventOwner(provider: StripeReadClient, live: boolean,
+  chargeId: string, riskIntent: string | null, event: VerifiedStripeEvent) {
+  const charge = await provider.retrieveCharge(chargeId)
+  if (charge.id !== chargeId || charge.livemode !== live) fail()
+  const customerId = reference(charge.customer, 'customer', live)
+  const paymentIntentId = reference(charge.payment_intent, 'payment_intent', live)
+  if (riskIntent !== null && riskIntent !== paymentIntentId) fail()
+  if (event.references.chargeId !== null && event.references.chargeId !== chargeId
+    || event.references.paymentIntentId !== null && event.references.paymentIntentId !== paymentIntentId
+    || event.references.customerId !== null && event.references.customerId !== customerId) fail()
+  const intent = await provider.retrievePaymentIntent(paymentIntentId)
+  if (intent.id !== paymentIntentId || intent.livemode !== live
+    || reference(intent.customer, 'customer', live) !== customerId) fail()
+  return { customerId, paymentIntentId }
+}
+
+async function chargeInvoiceCandidates(provider: StripeReadClient, live: boolean,
+  paymentIntentId: string, knownInvoiceIds: readonly string[]) {
+  const allocations = await collectBillingPages(cursor => provider.listInvoicePaymentsForPaymentIntent(paymentIntentId, cursor), requireLineagePageRow, fail)
+  if (allocations.length === 0) fail()
+  const candidates = new Set<string>()
+  for (const allocation of allocations) {
+    if (allocation.payment?.type !== 'payment_intent'
+      || reference(allocation.payment.payment_intent, 'payment_intent', live) !== paymentIntentId) fail()
+    candidates.add(reference(allocation.invoice, 'invoice', live))
+  }
+  // A string snapshot cannot prove a historical edge that is now absent.
+  // Refuse the incident; never silently discard or clear that known edge.
+  for (const id of knownInvoiceIds) if (!candidates.has(id)) fail()
+  return candidates
+}
+
+async function resolveChargeInvoices(provider: StripeReadClient, live: boolean,
+  selected: ReturnType<typeof classifyBillingEvent>, event: VerifiedStripeEvent, knownInvoiceIds: readonly string[]): Promise<readonly string[]> {
+  const { chargeId, riskIntent } = await chargeEventSubject(provider, live, selected)
+  const { customerId, paymentIntentId } = await readChargeEventOwner(provider, live, chargeId, riskIntent, event)
+  const candidates = await chargeInvoiceCandidates(provider, live, paymentIntentId, knownInvoiceIds)
+  for (const id of candidates) {
+    const invoice = await provider.retrieveInvoice(id)
+    if (invoice.id !== id || invoiceScope(invoice, live).customerId !== customerId) fail()
+  }
+  return Object.freeze([...candidates].sort())
 }
 
 // Candidates only. Every downstream grant must still prove lineage and the
@@ -220,66 +353,8 @@ export async function resolveBillingEventInvoices(config: StripeConfig, provider
   for (const id of knownInvoiceIds) reference(id, 'invoice', live)
 
   if (selected.kind === 'checkout' || selected.kind === 'subscription') {
-    let subscriptionId: string, sessionInvoice: string | null = null, sessionCustomer: string | null = null
-    if (selected.kind === 'checkout') {
-      checkoutId(selected.id, live)
-      const session = await provider.retrieveCheckoutSession(selected.id)
-      if (session.id !== selected.id) fail()
-      subscriptionId = reference(session.subscription, 'subscription', live)
-      sessionCustomer = reference(session.customer, 'customer', live)
-      if (session.invoice !== null) sessionInvoice = reference(session.invoice, 'invoice', live)
-    } else subscriptionId = selected.id
-    const subscription = await provider.retrieveSubscription(subscriptionId)
-    if (subscription.id !== subscriptionId) fail()
-    const customerId = subscriptionCustomer(subscription, live)
-    if (sessionCustomer !== null && sessionCustomer !== customerId) fail()
-    if (event.references.customerId !== null && event.references.customerId !== customerId
-      || event.references.subscriptionId !== null && event.references.subscriptionId !== subscriptionId) fail()
-    const candidates = new Set(knownInvoiceIds)
-    if (sessionInvoice !== null) candidates.add(sessionInvoice)
-    if (subscription.latest_invoice !== null) candidates.add(reference(subscription.latest_invoice, 'invoice', live))
-    if (candidates.size === 0) fail()
-    for (const id of candidates) {
-      const invoice = await provider.retrieveInvoice(id)
-      const scope = invoiceScope(invoice, live)
-      if (invoice.id !== id || scope.customerId !== customerId || scope.subscriptionId !== subscriptionId) fail()
-    }
-    return Object.freeze([...candidates].sort())
+    return resolveSubscriptionInvoices(provider, live, selected, event, knownInvoiceIds)
   }
 
-  let chargeId = selected.id, riskIntent: string | null = null
-  if (selected.kind === 'dispute' || selected.kind === 'early_fraud_warning') {
-    const risk = selected.kind === 'dispute' ? await provider.retrieveDispute(selected.id)
-      : await provider.retrieveEarlyFraudWarning(selected.id)
-    if (risk.id !== selected.id || risk.livemode !== live) fail()
-    chargeId = reference(risk.charge, 'charge', live)
-    if (risk.payment_intent != null) riskIntent = reference(risk.payment_intent, 'payment_intent', live)
-  }
-  const charge = await provider.retrieveCharge(chargeId)
-  if (charge.id !== chargeId || charge.livemode !== live) fail()
-  const customerId = reference(charge.customer, 'customer', live)
-  const paymentIntentId = reference(charge.payment_intent, 'payment_intent', live)
-  if (riskIntent !== null && riskIntent !== paymentIntentId) fail()
-  if (event.references.chargeId !== null && event.references.chargeId !== chargeId
-    || event.references.paymentIntentId !== null && event.references.paymentIntentId !== paymentIntentId
-    || event.references.customerId !== null && event.references.customerId !== customerId) fail()
-  const intent = await provider.retrievePaymentIntent(paymentIntentId)
-  if (intent.id !== paymentIntentId || intent.livemode !== live
-    || reference(intent.customer, 'customer', live) !== customerId) fail()
-  const allocations = await completePages(cursor => provider.listInvoicePaymentsForPaymentIntent(paymentIntentId, cursor))
-  if (allocations.length === 0) fail()
-  const candidates = new Set<string>()
-  for (const allocation of allocations) {
-    if (allocation.payment?.type !== 'payment_intent'
-      || reference(allocation.payment.payment_intent, 'payment_intent', live) !== paymentIntentId) fail()
-    candidates.add(reference(allocation.invoice, 'invoice', live))
-  }
-  // A string snapshot cannot prove a historical edge that is now absent.
-  // Refuse the incident; never silently discard or clear that known edge.
-  for (const id of knownInvoiceIds) if (!candidates.has(id)) fail()
-  for (const id of candidates) {
-    const invoice = await provider.retrieveInvoice(id)
-    if (invoice.id !== id || invoiceScope(invoice, live).customerId !== customerId) fail()
-  }
-  return Object.freeze([...candidates].sort())
+  return resolveChargeInvoices(provider, live, selected, event, knownInvoiceIds)
 }

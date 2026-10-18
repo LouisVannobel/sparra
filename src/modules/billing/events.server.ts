@@ -27,7 +27,7 @@ const rules: Readonly<Record<string, Rule>> = Object.freeze({
   'radar.early_fraud_warning.created': earlyFraudWarning,
 })
 
-export class BillingEventError extends Error {
+class BillingEventError extends Error {
   constructor() { super('Billing event rejected'); this.name = 'BillingEventError' }
 }
 

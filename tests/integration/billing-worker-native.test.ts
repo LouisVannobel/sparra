@@ -97,10 +97,11 @@ beforeEach(() => {
   wire.clients.length = 0; wire.disposed.clear(); wire.sqlStops.length = 0
   wire.target = null; wire.armed = false; wire.targetPosts = 0; wire.losses = 0; wire.acknowledgedRun = null
 })
-afterEach(async () => {
-  const failures: unknown[] = []
+async function retireComposedWorker(failures:unknown[]) {
   try { await running?.dispose() } catch (error) { failures.push(error) }
   running = undefined
+}
+async function retireCompiledWorker(failures:unknown[]) {
   if (child) {
     try {
       if (child.exitCode === null && child.signalCode === null) child.send('shutdown')
@@ -108,11 +109,19 @@ afterEach(async () => {
     } catch (error) { failures.push(error); child.kill('SIGKILL'); if (exited) await bounded(exited, 6000).catch(() => {}) }
   }
   child = undefined; exited = undefined
+}
+async function retireFinancialPeer(failures:unknown[]) {
   if (wire.peer) {
     try { await expect.poll(wire.peer.evidence).toEqual({ clientSockets: 0, serverSockets: 0, requests: 0, responses: 0 }); await wire.peer.close() }
     catch (error) { failures.push(error) }
     wire.peer = undefined
   }
+}
+afterEach(async () => {
+  const failures: unknown[] = []
+  await retireComposedWorker(failures)
+  await retireCompiledWorker(failures)
+  await retireFinancialPeer(failures)
   if (failures.length) throw new AggregateError(failures, 'Billing worker native retirement failed')
 }, 30000)
 afterAll(async () => {

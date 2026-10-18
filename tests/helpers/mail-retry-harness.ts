@@ -1,5 +1,6 @@
 import { Effect, Exit, Schema, Scope } from 'effect'
 import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 import dns from 'node:dns'
 import { HATCHET_VERSION } from '@hatchet-dev/typescript-sdk/version.js'
 import { readMailWorkerConfig } from '../../src/platform/mail-runtime.server'
@@ -52,6 +53,14 @@ async function main() {
     if (!entry) throw retryFixtureError()
     return entry
   }
+  function configureCase(message: typeof commandSchema.Type) {
+    if (!message.label || !message.outboxId || cases.has(message.label) || cases.size >= 5) throw retryFixtureError()
+    cases.set(message.label, { outboxId: message.outboxId }); if (message.label === 'A') holdLookup = true
+  }
+  function bindCaseRun(message: typeof commandSchema.Type, value: Case | undefined) {
+    if (!value || !message.runId || value.runId || value.observedRunId && value.observedRunId !== message.runId) throw retryFixtureError()
+    value.runId = message.runId
+  }
   async function observed<A>(call: (signal: AbortSignal, timeout: number) => Promise<A>) {
     if (closing) throw retryFixtureError()
     const timeout = budget ? budget.remaining(10000) : 10000
@@ -103,7 +112,7 @@ async function main() {
       emit({ type: 'handler-settled', label, state: result.state,
         reason: result.state === 'deferred' ? result.reason : null })
     })
-    const client = createAuthMailHatchet(workerConfig.hatchet, fileURLToPath(new URL('./hatchet-empty.yaml', import.meta.url))).withMiddleware({
+    const client = createAuthMailHatchet(workerConfig.hatchet, join(dirname(fileURLToPath(import.meta.url)), 'hatchet-empty.yaml')).withMiddleware({
       before: async (input, context) => {
         const [label, value] = findLabel(input)
         const runId = Schema.decodeUnknownSync(uuid)(context.workflowRunId())
@@ -146,6 +155,11 @@ async function main() {
     if (closing) throw retryFixtureError()
     ready = true
     startupDone()
+    function cancelCaseA(message: typeof commandSchema.Type, value: Case | undefined) {
+      if (cancellationUsed || message.label !== 'A' || !value?.runId) throw retryFixtureError()
+      cancellationUsed = true
+      return observed((signal, timeout) => client.api.v1TaskCancel(client.tenantId, { externalIds: [value.runId!] }, { signal, timeout }))
+    }
     const onMessage = (raw: unknown) => {
       let message: typeof commandSchema.Type
       try { message = Schema.decodeUnknownSync(commandSchema)(raw, { onExcessProperty: 'error' }) }
@@ -168,19 +182,14 @@ async function main() {
           let result: unknown = true
           switch (message.op) {
             case 'configure':
-              if (!message.label || !message.outboxId || cases.has(message.label) || cases.size >= 5) throw retryFixtureError()
-              cases.set(message.label, { outboxId: message.outboxId }); if (message.label === 'A') holdLookup = true
-              break
+              configureCase(message); break
             case 'admit': result = await relayAuthMailOnce(relayStore, task, admission.signal); break
             case 'bind':
-              if (!value || !message.runId || value.runId || value.observedRunId && value.observedRunId !== message.runId) throw retryFixtureError()
-              value.runId = message.runId; break
+              bindCaseRun(message, value); break
             case 'release': if (!message.hookId) throw retryFixtureError(); barriers.release(message.hookId); break
             case 'release-lookup': releaseLookup(); break
             case 'cancel-A':
-              if (cancellationUsed || message.label !== 'A' || !value?.runId) throw retryFixtureError()
-              cancellationUsed = true
-              await observed((signal, timeout) => client.api.v1TaskCancel(client.tenantId, { externalIds: [value.runId!] }, { signal, timeout })); break
+              await cancelCaseA(message, value); break
             case 'history': {
               result = await readRetryHistory(client, value, observed, current => { phase = current }); break
             }

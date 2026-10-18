@@ -43,6 +43,13 @@ function sameSerializer(actual: unknown, expected: unknown) {
     && 'serialize' in actual && actual.serialize === expected)
 }
 
+function validateNativeAgentOptions(protocol: string, options: unknown) {
+  if (options && typeof options === 'object' && 'proxyEnv' in options && options.proxyEnv != null) throw new TypeError('Billing relay proxy agent rejected')
+  if (protocol === 'https:' && options && typeof options === 'object' && 'rejectUnauthorized' in options && options.rejectUnauthorized === false) {
+    throw new TypeError('Billing relay TLS validation rejected')
+  }
+}
+
 function nativeAgent(protocol: string, configured: unknown) {
   if (protocol !== 'https:' && protocol !== 'http:') throw new TypeError('Billing relay protocol rejected')
   if (protocol === 'https:' && process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0') throw new TypeError('Billing relay TLS validation rejected')
@@ -50,10 +57,7 @@ function nativeAgent(protocol: string, configured: unknown) {
   const expected = protocol === 'https:' ? HttpsAgent : HttpAgent
   if (!(agent instanceof expected) || Object.getPrototypeOf(agent) !== expected.prototype) throw new TypeError('Billing relay native agent rejected')
   const options = 'options' in agent ? agent.options : undefined
-  if (options && typeof options === 'object' && 'proxyEnv' in options && options.proxyEnv != null) throw new TypeError('Billing relay proxy agent rejected')
-  if (protocol === 'https:' && options && typeof options === 'object' && 'rejectUnauthorized' in options && options.rejectUnauthorized === false) {
-    throw new TypeError('Billing relay TLS validation rejected')
-  }
+  validateNativeAgentOptions(protocol, options)
   if ('proxyEnv' in agent && agent.proxyEnv != null) throw new TypeError('Billing relay proxy agent rejected')
 }
 
@@ -89,21 +93,27 @@ function nativeRequest<T>(binding: Binding, params: RequestParams, method: 'get'
   if (binding.admissionClosed) throw new Error('Billing relay admission closed')
   validateDefaults(binding)
   const instance = binding.client.api.instance
-  let refused = false
-  const interceptor = instance.interceptors.request.use(config => {
-    const destination = new URL(binding.baseURL)
-    const selectedAgent = destination.protocol === 'https:' ? config.httpsAgent : config.httpAgent
-    if (binding.admissionClosed || config.adapter !== 'http' || config.httpVersion !== 1
+  type EffectiveRequest = Parameters<NonNullable<Parameters<typeof instance.interceptors.request.use>[0]>>[0]
+  function requestTransportOptionsRejected(config: EffectiveRequest) {
+    return binding.admissionClosed || config.adapter !== 'http' || config.httpVersion !== 1
       || config.maxRedirects !== 0 || config.proxy !== false || config.transport !== undefined
       || config.socketPath !== undefined || config.cancelToken !== undefined || config.signal !== params.signal
       || config.baseURL !== binding.baseURL || config.url !== path || config.method !== method
-      || config.timeout !== 10000 || config.maxBodyLength !== 1024 || config.maxContentLength !== maxContentLength
+  }
+  function requestPayloadOptionsRejected(config: EffectiveRequest) {
+    return config.timeout !== 10000 || config.maxBodyLength !== 1024 || config.maxContentLength !== maxContentLength
       || config.decompress !== false || config.responseType !== 'json'
       || config.transitional?.legacyInterceptorReqResOrdering !== false
       || config.headers.get('Accept-Encoding') !== 'identity'
       || !sameOption(config.transformRequest, binding.requestTransforms)
       || !sameOption(config.transformResponse, binding.responseTransforms)
-      || !sameSerializer(config.paramsSerializer, binding.paramsSerializer)) {
+      || !sameSerializer(config.paramsSerializer, binding.paramsSerializer)
+  }
+  let refused = false
+  const interceptor = instance.interceptors.request.use(config => {
+    const destination = new URL(binding.baseURL)
+    const selectedAgent = destination.protocol === 'https:' ? config.httpsAgent : config.httpAgent
+    if (requestTransportOptionsRejected(config) || requestPayloadOptionsRejected(config)) {
       refused = true
       throw new TypeError('Billing relay effective HTTP options rejected')
     }
@@ -215,6 +225,54 @@ export async function admitBillingTask(task: BillingTask, input: BillingJobInput
   finally { budget.close() }
 }
 
+type WorkflowListing = Awaited<ReturnType<HatchetClient['api']['workflowList']>>['data']
+type KnownRun = Awaited<ReturnType<HatchetClient['api']['v1WorkflowRunGet']>>['data']['run']
+type RunListing = Awaited<ReturnType<HatchetClient['api']['v1WorkflowRunList']>>['data']
+
+function workflowIdentity(listing: WorkflowListing, tenantId: string): string | null {
+  if (!listing.rows || listing.rows.length >= 100 || (listing.pagination?.num_pages ?? 1) > 1) return null
+  const workflows = listing.rows.filter(workflow => workflow.name === name)
+  if (workflows.length !== 1) return null
+  // v0.101.27 ToWorkflowFromSQLC emits tenantId ""; the authenticated tenant-scoped list supplies provenance.
+  if (workflows[0]?.tenantId !== '' && workflows[0]?.tenantId !== tenantId) return null
+  return decodeBilling(billingUuid, workflows[0]?.metadata?.id)
+}
+
+function knownRunAdmission(run: KnownRun, runId: string, tenantId: string, workflowId: string,
+  input: BillingJobInput): BillingAdmissionResult {
+  const value = decodeBilling(observedRun, { id: run?.metadata?.id, tenantId: run?.tenantId,
+    workflowId: run?.workflowId, input: run?.input, status: run?.status })
+  if (value.id !== runId || value.tenantId !== tenantId || value.workflowId !== workflowId
+    || value.input.input.outboxId !== input.outboxId || value.input.input.tenantId !== input.tenantId) return unknown
+  switch (value.status) {
+    case 'COMPLETED': return { state: 'terminal', runId, terminalDisposition: 'completed' }
+    case 'FAILED': return { state: 'terminal', runId, terminalDisposition: 'failed' }
+    case 'CANCELLED': return { state: 'terminal', runId, terminalDisposition: 'cancelled' }
+    default: return { state: 'admitted', runId }
+  }
+}
+
+function collectRunIdentities(rows: RunListing['rows'], tenantId: string, workflowId: string,
+  input: BillingJobInput, found: Set<string>): boolean {
+  if (!Array.isArray(rows) || rows.length > 100) return false
+  for (const row of rows) {
+    const value = decodeBilling(observedRun, { id: row.workflowRunExternalId, tenantId: row.tenantId,
+      workflowId: row.workflowId, input: row.input, status: row.status })
+    if (value.id !== row.metadata?.id || value.id !== row.taskExternalId) return false
+    if (value.tenantId === tenantId && value.workflowId === workflowId
+      && value.input.input.outboxId === input.outboxId && value.input.input.tenantId === input.tenantId) found.add(value.id)
+  }
+  return true
+}
+
+function completedRunAdmission(listing: RunListing, page: number, found: Set<string>): BillingAdmissionResult | null {
+  const pagination = listing.pagination
+  const exhausted = listing.rows.length < 100 && (pagination?.num_pages === undefined || pagination.num_pages <= page + 1)
+  if (!exhausted) return null
+  const [runId] = found
+  return found.size === 1 && runId ? { state: 'admitted', runId } : unknown
+}
+
 export async function observeBillingAdmission(task: BillingTask, claim: { input: BillingJobInput; runId: string | null }, signal: AbortSignal,
   markTransportUnproven: () => void): Promise<BillingAdmissionResult> {
   const budget = requestBudget(signal, 262144)
@@ -232,28 +290,14 @@ export async function observeBillingAdmission(task: BillingTask, claim: { input:
     const listing = await nativeRequest(binding, budget.params, 'get', `/api/v1/tenants/${client.tenantId}/workflows`, 262144,
       markTransportUnproven, params => client.api.workflowList(client.tenantId, { name, limit: 100, offset: 0 }, params))
     budget.check()
-    if (!listing.data.rows || listing.data.rows.length >= 100 || (listing.data.pagination?.num_pages ?? 1) > 1) return unknown
-    const workflows = listing.data.rows.filter(workflow => workflow.name === name)
-    if (workflows.length !== 1) return unknown
-    // v0.101.27 ToWorkflowFromSQLC emits tenantId ""; the authenticated tenant-scoped list supplies provenance.
-    if (workflows[0]?.tenantId !== '' && workflows[0]?.tenantId !== client.tenantId) return unknown
-    const workflowId = decodeBilling(billingUuid, workflows[0]?.metadata?.id)
+    const workflowId = workflowIdentity(listing.data, client.tenantId)
+    if (workflowId === null) return unknown
     if (claim.runId !== null) {
       const runId = decodeBilling(billingUuid, claim.runId)
       const response = await nativeRequest(binding, budget.params, 'get', `/api/v1/stable/workflow-runs/${runId}`, 262144,
         markTransportUnproven, params => client.api.v1WorkflowRunGet(runId, params))
       budget.check()
-      const run = response.data?.run
-      const value = decodeBilling(observedRun, { id: run?.metadata?.id, tenantId: run?.tenantId,
-        workflowId: run?.workflowId, input: run?.input, status: run?.status })
-      if (value.id !== runId || value.tenantId !== client.tenantId || value.workflowId !== workflowId
-        || value.input.input.outboxId !== input.outboxId || value.input.input.tenantId !== input.tenantId) return unknown
-      switch (value.status) {
-        case 'COMPLETED': return { state: 'terminal', runId, terminalDisposition: 'completed' }
-        case 'FAILED': return { state: 'terminal', runId, terminalDisposition: 'failed' }
-        case 'CANCELLED': return { state: 'terminal', runId, terminalDisposition: 'cancelled' }
-        default: return { state: 'admitted', runId }
-      }
+      return knownRunAdmission(response.data?.run, runId, client.tenantId, workflowId, input)
     }
     const found = new Set<string>()
     for (let page = 0; page < 5; page++) {
@@ -265,20 +309,9 @@ export async function observeBillingAdmission(task: BillingTask, claim: { input:
       const response = await nativeRequest(binding, budget.params, 'get', `/api/v1/stable/tenants/${client.tenantId}/workflow-runs`, 262144,
         markTransportUnproven, params => client.api.v1WorkflowRunList(client.tenantId, query, params))
       budget.check()
-      if (!Array.isArray(response.data.rows) || response.data.rows.length > 100) return unknown
-      for (const row of response.data.rows) {
-        const value = decodeBilling(observedRun, { id: row.workflowRunExternalId, tenantId: row.tenantId,
-          workflowId: row.workflowId, input: row.input, status: row.status })
-        if (value.id !== row.metadata?.id || value.id !== row.taskExternalId) return unknown
-        if (value.tenantId === client.tenantId && value.workflowId === workflowId
-          && value.input.input.outboxId === input.outboxId && value.input.input.tenantId === input.tenantId) found.add(value.id)
-      }
-      const pagination = response.data.pagination
-      const exhausted = response.data.rows.length < 100 && (pagination?.num_pages === undefined || pagination.num_pages <= page + 1)
-      if (exhausted) {
-        const [runId] = found
-        return found.size === 1 && runId ? { state: 'admitted', runId } : unknown
-      }
+      if (!collectRunIdentities(response.data.rows, client.tenantId, workflowId, input, found)) return unknown
+      const completed = completedRunAdmission(response.data, page, found)
+      if (completed !== null) return completed
     }
     // Incomplete scans, including historical retention gaps, never authorize
     // another POST. A discovered ID is associated before a later terminal read.

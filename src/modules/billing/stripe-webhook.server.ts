@@ -134,15 +134,44 @@ function projectReferences(kind: ReturnType<typeof classifyBillingEvent>['kind']
   return Object.freeze({ customerId, subscriptionId, paymentIntentId, chargeId, riskId })
 }
 
+function validateWebhookInput(raw: Uint8Array, signature: string, nowMs: number) {
+  if (!(raw instanceof Uint8Array) || raw.byteLength === 0 || raw.byteLength > 256 * 1024
+    || typeof signature !== 'string' || signature.length === 0 || signature.length > 8192
+    || !Number.isSafeInteger(nowMs) || nowMs < 0) throw new StripeWebhookError()
+}
+
+function checkedEventIdentity(config: StripeConfig, verified: Schema.JsonObject, id: Schema.Json | undefined,
+  type: Schema.Json | undefined, created: Schema.Json | undefined) {
+  if (verified.object !== 'event' || typeof id !== 'string' || !/^evt_[A-Za-z0-9]+$/.test(id)
+    || verified.api_version !== config.apiVersion
+    || verified.livemode !== (config.environment === 'live')
+    || Object.hasOwn(verified, 'account') || Object.hasOwn(verified, 'context')
+    || typeof type !== 'string'
+    || typeof created !== 'number' || !Number.isSafeInteger(created) || created < 0) throw new StripeWebhookError()
+  return { id, type, created }
+}
+
+function verifiedEventEnvelope(config: StripeConfig, verified: Schema.JsonObject) {
+  const id = verified.id
+  const type = verified.type
+  const created = verified.created
+  const data = verified.data
+  if (!isRecord(data) || !isRecord(data.object)) throw new StripeWebhookError()
+  const objectId = data.object.id
+  const objectType = data.object.object
+  const identity = checkedEventIdentity(config, verified, id, type, created)
+  if (typeof objectId !== 'string' || objectId.length === 0 || objectId.length > 255
+    || typeof objectType !== 'string' || objectType.length === 0) throw new StripeWebhookError()
+  return { ...identity, objectId, objectType, object: data.object }
+}
+
 export function verifyStripeWebhook(
   config: StripeConfig,
   raw: Uint8Array,
   signature: string,
   nowMs: number,
 ): VerifiedStripeEvent {
-  if (!(raw instanceof Uint8Array) || raw.byteLength === 0 || raw.byteLength > 256 * 1024
-    || typeof signature !== 'string' || signature.length === 0 || signature.length > 8192
-    || !Number.isSafeInteger(nowMs) || nowMs < 0) throw new StripeWebhookError()
+  validateWebhookInput(raw, signature, nowMs)
 
   let verified: Schema.JsonObject
   try {
@@ -152,28 +181,14 @@ export function verifyStripeWebhook(
     verified = Schema.decodeUnknownSync(Schema.JsonObject)(snapshot)
   } catch { throw new StripeWebhookError() }
 
-  const id = verified.id
-  const type = verified.type
-  const created = verified.created
-  const data = verified.data
-  if (!isRecord(data) || !isRecord(data.object)) throw new StripeWebhookError()
-  const objectId = data.object.id
-  const objectType = data.object.object
-  if (verified.object !== 'event' || typeof id !== 'string' || !/^evt_[A-Za-z0-9]+$/.test(id)
-    || verified.api_version !== config.apiVersion
-    || verified.livemode !== (config.environment === 'live')
-    || Object.hasOwn(verified, 'account') || Object.hasOwn(verified, 'context')
-    || typeof type !== 'string'
-    || typeof created !== 'number' || !Number.isSafeInteger(created) || created < 0
-    || typeof objectId !== 'string' || objectId.length === 0 || objectId.length > 255
-    || typeof objectType !== 'string' || objectType.length === 0) throw new StripeWebhookError()
+  const { id, type, created, objectId, objectType, object } = verifiedEventEnvelope(config, verified)
 
   let kind: ReturnType<typeof classifyBillingEvent>['kind']
   try { kind = classifyBillingEvent({ id, type, objectId, objectType }).kind }
   catch { throw new StripeWebhookError() }
-  if (Object.hasOwn(data.object, 'livemode')
-    && data.object.livemode !== (config.environment === 'live')) throw new StripeWebhookError()
-  const references = projectReferences(kind, data.object, objectId, config.environment === 'live')
+  if (Object.hasOwn(object, 'livemode')
+    && object.livemode !== (config.environment === 'live')) throw new StripeWebhookError()
+  const references = projectReferences(kind, object, objectId, config.environment === 'live')
   return Object.freeze({
     id, type, created, objectId, objectType,
     projectionVersion: 1, environment: config.environment, accountId: config.accountId, references,

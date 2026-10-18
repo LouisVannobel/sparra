@@ -114,15 +114,19 @@ function admitCoverageEntries(table, coverage, root) {
   }
 }
 
+function passedLeafNames(table,file,expectedNames,refusal) {
+  const names=[],count=passedTests(table,file,names)
+  if(count!==expectedNames.length)throw new Error('Native coverage test cardinality mismatch')
+  if(names.some((name,index)=>name!==expectedNames[index]))throw new Error(refusal)
+  return count
+}
+
 function requestsBlobFile(table,file,fileCount,root,seen) {
   const filepath=resolve(blobValue(table,file.filepath))
   const consumer=requestConsumers.find(([path])=>filepath===join(root,path))
   if(fileCount!==5||!consumer||seen.has(filepath))throw new Error('Native requests blob has an unexpected consumer')
   seen.add(filepath)
-  const names=[],count=passedTests(table,file,names)
-  if(count!==consumer[1].length)throw new Error('Native coverage test cardinality mismatch')
-  if(names.some((name,index)=>name!==consumer[1][index]))throw new Error('Native requests blob has unexpected leaves')
-  return count
+  return passedLeafNames(table,file,consumer[1],'Native requests blob has unexpected leaves')
 }
 
 function billingBlobFile(table,file,fileCount,root,seen) {
@@ -130,10 +134,7 @@ function billingBlobFile(table,file,fileCount,root,seen) {
   const consumer=billingConsumers.find(([path])=>filepath===join(root,path))
   if(fileCount!==7||!consumer||seen.has(filepath))throw new Error('Native billing blob has an unexpected consumer')
   seen.add(filepath)
-  const names=[],count=passedTests(table,file,names)
-  if(count!==consumer[1].length)throw new Error('Native coverage test cardinality mismatch')
-  if(names.some((name,index)=>name!==consumer[1][index]))throw new Error('Native billing blob has unexpected leaves')
-  return count
+  return passedLeafNames(table,file,consumer[1],'Native billing blob has unexpected leaves')
 }
 
 function admitTestFile(table, file, name, fileCount, root, startedAt, seen) {

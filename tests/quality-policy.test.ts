@@ -353,29 +353,40 @@ test('native_billing_blob_admits_exact_seven_consumers_and_45_leaves',()=>{
   const bytes=readFileSync(blob),table=JSON.parse(bytes.toString('utf8')),files=table[Number(table[0][1])]
   expect(files).toHaveLength(7)
   expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.11')).not.toThrow()
+  function blobWithRefusedBillingLeaves(tasksIndex:number,leafCount:number,kind:'missing'|'extra'|'duplicate'|'renamed'|'reordered'|'skipped') {
+    const changed=JSON.parse(bytes.toString('utf8')),cases=changed[tasksIndex]
+    switch(kind){
+      case 'missing': cases.pop();break
+      case 'extra': cases.push(cases[0]);break
+      case 'duplicate': cases[cases.length-1]=cases[0];if(leafCount===1)cases.push(cases[0]);break
+      case 'renamed': changed[Number(table[Number(cases[0])].name)]='Unreviewed billing leaf';break
+      case 'reordered': cases.reverse();break
+      case 'skipped': changed[Number(table[Number(table[Number(cases[0])].result)].state)]='skip';break
+    }
+    return changed
+  }
+  function blobWithRefusedBillingConsumers(kind:'missing'|'duplicate'|'foreign') {
+    const changed=JSON.parse(bytes.toString('utf8')),consumers=changed[Number(table[0][1])]
+    switch(kind){
+      case 'missing': consumers.pop();break
+      case 'duplicate': consumers[1]=consumers[0];break
+      case 'foreign': changed[Number(table[Number(consumers[0])].filepath)]=join(root,'tests/integration/sparra-activity.test.ts').replaceAll('\\','/');break
+    }
+    return changed
+  }
   for(const [filename,names] of billingConsumerNames){
     const file=table[Number(files.find((reference:string)=>table[Number(table[Number(reference)].filepath)]===join(root,'tests/integration',filename).replaceAll('\\','/')))]
     const tasksIndex=Number(file.tasks),tasks=table[tasksIndex]
     expect(tasks.map((reference:string)=>table[Number(table[Number(reference)].name)])).toEqual(names)
     for(const kind of ['missing','extra','duplicate','renamed','reordered','skipped'] as const){
       if(kind==='reordered'&&names.length===1)continue
-      const changed=JSON.parse(bytes.toString('utf8')),cases=changed[tasksIndex]
-      if(kind==='missing')cases.pop()
-      else if(kind==='extra')cases.push(cases[0])
-      else if(kind==='duplicate')cases[cases.length-1]=cases[0]
-      else if(kind==='renamed')changed[Number(table[Number(cases[0])].name)]='Unreviewed billing leaf'
-      else if(kind==='reordered')cases.reverse()
-      else changed[Number(table[Number(table[Number(cases[0])].result)].state)]='skip'
-      if(kind==='duplicate'&&names.length===1)cases.push(cases[0])
+      const changed=blobWithRefusedBillingLeaves(tasksIndex,names.length,kind)
       const refused=join(root,'coverage/billing-refused.json');writeFileSync(refused,JSON.stringify(changed))
       expect(()=>readNativeBlob(refused,'billing',root,startedAt,'4.1.11'),filename+':'+kind).toThrow()
     }
   }
   for(const kind of ['missing','duplicate','foreign'] as const){
-    const changed=JSON.parse(bytes.toString('utf8')),consumers=changed[Number(table[0][1])]
-    if(kind==='missing')consumers.pop()
-    else if(kind==='duplicate')consumers[1]=consumers[0]
-    else changed[Number(table[Number(consumers[0])].filepath)]=join(root,'tests/integration/sparra-activity.test.ts').replaceAll('\\','/')
+    const changed=blobWithRefusedBillingConsumers(kind)
     const refused=join(root,'coverage/billing-refused.json');writeFileSync(refused,JSON.stringify(changed))
     expect(()=>readNativeBlob(refused,'billing',root,startedAt,'4.1.11'),kind).toThrow('Native billing blob has an unexpected consumer')
   }
@@ -393,6 +404,31 @@ test('native_billing_report_requires_exact_seven_consumers_and_45_passing_leaves
   expect(report.numTotalTests).toBe(45);expect(report.numPassedTests).toBe(45)
   expect(()=>assertBillingReport(report,root)).not.toThrow()
   expect(()=>assertBillingQualification(path,root,startedAt)).not.toThrow()
+  function reportWithRefusedBillingLeaves(index:number,leafCount:number,kind:'missing'|'extra'|'duplicate'|'renamed'|'reordered'|'skipped'|'failed'|'message') {
+    const changed=structuredClone(report),leaves=changed.testResults[index].assertionResults
+    switch(kind){
+      case 'missing': leaves.pop();break
+      case 'extra': leaves.push(leaves[0]);break
+      case 'duplicate': if(leafCount===1)leaves.push(leaves[0]);else leaves[1]=leaves[0];break
+      case 'renamed': leaves[0].fullName='Unreviewed billing leaf';break
+      case 'reordered': leaves.reverse();break
+      case 'message': leaves[0].failureMessages=['Owned failure'];break
+      case 'skipped': case 'failed': leaves[0].status=kind;break
+    }
+    return changed
+  }
+  function reportWithRefusedBillingConsumers(kind:'missing'|'extra'|'duplicate'|'foreign'|'failed'|'message') {
+    const changed=structuredClone(report),files=changed.testResults
+    switch(kind){
+      case 'missing': files.pop();break
+      case 'extra': files.push(files[0]);break
+      case 'duplicate': files[1]=files[0];break
+      case 'foreign': files[0].name=join(root,'tests/integration/sparra-activity.test.ts').replaceAll('\\','/');break
+      case 'failed': files[0].status='failed';break
+      case 'message': files[0].message='Owned suite failure';break
+    }
+    return changed
+  }
   for(const field of ['success','numTotalTests','numPassedTests','numPendingTests','numTodoTests','numFailedTests','numFailedTestSuites','numPendingTestSuites']){
     expect(()=>assertBillingReport({...report,[field]:field==='success'?false:report[field]+1},root),field).toThrow(refusal)
   }
@@ -401,25 +437,12 @@ test('native_billing_report_requires_exact_seven_consumers_and_45_passing_leaves
     expect(index).toBeGreaterThanOrEqual(0)
     for(const kind of ['missing','extra','duplicate','renamed','reordered','skipped','failed','message'] as const){
       if(kind==='reordered'&&names.length===1)continue
-      const changed=structuredClone(report),leaves=changed.testResults[index].assertionResults
-      if(kind==='missing')leaves.pop()
-      else if(kind==='extra')leaves.push(leaves[0])
-      else if(kind==='duplicate'){if(names.length===1)leaves.push(leaves[0]);else leaves[1]=leaves[0]}
-      else if(kind==='renamed')leaves[0].fullName='Unreviewed billing leaf'
-      else if(kind==='reordered')leaves.reverse()
-      else if(kind==='message')leaves[0].failureMessages=['Owned failure']
-      else leaves[0].status=kind
+      const changed=reportWithRefusedBillingLeaves(index,names.length,kind)
       expect(()=>assertBillingReport(changed,root),filename+':'+kind).toThrow(refusal)
     }
   }
   for(const kind of ['missing','extra','duplicate','foreign','failed','message'] as const){
-    const changed=structuredClone(report),files=changed.testResults
-    if(kind==='missing')files.pop()
-    else if(kind==='extra')files.push(files[0])
-    else if(kind==='duplicate')files[1]=files[0]
-    else if(kind==='foreign')files[0].name=join(root,'tests/integration/sparra-activity.test.ts').replaceAll('\\','/')
-    else if(kind==='failed')files[0].status='failed'
-    else files[0].message='Owned suite failure'
+    const changed=reportWithRefusedBillingConsumers(kind)
     expect(()=>assertBillingReport(changed,root),kind).toThrow(refusal)
   }
   expect(()=>assertBillingReport(report,join(root,'foreign-root'))).toThrow(refusal)
@@ -1080,12 +1103,14 @@ test('fallow_declares_only_native_subprocess_and_actual_browser_roots_and_exact_
   writeFileSync(join(root,'tests/helpers/runtime-probe.mjs'),"console.log('synthetic preload');\n")
   writeFileSync(join(root,'tests/helpers/inbox-panel-fixture.tsx'),"console.log('synthetic declared browser entry');\n")
   writeFileSync(join(root,'tests/helpers/undeclared-browser-sibling.tsx'),"console.log('synthetic undeclared browser sibling');\n")
+  writeFileSync(join(root,'tests/helpers/mail-retry-harness.ts'),"import {dirname,join} from 'node:path';import {fileURLToPath} from 'node:url';console.log(join(dirname(fileURLToPath(import.meta.url)),'hatchet-empty.yaml'));\n")
+  writeFileSync(join(root,'tests/helpers/undeclared-mail-retry-sibling.ts'),"console.log('synthetic undeclared mail retry sibling');\n")
   writeFileSync(join(root,'scripts/start-web.mjs'),"await import('../.output/server/index.mjs');\nawait import('../.output/server/genuinely-missing.mjs');\n")
   writeFileSync(join(root,'scripts/test-prerequisites.mjs'),"console.log('synthetic prerequisite decoder');\n")
   writeFileSync(join(root,'scripts/undeclared-prerequisite-sibling.mjs'),"console.log('synthetic undeclared sibling');\n")
-  writeFileSync(join(root,'src/main.tsx'),readFileSync(join(root,'src/main.tsx'),'utf8')+"import './genuinely-missing';\n")
+  writeFileSync(join(root,'src/main.tsx'),readFileSync(join(root,'src/main.tsx'),'utf8')+"import './genuinely-missing';\nimport './genuinely-missing.yaml';\n")
   const fixtureConfig: {entry:string[];health:{coverage:string|null}} = JSON.parse(readFileSync(join(repositoryRoot,'.fallowrc.json'),'utf8'))
-  expect(fixtureConfig.entry).toEqual(['scripts/start-web.mjs','scripts/test-prerequisites.mjs','tests/helpers/generate-native-voice-envelope.ts','tests/helpers/inbox-panel-fixture.tsx'])
+  expect(fixtureConfig.entry).toEqual(['scripts/start-web.mjs','scripts/test-prerequisites.mjs','tests/helpers/generate-native-voice-envelope.ts','tests/helpers/inbox-panel-fixture.tsx','tests/helpers/mail-retry-harness.ts'])
   fixtureConfig.health.coverage = null
   writeFileSync(join(root,'.fallowrc.json'),JSON.stringify(fixtureConfig))
   const result=runQuality('fallow',['audit','--no-css','--base',base],root)
@@ -1094,11 +1119,15 @@ test('fallow_declares_only_native_subprocess_and_actual_browser_roots_and_exact_
   expect(output).toMatch(/src[\\/]unused\.ts/)
   expect(output).toContain('undeclared-prerequisite-sibling.mjs')
   expect(output).toContain('undeclared-browser-sibling.tsx')
+  expect(output).toContain('undeclared-mail-retry-sibling.ts')
   expect(output).toContain('./genuinely-missing')
+  expect(output).toContain('./genuinely-missing.yaml')
   expect(output).toContain('../.output/server/genuinely-missing.mjs')
   expect(output).not.toContain('generate-native-voice-envelope.ts')
   expect(output).not.toContain('runtime-probe.mjs')
   expect(output).not.toContain('inbox-panel-fixture.tsx')
+  expect(output).not.toMatch(/(?:^|[\\/])mail-retry-harness\.ts/)
+  expect(output).not.toContain('hatchet-empty.yaml')
   expect(output).not.toMatch(/(?:^|[\\/])test-prerequisites\.mjs/)
   expect(output).not.toContain('../.output/server/index.mjs')
 },40000)

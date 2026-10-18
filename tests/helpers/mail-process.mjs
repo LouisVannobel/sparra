@@ -25,43 +25,53 @@ export const MAIL_CLEANUP_CODES = Object.freeze([...sdkCodes.values(), ...grpcCo
 
 // Inspect only own data properties. Error serializers, getters, details,
 // messages outside the exact SDK allowlist and transport/config data stay private.
+const ownData = (value, name) => Object.getOwnPropertyDescriptor(value, name)?.value
+
+function classifyCleanupNode(value, codes) {
+  let recognized = false
+  const sdk = sdkCodes.get(ownData(value, 'message')), rpc = rpcCodes.get(ownData(value, 'path')), code = ownData(value, 'code')
+  if (sdk) { codes.add(sdk); recognized = true }
+  if (rpc) { codes.add(rpc); recognized = true }
+  if (Number.isInteger(code) && code >= 0 && code < grpcCodes.length) { codes.add(grpcCodes[code]); recognized = true }
+  if (nodeCodes.includes(code)) { codes.add(`NODE_${code}`); recognized = true }
+  if (code === 14 && rpc === 'RPC_UNSUBSCRIBE') {
+    const details = ownData(value, 'details')
+    if (typeof details === 'string' && details.startsWith('No connection established. Last error: ')) codes.add('UNAVAILABLE_NO_CONNECTION_PATTERN')
+  }
+  if (!recognized) codes.add('UNKNOWN')
+}
+
+function appendCleanupChildren(value, depth, pending, seen, codes) {
+  const append = child => {
+    if (child && typeof child === 'object' && seen.has(child)) return
+    if (depth >= 6 || pending.length >= 32) { codes.add('TRUNCATED'); return }
+    pending.push({ value: child, depth: depth + 1 })
+  }
+  const cause = Object.getOwnPropertyDescriptor(value, 'cause')
+  if (cause && 'value' in cause) append(cause.value)
+  const errors = ownData(value, 'errors')
+  if (value instanceof AggregateError && Array.isArray(errors)) {
+    const length = ownData(errors, 'length')
+    if (!Number.isSafeInteger(length) || length < 0) return false
+    if (length > 32) codes.add('TRUNCATED')
+    for (let child = 0; child < Math.min(length, 32); child++) {
+      const descriptor = Object.getOwnPropertyDescriptor(errors, String(child))
+      if (descriptor && 'value' in descriptor) append(descriptor.value)
+    }
+  }
+  return true
+}
+
 export function classifyMailCleanup(error) {
   const codes = new Set(), seen = new Set(), pending = [{ value: error, depth: 0 }]
-  const own = (value, name) => Object.getOwnPropertyDescriptor(value, name)?.value
   try {
     for (let index = 0; index < pending.length; index++) {
       const { value, depth } = pending[index]
       if (!value || typeof value !== 'object') { codes.add('UNKNOWN'); continue }
       if (seen.has(value)) continue
       seen.add(value)
-      let recognized = false
-      const sdk = sdkCodes.get(own(value, 'message')), rpc = rpcCodes.get(own(value, 'path')), code = own(value, 'code')
-      if (sdk) { codes.add(sdk); recognized = true }
-      if (rpc) { codes.add(rpc); recognized = true }
-      if (Number.isInteger(code) && code >= 0 && code < grpcCodes.length) { codes.add(grpcCodes[code]); recognized = true }
-      if (nodeCodes.includes(code)) { codes.add(`NODE_${code}`); recognized = true }
-      if (code === 14 && rpc === 'RPC_UNSUBSCRIBE') {
-        const details = own(value, 'details')
-        if (typeof details === 'string' && details.startsWith('No connection established. Last error: ')) codes.add('UNAVAILABLE_NO_CONNECTION_PATTERN')
-      }
-      if (!recognized) codes.add('UNKNOWN')
-      const append = child => {
-        if (child && typeof child === 'object' && seen.has(child)) return
-        if (depth >= 6 || pending.length >= 32) { codes.add('TRUNCATED'); return }
-        pending.push({ value: child, depth: depth + 1 })
-      }
-      const cause = Object.getOwnPropertyDescriptor(value, 'cause')
-      if (cause && 'value' in cause) append(cause.value)
-      const errors = own(value, 'errors')
-      if (value instanceof AggregateError && Array.isArray(errors)) {
-        const length = own(errors, 'length')
-        if (!Number.isSafeInteger(length) || length < 0) return ['OBSERVER_UNAVAILABLE']
-        if (length > 32) codes.add('TRUNCATED')
-        for (let child = 0; child < Math.min(length, 32); child++) {
-          const descriptor = Object.getOwnPropertyDescriptor(errors, String(child))
-          if (descriptor && 'value' in descriptor) append(descriptor.value)
-        }
-      }
+      classifyCleanupNode(value, codes)
+      if (!appendCleanupChildren(value, depth, pending, seen, codes)) return ['OBSERVER_UNAVAILABLE']
     }
     return [...codes].sort()
   } catch { return ['OBSERVER_UNAVAILABLE'] }

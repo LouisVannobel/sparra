@@ -10,10 +10,10 @@ export const operationId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 export const termsA = { id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', workspaceId, environment: 'sandbox' as const,
   accountId: 'acct_fixture', revision: 1, monthlyPriceId: 'price_negotiatedA', currency: 'eur', monthlyUnitAmount: 1500 }
 export const termsB = { ...termsA, id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', revision: 2, monthlyPriceId: 'price_negotiatedB', monthlyUnitAmount: 2900 }
-export const at = new Date('2026-10-01T00:00:00Z')
+const at = new Date('2026-10-01T00:00:00Z')
 export const customer = { id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', workspaceId, environment: 'sandbox' as const,
   accountId: 'acct_fixture', stripeCustomerId: 'cus_fixture', knownSubscriptionId: null, createdAt: at }
-export const admittedBody = JSON.stringify({ mode: 'subscription', ui_mode: 'hosted_page', customer: 'cus_fixture',
+const admittedBody = JSON.stringify({ mode: 'subscription', ui_mode: 'hosted_page', customer: 'cus_fixture',
   client_reference_id: operationId, integration_identifier: 'template_ABCDEFGH', line_items: [{ price: 'price_negotiatedA', quantity: 1 }],
   currency: 'eur', subscription_data: { billing_mode: { type: 'flexible' } },
   success_url: 'https://sparra.example/billing?session_id={CHECKOUT_SESSION_ID}', cancel_url: 'https://sparra.example/billing?checkout=cancelled' })
