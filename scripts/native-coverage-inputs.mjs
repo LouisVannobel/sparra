@@ -128,7 +128,7 @@ function requestsBlobFile(table,file,fileCount,root,seen) {
 function billingBlobFile(table,file,fileCount,root,seen) {
   const filepath=resolve(blobValue(table,file.filepath))
   const consumer=billingConsumers.find(([path])=>filepath===join(root,path))
-  if(fileCount!==5||!consumer||seen.has(filepath))throw new Error('Native billing blob has an unexpected consumer')
+  if(fileCount!==7||!consumer||seen.has(filepath))throw new Error('Native billing blob has an unexpected consumer')
   seen.add(filepath)
   const names=[],count=passedTests(table,file,names)
   if(count!==consumer[1].length)throw new Error('Native coverage test cardinality mismatch')
@@ -159,7 +159,7 @@ export function readNativeBlob(filePath, name, root, startedAt, version) {
     count += admitTestFile(table, blobValue(table, reference), name, files.length, root, startedAt, seen)
   }
   if (!count || (name === 'activity' && count !== 12) || (name === 'requests' && count !== 40)
-    || (name === 'billing' && count !== 40)) throw new Error('Native coverage test cardinality mismatch')
+    || (name === 'billing' && count !== 45)) throw new Error('Native coverage test cardinality mismatch')
   const coverage = blobValue(table, envelope[3])
   admitCoverageEntries(table, coverage, root)
   return { table, coverage, digest }
@@ -369,15 +369,24 @@ const billingConsumers=[
     'compiled protected refresh ignores a late departed read and clears private content after native session refusal',
     'compiled billing UI validates Checkout navigation and uses exact Workspace POSTs without trusting cancellation acknowledgements',
   ]],
+  ['tests/integration/billing-worker-native.test.ts',[
+    'compiled billing-only worker registers and drains with no mail configuration or provider effect',
+    'three native mail arrivals finish while billing waits on owned SQL, then immutable A reconciles after B beyond startup deadline',
+    'post-response native admission ACK loss resolves the same durable outbox and run with one dispatch',
+    'native worker shutdown during a held Stripe read body joins the client transport before billing SQL stop',
+  ]],
+  ['tests/integration/mail-worker-native.test.ts',[
+    'built application relay and native worker consume the real SQL snapshot through controlled TLS and drain on shutdown',
+  ]],
 ]
 
 function billingSummaryPassed(report) {
-  const counters={numTotalTests:40,numPassedTests:40,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
+  const counters={numTotalTests:45,numPassedTests:45,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
   return report?.success===true&&Object.entries(counters).every(([key,wanted])=>report[key]===wanted)
 }
 
 export function assertBillingReport(report,root) {
-  if(!billingSummaryPassed(report)||!Array.isArray(report.testResults)||report.testResults.length!==5
+  if(!billingSummaryPassed(report)||!Array.isArray(report.testResults)||report.testResults.length!==7
     ||!billingConsumers.every(([path,names])=>{
       const matches=report.testResults.filter(file=>file?.name===join(root,path).replaceAll('\\','/'))
       const file=matches[0]
@@ -386,7 +395,7 @@ export function assertBillingReport(report,root) {
         &&file.assertionResults.every((test,index)=>test?.status==='passed'&&test.fullName===names[index]
           &&Array.isArray(test.failureMessages)&&test.failureMessages.length===0)
     })) {
-    throw new Error('Native Billing requires its exact five consumers and 40 passing leaves')
+    throw new Error('Native Billing requires its exact seven consumers and 45 passing leaves')
   }
 }
 

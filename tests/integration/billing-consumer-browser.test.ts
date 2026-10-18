@@ -106,6 +106,9 @@ async function withPage(run: (f: Fixture) => Promise<void>, extra: Record<string
     }
     async function passkey() {
       const userId = await google()
+      // Native first-key admission requires an existing PERSONAL Workspace,
+      // as in the consumer's established Google/passkey browser ceremony.
+      await workspace()
       const cdp = await ownedContext.newCDPSession(page)
       await cdp.send('WebAuthn.enable')
       await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', transport: 'internal', hasResidentKey: true,

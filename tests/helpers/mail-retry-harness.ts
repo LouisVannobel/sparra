@@ -19,7 +19,9 @@ type Case = { outboxId: string; runId?: string; observedRunId?: string; taskId?:
 
 async function main() {
   if (!process.send) throw retryFixtureError()
-  const config = readMailWorkerConfig(process.env)
+  const workerConfig = readMailWorkerConfig(process.env)
+  const config = workerConfig.mail
+  if (!config) throw retryFixtureError()
   const scope = Effect.runSync(Scope.make())
   const cases = new Map<RetryLabel, Case>()
   const barriers = createRetryBarriers()
@@ -101,7 +103,7 @@ async function main() {
       emit({ type: 'handler-settled', label, state: result.state,
         reason: result.state === 'deferred' ? result.reason : null })
     })
-    const client = createAuthMailHatchet(config.hatchet, fileURLToPath(new URL('./hatchet-empty.yaml', import.meta.url))).withMiddleware({
+    const client = createAuthMailHatchet(workerConfig.hatchet, fileURLToPath(new URL('./hatchet-empty.yaml', import.meta.url))).withMiddleware({
       before: async (input, context) => {
         const [label, value] = findLabel(input)
         const runId = Schema.decodeUnknownSync(uuid)(context.workflowRunId())

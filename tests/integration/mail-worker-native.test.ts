@@ -56,21 +56,21 @@ test('built application relay and native worker consume the real SQL snapshot th
       if (queued && admitted) break
       await new Promise(resolve => setTimeout(resolve, 100))
     }
-    expect({ queued, admitted, ready: output.includes('Auth mail worker ready') }).toEqual({ queued: true, admitted: true, ready: true })
+    expect({ queued, admitted, ready: output.includes('Application worker ready') }).toEqual({ queued: true, admitted: true, ready: true })
     expect(peer.evidence()).toEqual({ calls: 1, directFragment: true })
     // The real SDK heartbeat thread runs every four seconds. A controlled
     // outage spans two intervals and must not leak its raw RPC error output.
     await engine.withEngineStopped(async () => { await new Promise(resolve => setTimeout(resolve, 8500)) })
-    expect({ onlyReady: output.trim() === 'Auth mail worker ready', outputBytes: Buffer.byteLength(output) }).toEqual({ onlyReady: true, outputBytes: Buffer.byteLength('Auth mail worker ready\n') })
+    expect({ onlyReady: output.trim() === 'Application worker ready', outputBytes: Buffer.byteLength(output) }).toEqual({ onlyReady: true, outputBytes: Buffer.byteLength('Application worker ready\n') })
     expect(child.exitCode).toBeNull()
     shutdownAt = performance.now(); child.send('shutdown')
     const code = await bounded(exit, 15000)
-    outcome.shutdownBy15s = { processExited: true, scopeStopped: output.includes('Auth mail worker stopped') }
+    outcome.shutdownBy15s = { processExited: true, scopeStopped: output.includes('Application worker stopped') }
     expect(performance.now()-shutdownAt).toBeLessThanOrEqual(15000)
     expect(code).toBe(0)
     const lines = output.trim().split(/\r?\n/)
-    const expected = ['Auth mail worker ready','Auth mail lifecycle native-stop-completed','Auth mail lifecycle native-start-completed','Auth mail lifecycle handlers-stopped','Auth mail lifecycle relay-stopped','Auth mail worker stopped']
-    const nativeOutcomes = ['Auth mail lifecycle native-start-resolved','Auth mail lifecycle native-start-cancelled']
+    const expected = ['Application worker ready','Application worker lifecycle native-stop-completed','Application worker lifecycle native-start-completed','Application worker lifecycle handlers-stopped','Application worker lifecycle relay-stopped','Application worker stopped']
+    const nativeOutcomes = ['Application worker lifecycle native-start-resolved','Application worker lifecycle native-start-cancelled']
     // Never place raw child content in assertion diagnostics.
     expect({ unexpectedLines: lines.filter(line => !expected.includes(line) && !nativeOutcomes.includes(line)).length,
       expectedCounts: expected.map(line => lines.filter(value => value === line).length),
@@ -79,8 +79,8 @@ test('built application relay and native worker consume the real SQL snapshot th
     expect(peer.evidence()).toEqual({ calls: 1, directFragment: true })
     outcome = { ...outcome, queued, admitted, exitCode: code, ...peer.evidence(), outputSanitized: true, controlledEngineOutageMs: 8500, shutdownElapsedMs: performance.now()-shutdownAt }
   } finally {
-    if (shutdownAt !== undefined) outcome.shutdownBy15s ??= { processExited: false, scopeStopped: output.includes('Auth mail worker stopped') }
-    if (shutdownAt !== undefined) outcome.shutdownObservation = { elapsedMs: performance.now()-shutdownAt, scopeStopped: output.includes('Auth mail worker stopped'), nativeStopCompleted: output.includes('Auth mail lifecycle native-stop-completed'), nativeStartCompleted: output.includes('Auth mail lifecycle native-start-completed'), nativeStartResolved: output.includes('Auth mail lifecycle native-start-resolved'), nativeStartCancelled: output.includes('Auth mail lifecycle native-start-cancelled'), nativeStartFailed: output.includes('Auth mail lifecycle native-start-failed'), handlersStopped: output.includes('Auth mail lifecycle handlers-stopped'), relayStopped: output.includes('Auth mail lifecycle relay-stopped'), processExitedBeforeCleanup: child !== undefined && child.exitCode !== null }
+    if (shutdownAt !== undefined) outcome.shutdownBy15s ??= { processExited: false, scopeStopped: output.includes('Application worker stopped') }
+    if (shutdownAt !== undefined) outcome.shutdownObservation = { elapsedMs: performance.now()-shutdownAt, scopeStopped: output.includes('Application worker stopped'), nativeStopCompleted: output.includes('Application worker lifecycle native-stop-completed'), nativeStartCompleted: output.includes('Application worker lifecycle native-start-completed'), nativeStartResolved: output.includes('Application worker lifecycle native-start-resolved'), nativeStartCancelled: output.includes('Application worker lifecycle native-start-cancelled'), nativeStartFailed: output.includes('Application worker lifecycle native-start-failed'), handlersStopped: output.includes('Application worker lifecycle handlers-stopped'), relayStopped: output.includes('Application worker lifecycle relay-stopped'), processExitedBeforeCleanup: child !== undefined && child.exitCode !== null }
     const cleanupFailures: string[] = []
     try {
       if (child && child.exitCode === null && child.signalCode === null) { outcome.forcedCleanup = true; child.kill('SIGKILL') }

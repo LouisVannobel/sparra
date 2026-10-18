@@ -1,13 +1,16 @@
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, expect, test, vi, type Mock } from 'vitest'
 import { Effect } from 'effect'
 import { createTransactions } from '../../src/platform/db/transactions.server'
 import { createMailWorkerResources } from '../../src/platform/mail-runtime.server'
+import type { HatchetWorkerLifecycle } from '@hatchet-dev/typescript-sdk/v1/index.js'
 
-const native = vi.hoisted(() => ({ start: vi.fn<() => Promise<void>>(), stop: vi.fn<() => Promise<void>>(), ready: vi.fn<() => Promise<void>>(), signal: undefined as AbortSignal | undefined, released: [] as string[] }))
+type MailObservation = { start: Mock<() => Promise<void>>; stop: Mock<() => Promise<void>>; ready: Mock<() => Promise<void>>; signal: AbortSignal | undefined; released: string[] }
+const native = vi.hoisted((): MailObservation => ({ start: vi.fn(), stop: vi.fn(), ready: vi.fn(), signal: undefined, released: [] }))
 vi.mock('../../src/modules/auth/mail-hatchet.server', () => ({
-  createAuthMailHatchet: (_: unknown, __: string, signal: AbortSignal) => {
-    native.signal = signal
-    return { tenant: { get: async () => ({ version: 'V1' }) }, dispatcher: { getVersion: async () => 'v0.101.27' }, worker: async () => ({ start: native.start, stop: native.stop, waitUntilReady: native.ready }) }
+  createAuthMailHatchet: (_: unknown, __: string, lifecycle: HatchetWorkerLifecycle) => {
+    native.signal = lifecycle.lifetimeSignal
+    return { getStartupInfo: async () => ({ tenantVersion: 'V1', engineVersion: 'v0.101.27' }), dispose: async () => {},
+      worker: async () => ({ start: native.start, stop: native.stop, waitUntilReady: native.ready }) }
   }, createAuthMailTask: () => ({}),
 }))
 vi.mock('../../src/platform/db/resources.server', () => ({ acquireDatabase: (_: unknown, login: string) => Effect.acquireRelease(

@@ -133,8 +133,9 @@ function sameObservation(a: BillingObservation, b: BillingObservation) {
 export function createBillingHandler(config: StripeConfig, store: BillingStore) {
   let stopped = false, active: { cancel: AbortController; promise: Promise<Result> } | null = null
   let stopping: Promise<void> | undefined
+  let cleanupFailure: { cause: unknown } | undefined
   function handle(input: unknown, signal: AbortSignal): Promise<Result> {
-    if (stopped || active !== null || signal.aborted) return Promise.resolve(deferred)
+    if (stopped || cleanupFailure || active !== null || signal.aborted) return Promise.resolve(deferred)
     let job: typeof jobSchema.Type
     try { job = decodeBilling(jobSchema, input) } catch { return Promise.resolve(deferred) }
     const cancel = new AbortController(), onAbort = () => cancel.abort()
@@ -230,7 +231,8 @@ export function createBillingHandler(config: StripeConfig, store: BillingStore) 
       } catch { return { state: progress.state === 'held' ? 'held' : 'deferred', commandCompleted: false } }
       finally {
         clearTimeout(timer); signal.removeEventListener('abort', onAbort)
-        await client?.close()
+        try { await client?.close() }
+        catch (cause) { cleanupFailure = { cause }; throw cause }
       }
     }
     const promise = run().catch(() => deferred)
@@ -241,7 +243,10 @@ export function createBillingHandler(config: StripeConfig, store: BillingStore) 
   function stop(): Promise<void> {
     stopped = true
     active?.cancel.abort()
-    return stopping ??= (async () => { await active?.promise })()
+    return stopping ??= (async () => {
+      await active?.promise
+      if (cleanupFailure) throw cleanupFailure.cause
+    })()
   }
   return Object.freeze({ handle, stop })
 }

@@ -1,3 +1,4 @@
 packages: []
 patchedDependencies:
+  '@hatchet-dev/typescript-sdk@1.28.2': patches/@hatchet-dev__typescript-sdk@1.28.2.patch
   nice-grpc@2.1.17: patches/nice-grpc@2.1.17.patch

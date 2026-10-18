@@ -1,3 +1,21 @@
+diff --git a/README.md b/README.md
+index f0751ce752a5a9d789e24968bc1febc8919196e21b13e7000fec212d36002a28..082be3558b2716b6adb79d53c32a9f90e27cabf3454958cf2766d8e265e5e221 100644
+--- a/README.md
++++ b/README.md
+@@ -3,6 +3,13 @@
+ A Node.js gRPC library that is nice to you. Built on top of
+ [`grpc-js`](https://www.npmjs.com/package/@grpc/grpc-js).
+ 
++Local candidate unary patch: for an ordinary grpc-js client call that returns a
++native handle, the unary promise settles after local terminal status and this
++wrapper's synchronous header/trailer observers finish. A synchronous observer
++failure rejects the promise while preserving any distinct call failure. This
++does not establish remote handler completion or cover an inaccessible partial
++call when native construction throws without returning a handle.
++
+ - [Features](#features)
+ - [Installation](#installation)
+ - [Usage](#usage)
 diff --git a/lib/client/createServerStreamingMethod.js b/lib/client/createServerStreamingMethod.js
 index 0ded7c245fa1a598512cffb1a5ef7709fdb9a4a8a98b413d207ae51b8d4e69ce..01f587323cc701cf5a0ae104e4b307c1cb9deaa81b2cc8d79d9e8a4959e2af7e 100644
 --- a/lib/client/createServerStreamingMethod.js
@@ -35,6 +53,182 @@ index 0ded7c245fa1a598512cffb1a5ef7709fdb9a4a8a98b413d207ae51b8d4e69ce..01f58732
  }
 -//# sourceMappingURL=createServerStreamingMethod.js.map
 \ No newline at end of file
+diff --git a/lib/client/createUnaryMethod.js b/lib/client/createUnaryMethod.js
+index 89e7fe68222482ee485f18227e1101631064828ec58cb4919cdfcedd7a438b0b..05d727235a6dfe691246739a58139e982814de931d0ec0b4bf44c81810936399 100644
+--- a/lib/client/createUnaryMethod.js
++++ b/lib/client/createUnaryMethod.js
+@@ -21,25 +21,148 @@ function createUnaryMethod(definition, client, middleware, defaultOptions) {
+             throw new Error('A middleware passed invalid request to next(): expected a single message for unary method');
+         }
+         const { metadata = (0, nice_grpc_common_1.Metadata)(), signal = new AbortController().signal, onHeader, onTrailer, } = options;
+-        return await (0, abort_controller_x_1.execute)(signal, (resolve, reject) => {
+-            const call = client.makeUnaryRequest(grpcMethodDefinition.path, grpcMethodDefinition.requestSerialize, grpcMethodDefinition.responseDeserialize, request, (0, convertMetadata_1.convertMetadataToGrpcJs)(metadata), (err, response) => {
+-                if (err != null) {
+-                    reject((0, wrapClientError_1.wrapClientError)(err, definition.path));
++        let call;
++        let statusFinished;
++        let statusSeen = false;
++        let metadataListener;
++        let statusListener;
++        let cancellationRequested = false;
++        let cancellationFailed = false;
++        const cancellationErrors = [];
++        let observerFailed = false;
++        const observerErrors = [];
++        let nativeFailed = false;
++        let nativeError;
++        let operationFailed = false;
++        let operationError;
++        let response;
++        let settlementSource = 'unsettled';
++        const recordSettlement = (source) => {
++            if (settlementSource === 'unsettled')
++                settlementSource = source;
++        };
++        const readSettlementSource = () => settlementSource;
++        const cancelCall = (nativeCall) => {
++            if (cancellationRequested)
++                return;
++            cancellationRequested = true;
++            try {
++                nativeCall.cancel();
++            }
++            catch (error) {
++                cancellationFailed = true;
++                cancellationErrors.push(error);
++            }
++        };
++        try {
++            try {
++                response = await (0, abort_controller_x_1.execute)(signal, (resolve, reject) => {
++                    // Conversion may fail before any native call has been created.
++                    const grpcMetadata = (0, convertMetadata_1.convertMetadataToGrpcJs)(metadata);
++                    const nativeCall = client.makeUnaryRequest(grpcMethodDefinition.path, grpcMethodDefinition.requestSerialize, grpcMethodDefinition.responseDeserialize, request, grpcMetadata, (err, value) => {
++                        if (err != null) {
++                            try {
++                                nativeError = (0, wrapClientError_1.wrapClientError)(err, definition.path);
++                            }
++                            catch (error) {
++                                nativeError = error;
++                            }
++                            nativeFailed = true;
++                            recordSettlement('native-error');
++                            reject(nativeError);
++                        }
++                        else {
++                            recordSettlement('native-result');
++                            resolve(value);
++                        }
++                    });
++                    call = nativeCall;
++                    let finishStatus;
++                    statusFinished = new Promise(resolve => {
++                        finishStatus = resolve;
++                    });
++                    statusListener = status => {
++                        try {
++                            onTrailer?.((0, convertMetadata_1.convertMetadataFromGrpcJs)(status.metadata));
++                        }
++                        catch (error) {
++                            observerFailed = true;
++                            observerErrors.push(error);
++                        }
++                        finally {
++                            statusSeen = true;
++                            finishStatus();
++                        }
++                    };
++                    metadataListener = incomingMetadata => {
++                        try {
++                            onHeader?.((0, convertMetadata_1.convertMetadataFromGrpcJs)(incomingMetadata));
++                        }
++                        catch (error) {
++                            observerFailed = true;
++                            observerErrors.push(error);
++                            cancelCall(nativeCall);
++                            recordSettlement('header-observer');
++                            reject(error);
++                        }
++                    };
++                    nativeCall.on('status', statusListener);
++                    nativeCall.on('metadata', metadataListener);
++                    // execute installs its abort listener only after this executor returns.
++                    if (signal.aborted) {
++                        cancelCall(nativeCall);
++                        recordSettlement('abort');
++                        reject(signal.reason ?? new abort_controller_x_1.AbortError());
++                    }
++                    return () => {
++                        cancelCall(nativeCall);
++                        recordSettlement('abort');
++                    };
++                });
++            }
++            catch (error) {
++                operationFailed = true;
++                operationError = error;
++            }
++        }
++        finally {
++            if (call && statusFinished) {
++                const nativeCall = call;
++                if (operationFailed && !statusSeen)
++                    cancelCall(nativeCall);
++                try {
++                    await statusFinished;
+                 }
+-                else {
+-                    resolve(response);
++                finally {
++                    if (metadataListener)
++                        nativeCall.removeListener('metadata', metadataListener);
++                    if (statusListener)
++                        nativeCall.removeListener('status', statusListener);
+                 }
+-            });
+-            call.on('metadata', metadata => {
+-                onHeader?.((0, convertMetadata_1.convertMetadataFromGrpcJs)(metadata));
+-            });
+-            call.on('status', status => {
+-                onTrailer?.((0, convertMetadata_1.convertMetadataFromGrpcJs)(status.metadata));
+-            });
+-            return () => {
+-                call.cancel();
+-            };
+-        });
++            }
++        }
++        const errors = [];
++        const addError = (error) => {
++            if (!errors.some(existing => Object.is(existing, error)))
++                errors.push(error);
++        };
++        if (operationFailed && readSettlementSource() === 'header-observer' && nativeFailed) {
++            addError(nativeError);
++        }
++        else if (operationFailed) {
++            addError(operationError);
++        }
++        if (observerFailed)
++            for (const error of observerErrors)
++                addError(error);
++        if (cancellationFailed)
++            for (const error of cancellationErrors)
++                addError(error);
++        if (errors.length === 1)
++            throw errors[0];
++        if (errors.length > 1)
++            throw new AggregateError(errors, 'Unary call failed');
++        return response;
+     }
+     const method = middleware == null
+         ? unaryMethod
+@@ -70,4 +193,3 @@ function createUnaryMethod(definition, client, middleware, defaultOptions) {
+         }
+     };
+ }
+-//# sourceMappingURL=createUnaryMethod.js.map
+\ No newline at end of file
 diff --git a/src/client/createServerStreamingMethod.ts b/src/client/createServerStreamingMethod.ts
 index 9bf9e33aae7619dfb2549cf96a947879c5583f0f3f794f8682affecb85638f3d..fe74b360597d4bfea935e0a26f66e321ee6314b2472687f897a5c21242740ff2 100644
 --- a/src/client/createServerStreamingMethod.ts
@@ -64,3 +258,190 @@ index 9bf9e33aae7619dfb2549cf96a947879c5583f0f3f794f8682affecb85638f3d..fe74b360
      }
    }
  
+diff --git a/src/client/createUnaryMethod.ts b/src/client/createUnaryMethod.ts
+index 8ab8cf5bb8a0436d80ef5242a16e1c3d131051a9a830e0778fe6e2127a841e46..8acd44aed131d86eace6920e03381eef269bdbbeab9ac6832cfbb69c7fe451b1 100644
+--- a/src/client/createUnaryMethod.ts
++++ b/src/client/createUnaryMethod.ts
+@@ -1,5 +1,10 @@
+-import {Client} from '@grpc/grpc-js';
+-import {execute} from 'abort-controller-x';
++import {
++  Client,
++  ClientUnaryCall,
++  Metadata as GrpcMetadata,
++  StatusObject,
++} from '@grpc/grpc-js';
++import {AbortError, execute} from 'abort-controller-x';
+ import {
+   CallOptions,
+   ClientMiddleware,
+@@ -51,33 +56,144 @@ export function createUnaryMethod<Request, Response>(
+       onTrailer,
+     } = options;
+ 
+-    return await execute<Response>(signal, (resolve, reject) => {
+-      const call = client.makeUnaryRequest(
+-        grpcMethodDefinition.path,
+-        grpcMethodDefinition.requestSerialize,
+-        grpcMethodDefinition.responseDeserialize,
+-        request,
+-        convertMetadataToGrpcJs(metadata),
+-        (err, response) => {
+-          if (err != null) {
+-            reject(wrapClientError(err, definition.path));
+-          } else {
+-            resolve(response!);
+-          }
+-        },
+-      );
++    let call: ClientUnaryCall | undefined;
++    let statusFinished: Promise<void> | undefined;
++    let statusSeen = false;
++    let metadataListener: ((metadata: GrpcMetadata) => void) | undefined;
++    let statusListener: ((status: StatusObject) => void) | undefined;
++    let cancellationRequested = false;
++    let cancellationFailed = false;
++    const cancellationErrors: unknown[] = [];
++    let observerFailed = false;
++    const observerErrors: unknown[] = [];
++    let nativeFailed = false;
++    let nativeError: unknown;
++    let operationFailed = false;
++    let operationError: unknown;
++    let response!: Response;
++    type SettlementSource =
++      | 'unsettled'
++      | 'native-result'
++      | 'native-error'
++      | 'header-observer'
++      | 'abort';
++    let settlementSource: SettlementSource = 'unsettled';
++    const recordSettlement = (source: Exclude<SettlementSource, 'unsettled'>) => {
++      if (settlementSource === 'unsettled') settlementSource = source;
++    };
++    const readSettlementSource = () => settlementSource;
++
++    const cancelCall = (nativeCall: ClientUnaryCall) => {
++      if (cancellationRequested) return;
++      cancellationRequested = true;
++      try {
++        nativeCall.cancel();
++      } catch (error) {
++        cancellationFailed = true;
++        cancellationErrors.push(error);
++      }
++    };
+ 
+-      call.on('metadata', metadata => {
+-        onHeader?.(convertMetadataFromGrpcJs(metadata));
+-      });
+-      call.on('status', status => {
+-        onTrailer?.(convertMetadataFromGrpcJs(status.metadata));
+-      });
++    try {
++      try {
++        response = await execute<Response>(signal, (resolve, reject) => {
++          // Conversion may fail before any native call has been created.
++          const grpcMetadata = convertMetadataToGrpcJs(metadata);
++          const nativeCall = client.makeUnaryRequest(
++            grpcMethodDefinition.path,
++            grpcMethodDefinition.requestSerialize,
++            grpcMethodDefinition.responseDeserialize,
++            request,
++            grpcMetadata,
++            (err, value) => {
++              if (err != null) {
++                try {
++                  nativeError = wrapClientError(err, definition.path);
++                } catch (error) {
++                  nativeError = error;
++                }
++                nativeFailed = true;
++                recordSettlement('native-error');
++                reject(nativeError);
++              } else {
++                recordSettlement('native-result');
++                resolve(value!);
++              }
++            },
++          );
++          call = nativeCall;
+ 
+-      return () => {
+-        call.cancel();
+-      };
+-    });
++          let finishStatus!: () => void;
++          statusFinished = new Promise<void>(resolve => {
++            finishStatus = resolve;
++          });
++          statusListener = status => {
++            try {
++              onTrailer?.(convertMetadataFromGrpcJs(status.metadata));
++            } catch (error) {
++              observerFailed = true;
++              observerErrors.push(error);
++            } finally {
++              statusSeen = true;
++              finishStatus();
++            }
++          };
++          metadataListener = incomingMetadata => {
++            try {
++              onHeader?.(convertMetadataFromGrpcJs(incomingMetadata));
++            } catch (error) {
++              observerFailed = true;
++              observerErrors.push(error);
++              cancelCall(nativeCall);
++              recordSettlement('header-observer');
++              reject(error);
++            }
++          };
++          nativeCall.on('status', statusListener);
++          nativeCall.on('metadata', metadataListener);
++
++          // execute installs its abort listener only after this executor returns.
++          if (signal.aborted) {
++            cancelCall(nativeCall);
++            recordSettlement('abort');
++            reject(signal.reason ?? new AbortError());
++          }
++          return () => {
++            cancelCall(nativeCall);
++            recordSettlement('abort');
++          };
++        });
++      } catch (error) {
++        operationFailed = true;
++        operationError = error;
++      }
++    } finally {
++      if (call && statusFinished) {
++        const nativeCall = call;
++        if (operationFailed && !statusSeen) cancelCall(nativeCall);
++        try {
++          await statusFinished;
++        } finally {
++          if (metadataListener) nativeCall.removeListener('metadata', metadataListener);
++          if (statusListener) nativeCall.removeListener('status', statusListener);
++        }
++      }
++    }
++
++    const errors: unknown[] = [];
++    const addError = (error: unknown) => {
++      if (!errors.some(existing => Object.is(existing, error))) errors.push(error);
++    };
++    if (operationFailed && readSettlementSource() === 'header-observer' && nativeFailed) {
++      addError(nativeError);
++    } else if (operationFailed) {
++      addError(operationError);
++    }
++    if (observerFailed) for (const error of observerErrors) addError(error);
++    if (cancellationFailed) for (const error of cancellationErrors) addError(error);
++    if (errors.length === 1) throw errors[0];
++    if (errors.length > 1) throw new AggregateError(errors, 'Unary call failed');
++    return response;
+   }
+ 
+   const method =

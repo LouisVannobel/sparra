@@ -128,6 +128,29 @@ values explicitly:
 - `HATCHET_CLIENT_TOKEN`, `HATCHET_CLIENT_HOST_PORT`, `HATCHET_CLIENT_API_URL`, `HATCHET_CLIENT_TLS_STRATEGY=tls`: selected V1 tenant/engine. The application checks V1 and engine `v0.101.27`. Explicit test-only loopback permits `none`; it is not a production fallback.
 - Existing bounded `DB_*` options and `NODE_ENV=production` apply. No `.env` is loaded by this entrypoint.
 
+The same worker entrypoint also hosts optional billing reconciliation. A complete
+mail configuration registers `auth-email-delivery`; a complete Stripe configuration
+plus `BILLING_RELAY_DATABASE_URL` and `BILLING_WORKER_DATABASE_URL` registers
+`billing-reconciliation`. Billing alone needs no envelope, mail DSN or Plunk
+binding. Google/passkey authentication remains independent in the Web process.
+No global Price setting is used: each admitted operation retains its agreed
+Workspace conditions.
+
+A partial or invalid capability is explicitly reported as
+`mail-config-rejected` or `billing-config-rejected` and is not registered or
+given SQL/provider resources. Another complete capability can still start.
+With neither capability complete, startup refuses before creating an empty
+worker. Shared Hatchet settings must be valid for either capability.
+Each configured relay/worker login has a pool limit of1: two pools for one
+capability, four for both. Combined mode requires `DB_POOL_MAX>=2` and stays
+inside the prior two-pool connection budget.
+
+The runtime opts into the qualified SDK1.28.2 owned lifecycle with separate
+startup and lifetime cancellation and bounded cleanup. Normal pool retirement
+requires joined acquisition, native execution/ACKs, relay REST, handlers and
+provider transports. A rejected or unproved close rejects disposal and keeps
+the SQL scope retained; canceled work alone is not a successful close receipt.
+
 SIGINT/SIGTERM stop new owned work, cancel the relay/handlers, then join the real handlers, HTTP sockets, native DNS callbacks, SDK lifecycle and per-login pools. SDK `stop()` alone is not drain evidence. DNS lookup has no Node cancellation API: the business deadline destroys the socket but capacity and shutdown remain held until its callback completes. Consequently no hard OS/process shutdown bound is claimed, and an external forced kill leaves the durable attempting marker for later safe reconciliation.
 
 ## Qualification boundary

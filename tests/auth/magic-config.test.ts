@@ -37,13 +37,13 @@ test('web and worker configuration consume the same envelope parser without cons
     AUTH_MAIL_API_ORIGIN: profile.apiOrigin, AUTH_MAIL_PLUNK_SECRET: 'sk_synthetic', HATCHET_CLIENT_TOKEN: 'synthetic',
     HATCHET_CLIENT_HOST_PORT: '127.0.0.1:1', HATCHET_CLIENT_API_URL: 'http://127.0.0.1:1', HATCHET_CLIENT_TLS_STRATEGY: 'none',
     AUTH_MAIL_RELAY_DATABASE_URL: 'postgres://fixture:synthetic@127.0.0.1/fixture', AUTH_MAIL_WORKER_DATABASE_URL: 'postgres://fixture:synthetic@127.0.0.1/fixture' }
-  const producer = readAuthConfig(value)!.magic!.envelope, consumer = readMailWorkerConfig(value).envelope
+  const producer = readAuthConfig(value)!.magic!.envelope, consumer = readMailWorkerConfig(value).mail!.envelope
   const now = new Date(), binding = { deliveryId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', purpose: 'magic-link' as const, generation: 1, expiresAt: new Date(now.getTime() + 60000) }
   const plaintext = consumer.open(producer.seal(Buffer.from('config fixture'), binding, now), binding, now)
   try { expect(plaintext.toString() === 'config fixture').toBe(true) } finally { plaintext.fill(0) }
   const malformed = { ...value, AUTH_MAIL_KEYS_JSON: '{malformed' }
   expect(() => readAuthConfig(malformed)).toThrow(/Invalid configuration keys:/)
-  expect(() => readMailWorkerConfig(malformed)).toThrow('Auth mail worker configuration rejected')
+  expect(() => readMailWorkerConfig(malformed)).toThrow('Application worker configuration rejected')
 })
 test('magic token validation rejects padding, incorrect byte length and noncanonical final bits', () => {
   for (const token of ['', 'A'.repeat(42), 'A'.repeat(44), 'A'.repeat(43) + '=', 'A'.repeat(42) + 'B', '+'.repeat(43), '/'.repeat(43)]) {
