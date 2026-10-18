@@ -376,21 +376,23 @@ test('I3 one owned native retry fixture: retained A/B, transient C, expired E, e
     }
 
     async function stopAndJoinOwnedChild() {
-      if (child && exited) {
-        const stopStarted = performance.now()
-        if (!processClosed && child.connected) child.send({ id: ++nextCommand, op: 'shutdown' }, () => {})
-        while (!processClosed && !events.some(event => event.type === 'closing') && performance.now() - stopStarted < 15000) await pause(25)
-        // Only release the SQL perturbation after closing has aborted owned work
-        // and before hooks, or after the exact child is confirmed terminated.
-        if (!processClosed && !events.some(event => event.type === 'closing')) { forced = true; child.kill('SIGKILL'); await exited }
+      if (!child || !exited) {
         await clean('rowLockReleased', unlock)
-        while (!processClosed && performance.now() - stopStarted < 15000) await pause(25)
-        const stopped = events.find(event => event.type === 'stopped')
-        evidence.normalStop = { elapsedMs: performance.now() - stopStarted, processClosed, receipt: stopped ?? null }
-        if (!processClosed) { forced = true; child.kill('SIGKILL') }
-        await clean('childClosed', async () => { await exited })
-        recordNormalStop(stopped)
-      } else await clean('rowLockReleased', unlock)
+        return
+      }
+      const stopStarted = performance.now()
+      if (!processClosed && child.connected) child.send({ id: ++nextCommand, op: 'shutdown' }, () => {})
+      while (!processClosed && !events.some(event => event.type === 'closing') && performance.now() - stopStarted < 15000) await pause(25)
+      // Only release the SQL perturbation after closing has aborted owned work
+      // and before hooks, or after the exact child is confirmed terminated.
+      if (!processClosed && !events.some(event => event.type === 'closing')) { forced = true; child.kill('SIGKILL'); await exited }
+      await clean('rowLockReleased', unlock)
+      while (!processClosed && performance.now() - stopStarted < 15000) await pause(25)
+      const stopped = events.find(event => event.type === 'stopped')
+      evidence.normalStop = { elapsedMs: performance.now() - stopStarted, processClosed, receipt: stopped ?? null }
+      if (!processClosed) { forced = true; child.kill('SIGKILL') }
+      await clean('childClosed', async () => { await exited })
+      recordNormalStop(stopped)
     }
 
     async function retireAcquiredDependencies() {

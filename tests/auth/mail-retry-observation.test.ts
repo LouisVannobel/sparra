@@ -531,7 +531,7 @@ test('harness history does not manufacture missing or unrelated native evidence'
 })
 test('harness history failures keep request and decoder phases closed without recording transport details', async () => {
   for (const [fixture, phase] of [
-    [historyFixture(published, {}, 1), 'run-details-request'],
+    [historyFixture(published, {}, 1), 'run-details-rejected'],
     [historyFixture(published, {}, 2), 'task-events-request'],
     [historyFixture(published, { rows: [{ ...taskEvent, eventType: 'private-event' }] }), 'history-sanitization'],
     [historyFixture(published, { rows: [taskEvent], pagination: { next_page: 1 } }), 'history-sanitization'],
@@ -608,4 +608,126 @@ test('last completed command diagnostic returns null for absent, malformed, extr
     { ...valid, phase: 'private-phase' }, { ...valid, ok: true, phase: 'identity-decoding' },
     { ...valid, op: 'release', phase: 'identity-decoding' }, { ...valid, value: 'private-value' }, { ...valid, error: 'private-error' },
   ]) expect(lastCommandFailure(input)).toBeNull()
+})
+
+// Real installed Api -> Axios fetch adapter; only the Fetch endpoint is controlled.
+function diagnosticHistoryFixture(options: { status?: number; network?: boolean; hold?: boolean;
+  afterApiResponse?: () => void; decorateFailure?: (error: unknown) => void; beforeObserved?: () => void } = {}) {
+  const controller = new AbortController(), requests: string[] = [], phases: string[] = []
+  const command = { ...identity, deadlineAtMs: Date.now() + 10000 }
+  const localFetch: typeof fetch = async (input, init) => {
+    const request = input instanceof Request ? input : new Request(input, init)
+    requests.push(new URL(request.url).pathname)
+    if (options.network) throw new TypeError('fetch failed: private network material')
+    if (options.hold) return new Promise<Response>((_resolve, reject) => {
+      const aborted = () => reject(request.signal.reason)
+      request.signal.addEventListener('abort', aborted, { once: true })
+      if (request.signal.aborted) { request.signal.removeEventListener('abort', aborted); aborted() }
+    })
+    return new Response(JSON.stringify(options.status ? { private: 'response body' } : published), {
+      status: options.status ?? 200, headers: { 'Content-Type': 'application/json' },
+    })
+  }
+  const api = new Api({ baseURL: 'https://retry-fixture.invalid', adapter: 'fetch', env: { fetch: localFetch } })
+  const originalGet = api.v1WorkflowRunGet
+  api.v1WorkflowRunGet = async (...args) => {
+    try {
+      const response = await originalGet(...args)
+      options.afterApiResponse?.()
+      return response
+    } catch (error) { options.decorateFailure?.(error); throw error }
+  }
+  const observed: Parameters<typeof readRetryHistory>[2] = call => {
+    options.beforeObserved?.()
+    return call(controller.signal, 120)
+  }
+  return { controller, requests, phases, read: () => readRetryHistory({ api, tenantId: identity.tenantId }, command, observed, phase => { phases.push(phase) }) }
+}
+function checkedDetailsDiagnostic(phases: string[], expected: string) {
+  expect(phases.at(-1)).toBe(expected)
+  const receipts: unknown[] = []
+  appendRetryCommandReceipt(receipts, { id: 1, op: 'history', label: 'B', ok: false, phase: phases.at(-1) })
+  expect(receipts).toEqual([{ id: 1, op: 'history', label: 'B', ok: false, phase: expected }])
+  expect(JSON.stringify({ phases, receipts })).not.toMatch(/private|fixture\.invalid|aaaaaaaa|bbbbbbbb|cccccccc/)
+}
+test.each([[404, 'run-details-http-404'], [401, 'run-details-http-other'], [503, 'run-details-http-other']] as const)(
+  'real Axios details status%s stays rejected and yields only the finite failure category', async (status, phase) => {
+    const fixture = diagnosticHistoryFixture({ status })
+    await expect(fixture.read()).rejects.toBeInstanceOf(Error)
+    expect(fixture.requests).toEqual([`/api/v1/stable/workflow-runs/${identity.runId}`])
+    checkedDetailsDiagnostic(fixture.phases, phase)
+  })
+test('real Axios details transport rejection is distinct from HTTP and carries no raw failure', async () => {
+  const fixture = diagnosticHistoryFixture({ network: true })
+  await expect(fixture.read()).rejects.toBeInstanceOf(Error)
+  expect(fixture.requests).toHaveLength(1)
+  checkedDetailsDiagnostic(fixture.phases, 'run-details-transport')
+})
+test.each(['timeout', 'cancelled'] as const)('real Axios details %s is finite and never admits task events', async kind => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  try {
+    const fixture = diagnosticHistoryFixture({ hold: true }), outcome = fixture.read().then(value => value, error => error)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fixture.requests).toHaveLength(1)
+    if (kind === 'cancelled') fixture.controller.abort()
+    await vi.runAllTimersAsync()
+    expect(await outcome).toBeInstanceOf(Error)
+    expect(fixture.requests).toHaveLength(1)
+    checkedDetailsDiagnostic(fixture.phases, kind === 'timeout' ? 'run-details-timeout' : 'run-details-cancelled')
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { vi.useRealTimers() }
+})
+test('details owner distinguishes cancellation after the actual Axios response from rejected transport', async () => {
+  const fixture = diagnosticHistoryFixture({ afterApiResponse: () => fixture.controller.abort() })
+  await expect(fixture.read()).rejects.toThrow('MAIL_RETRY_FIXTURE_REJECTED')
+  expect(fixture.requests).toHaveLength(1)
+  checkedDetailsDiagnostic(fixture.phases, 'run-details-aborted-after')
+})
+test.each(['before', 'after'] as const)('details deadline exhaustion %s the request remains refused under its original deadline', async stage => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  try {
+    const expire = () => vi.setSystemTime(11000)
+    const fixture = diagnosticHistoryFixture(stage === 'before' ? { beforeObserved: expire } : { afterApiResponse: expire })
+    await expect(fixture.read()).rejects.toThrow('MAIL_RETRY_FIXTURE_REJECTED')
+    expect(fixture.requests).toHaveLength(stage === 'before' ? 0 : 1)
+    checkedDetailsDiagnostic(fixture.phases, stage === 'before' ? 'run-details-budget-before' : 'run-details-budget-after')
+    await vi.runAllTimersAsync()
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { vi.useRealTimers() }
+})
+test('pre-aborted details owner emits no HTTP and reports only its before-request refusal', async () => {
+  const fixture = diagnosticHistoryFixture()
+  fixture.controller.abort()
+  await expect(fixture.read()).rejects.toThrow('MAIL_RETRY_FIXTURE_REJECTED')
+  expect(fixture.requests).toHaveLength(0)
+  checkedDetailsDiagnostic(fixture.phases, 'run-details-aborted-before')
+})
+test('unknown details rejection never falls back to error text or arbitrary code', async () => {
+  const fixture = diagnosticHistoryFixture({ afterApiResponse: () => { throw new Error('private unclassified failure') } })
+  await expect(fixture.read()).rejects.toBeInstanceOf(Error)
+  expect(fixture.requests).toHaveLength(1)
+  checkedDetailsDiagnostic(fixture.phases, 'run-details-rejected')
+})
+test('real Axios HTTP classification never reads body config message stack request or serialization getters', async () => {
+  let inspected = 0
+  const fixture = diagnosticHistoryFixture({ status: 404, decorateFailure(error) {
+    if (!(error instanceof Error)) throw new Error('Expected installed Axios error')
+    for (const key of ['body', 'response', 'config', 'message', 'stack', 'request', 'toJSON']) {
+      Object.defineProperty(error, key, { configurable: true, get() { inspected++; throw new Error('private forbidden getter') } })
+    }
+  } })
+  const outcome: unknown = await fixture.read().then(value => value, error => error)
+  expect(outcome).toBeInstanceOf(Error)
+  expect(inspected).toBe(0)
+  checkedDetailsDiagnostic(fixture.phases, 'run-details-http-404')
+})
+test.each(['isAxiosError', 'status', 'code'] as const)('an accessor at Axios diagnostic field%s yields unknown without invoking it', async key => {
+  let inspected = 0
+  const fixture = diagnosticHistoryFixture({ status: 404, decorateFailure(error) {
+    if (!(error instanceof Error)) throw new Error('Expected installed Axios error')
+    Object.defineProperty(error, key, { configurable: true, get() { inspected++; return 'private getter material' } })
+  } })
+  await expect(fixture.read()).rejects.toBeInstanceOf(Error)
+  expect(inspected).toBe(0)
+  checkedDetailsDiagnostic(fixture.phases, 'run-details-rejected')
 })

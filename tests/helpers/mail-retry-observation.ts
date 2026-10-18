@@ -8,6 +8,8 @@ export type RetryLabel = typeof retryLabels[number]
 export const deferredCodes = ['AUTH_MAIL_WORKER_STOPPING', 'AUTH_MAIL_OUTBOX_IN_FLIGHT', 'AUTH_MAIL_CAPACITY_BUSY', 'AUTH_MAIL_CLAIM_UNRESOLVED'] as const
 export const retryCommandOperation = Schema.Literals(['begin', 'configure', 'admit', 'bind', 'release', 'release-lookup', 'cancel-A', 'history', 'shutdown'])
 export const retryChildPhase = Schema.Literals(['run-details-request', 'task-events-request', 'identity-decoding', 'history-sanitization',
+  'run-details-http-404', 'run-details-http-other', 'run-details-cancelled', 'run-details-timeout', 'run-details-transport', 'run-details-rejected',
+  'run-details-aborted-before', 'run-details-aborted-after', 'run-details-budget-before', 'run-details-budget-after',
   'identity-shape', 'identity-tasks-empty', 'identity-task-count', 'identity-run-id-mismatch', 'identity-run-tenant-mismatch',
   'identity-task-id-mismatch', 'identity-task-run-mismatch', 'identity-task-tenant-mismatch'])
 const retryParentPhase = Schema.Literals(['a-sql-check-started', 'a-sql-check-completed', 'a-cancel-started', 'a-cancel-completed', 'a-first-history-started', 'a-first-history-completed'])
@@ -181,6 +183,43 @@ function pauseRetryProjection(signal: AbortSignal, milliseconds: number) {
     if (signal.aborted) aborted()
   })
 }
+// Axios1.20.0 stores these scalar data fields on its error instance. Do not
+// invoke isAxiosError/toJSON or inspect response/config/message/stack getters.
+type RetryDiagnosticScalar = string | number | boolean | null | undefined
+function ownDiagnosticValue(input: unknown, key: 'isAxiosError' | 'status' | 'code'): RetryDiagnosticScalar {
+  if (typeof input !== 'object' || input === null) throw retryFixtureError()
+  const descriptor = Object.getOwnPropertyDescriptor(input, key)
+  if (!descriptor) return undefined
+  if (!Object.hasOwn(descriptor, 'value')) throw retryFixtureError()
+  const value: unknown = descriptor.value
+  if (value === null || value === undefined || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value
+  throw retryFixtureError()
+}
+function runDetailsFailurePhase(input: unknown): typeof retryChildPhase.Type {
+  try {
+    if (typeof input !== 'object' || input === null) return 'run-details-rejected'
+    const marker = ownDiagnosticValue(input, 'isAxiosError')
+    const status = ownDiagnosticValue(input, 'status')
+    const code = ownDiagnosticValue(input, 'code')
+    if (marker !== true) return 'run-details-rejected'
+    if (status === 404) return 'run-details-http-404'
+    if (typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599
+      && (status < 200 || status >= 300)) return 'run-details-http-other'
+    switch (code) {
+      case 'ERR_CANCELED': return 'run-details-cancelled'
+      case 'ECONNABORTED':
+      case 'ETIMEDOUT': return 'run-details-timeout'
+      case 'ERR_NETWORK':
+      case 'ECONNREFUSED':
+      case 'ECONNRESET':
+      case 'ENOTFOUND':
+      case 'EAI_AGAIN':
+      case 'EPIPE': return 'run-details-transport'
+      default: return 'run-details-rejected'
+    }
+  } catch { return 'run-details-rejected' }
+}
+
 export async function readRetryHistory(client: Pick<HatchetClient, 'api' | 'tenantId'>,
   value: { runId?: string; taskId?: string; deadlineAtMs?: number } | undefined,
   observed: <A>(call: (signal: AbortSignal, timeout: number) => Promise<A>) => Promise<A>,
@@ -194,11 +233,24 @@ export async function readRetryHistory(client: Pick<HatchetClient, 'api' | 'tena
   setPhase('run-details-request')
   const decoded = await observed(async (signal, timeout) => {
     if (!Number.isInteger(timeout) || timeout <= 0 || timeout > 10000) throw retryFixtureError()
+    function checkedAllowance(stage: 'before' | 'after', maximum: number) {
+      if (signal.aborted) {
+        setPhase(stage === 'before' ? 'run-details-aborted-before' : 'run-details-aborted-after')
+        throw retryFixtureError()
+      }
+      try { return budget.remaining(maximum) }
+      catch (error) {
+        setPhase(stage === 'before' ? 'run-details-budget-before' : 'run-details-budget-after')
+        throw error
+      }
+    }
     for (;;) {
-      if (signal.aborted) throw retryFixtureError()
-      const state = await client.api.v1WorkflowRunGet(expected.runId, { signal, timeout: budget.remaining(timeout), maxContentLength: 65536 })
-      if (signal.aborted) throw retryFixtureError()
-      budget.remaining(10000)
+      const requestTimeout = checkedAllowance('before', timeout)
+      let state: Awaited<ReturnType<typeof client.api.v1WorkflowRunGet>>
+      try {
+        state = await client.api.v1WorkflowRunGet(expected.runId, { signal, timeout: requestTimeout, maxContentLength: 65536 })
+      } catch (error) { setPhase(runDetailsFailurePhase(error)); throw error }
+      checkedAllowance('after', 10000)
       if (!ownedEmptyRetryProjection(state.data, expected)) {
         const identity = decodeRetryHistoryIdentity(state, expected, setPhase)
         if (signal.aborted) throw retryFixtureError()
