@@ -12,6 +12,7 @@ import { createTransactions } from '../../src/platform/db/transactions.server'
 import { authorizeEmailRequest, materializeDelivery } from '../../src/modules/auth/auth-email-store.server'
 import { createAuthEmailEnvelope } from '../../src/modules/auth/auth-email-envelope.server'
 import { MAIL_CLEANUP_CODES } from '../helpers/mail-process.mjs'
+import { decodeMailCleanupDiagnostic } from '../helpers/mail-cleanup-diagnostic'
 
 test('built application relay and native worker consume the real SQL snapshot through controlled TLS and drain on shutdown', async () => {
   const runId = randomUUID()
@@ -48,15 +49,9 @@ test('built application relay and native worker consume the real SQL snapshot th
     key.fill(0)
     child.stdout!.on('data', chunk => { output += String(chunk) }); child.stderr!.on('data', chunk => { output += String(chunk) })
     child.on('message', (message: unknown) => {
-      if (!message || typeof message !== 'object' || !('type' in message) || message.type !== 'fixture-mail-cleanup' ||
-        !('outcome' in message) || message.outcome !== 'FULFILLED' && message.outcome !== 'REJECTED' ||
-        !('codes' in message) || !Array.isArray(message.codes) || message.codes.length > MAIL_CLEANUP_CODES.length || cleanupDiagnostics.length >= 2) return
-      const codes: string[] = []
-      for (const code of message.codes) {
-        if (typeof code !== 'string' || !MAIL_CLEANUP_CODES.includes(code)) return
-        codes.push(code)
-      }
-      cleanupDiagnostics.push({ outcome: message.outcome, codes })
+      const diagnostic = decodeMailCleanupDiagnostic(message, MAIL_CLEANUP_CODES)
+      if (!diagnostic || cleanupDiagnostics.length >= 2) return
+      cleanupDiagnostics.push(diagnostic)
     })
     exit = new Promise<number | null>((done, reject) => { child!.once('error', reject); child!.once('close', done) })
     const deadline = performance.now()+35000
