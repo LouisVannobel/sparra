@@ -103,11 +103,11 @@ test.each(['pending','incident','confirmed'] as const)('cancellation %s cannot b
 
 test('billing escapes the current display name without rendering selectors, provider IDs or secret fields', async () => {
   const extra = { ...paid, customerId: 'cus_privateMarker', priceId: 'price_privateMarker', accountId: 'acct_privateMarker',
-    apiKey: 'sk_test_privateMarker', idempotencyKey: 'checkout:privateMarker' }
+    apiKey: 'synthetic fixture value', idempotencyKey: 'checkout:privateMarker' }
   const html = await render({ summary: extra })
   expect(html).toContain('Atelier &lt;script&gt;privateMarker=1&lt;/script&gt;')
   expect(html).not.toContain('<script>privateMarker')
-  for (const value of [workspace.id,'cus_privateMarker','price_privateMarker','acct_privateMarker','sk_test_privateMarker','checkout:privateMarker']) expect(html).not.toContain(value)
+  for (const value of [workspace.id,'cus_privateMarker','price_privateMarker','acct_privateMarker','synthetic fixture value','checkout:privateMarker']) expect(html).not.toContain(value)
 })
 
 test('pending billing is busy without an invented failure and every rendered control stays disabled', async () => {
