@@ -1,6 +1,6 @@
-import { expect, test } from 'vitest'
+import { expect, test, vi } from 'vitest'
 import { Api } from '@hatchet-dev/typescript-sdk/clients/rest/generated/Api.js'
-import { checkedRetryInterval, createRetryBarriers, expiryGate, retryBudget, safeRetryHistory, safeRetryOutcome, observeRetryHandler, safeRetryRunIdentity, safeRetryParentPhase, appendRetryCommandReceipt, readRetryHistory } from '../helpers/mail-retry-observation'
+import { checkedRetryInterval, createRetryBarriers, expiryGate, retryBudget, safeRetryHistory, safeRetryOutcome, observeRetryHandler, safeRetryRunIdentity, safeRetryParentPhase, appendRetryCommandReceipt, readRetryHistory, safeRetryParentFrames as parentFailureFrames, safeRetryLastCommandReceipt as lastCommandFailure } from '../helpers/mail-retry-observation'
 
 test('one absolute observation budget shrinks across calls and cannot restart after expiry', () => {
   let now = 10
@@ -124,7 +124,7 @@ test('command receipts preserve closed successful and failed observations withou
 const taskEvent = { id: 7, taskId: identity.taskId, timestamp: '2026-09-11T00:00:00Z', eventType: 'FAILED', retryCount: 0, attempt: 1,
   errorMessage: JSON.stringify({ message: 'AUTH_MAIL_CAPACITY_BUSY', stack: 'private-stack' }), output: 'private-output' }
 function historyFixture(runDetails: unknown = published, taskEvents: unknown = { rows: [taskEvent], pagination: {} }, failureAt?: number) {
-  const requests: unknown[] = [], phases: string[] = []
+  const requests: unknown[] = [], phases: string[] = [], timeouts: number[] = []
   const signals = [new AbortController().signal, new AbortController().signal]
   let observations = 0
   // Use the installed SDK's real request generation; only its network adapter is replaced.
@@ -132,6 +132,8 @@ function historyFixture(runDetails: unknown = published, taskEvents: unknown = {
     expect(config.signal).toBe(signals[requests.length])
     requests.push({ url: config.url, method: config.method, params: config.params,
       signal: config.signal, timeout: config.timeout, maxContentLength: config.maxContentLength })
+    if (typeof config.timeout !== 'number') throw new Error('MISSING_OWNED_TIMEOUT')
+    timeouts.push(config.timeout)
     if (requests.length === failureAt) throw new Error('private-transport-error')
     return { status: 200, statusText: 'OK', headers: {}, config, data: requests.length === 1 ? runDetails : taskEvents }
   } }) }
@@ -139,40 +141,371 @@ function historyFixture(runDetails: unknown = published, taskEvents: unknown = {
     const index = observations++
     return call(signals[index], [8123, 7123][index])
   }
-  return { requests, phases, signals, read: (value: Parameters<typeof readRetryHistory>[1] = identity) =>
-    readRetryHistory(client, value, observed, phase => { phases.push(phase) }) }
+  return { requests, phases, signals, timeouts, read: (value: Parameters<typeof readRetryHistory>[1] = identity) => {
+    const commandValue = { ...value, deadlineAtMs: Date.now() + 10000 }
+    return readRetryHistory(client, commandValue, observed, phase => { phases.push(phase) })
+  } }
 }
 test('harness history uses the run ID for details and observed task ID for task events with owned request limits', async () => {
   const fixture = historyFixture()
   const result = await fixture.read()
   expect(fixture.requests).toEqual([
-    { url: `/api/v1/stable/workflow-runs/${identity.runId}`, method: 'get', params: undefined, signal: fixture.signals[0], timeout: 8123, maxContentLength: 65536 },
+    { url: `/api/v1/stable/workflow-runs/${identity.runId}`, method: 'get', params: undefined, signal: fixture.signals[0], timeout: expect.any(Number), maxContentLength: 65536 },
     { url: `/api/v1/stable/tasks/${identity.taskId}/task-events`, method: 'get', params: { limit: 100 }, signal: fixture.signals[1], timeout: 7123, maxContentLength: 65536 },
   ])
+  expect(fixture.timeouts[0]).toBeGreaterThan(0)
+  expect(fixture.timeouts[0]).toBeLessThanOrEqual(8123)
   expect(result).toEqual({ status: 'CANCELLED', events: [{ id: 7, taskId: identity.taskId, timestamp: '2026-09-11T00:00:00Z', eventType: 'FAILED', retryCount: 0, attempt: 1,
     code: 'AUTH_MAIL_CAPACITY_BUSY', unclassifiedError: false }] })
+  expect(fixture.phases).toEqual(['run-details-request', 'identity-decoding', 'task-events-request', 'history-sanitization'])
   expect(JSON.stringify(result).includes('private')).toBe(false)
 })
-test('harness history rejects a missing observed task ID before making a task-dependent request', async () => {
+test('harness history rejects a missing observed task ID before making any request', async () => {
   const fixture = historyFixture()
   await expect(fixture.read({ runId: identity.runId })).rejects.toThrow('MAIL_RETRY_FIXTURE_REJECTED')
-  expect(fixture.requests).toHaveLength(1)
+  expect(fixture.requests).toHaveLength(0)
   expect(fixture.phases.at(-1)).toBe('identity-decoding')
 })
 test('harness history preserves all run, task, workflow, tenant and single-task correlations', async () => {
   const task = published.tasks[0]
-  for (const state of [
-    { ...published, run: { ...published.run, metadata: { id: identity.taskId } } },
-    { ...published, tasks: [{ ...task, taskExternalId: identity.runId }] },
-    { ...published, tasks: [{ ...task, workflowRunExternalId: identity.taskId }] },
-    { ...published, run: { ...published.run, tenantId: identity.runId } },
-    { ...published, tasks: [{ ...task, tenantId: identity.runId }] },
-    { ...published, tasks: [] }, { ...published, tasks: [task, task] },
-  ]) {
+  for (const [state, phase] of [
+    [{ ...published, run: { ...published.run, metadata: { id: identity.taskId } } }, 'identity-run-id-mismatch'],
+    [{ ...published, tasks: [{ ...task, taskExternalId: identity.runId }] }, 'identity-task-id-mismatch'],
+    [{ ...published, tasks: [{ ...task, workflowRunExternalId: identity.taskId }] }, 'identity-task-run-mismatch'],
+    [{ ...published, run: { ...published.run, tenantId: identity.runId } }, 'identity-run-tenant-mismatch'],
+    [{ ...published, tasks: [{ ...task, tenantId: identity.runId }] }, 'identity-task-tenant-mismatch'],
+    [{ ...published, tasks: [task, task] }, 'identity-task-count'],
+  ] as const) {
     const fixture = historyFixture(state)
     await expect(fixture.read()).rejects.toThrow('MAIL_RETRY_FIXTURE_REJECTED')
-    expect(fixture.phases.at(-1)).toBe('identity-decoding')
+    expect(fixture.requests).toHaveLength(1)
+    expect(fixture.phases.at(-1)).toBe(phase)
+    const receipts: unknown[] = []
+    appendRetryCommandReceipt(receipts, { id: 1, op: 'history', label: 'B', ok: false, phase: fixture.phases.at(-1) })
+    expect(receipts).toEqual([{ id: 1, op: 'history', label: 'B', ok: false, phase }])
+    expect(JSON.stringify(receipts)).not.toMatch(/private|aaaaaaaa|bbbbbbbb|cccccccc|https/)
   }
+})
+// This fixture keeps the installed SDK's request/response path real. Only HTTP is controlled.
+// Empty membership is never accepted; the details sequence exposes a later exact owned row.
+function projectedHistoryFixture(details: readonly unknown[], timeout = 120, afterDetails: (count: number) => void | Promise<void> = () => {},
+  options: { deadlineAtMs?: number; afterEvents?: () => void | Promise<void>; events?: unknown } = {}) {
+  const requests: unknown[] = [], timeouts: number[] = [], eventTimeouts: number[] = [], phases: string[] = []
+  const controllers = [new AbortController(), new AbortController()]
+  const commandValue = { ...identity, deadlineAtMs: options.deadlineAtMs ?? Date.now() + timeout }
+  let observations = 0, detailsRead = 0
+  const client = { tenantId: identity.tenantId, api: new Api({ adapter: async config => {
+    const isDetails = config.url === `/api/v1/stable/workflow-runs/${identity.runId}`
+    expect(config.method).toBe('get')
+    expect(config.signal).toBe(controllers[isDetails ? 0 : 1].signal)
+    expect(config.maxContentLength).toBe(65536)
+    if (typeof config.timeout !== 'number') throw new Error('MISSING_OWNED_TIMEOUT')
+    expect(config.timeout).toBeGreaterThan(0)
+    expect(Number.isInteger(config.timeout)).toBe(true)
+    expect(config.timeout).toBeLessThanOrEqual(isDetails ? timeout : 7123)
+    if (isDetails) timeouts.push(config.timeout)
+    requests.push({ url: config.url, params: config.params, signal: config.signal })
+    if (isDetails) {
+      const data = details[detailsRead++]
+      await afterDetails(detailsRead)
+      return { status: 200, statusText: 'OK', headers: {}, config, data }
+    }
+    eventTimeouts.push(config.timeout)
+    await options.afterEvents?.()
+    return { status: 200, statusText: 'OK', headers: {}, config, data: options.events ?? { rows: [taskEvent], pagination: {} } }
+  } }) }
+  const observed: Parameters<typeof readRetryHistory>[2] = call => {
+    const index = observations++
+    return call(controllers[index].signal, index === 0 ? timeout : 7123)
+  }
+  return { requests, timeouts, eventTimeouts, phases, controllers, commandValue, client, observationCount: () => observations,
+    read: () => readRetryHistory(client, commandValue, observed, phase => { phases.push(phase) }) }
+}
+test('history waits for exact owned OLAP membership inside one shrinking request owner before reading task events', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  try {
+    const fixture = projectedHistoryFixture([{ ...published, tasks: [] }, { ...published, tasks: [] }, published])
+    const outcome = fixture.read().then(value => value, error => error)
+    await vi.runAllTimersAsync()
+    expect(await outcome).toEqual({ status: 'CANCELLED', events: [{ id: 7, taskId: identity.taskId, timestamp: '2026-09-11T00:00:00Z', eventType: 'FAILED', retryCount: 0, attempt: 1,
+      code: 'AUTH_MAIL_CAPACITY_BUSY', unclassifiedError: false }] })
+    expect(fixture.requests).toEqual([
+      { url: `/api/v1/stable/workflow-runs/${identity.runId}`, params: undefined, signal: fixture.controllers[0].signal },
+      { url: `/api/v1/stable/workflow-runs/${identity.runId}`, params: undefined, signal: fixture.controllers[0].signal },
+      { url: `/api/v1/stable/workflow-runs/${identity.runId}`, params: undefined, signal: fixture.controllers[0].signal },
+      { url: `/api/v1/stable/tasks/${identity.taskId}/task-events`, params: { limit: 100 }, signal: fixture.controllers[1].signal },
+    ])
+    expect(fixture.timeouts[1]).toBeLessThan(fixture.timeouts[0])
+    expect(fixture.timeouts[2]).toBeLessThan(fixture.timeouts[1])
+    expect(fixture.observationCount()).toBe(2)
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { vi.useRealTimers() }
+})
+test('delayed history delivery consumes the parent deadline and gives events only its short global remainder', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  try {
+    const fixture = projectedHistoryFixture([published], 120, () => {}, { deadlineAtMs: 1025 })
+    vi.setSystemTime(1020) // Time spent delivering the already-created command must not restart its budget.
+    const result = await fixture.read()
+    expect(result.status).toBe('CANCELLED')
+    expect(fixture.requests).toHaveLength(2)
+    expect(fixture.timeouts[0]).toBeGreaterThan(0)
+    expect(fixture.timeouts[0]).toBeLessThanOrEqual(5)
+    expect(fixture.eventTimeouts[0]).toBeGreaterThan(0)
+    expect(fixture.eventTimeouts[0]).toBeLessThanOrEqual(5)
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { vi.useRealTimers() }
+})
+test('a history command delivered at its parent deadline admits no details or events request', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  try {
+    const fixture = projectedHistoryFixture([published], 120, () => {}, { deadlineAtMs: 1025 })
+    vi.setSystemTime(1025)
+    await expect(fixture.read()).rejects.toThrow('MAIL_RETRY_FIXTURE_REJECTED')
+    expect(fixture.requests).toHaveLength(0)
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { vi.useRealTimers() }
+})
+test('membership appearing near the parent deadline cannot give events a fresh allowance', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  try {
+    const fixture = projectedHistoryFixture([{ ...published, tasks: [] }, published], 120,
+      count => { if (count === 2) vi.setSystemTime(1115) })
+    const outcome = fixture.read().then(value => value, error => error)
+    await vi.runAllTimersAsync()
+    expect(await outcome).toMatchObject({ status: 'CANCELLED' })
+    expect(fixture.timeouts).toHaveLength(2)
+    expect(fixture.eventTimeouts).toHaveLength(1)
+    expect(fixture.eventTimeouts[0]).toBeGreaterThan(0)
+    expect(fixture.eventTimeouts[0]).toBeLessThanOrEqual(5)
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { vi.useRealTimers() }
+})
+test('history keeps the expected run task and tenant captured before the first awaited details response', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  try {
+    const fixture = projectedHistoryFixture([{ ...published, tasks: [] }, published], 120, count => {
+      if (count === 1) {
+        fixture.commandValue.runId = identity.taskId
+        fixture.commandValue.taskId = identity.runId
+        fixture.client.tenantId = identity.runId
+      }
+    })
+    const outcome = fixture.read().then(value => value, error => error)
+    await vi.runAllTimersAsync()
+    expect(await outcome).toMatchObject({ status: 'CANCELLED' })
+    expect(fixture.requests).toEqual([
+      { url: `/api/v1/stable/workflow-runs/${identity.runId}`, params: undefined, signal: fixture.controllers[0].signal },
+      { url: `/api/v1/stable/workflow-runs/${identity.runId}`, params: undefined, signal: fixture.controllers[0].signal },
+      { url: `/api/v1/stable/tasks/${identity.taskId}/task-events`, params: { limit: 100 }, signal: fixture.controllers[1].signal },
+    ])
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { vi.useRealTimers() }
+})
+test('an events response at the parent deadline cannot succeed even when the abort timer has not fired', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  try {
+    const fixture = projectedHistoryFixture([published], 120, () => {},
+      { deadlineAtMs: 1025, afterEvents: () => { vi.setSystemTime(1025) } })
+    await expect(fixture.read()).rejects.toThrow('MAIL_RETRY_FIXTURE_REJECTED')
+    expect(fixture.requests).toHaveLength(2)
+    expect(fixture.controllers[1].signal.aborted).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { vi.useRealTimers() }
+})
+test('crossing the parent deadline during event sanitization cannot publish accepted history', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  try {
+    const eventData = { get rows() { vi.setSystemTime(1025); return [taskEvent] }, pagination: {} }
+    const fixture = projectedHistoryFixture([published], 120, () => {},
+      { deadlineAtMs: 1025, afterEvents: () => { vi.setSystemTime(1024) }, events: eventData })
+    await expect(fixture.read()).rejects.toThrow('MAIL_RETRY_FIXTURE_REJECTED')
+    expect(fixture.phases.at(-1)).toBe('history-sanitization')
+    expect(fixture.requests).toHaveLength(2)
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { vi.useRealTimers() }
+})
+test.each(['details', 'events'] as const)('shutdown during the in-flight %s request joins its actual adapter promise without another request', async stage => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  let release!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  try {
+    const fixture = projectedHistoryFixture([published], 120, () => stage === 'details' ? held : undefined,
+      { afterEvents: () => stage === 'events' ? held : undefined })
+    let settled = false
+    const outcome = fixture.read().then(value => { settled = true; return value }, error => { settled = true; return error })
+    await vi.advanceTimersByTimeAsync(0)
+    const requestCount = stage === 'details' ? 1 : 2
+    expect(fixture.requests).toHaveLength(requestCount)
+    fixture.controllers[stage === 'details' ? 0 : 1].abort()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(settled).toBe(false)
+    release()
+    const failure: unknown = await outcome
+    expect(failure).toBeInstanceOf(Error)
+    expect(fixture.requests).toHaveLength(requestCount)
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { release(); vi.useRealTimers() }
+})
+test('missing or invalid parent history deadlines are refused before the installed SDK admits HTTP', async () => {
+  const requests: unknown[] = []
+  const controller = new AbortController()
+  const client = { tenantId: identity.tenantId, api: new Api({ adapter: async config => {
+    requests.push(config.url)
+    return { status: 200, statusText: 'OK', headers: {}, config, data: published }
+  } }) }
+  const observed: Parameters<typeof readRetryHistory>[2] = call => call(controller.signal, 10000)
+  for (const deadlineAtMs of [undefined, Number.NaN, Number.POSITIVE_INFINITY]) {
+    const commandValue = { ...identity, deadlineAtMs }
+    await expect(readRetryHistory(client, commandValue, observed, () => {})).rejects.toThrow('MAIL_RETRY_FIXTURE_REJECTED')
+    expect(requests).toHaveLength(0)
+  }
+})
+test('repeated owned empty projections share one deadline instead of restarting a budget for each GET', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  try {
+    const empty = { ...published, tasks: [] }
+    const fixture = projectedHistoryFixture([empty, empty, empty, published])
+    const outcome = fixture.read().catch(error => error)
+    await vi.advanceTimersByTimeAsync(120)
+    const failure: unknown = await outcome
+    expect(failure).toBeInstanceOf(Error)
+    expect(failure instanceof Error && failure.message).toBe('MAIL_RETRY_FIXTURE_REJECTED')
+    expect(fixture.timeouts).toHaveLength(3)
+    expect(fixture.timeouts[1]).toBeLessThan(fixture.timeouts[0])
+    expect(fixture.timeouts[2]).toBeLessThan(fixture.timeouts[1])
+    expect(fixture.requests).toHaveLength(3)
+    expect(fixture.observationCount()).toBe(1)
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { vi.useRealTimers() }
+})
+test('owned empty membership remains a refusal at the original deadline without a new request or task-event admission', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  try {
+    const fixture = projectedHistoryFixture([{ ...published, tasks: [] }, published], 25)
+    const outcome = fixture.read().catch(error => error)
+    await vi.advanceTimersByTimeAsync(25)
+    const failure: unknown = await outcome
+    expect(failure).toBeInstanceOf(Error)
+    expect(failure instanceof Error && failure.message).toBe('MAIL_RETRY_FIXTURE_REJECTED')
+    expect(Date.now()).toBe(1025)
+    expect(fixture.phases.at(-1)).toBe('identity-tasks-empty')
+    expect(fixture.requests).toEqual([{ url: `/api/v1/stable/workflow-runs/${identity.runId}`, params: undefined, signal: fixture.controllers[0].signal }])
+    expect(fixture.observationCount()).toBe(1)
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { vi.useRealTimers() }
+})
+test('empty membership with a foreign or malformed run cannot enter the owned projection wait', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  try {
+    for (const run of [
+      { ...published.run, metadata: { id: identity.taskId } },
+      { ...published.run, tenantId: identity.runId },
+      { ...published.run, metadata: { id: 'private-run' } },
+      { ...published.run, tenantId: 'private-tenant' },
+      { ...published.run, status: 'private-status' },
+    ]) {
+      const fixture = projectedHistoryFixture([{ ...published, run, tasks: [] }, published])
+      const outcome = fixture.read().catch(error => error)
+      await vi.runAllTimersAsync()
+      const failure: unknown = await outcome
+      expect(failure).toBeInstanceOf(Error)
+      expect(failure instanceof Error && failure.message).toBe('MAIL_RETRY_FIXTURE_REJECTED')
+      expect(fixture.timeouts).toHaveLength(1)
+      expect(fixture.requests).toHaveLength(1)
+      expect(fixture.eventTimeouts).toHaveLength(0)
+      expect(vi.getTimerCount()).toBe(0)
+    }
+  } finally { vi.useRealTimers() }
+})
+test('a later foreign, malformed or multiple-task projection never becomes pending or accepted', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  try {
+    for (const tasks of [
+      [{ ...published.tasks[0], taskExternalId: identity.runId }],
+      [{ ...published.tasks[0], workflowRunExternalId: identity.taskId }],
+      [{ ...published.tasks[0], tenantId: identity.runId }],
+      [published.tasks[0], published.tasks[0]], 'private-tasks', [{ private: 'private-task' }],
+    ]) {
+      const fixture = projectedHistoryFixture([{ ...published, tasks: [] }, { ...published, tasks }, published])
+      const outcome = fixture.read().catch(error => error)
+      await vi.runAllTimersAsync()
+      const failure: unknown = await outcome
+      expect(failure).toBeInstanceOf(Error)
+      expect(failure instanceof Error && failure.message).toBe('MAIL_RETRY_FIXTURE_REJECTED')
+      expect(fixture.timeouts).toHaveLength(2)
+      expect(fixture.requests).toHaveLength(2)
+      expect(fixture.eventTimeouts).toHaveLength(0)
+      expect(vi.getTimerCount()).toBe(0)
+    }
+  } finally { vi.useRealTimers() }
+})
+test('shutdown aborts and joins the owned projection delay without another GET or event request', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  try {
+    const fixture = projectedHistoryFixture([{ ...published, tasks: [] }, published])
+    const outcome = fixture.read().catch(error => error)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(vi.getTimerCount()).toBe(1)
+    fixture.controllers[0].abort()
+    const failure: unknown = await outcome
+    expect(failure).toBeInstanceOf(Error)
+    expect(failure instanceof Error && failure.message).toBe('MAIL_RETRY_FIXTURE_REJECTED')
+    expect(vi.getTimerCount()).toBe(0)
+    await vi.advanceTimersByTimeAsync(120)
+    expect(fixture.requests).toHaveLength(1)
+    expect(fixture.observationCount()).toBe(1)
+  } finally { vi.useRealTimers() }
+})
+test('a pre-aborted owner admits no request and a response at its deadline cannot be accepted', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  try {
+    const aborted = projectedHistoryFixture([published])
+    aborted.controllers[0].abort()
+    await expect(aborted.read()).rejects.toBeInstanceOf(Error)
+    expect(aborted.requests).toHaveLength(0)
+    const expired = projectedHistoryFixture([published], 25, () => { vi.setSystemTime(1025) })
+    await expect(expired.read()).rejects.toThrow('MAIL_RETRY_FIXTURE_REJECTED')
+    expect(expired.requests).toHaveLength(1)
+    expect(expired.observationCount()).toBe(1)
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { vi.useRealTimers() }
+})
+test('a response delivered after owner cancellation cannot admit task events or return history', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  try {
+    const fixture = projectedHistoryFixture([published], 120, () => { fixture.controllers[0].abort() })
+    await expect(fixture.read()).rejects.toBeInstanceOf(Error)
+    expect(fixture.requests).toHaveLength(1)
+    expect(fixture.observationCount()).toBe(1)
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { vi.useRealTimers() }
+})
+test('harness history reduces malformed and hostile identity data to one finite shape refusal without raw fallback', async () => {
+  const hostile = Object.defineProperty({}, 'run', { get() { throw new Error('private-identity-access https://private.invalid') } })
+  for (const state of [null, { run: undefined }, 'private-raw-identity', hostile, { ...published, tasks: 'private-tasks' },
+    { ...published, run: { ...published.run, metadata: { id: 'private-run' } } },
+    { ...published, run: { ...published.run, status: 'private-status' } },
+    { ...published, tasks: [{ ...published.tasks[0], taskExternalId: 'private-task' }] },
+  ]) {
+    const fixture = historyFixture(state)
+    const failure: unknown = await fixture.read().catch(error => error)
+    expect(failure).toBeInstanceOf(Error)
+    expect(failure instanceof Error && failure.message).toBe('MAIL_RETRY_FIXTURE_REJECTED')
+    expect(fixture.phases.at(-1)).toBe('identity-shape')
+    expect(fixture.requests).toHaveLength(1)
+    const receipts: unknown[] = []
+    appendRetryCommandReceipt(receipts, { id: 1, op: 'history', label: 'B', ok: false, phase: fixture.phases.at(-1) })
+    expect(receipts).toEqual([{ id: 1, op: 'history', label: 'B', ok: false, phase: 'identity-shape' }])
+    expect(JSON.stringify(receipts)).not.toMatch(/private|aaaaaaaa|bbbbbbbb|cccccccc|https/)
+  }
+})
+test('harness history reports cardinality before binding and emits no details for a rejected multi-task response', async () => {
+  const fixture = historyFixture({ ...published, run: { ...published.run, tenantId: identity.runId },
+    tasks: [published.tasks[0], { private: 'private-unknown-task https://private.invalid' }] })
+  await expect(fixture.read()).rejects.toThrow('MAIL_RETRY_FIXTURE_REJECTED')
+  expect(fixture.phases.at(-1)).toBe('identity-task-count')
+  expect(fixture.requests).toHaveLength(1)
 })
 test('harness history rejects 100 task-event rows despite empty pagination metadata', async () => {
   const fixture = historyFixture(published, { rows: Array.from({ length: 100 }, (_, id) => ({ ...taskEvent, id })), pagination: {} })
@@ -198,7 +531,7 @@ test('harness history does not manufacture missing or unrelated native evidence'
 })
 test('harness history failures keep request and decoder phases closed without recording transport details', async () => {
   for (const [fixture, phase] of [
-    [historyFixture(published, {}, 1), 'run-details-request'],
+    [historyFixture(published, {}, 1), 'run-details-rejected'],
     [historyFixture(published, {}, 2), 'task-events-request'],
     [historyFixture(published, { rows: [{ ...taskEvent, eventType: 'private-event' }] }), 'history-sanitization'],
     [historyFixture(published, { rows: [taskEvent], pagination: { next_page: 1 } }), 'history-sanitization'],
@@ -209,5 +542,483 @@ test('harness history failures keep request and decoder phases closed without re
     appendRetryCommandReceipt(receipts, { id: 1, op: 'history', label: 'B', ok: false, phase: fixture.phases.at(-1) })
     expect(receipts).toEqual([{ id: 1, op: 'history', label: 'B', ok: false, phase }])
     expect(JSON.stringify(receipts).includes('private')).toBe(false)
+  }
+})
+// These fixtures qualify diagnostic privacy/shape only; they do not reproduce native I3.
+const ownedRetryParent = '/owned/project/tests/integration/mail-retry-native.test.ts'
+function stackFailure(stack: unknown): Error {
+  const error = new Error('private-message-token')
+  Object.defineProperty(error, 'stack', { value: stack, configurable: true })
+  return error
+}
+test('parent failure frames expose only numeric coordinates for the exact owned parent path', () => {
+  const result = parentFailureFrames(stackFailure(`Error: private-message-token
+    at requireFact (${ownedRetryParent}:159:65)
+    at async history (file://${ownedRetryParent}:288:9)
+    at ${ownedRetryParent}:331:8
+    at foreign (/foreign/project/tests/integration/mail-retry-native.test.ts:123:4)
+    at foreign (/owned/project/tests/helpers/mail-retry-observation.ts:1:2)
+    at remote (https://private.example${ownedRetryParent}:3:4)`), ownedRetryParent)
+  expect(result).toEqual([{ line: 159, column: 65 }, { line: 288, column: 9 }, { line: 331, column: 8 }])
+  expect(JSON.stringify(result)).not.toMatch(/private|owned|foreign|https|Error|stack|message|token/)
+})
+test('parent failure frames support exact Windows paths without disclosing a drive or file URL', () => {
+  const owned = 'C:\\owned\\project\\tests\\integration\\mail-retry-native.test.ts'
+  expect(parentFailureFrames(stackFailure(`Error: private
+    at body (${owned}:285:17)
+    at async body (file:///C:/owned/project/tests/integration/mail-retry-native.test.ts:287:5)`), owned)).toEqual([
+    { line: 285, column: 17 }, { line: 287, column: 5 },
+  ])
+})
+test('parent failure frames cap output at four and reject zero, fractional, negative and oversized coordinates', () => {
+  const invalid = ['0:1', '1:0', '-1:1', '1:-1', '1.5:2', '1:2.5', '100001:1', '1:100001', '9999999999999999:1']
+  const stack = ['Error: private', ...invalid.map(pair => `    at body (${ownedRetryParent}:${pair})`),
+    ...[1, 2, 3, 100000, 5].map(line => `    at body (${ownedRetryParent}:${line}:100000)`)].join('\n')
+  expect(parentFailureFrames(stackFailure(stack), ownedRetryParent)).toEqual([
+    { line: 1, column: 100000 }, { line: 2, column: 100000 }, { line: 3, column: 100000 }, { line: 100000, column: 100000 },
+  ])
+})
+test('parent failure frames reject oversized stack input and malformed or foreign frames without raw fallback', () => {
+  const valid = `    at body (${ownedRetryParent}:159:65)`
+  for (const input of [undefined, null, 'private', { stack: `Error: private\n${valid}` }, stackFailure(undefined), stackFailure(42),
+    stackFailure('x'.repeat(16385)), stackFailure(`Error: private\n${'x'.repeat(16384)}\n${valid}`),
+    stackFailure(`Error: private\n${ownedRetryParent}:1:2\n    not-at (${ownedRetryParent}:3:4)\n    at foreign (/foreign.ts:1:2)`),
+    stackFailure(`Error: private\n    at body (${ownedRetryParent}.private:1:2)`),
+  ]) expect(parentFailureFrames(input, ownedRetryParent)).toEqual([])
+  expect(parentFailureFrames(stackFailure(`Error: private\n${valid}`), '/foreign.ts')).toEqual([])
+})
+test('parent failure projection never inspects error name, message or cause and safely contains a throwing stack getter', () => {
+  const error = stackFailure(`Error: private\n    at body (${ownedRetryParent}:288:9)`)
+  for (const key of ['name', 'message', 'cause']) Object.defineProperty(error, key, { get() { throw new Error('private-access') } })
+  expect(parentFailureFrames(error, ownedRetryParent)).toEqual([{ line: 288, column: 9 }])
+  const hostile = new Error()
+  Object.defineProperty(hostile, 'stack', { get() { throw new Error('private-stack-access') } })
+  expect(parentFailureFrames(hostile, ownedRetryParent)).toEqual([])
+})
+test('last completed command diagnostic reuses strict finite receipt validation and omits its ID', () => {
+  expect(lastCommandFailure({ id: 17, op: 'history', label: 'E', ok: false, phase: 'identity-decoding' })).toEqual({ op: 'history', label: 'E', ok: false, phase: 'identity-decoding' })
+  expect(lastCommandFailure({ id: 18, op: 'release', label: 'E', ok: true })).toEqual({ op: 'release', label: 'E', ok: true })
+  expect(lastCommandFailure({ id: 19, op: 'admit', label: null, ok: true })).toEqual({ op: 'admit', label: null, ok: true })
+})
+test('last completed command diagnostic returns null for absent, malformed, extra or hostile input without raw fallback', () => {
+  const valid = { id: 17, op: 'history', label: 'E', ok: false }
+  const hostile = Object.defineProperty({}, 'id', { get() { throw new Error('private-access') } })
+  for (const input of [undefined, null, 'private', hostile, { ...valid, id: 0 }, { ...valid, id: 'private-id' },
+    { ...valid, op: 'private-op' }, { ...valid, label: 'private-label' }, { ...valid, ok: 'private' },
+    { ...valid, phase: 'private-phase' }, { ...valid, ok: true, phase: 'identity-decoding' },
+    { ...valid, op: 'release', phase: 'identity-decoding' }, { ...valid, value: 'private-value' }, { ...valid, error: 'private-error' },
+  ]) expect(lastCommandFailure(input)).toBeNull()
+})
+
+// Real installed Api -> Axios fetch adapter; only the Fetch endpoint is controlled.
+function diagnosticHistoryFixture(options: { status?: number; network?: boolean; hold?: boolean;
+  afterApiResponse?: () => void; decorateFailure?: (error: unknown) => void; beforeObserved?: () => void; onPhase?: (phase: string) => void;
+  responses?: readonly { status: number; body?: unknown }[]; deadlineMs?: number } = {}) {
+  const controllers = [new AbortController(), new AbortController()], controller = controllers[0]
+  const requests: string[] = [], phases: string[] = [], detailsTimeouts: number[] = []
+  let observations = 0
+  const command = { ...identity, deadlineAtMs: Date.now() + (options.deadlineMs ?? 10000) }
+  const localFetch: typeof fetch = async (input, init) => {
+    const request = input instanceof Request ? input : new Request(input, init)
+    requests.push(new URL(request.url).pathname)
+    if (options.network) throw new TypeError('fetch failed: private network material')
+    if (options.hold) return new Promise<Response>((_resolve, reject) => {
+      const aborted = () => reject(request.signal.reason)
+      request.signal.addEventListener('abort', aborted, { once: true })
+      if (request.signal.aborted) { request.signal.removeEventListener('abort', aborted); aborted() }
+    })
+    const sequence = options.responses
+    const scripted = sequence ? sequence[Math.min(requests.length - 1, sequence.length - 1)] : undefined
+    const body = scripted ? scripted.body : options.status ? { private: 'response body' } : published
+    return new Response(body === undefined ? undefined : JSON.stringify(body), {
+      status: scripted?.status ?? options.status ?? 200, headers: { 'Content-Type': 'application/json' },
+    })
+  }
+  const api = new Api({ baseURL: 'https://retry-fixture.invalid', adapter: 'fetch', env: { fetch: localFetch } })
+  const originalGet = api.v1WorkflowRunGet
+  api.v1WorkflowRunGet = async (...args) => {
+    expect(args[1]?.signal).toBe(controller.signal)
+    const timeout = args[1]?.timeout
+    if (typeof timeout === 'number') detailsTimeouts.push(timeout)
+    try {
+      const response = await originalGet(...args)
+      options.afterApiResponse?.()
+      return response
+    } catch (error) { options.decorateFailure?.(error); throw error }
+  }
+  const client = { api, tenantId: identity.tenantId }
+  const observed: Parameters<typeof readRetryHistory>[2] = call => {
+    const index = observations++
+    options.beforeObserved?.()
+    return call(controllers[index].signal, 120)
+  }
+  return { controller, controllers, requests, phases, api, client, command, detailsTimeouts, observationCount: () => observations,
+    read: () => readRetryHistory(client, command, observed, phase => { phases.push(phase); options.onPhase?.(phase) }) }
+}
+function checkedDetailsDiagnostic(phases: string[], expected: string) {
+  expect(phases.at(-1)).toBe(expected)
+  const receipts: unknown[] = []
+  appendRetryCommandReceipt(receipts, { id: 1, op: 'history', label: 'B', ok: false, phase: phases.at(-1) })
+  expect(receipts).toEqual([{ id: 1, op: 'history', label: 'B', ok: false, phase: expected }])
+  expect(JSON.stringify({ phases, receipts })).not.toMatch(/private|fixture\.invalid|aaaaaaaa|bbbbbbbb|cccccccc/)
+}
+test.each([[401, 'run-details-http-other'], [403, 'run-details-http-other'], [429, 'run-details-http-other'], [500, 'run-details-http-other'], [503, 'run-details-http-other']] as const)(
+  'real Axios details status%s stays rejected and yields only the finite failure category', async (status, phase) => {
+    const fixture = diagnosticHistoryFixture({ status })
+    await expect(fixture.read()).rejects.toBeInstanceOf(Error)
+    expect(fixture.requests).toEqual([`/api/v1/stable/workflow-runs/${identity.runId}`])
+    checkedDetailsDiagnostic(fixture.phases, phase)
+  })
+test('real Axios details transport rejection is distinct from HTTP and carries no raw failure', async () => {
+  const fixture = diagnosticHistoryFixture({ network: true })
+  await expect(fixture.read()).rejects.toBeInstanceOf(Error)
+  expect(fixture.requests).toHaveLength(1)
+  checkedDetailsDiagnostic(fixture.phases, 'run-details-transport')
+})
+test.each(['timeout', 'cancelled'] as const)('real Axios details %s is finite and never admits task events', async kind => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  try {
+    const fixture = diagnosticHistoryFixture({ hold: true }), outcome = fixture.read().then(value => value, error => error)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fixture.requests).toHaveLength(1)
+    if (kind === 'cancelled') fixture.controller.abort()
+    await vi.runAllTimersAsync()
+    expect(await outcome).toBeInstanceOf(Error)
+    expect(fixture.requests).toHaveLength(1)
+    checkedDetailsDiagnostic(fixture.phases, kind === 'timeout' ? 'run-details-timeout' : 'run-details-cancelled')
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { vi.useRealTimers() }
+})
+test('details owner distinguishes cancellation after the actual Axios response from rejected transport', async () => {
+  const fixture = diagnosticHistoryFixture({ afterApiResponse: () => fixture.controller.abort() })
+  await expect(fixture.read()).rejects.toThrow('MAIL_RETRY_FIXTURE_REJECTED')
+  expect(fixture.requests).toHaveLength(1)
+  checkedDetailsDiagnostic(fixture.phases, 'run-details-aborted-after')
+})
+test.each(['before', 'after'] as const)('details deadline exhaustion %s the request remains refused under its original deadline', async stage => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  try {
+    const expire = () => vi.setSystemTime(11000)
+    const fixture = diagnosticHistoryFixture(stage === 'before' ? { beforeObserved: expire } : { afterApiResponse: expire })
+    await expect(fixture.read()).rejects.toThrow('MAIL_RETRY_FIXTURE_REJECTED')
+    expect(fixture.requests).toHaveLength(stage === 'before' ? 0 : 1)
+    checkedDetailsDiagnostic(fixture.phases, stage === 'before' ? 'run-details-budget-before' : 'run-details-budget-after')
+    await vi.runAllTimersAsync()
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { vi.useRealTimers() }
+})
+test('pre-aborted details owner emits no HTTP and reports only its before-request refusal', async () => {
+  const fixture = diagnosticHistoryFixture()
+  fixture.controller.abort()
+  await expect(fixture.read()).rejects.toThrow('MAIL_RETRY_FIXTURE_REJECTED')
+  expect(fixture.requests).toHaveLength(0)
+  checkedDetailsDiagnostic(fixture.phases, 'run-details-aborted-before')
+})
+test('unknown details rejection never falls back to error text or arbitrary code', async () => {
+  const fixture = diagnosticHistoryFixture({ afterApiResponse: () => { throw new Error('private unclassified failure') } })
+  await expect(fixture.read()).rejects.toBeInstanceOf(Error)
+  expect(fixture.requests).toHaveLength(1)
+  checkedDetailsDiagnostic(fixture.phases, 'run-details-rejected')
+})
+test('real Axios HTTP classification never reads body config message stack request or serialization getters', async () => {
+  let inspected = 0
+  const fixture = diagnosticHistoryFixture({ status: 401, decorateFailure(error) {
+    if (!(error instanceof Error)) throw new Error('Expected installed Axios error')
+    for (const key of ['body', 'response', 'config', 'message', 'stack', 'request', 'toJSON']) {
+      Object.defineProperty(error, key, { configurable: true, get() { inspected++; throw new Error('private forbidden getter') } })
+    }
+  } })
+  const outcome: unknown = await fixture.read().then(value => value, error => error)
+  expect(outcome).toBeInstanceOf(Error)
+  expect(inspected).toBe(0)
+  checkedDetailsDiagnostic(fixture.phases, 'run-details-http-other')
+})
+test.each(['isAxiosError', 'status', 'code'] as const)('an accessor at Axios diagnostic field%s yields unknown without invoking it', async key => {
+  let inspected = 0
+  const fixture = diagnosticHistoryFixture({ status: 404, decorateFailure(error) {
+    if (!(error instanceof Error)) throw new Error('Expected installed Axios error')
+    Object.defineProperty(error, key, { configurable: true, get() { inspected++; return 'private getter material' } })
+  } })
+  await expect(fixture.read()).rejects.toBeInstanceOf(Error)
+  expect(inspected).toBe(0)
+  checkedDetailsDiagnostic(fixture.phases, 'run-details-rejected')
+})
+
+const missingProjection = { status: 404, body: { private: 'unverified projection' } }
+const matchingProjection = { status: 200, body: published }
+const matchingTaskEvents = { status: 200, body: { rows: [taskEvent], pagination: {} } }
+test('unverified404 then exact200 admits events only after all captured bindings match under one details owner', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  try {
+    const fixture = diagnosticHistoryFixture({ responses: [missingProjection, matchingProjection, matchingTaskEvents], deadlineMs: 125 })
+    const outcome = fixture.read().then(value => value, error => error)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fixture.requests).toHaveLength(1)
+    expect(fixture.phases.at(-1)).toBe('run-details-http-404')
+    await vi.runAllTimersAsync()
+    const result: unknown = await outcome
+    expect(result).toEqual({ status: 'CANCELLED', events: [{ id: 7, taskId: identity.taskId, timestamp: '2026-09-11T00:00:00Z', eventType: 'FAILED', retryCount: 0, attempt: 1,
+      code: 'AUTH_MAIL_CAPACITY_BUSY', unclassifiedError: false }] })
+    expect(fixture.requests).toEqual([`/api/v1/stable/workflow-runs/${identity.runId}`, `/api/v1/stable/workflow-runs/${identity.runId}`, `/api/v1/stable/tasks/${identity.taskId}/task-events`])
+    expect(fixture.detailsTimeouts[1]).toBeLessThan(fixture.detailsTimeouts[0])
+    expect(fixture.observationCount()).toBe(2)
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { vi.useRealTimers() }
+})
+test('permanent404 exhausts the captured parent deadline rather than restarting it from mutated input', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  try {
+    const fixture = diagnosticHistoryFixture({ responses: [missingProjection], deadlineMs: 125,
+      decorateFailure() { fixture.command.deadlineAtMs = 999999 } })
+    const outcome = fixture.read().then(value => value, error => error)
+    await vi.runAllTimersAsync()
+    expect(await outcome).toBeInstanceOf(Error)
+    expect(fixture.requests).toHaveLength(3)
+    expect(fixture.requests.every(path => path === `/api/v1/stable/workflow-runs/${identity.runId}`)).toBe(true)
+    expect(fixture.detailsTimeouts[1]).toBeLessThan(fixture.detailsTimeouts[0])
+    expect(fixture.detailsTimeouts[2]).toBeLessThan(fixture.detailsTimeouts[1])
+    expect(Date.now()).toBe(1125)
+    expect(fixture.observationCount()).toBe(1)
+    checkedDetailsDiagnostic(fixture.phases, 'run-details-http-404')
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { vi.useRealTimers() }
+})
+test('cancellation joins the404 projection pause and cannot issue a later details or event request', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  try {
+    const fixture = diagnosticHistoryFixture({ responses: [missingProjection, matchingProjection, matchingTaskEvents] })
+    let settled = false
+    const outcome = fixture.read().then(value => { settled = true; return value }, error => { settled = true; return error })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fixture.requests).toHaveLength(1)
+    expect(settled).toBe(false)
+    fixture.controller.abort()
+    await vi.runAllTimersAsync()
+    expect(await outcome).toBeInstanceOf(Error)
+    expect(fixture.requests).toHaveLength(1)
+    expect(fixture.observationCount()).toBe(1)
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { vi.useRealTimers() }
+})
+test('404 cannot cause input run task tenant or deadline aliases to replace the captured identity', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  try {
+    const fixture = diagnosticHistoryFixture({ responses: [missingProjection, matchingProjection, matchingTaskEvents], deadlineMs: 125,
+      decorateFailure() { fixture.command.runId = identity.taskId; fixture.command.taskId = identity.runId; fixture.command.deadlineAtMs = 999999; fixture.client.tenantId = identity.runId } })
+    const outcome = fixture.read().then(value => value, error => error)
+    await vi.runAllTimersAsync()
+    expect(await outcome).toMatchObject({ status: 'CANCELLED', events: [{ taskId: identity.taskId }] })
+    expect(fixture.requests).toEqual([`/api/v1/stable/workflow-runs/${identity.runId}`, `/api/v1/stable/workflow-runs/${identity.runId}`, `/api/v1/stable/tasks/${identity.taskId}/task-events`])
+    expect(fixture.detailsTimeouts[1]).toBeLessThan(fixture.detailsTimeouts[0])
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { vi.useRealTimers() }
+})
+test.each([
+  [{ ...published, run: { ...published.run, metadata: { id: identity.taskId } } }, 'identity-run-id-mismatch'],
+  [{ ...published, run: { ...published.run, tenantId: identity.runId } }, 'identity-run-tenant-mismatch'],
+  [{ ...published, tasks: [{ ...published.tasks[0], taskExternalId: identity.runId }] }, 'identity-task-id-mismatch'],
+  [{ ...published, tasks: [{ ...published.tasks[0], workflowRunExternalId: identity.taskId }] }, 'identity-task-run-mismatch'],
+  [{ ...published, tasks: [{ ...published.tasks[0], tenantId: identity.runId }] }, 'identity-task-tenant-mismatch'],
+  [{ ...published, tasks: [published.tasks[0], published.tasks[0]] }, 'identity-task-count'],
+] as const)('404 followed by a rejected200 projection never admits events: %s', async (body, phase) => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  try {
+    const fixture = diagnosticHistoryFixture({ responses: [missingProjection, { status: 200, body }], deadlineMs: 125 })
+    const outcome = fixture.read().then(value => value, error => error)
+    await vi.runAllTimersAsync()
+    expect(await outcome).toBeInstanceOf(Error)
+    expect(fixture.requests).toEqual([`/api/v1/stable/workflow-runs/${identity.runId}`, `/api/v1/stable/workflow-runs/${identity.runId}`])
+    checkedDetailsDiagnostic(fixture.phases, phase)
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { vi.useRealTimers() }
+})
+test('404 followed by owned-empty200 keeps the existing bounded wait until exact membership', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  try {
+    const fixture = diagnosticHistoryFixture({ responses: [missingProjection, { status: 200, body: { ...published, tasks: [] } }, matchingProjection, matchingTaskEvents], deadlineMs: 225 })
+    const outcome = fixture.read().then(value => value, error => error)
+    await vi.runAllTimersAsync()
+    expect(await outcome).toMatchObject({ status: 'CANCELLED' })
+    expect(fixture.requests).toHaveLength(4)
+    expect(fixture.phases).toContain('identity-tasks-empty')
+    expect(fixture.observationCount()).toBe(2)
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { vi.useRealTimers() }
+})
+test.each([[201, 'matching', published], [202, 'matching', published], [201, 'empty', { ...published, tasks: [] }], [202, 'empty', { ...published, tasks: [] }]] as const)(
+  'real Axios fulfilled%s with%s data is a new immediate refusal before pending or events', async (status, _shape, body) => {
+    vi.useFakeTimers(); vi.setSystemTime(1000)
+    try {
+      const fixture = diagnosticHistoryFixture({ responses: [{ status, body }, matchingTaskEvents], deadlineMs: 125 })
+      const outcome = fixture.read().then(value => value, error => error)
+      await vi.runAllTimersAsync()
+      expect(await outcome).toBeInstanceOf(Error)
+      expect(fixture.requests).toHaveLength(1)
+      checkedDetailsDiagnostic(fixture.phases, 'run-details-http-other')
+      expect(vi.getTimerCount()).toBe(0)
+    } finally { vi.useRealTimers() }
+  })
+test.each([null, undefined])('a malformed fulfilled SDK response%s is never a NOT_PROJECTED sentinel', async value => {
+  const fixture = diagnosticHistoryFixture({ responses: [matchingProjection] }), actualGet = fixture.api.v1WorkflowRunGet
+  Object.defineProperty(fixture.api, 'v1WorkflowRunGet', { configurable: true, value: async (...args: Parameters<typeof actualGet>) => { await actualGet(...args); return value } })
+  await expect(fixture.read()).rejects.toBeInstanceOf(Error)
+  expect(fixture.requests).toHaveLength(1)
+  expect(fixture.observationCount()).toBe(1)
+})
+test('a404 with unknown code remains diagnostic only and fails without a pending read', async () => {
+  const fixture = diagnosticHistoryFixture({ status: 404, decorateFailure(error) {
+    if (!(error instanceof Error)) throw new Error('Expected installed Axios error')
+    Object.defineProperty(error, 'code', { value: 'private-unclassified-code', configurable: true })
+  } })
+  await expect(fixture.read()).rejects.toBeInstanceOf(Error)
+  expect(fixture.requests).toHaveLength(1)
+  checkedDetailsDiagnostic(fixture.phases, 'run-details-http-404')
+})
+test('one error data snapshot drives both404 phase and pending admission despite descriptor changes on reread', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  try {
+    const fixture = diagnosticHistoryFixture({ responses: [missingProjection, matchingProjection, matchingTaskEvents], deadlineMs: 125 })
+    const actualGet = fixture.api.v1WorkflowRunGet, reads = new Map<PropertyKey, number>()
+    Object.defineProperty(fixture.api, 'v1WorkflowRunGet', { configurable: true, value: async (...args: Parameters<typeof actualGet>) => {
+      try { return await actualGet(...args) }
+      catch (error) {
+        if (typeof error !== 'object' || error === null) throw error
+        throw new Proxy(error, { getOwnPropertyDescriptor(target, key) {
+          if (key === 'isAxiosError' || key === 'status' || key === 'code') {
+            const count = (reads.get(key) ?? 0) + 1; reads.set(key, count)
+            if (count > 1) return { configurable: true, enumerable: true, writable: true, value: 'private-reread-value' }
+          }
+          return Reflect.getOwnPropertyDescriptor(target, key)
+        } })
+      }
+    } })
+    const outcome = fixture.read().then(value => value, error => error)
+    await vi.runAllTimersAsync()
+    expect(await outcome).toMatchObject({ status: 'CANCELLED' })
+    expect([...reads.entries()]).toEqual([['isAxiosError', 1], ['status', 1], ['code', 1]])
+    expect(fixture.requests).toHaveLength(3)
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { vi.useRealTimers() }
+})
+
+test('a fulfilled404 response is RESPONSE and must not become unverified NOT_PROJECTED', async () => {
+  const fixture = diagnosticHistoryFixture({ responses: [{ status: 404, body: published }, matchingTaskEvents] })
+  fixture.api.instance.defaults.validateStatus = () => true
+  await expect(fixture.read()).rejects.toThrow('MAIL_RETRY_FIXTURE_REJECTED')
+  expect(fixture.requests).toHaveLength(1)
+  checkedDetailsDiagnostic(fixture.phases, 'run-details-http-other')
+})
+
+test('bounded404 pending preserves forbidden-getter privacy before exact200 and admits no early event read', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  let inspected = 0, rejected404 = false
+  let stop: (() => void) | undefined
+  let joined: Promise<unknown> = Promise.resolve(undefined)
+  try {
+    const fixture = diagnosticHistoryFixture({ responses: [missingProjection, matchingProjection, matchingTaskEvents], deadlineMs: 125,
+      decorateFailure(error) {
+        if (!(error instanceof Error)) throw new Error('Expected installed Axios error')
+        expect(Object.getOwnPropertyDescriptor(error, 'status')?.value).toBe(404)
+        rejected404 = true
+        for (const key of ['body', 'response', 'config', 'message', 'stack', 'request', 'toJSON']) {
+          Object.defineProperty(error, key, { configurable: true, get() { inspected++; throw new Error('private forbidden getter') } })
+        }
+      } })
+    stop = () => { for (const controller of fixture.controllers) controller.abort() }
+    let settled = false
+    const outcome = fixture.read().then(value => { settled = true; return value }, error => { settled = true; return error })
+    joined = outcome
+    await vi.advanceTimersByTimeAsync(0)
+    expect(rejected404).toBe(true)
+    expect(inspected).toBe(0)
+    expect(settled).toBe(false)
+    expect(fixture.requests).toEqual([`/api/v1/stable/workflow-runs/${identity.runId}`])
+    expect(fixture.observationCount()).toBe(1)
+    expect(fixture.phases.at(-1)).toBe('run-details-http-404')
+    await vi.runAllTimersAsync()
+    expect(inspected).toBe(0)
+    expect(fixture.requests).toEqual([`/api/v1/stable/workflow-runs/${identity.runId}`, `/api/v1/stable/workflow-runs/${identity.runId}`, `/api/v1/stable/tasks/${identity.taskId}/task-events`])
+    expect(fixture.observationCount()).toBe(2)
+    expect(await outcome).toMatchObject({ status: 'CANCELLED', events: [{ taskId: identity.taskId }] })
+    expect(JSON.stringify(fixture.phases)).not.toMatch(/private|fixture\.invalid|aaaaaaaa|bbbbbbbb|cccccccc/)
+    expect(vi.getTimerCount()).toBe(0)
+  } finally {
+    stop?.()
+    try { await vi.runAllTimersAsync(); await joined; expect(vi.getTimerCount()).toBe(0) }
+    finally { vi.useRealTimers() }
+  }
+})
+test.each(['abort', 'deadline'] as const)('a real rejected404 at owner%s is refused before projection pause or another GET', async stage => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  const timers = vi.spyOn(globalThis, 'setTimeout')
+  let rejected404 = false
+  let stop: (() => void) | undefined
+  let joined: Promise<unknown> = Promise.resolve(undefined)
+  try {
+    const fixture = diagnosticHistoryFixture({ responses: [missingProjection, matchingProjection, matchingTaskEvents], deadlineMs: 125,
+      decorateFailure(error) {
+        if (!(error instanceof Error)) throw new Error('Expected installed Axios error')
+        expect(Object.getOwnPropertyDescriptor(error, 'status')?.value).toBe(404)
+        expect(Object.getOwnPropertyDescriptor(error, 'code')?.value).toBe('ERR_BAD_REQUEST')
+        rejected404 = true
+        // The actual SDK rejection is settled; change the owner before its caller resumes.
+        if (stage === 'abort') fixture.controller.abort()
+        else vi.setSystemTime(1125)
+      } })
+    stop = () => { for (const controller of fixture.controllers) controller.abort() }
+    let settled = false
+    const outcome = fixture.read().then(value => { settled = true; return value }, error => { settled = true; return error })
+    joined = outcome
+    await vi.advanceTimersByTimeAsync(0)
+    expect(rejected404).toBe(true)
+    expect(settled).toBe(true)
+    expect(fixture.requests).toEqual([`/api/v1/stable/workflow-runs/${identity.runId}`])
+    expect(fixture.observationCount()).toBe(1)
+    checkedDetailsDiagnostic(fixture.phases, stage === 'abort' ? 'run-details-aborted-after' : 'run-details-budget-after')
+    expect(await outcome).toBeInstanceOf(Error)
+    expect(timers.mock.calls.some(([, delay]) => delay === 50)).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(fixture.requests).toHaveLength(1)
+    expect(fixture.observationCount()).toBe(1)
+    expect(vi.getTimerCount()).toBe(0)
+  } finally {
+    stop?.()
+    try { await vi.runAllTimersAsync(); await joined; expect(vi.getTimerCount()).toBe(0) }
+    finally { timers.mockRestore(); vi.useRealTimers() }
+  }
+})
+test('404 then owned-empty200 joins a projection pause entered with an already-aborted details signal', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(1000)
+  let stop: (() => void) | undefined
+  let joined: Promise<unknown> = Promise.resolve(undefined)
+  let emptySeen = false
+  try {
+    const fixture = diagnosticHistoryFixture({ responses: [missingProjection, { status: 200, body: { ...published, tasks: [] } }, matchingProjection, matchingTaskEvents], deadlineMs: 125,
+      onPhase(phase) {
+        if (phase === 'identity-tasks-empty') { emptySeen = true; fixture.controller.abort() }
+      } })
+    stop = () => { for (const controller of fixture.controllers) controller.abort() }
+    let settled = false
+    const outcome = fixture.read().then(value => { settled = true; return value }, error => { settled = true; return error })
+    joined = outcome
+    await vi.advanceTimersByTimeAsync(50)
+    expect(emptySeen).toBe(true)
+    expect(fixture.controller.signal.aborted).toBe(true)
+    expect(settled).toBe(true)
+    expect(await outcome).toBeInstanceOf(Error)
+    expect(fixture.phases).toContain('run-details-http-404')
+    expect(fixture.phases.at(-1)).toBe('identity-tasks-empty')
+    expect(fixture.requests).toEqual([`/api/v1/stable/workflow-runs/${identity.runId}`, `/api/v1/stable/workflow-runs/${identity.runId}`])
+    expect(fixture.observationCount()).toBe(1)
+    expect(vi.getTimerCount()).toBe(0)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(fixture.requests).toHaveLength(2)
+    expect(fixture.observationCount()).toBe(1)
+    expect(vi.getTimerCount()).toBe(0)
+  } finally {
+    stop?.()
+    try { await vi.runAllTimersAsync(); await joined; expect(vi.getTimerCount()).toBe(0) }
+    finally { vi.useRealTimers() }
   }
 })

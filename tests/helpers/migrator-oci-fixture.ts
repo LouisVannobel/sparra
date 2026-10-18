@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { randomBytes } from 'node:crypto'
 import { gzipSync } from 'node:zlib'
 import { readdir,readFile } from 'node:fs/promises'
+import { workerSourceManifest } from '../../scripts/worker-source-manifest.mjs'
 const digest=(bytes:Buffer)=>createHash('sha256').update(bytes).digest('hex')
 function tar(files:ReadonlyMap<string,Buffer>,pax?:Buffer) {
   const parts:Buffer[]=[]
@@ -54,18 +55,52 @@ function migrationLayers(files:Map<string,Buffer>,input:Pick<OciFixtureInput,'ba
   layers.push(...whiteoutLayers(input.whiteout,expectedEntries,replacements))
   return layers
 }
-function migratorCarrier(layers:readonly Buffer[],input:Pick<OciFixtureInput,'badPlatform'|'malformedGzip'|'gzip'|'unsupportedLayer'|'pax'>) {
+type WorkerOciFixtureInput=Readonly<{
+  mutation?:'wrong-user'|'wrong-entrypoint'|'wrong-workdir'|'wrong-platform'|'missing-layer'|'wrong-layer-size'|'wrong-config-id'
+  sbomMutation?:'subject'|'diff-id'|'header'|'annotation-type'
+}>
+type CarrierLayerInput=Pick<OciFixtureInput,'malformedGzip'|'gzip'|'unsupportedLayer'>
+function carrierLayers(layers:readonly Buffer[],input:CarrierLayerInput) {
   const layerIds=layers.map(digest)
   const encoded=layers.map((value,index)=>input.malformedGzip&&index===0?Buffer.concat([Buffer.from('invalid gzip'),randomBytes(262144)]):input.gzip?gzipSync(value):value),encodedIds=encoded.map(digest)
-  const config=Buffer.from(JSON.stringify({architecture:input.badPlatform?'arm64':'amd64',os:'linux',rootfs:{type:'layers',diff_ids:layerIds.map(value=>'sha256:'+value)},config:{User:'10001:10001',WorkingDir:'/app',Entrypoint:['node','scripts/start-migrate.mjs'],Env:['NODE_VERSION=24.14.0']}})),configId=digest(config)
-  const image=Buffer.from(JSON.stringify({schemaVersion:2,mediaType:'application/vnd.oci.image.manifest.v1+json',config:{mediaType:'application/vnd.oci.image.config.v1+json',digest:'sha256:'+configId,size:config.length},layers:encoded.map((value,index)=>({mediaType:input.unsupportedLayer?'application/x-unsupported':input.gzip||input.malformedGzip?'application/vnd.oci.image.layer.v1.tar+gzip':'application/vnd.oci.image.layer.v1.tar',digest:'sha256:'+encodedIds[index],size:value.length}))})),imageDigest=digest(image)
+  return {layerIds,encoded,encodedIds}
+}
+function carrierConfig(layerIds:readonly string[],input:Pick<OciFixtureInput,'badPlatform'>,worker?:WorkerOciFixtureInput) {
+  const config=Buffer.from(JSON.stringify({architecture:input.badPlatform||worker?.mutation==='wrong-platform'?'arm64':'amd64',os:'linux',rootfs:{type:'layers',diff_ids:layerIds.map(value=>'sha256:'+value)},config:{User:worker?.mutation==='wrong-user'?'0:0':'10001:10001',WorkingDir:worker?.mutation==='wrong-workdir'?'/elsewhere':'/app',Entrypoint:worker?['node',worker.mutation==='wrong-entrypoint'?'.output/server/index.mjs':'.output/worker/index.mjs']:['node','scripts/start-migrate.mjs'],Env:['NODE_VERSION=24.14.0']}})),configId=digest(config)
+  return {config,configId}
+}
+function carrierManifest(encoded:readonly Buffer[],encodedIds:readonly string[],config:Buffer,configId:string,input:CarrierLayerInput,worker?:WorkerOciFixtureInput) {
+  const image=Buffer.from(JSON.stringify({schemaVersion:2,mediaType:'application/vnd.oci.image.manifest.v1+json',config:{mediaType:'application/vnd.oci.image.config.v1+json',digest:'sha256:'+(worker?.mutation==='wrong-config-id'?'d'.repeat(64):configId),size:config.length},layers:encoded.map((value,index)=>({mediaType:input.unsupportedLayer?'application/x-unsupported':input.gzip||input.malformedGzip?'application/vnd.oci.image.layer.v1.tar+gzip':'application/vnd.oci.image.layer.v1.tar',digest:'sha256:'+encodedIds[index],size:value.length+(worker?.mutation==='wrong-layer-size'?1:0)}))})),imageDigest=digest(image)
+  return {image,imageDigest}
+}
+function carrierIndexes(image:Buffer,imageDigest:string) {
   const index=Buffer.from(JSON.stringify({schemaVersion:2,mediaType:'application/vnd.oci.image.index.v1+json',manifests:[{mediaType:'application/vnd.oci.image.manifest.v1+json',digest:'sha256:'+imageDigest,size:image.length,platform:{os:'linux',architecture:'amd64'}}]})),imageId=digest(index)
   const carrier=Buffer.from(JSON.stringify({schemaVersion:2,mediaType:'application/vnd.oci.image.index.v1+json',manifests:[{mediaType:'application/vnd.oci.image.index.v1+json',digest:'sha256:'+imageId,size:index.length}]}))
+  return {index,imageId,carrier}
+}
+function carrierPax(input:Pick<OciFixtureInput,'pax'>) {
   const pax=input.pax==='utf8'?paxRecord('SCHILY.xattr.note','café😀'):input.pax==='wrong-byte-length'?paxRecord('SCHILY.xattr.note','café😀',true):input.pax==='duplicate-key'?Buffer.concat([paxRecord('mtime','1'),paxRecord('mtime','2')]):input.pax==='unsupported-key'?paxRecord('GNU.sparse.realsize','1'):undefined
-  const archive=tar(new Map([['oci-layout',Buffer.from('{"imageLayoutVersion":"1.0.0"}')],['index.json',carrier],['blobs/sha256/'+imageId,index],['blobs/sha256/'+imageDigest,image],['blobs/sha256/'+configId,config],...encoded.map((value,index):[string,Buffer]=>['blobs/sha256/'+encodedIds[index],value])]),pax)
+  return pax
+}
+function carrierSbom(layerIds:readonly string[],configId:string,worker?:WorkerOciFixtureInput) {
   const sbom={spdxVersion:'SPDX-2.3',dataLicense:'CC0-1.0',SPDXID:'SPDXRef-DOCUMENT',name:'Synthetic OCI',documentNamespace:'https://example.invalid/spdx/oci',creationInfo:{creators:['Tool: trivy-0.74.0']},
     packages:[{name:'Synthetic OCI',SPDXID:'SPDXRef-Container',primaryPackagePurpose:'CONTAINER',annotations:[{comment:'ImageID: sha256:'+configId},...layerIds.map(value=>({comment:'DiffID: sha256:'+value}))]},{name:'pg',SPDXID:'SPDXRef-Package-pg',versionInfo:'8.23.0'}],
     relationships:[{spdxElementId:'SPDXRef-DOCUMENT',relatedSpdxElement:'SPDXRef-Container',relationshipType:'DESCRIBES'},{spdxElementId:'SPDXRef-Container',relatedSpdxElement:'SPDXRef-Package-pg',relationshipType:'CONTAINS'}]}
+  if(worker?.sbomMutation==='subject')sbom.packages[0]!.annotations?.splice(0,1,{comment:'ImageID: sha256:'+'d'.repeat(64)})
+  if(worker?.sbomMutation==='diff-id')sbom.packages[0]!.annotations?.push({comment:'DiffID: sha256:'+'d'.repeat(64)})
+  if(worker?.sbomMutation==='header')sbom.dataLicense='wrong'
+  const subject=sbom.packages[0]
+  const workerSbom=worker?.sbomMutation==='annotation-type'?{...sbom,packages:[{...subject,annotations:[...subject?.annotations??[],{comment:42}]},...sbom.packages.slice(1)]}:sbom
+  return workerSbom
+}
+function migratorCarrier(layers:readonly Buffer[],input:Pick<OciFixtureInput,'badPlatform'|'malformedGzip'|'gzip'|'unsupportedLayer'|'pax'>,worker?:WorkerOciFixtureInput) {
+  const {layerIds,encoded,encodedIds}=carrierLayers(layers,input)
+  const {config,configId}=carrierConfig(layerIds,input,worker)
+  const {image,imageDigest}=carrierManifest(encoded,encodedIds,config,configId,input,worker)
+  const {index,imageId,carrier}=carrierIndexes(image,imageDigest)
+  const pax=carrierPax(input)
+  const archive=tar(new Map([['oci-layout',Buffer.from('{"imageLayoutVersion":"1.0.0"}')],['index.json',carrier],['blobs/sha256/'+imageId,index],['blobs/sha256/'+imageDigest,image],['blobs/sha256/'+configId,config],...(worker?.mutation==='missing-layer'?[]:encoded.map((value,index):[string,Buffer]=>['blobs/sha256/'+encodedIds[index],value]))]),pax)
+  const sbom=carrierSbom(layerIds,configId,worker)
   return {archive,imageId:'sha256:'+imageId,sbom}
 }
 export async function ociFixture(input:OciFixtureInput={}) {
@@ -73,4 +108,8 @@ export async function ociFixture(input:OciFixtureInput={}) {
   const layers=migrationLayers(files,input)
   const {archive,imageId,sbom}=migratorCarrier(layers,input)
   return {archive,imageId,sbom,manifest}
+}
+export async function workerOciFixture(input:WorkerOciFixtureInput={}) {
+  const files=new Map([['app/worker-source-manifest.json',Buffer.from(JSON.stringify(await workerSourceManifest()))],['app/.output/worker/index.mjs',Buffer.from('export const syntheticWorkerFixture = true\n')]])
+  return migratorCarrier([tar(files)],{},input)
 }

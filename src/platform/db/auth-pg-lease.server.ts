@@ -4,12 +4,15 @@ import type { PoolClient, QueryResult, QueryResultRow, TransactionStatus } from 
 import { authSchema } from '../../modules/auth/schema.server'
 import type { AdmittedPrincipal } from '../../modules/auth/session.server'
 import { workspace, workspaceSchema } from '../../modules/workspaces/schema.server'
+import { billingSchema } from '../../modules/billing/schema.server'
 import { eq } from 'drizzle-orm'
 import { guardedPgQuery } from './guarded-pg-query.server'
 
 export type AuthQueryDb = Pick<NodePgDatabase<typeof authSchema>, 'select' | 'insert' | 'update' | 'delete'>
 export type WorkspaceQueryDb = Pick<NodePgDatabase<typeof workspaceSchema>, 'select' | 'insert' | 'update'>
 export type PersonalWorkspaceLease = Readonly<{ db: WorkspaceQueryDb; workspaceId: string }>
+export type BillingQueryDb = Pick<NodePgDatabase<typeof billingSchema>, 'select'>
+export type BillingWorkspaceLease = Readonly<{ db: BillingQueryDb; workspaceId: string }>
 export type AuthPgLeaseOptions = Readonly<{ statementTimeoutMs: number; cleanupTimeoutMs: number; correlationId: string }>
 export type TransactionOutcome = 'not-started' | 'rolled-back' | 'committed' | 'unknown'
 export type TransactionPhase = 'initialize' | 'query' | 'finalize'
@@ -23,6 +26,7 @@ export interface AuthPgLease {
   readonly db: AuthQueryDb
   resolveAdditionalPasskeyWorkspace(principal: AdmittedPrincipal): Promise<string | null>
   selectPersonalWorkspace(principal: AdmittedPrincipal, createIfMissing: boolean): Promise<PersonalWorkspaceLease | null>
+  selectBillingWorkspace(principal: AdmittedPrincipal, workspaceId: string): Promise<BillingWorkspaceLease | null>
   finalize(decision: 'commit' | 'rollback'): Promise<'committed' | 'rolled-back'>
 }
 
@@ -177,7 +181,7 @@ export async function openAuthPgLease(client: PoolClient, options: AuthPgLeaseOp
       select: database.select.bind(database), insert: database.insert.bind(database),
       update: database.update.bind(database), delete: database.delete.bind(database),
     })
-    let exposed: 'none' | 'auth' | 'personal' = 'none'
+    let exposed: 'none' | 'auth' | 'personal' | 'billing' = 'none'
     async function resolvePersonalWorkspaceAuthority(principal: AdmittedPrincipal, createIfMissing: boolean): Promise<string | null> {
       await admit(() => raw("SELECT set_config('app.correlation_id', $1, true)", [options.correlationId]))
       const result = await admit(() => raw('SELECT app_private.resolve_personal_workspace($1, $2, $3) AS workspace_id', [principal.userId, principal.sessionId, createIfMissing]))
@@ -188,9 +192,9 @@ export async function openAuthPgLease(client: PoolClient, options: AuthPgLeaseOp
       return selected
     }
     return {
-      get db() { if (exposed === 'personal') throw queryError(); exposed = 'auth'; return db },
+      get db() { if (exposed === 'personal' || exposed === 'billing') throw queryError(); exposed = 'auth'; return db },
       async resolveAdditionalPasskeyWorkspace(principal) {
-        if (exposed === 'personal') throw queryError()
+        if (exposed === 'personal' || exposed === 'billing') throw queryError()
         exposed = 'auth'
         return resolvePersonalWorkspaceAuthority(principal, false)
       },
@@ -206,6 +210,24 @@ export async function openAuthPgLease(client: PoolClient, options: AuthPgLeaseOp
         const [locked] = await tenant.select({ id: workspace.id, ownerUserId: workspace.ownerUserId, kind: workspace.kind, lifecycle: workspace.lifecycle, organization: workspace.authOrganizationId }).from(workspace).where(eq(workspace.id, workspaceId)).for('update')
         if (!locked || locked.ownerUserId !== principal.userId || locked.kind !== 'personal' || locked.lifecycle !== 'active' || locked.organization !== null) throw queryError()
         return Object.freeze({ workspaceId, db: Object.freeze({ select: tenant.select.bind(tenant), insert: tenant.insert.bind(tenant), update: tenant.update.bind(tenant) }) })
+      },
+      async selectBillingWorkspace(principal, requestedWorkspaceId) {
+        if (exposed !== 'none') throw queryError()
+        exposed = 'billing'
+        if (!uuid.test(requestedWorkspaceId) || requestedWorkspaceId === '00000000-0000-0000-0000-000000000000') return null
+        await admit(() => raw("SELECT set_config('app.correlation_id', $1, true)", [options.correlationId]))
+        const authority = await admit(() => raw('SELECT app_private.resolve_billing_workspace($1,$2,$3::uuid) AS workspace_id',
+          [principal.userId, principal.sessionId, requestedWorkspaceId]))
+        if (authority.rows.length !== 1) throw queryError()
+        const selected: unknown = authority.rows[0].workspace_id
+        if (selected === null) return null
+        if (selected !== requestedWorkspaceId) throw queryError()
+        const setting = await admit(() => raw("SELECT set_config('app.tenant_id', $1, true) AS tenant_id", [requestedWorkspaceId]))
+        const verified = await admit(() => raw("SELECT current_setting('app.tenant_id', true) AS tenant_id"))
+        if (setting.rows.length !== 1 || setting.rows[0].tenant_id !== requestedWorkspaceId
+          || verified.rows.length !== 1 || verified.rows[0].tenant_id !== requestedWorkspaceId) throw queryError()
+        const tenant = drizzle({ client: guarded.proxy, schema: billingSchema })
+        return Object.freeze({ workspaceId: requestedWorkspaceId, db: Object.freeze({ select: tenant.select.bind(tenant) }) })
       },
       finalize(decision) {
         if (finalization) return decision === decisionRecorded ? finalization : Promise.reject(error())

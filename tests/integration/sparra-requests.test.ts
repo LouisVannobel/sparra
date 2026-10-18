@@ -61,10 +61,19 @@ beforeAll(async()=>{
     const after=await snapshot();expect(after[0].revisions).toEqual(before[0].revisions.map((revision:typeof sparraKnowledgeRevision.$inferSelect)=>({...revision,recording_enabled:false,recording_policy:'off',recording_contact_phone:null})));expect(after[0].workspaces).toEqual(before[0].workspaces);expect(after[0].users).toEqual(before[0].users)
     const catalogAfter=await unchangedCatalog()
     const isAddedAudioPolicy=(policy:{schemaname:string;tablename:string;policyname:string})=>policy.schemaname==='public'&&policy.tablename==='workspace'&&['workspace_audio_reader_cleanup_select','workspace_audio_reader_cleanup_update','workspace_local_audio_read'].includes(policy.policyname)
+    const isAddedBillingPolicy=(policy:{schemaname:string;tablename:string;policyname:string})=>policy.schemaname==='public'&&((policy.tablename==='user'&&policy.policyname==='billing_user_reconcile')||(policy.tablename==='workspace'&&policy.policyname==='billing_workspace_reconcile'))
     expect(catalogBefore[0].policies.filter(isAddedAudioPolicy)).toEqual([])
+    expect(catalogBefore[0].policies.filter(isAddedBillingPolicy)).toEqual([])
+    expect((await stores.administrator.query("SELECT rolname,rolcanlogin,rolinherit,rolsuper,rolbypassrls,rolcreatedb,rolcreaterole,rolreplication FROM pg_roles WHERE rolname='billing_definer'")).rows).toEqual([
+      {rolname:'billing_definer',rolcanlogin:false,rolinherit:false,rolsuper:false,rolbypassrls:false,rolcreatedb:false,rolcreaterole:false,rolreplication:false},
+    ])
     // Compare every pre-existing policy and membership unchanged; admit only
-    // these three exact forward additions, including their native predicates.
-    expect(catalogAfter.map(row=>({...row,policies:row.policies.filter((policy:{schemaname:string;tablename:string;policyname:string})=>!isAddedAudioPolicy(policy))}))).toEqual(catalogBefore)
+    // these five exact forward additions, including their native predicates.
+    expect(catalogAfter.map(row=>({...row,policies:row.policies.filter((policy:{schemaname:string;tablename:string;policyname:string})=>!isAddedAudioPolicy(policy)&&!isAddedBillingPolicy(policy))}))).toEqual(catalogBefore)
+    expect(catalogAfter[0].policies.filter(isAddedBillingPolicy)).toEqual([
+      {schemaname:'public',tablename:'user',policyname:'billing_user_reconcile',permissive:'PERMISSIVE',roles:['billing_definer'],cmd:'ALL',qual:'true',with_check:'true'},
+      {schemaname:'public',tablename:'workspace',policyname:'billing_workspace_reconcile',permissive:'PERMISSIVE',roles:['billing_definer'],cmd:'ALL',qual:'true',with_check:'true'},
+    ])
     const normalizeExpression=(value:string|null)=>value===null?null:value.replace(/\s+/g,' ').trim()
     expect(catalogAfter[0].policies.filter(isAddedAudioPolicy).map((policy:{qual:string|null;with_check:string|null})=>({...policy,qual:normalizeExpression(policy.qual),with_check:normalizeExpression(policy.with_check)}))).toEqual([
       {schemaname:'public',tablename:'workspace',policyname:'workspace_audio_reader_cleanup_select',permissive:'PERMISSIVE',roles:['workspace_owner'],cmd:'SELECT',

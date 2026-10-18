@@ -14,3 +14,7 @@
 06dcf574e6ae9c4ea1dafcf3f362e784c7110575:docs/superpowers/plans/2026-09-10-functional-auth.md:generic-api-key:537
 # Public NLTK punkt_tab archive SHA256, not a credential; the constant is now renamed.
 1571cb864022f3c391a317aee4bd96c562b8493c:scripts/prepare-voice-source.mjs:generic-api-key:13
+# Explicit synthetic UI privacy marker removed from source; not a Stripe credential.
+# Exact historical occurrences only; future findings remain scanned.
+d86a533b38ac3c81e809c200529f15e2fce03348:tests/billing/ui.test.tsx:stripe-access-token:106
+d86a533b38ac3c81e809c200529f15e2fce03348:tests/billing/ui.test.tsx:stripe-access-token:110

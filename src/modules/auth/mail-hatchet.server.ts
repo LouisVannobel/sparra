@@ -1,10 +1,11 @@
-import { HatchetClient } from '@hatchet-dev/typescript-sdk/v1/index.js'
+import { HatchetClient, type HatchetWorkerLifecycle } from '@hatchet-dev/typescript-sdk/v1/index.js'
 import type { ClientConfig } from '@hatchet-dev/typescript-sdk/clients/hatchet-client/client-config.js'
 import { createRequire } from 'node:module'
 import { dirname, join, relative, resolve } from 'node:path'
 import type { createAuthMailHandler, HandlerResult } from './mail-worker.server'
 
-export function createAuthMailHatchet(config: Pick<ClientConfig, 'token' | 'host_port' | 'api_url' | 'tls_config'>, emptyConfigPath: string, ownerSignal: AbortSignal = new AbortController().signal) {
+export function createAuthMailHatchet(config: Pick<ClientConfig, 'token' | 'host_port' | 'api_url' | 'tls_config'>, emptyConfigPath: string,
+  owner: HatchetWorkerLifecycle | AbortSignal = new AbortController().signal) {
   const loaderDirectory = dirname(createRequire(import.meta.url).resolve('@hatchet-dev/typescript-sdk/util/config-loader/config-loader.js'))
   const target = resolve(emptyConfigPath), configPath = relative(loaderDirectory, target)
   if (resolve(join(loaderDirectory, configPath)) !== target) throw new Error('Auth mail SDK configuration rejected')
@@ -13,8 +14,10 @@ export function createAuthMailHatchet(config: Pick<ClientConfig, 'token' | 'host
     // thread emits direct DEBUG only; ERROR suppresses those. All forwarded
     // thread/error messages reach this deliberately non-content logger.
     log_level: 'ERROR', logger: () => ({ debug() {}, info() {}, green() {}, warn() {}, error() {} }),
-  }, { config_path: configPath }, { timeout: 10000, maxRedirects: 0, proxy: false })
-  ownAuthMailListeners(client.dispatcher.client, ownerSignal)
+  }, { config_path: configPath, ...(owner instanceof AbortSignal ? {} : { workerLifecycle: owner }) }, { timeout: 10000, maxRedirects: 0, proxy: false })
+  // Existing unowned callers retain their listener adapter. The application
+  // runtime opts into the complete SDK owner instead of adapting it twice.
+  if (owner instanceof AbortSignal) ownAuthMailListeners(client.dispatcher.client, owner)
   return client
 }
 

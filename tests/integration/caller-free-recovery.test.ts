@@ -6,7 +6,7 @@ import { generateRegistrationOptions, verifyRegistrationResponse } from '@simple
 import { Client, Pool } from 'pg'
 import { startDisposableStores } from '../fixtures/db/disposable-stores'
 import { registrationCredentialFixture } from '../helpers/registration-ceremony'
-import { classifiedSyntheticFields, fieldHash, projectSyntheticReconstruction, rebuildSyntheticReconstruction, type SyntheticReconstruction, type SyntheticRelations, type SyntheticSourceBinding } from '../helpers/caller-free-reconstruction'
+import { classifiedSyntheticFields, fieldHash, projectSyntheticReconstruction, rebuildSyntheticReconstruction, reconstructionMigrationCount, type SyntheticReconstruction, type SyntheticRelations, type SyntheticSourceBinding } from '../helpers/caller-free-reconstruction'
 import { createApplicationAuth, readAuthConfig } from '../../src/modules/auth/auth.server'
 import { createAuthRateLimiter, readRateLimitConfig } from '../../src/modules/auth/rate-limit.server'
 import { createTransactions } from '../../src/platform/db/transactions.server'
@@ -95,7 +95,7 @@ test('isolated native reconstruction preserves source security/configuration, au
   try {
     stores=await startDisposableStores();await stores.migrate()
     const migrations=readMigrationFiles({migrationsFolder:'drizzle'})
-    expect(migrations).toHaveLength(23)
+    expect(migrations).toHaveLength(reconstructionMigrationCount)
     const journal=(await stores.administrator.query<SyntheticSourceBinding['journal'][number]>('SELECT id,hash,created_at::text FROM drizzle.__drizzle_migrations ORDER BY id')).rows
     expect(journal.map(r=>r.hash)).toEqual(migrations.map(r=>r.hash))
     const source:SyntheticSourceBinding={app_commit:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8',windowsHide:true}).trim(),app_tree:execFileSync('git',['rev-parse','HEAD^{tree}'],{encoding:'utf8',windowsHide:true}).trim(),

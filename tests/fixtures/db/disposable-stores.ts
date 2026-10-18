@@ -356,7 +356,24 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
       const config=JSON.parse(await docker(['inspect',id,'--format','{{json .Config}}']))
       const host=JSON.parse(await docker(['inspect',id,'--format','{{json .HostConfig}}']))
       return { user:config.User,environment:config.Env,entrypoint:config.Entrypoint,command:config.Cmd,readonly:host.ReadonlyRootfs,
+        networkMode:host.NetworkMode,restartPolicy:host.RestartPolicy.Name,
         caps:host.CapDrop,security:host.SecurityOpt,mounts:JSON.parse(await docker(['inspect',id,'--format','{{json .Mounts}}'])) }
+    }
+    async function startWorkerImage(imageId:string,syntheticEnvironment:Readonly<Record<string,string>>) {
+      if(process.platform!=='linux')throw new Error('Worker image fixture requires Linux local host networking')
+      await assertImage(imageId)
+      const env={...syntheticEnvironment}
+      const id=await create('worker-image-'+owned.length,imageId,['--restart','no','--read-only','--tmpfs','/tmp',
+        '--cap-drop','ALL','--security-opt','no-new-privileges',...Object.keys(env).flatMap(key=>['-e',key])],env,[],'host')
+      const retire=async()=>{
+        await assertOwned(id)
+        if(await docker(['inspect',id,'--format','{{.State.Running}}'])!=='false')throw new Error('Worker image still running')
+        await docker(['rm',id])
+        if((await docker(['ps','-aq','--no-trunc'])).split(/\s+/).includes(id))throw new Error('Worker image removal unconfirmed')
+        retiredOwned.add(id)
+      }
+      try { await docker(['start',id]);return {id,retire} }
+      catch(error){await retire();throw error}
     }
     async function directImageStatus(id:string,path:'/health/ready'|'/login',wrongAuthority=false) {
       await assertOwned(id)
@@ -480,7 +497,7 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
     return {
       kind: 'stores' as const,
       pg, pool: poolId, redis, administrator, migrate, cleanup, poolAdmin, evidence,
-      startWebImage,runMigrationImage,retireReaderImage,imageMetadata,directImageStatus,
+      startWebImage,startWorkerImage,runMigrationImage,retireReaderImage,imageMetadata,directImageStatus,
       async imageLogs(id:string){await assertOwned(id);const result=await exec('docker',[...endpoint.args,'logs',id],{env:essentials(),windowsHide:true,timeout:10000});return {stdout:String(result.stdout),stderr:String(result.stderr)}},
       async replaceWebCredentials(id:string,auth:Readonly<{secret:string;googleClientId:string;googleClientSecret:string}>,keyring?:string){await assertOwned(id);const volume=webVolumes.get(id);if(!volume)throw new Error('Owned web volume missing');await provision(volume,{...webCredentialValues(auth),...(keyring?{'aead_keyring_v1.json':keyring}:{})},'valid')},
       async restartWebImage(id:string){await assertOwned(id);if(!webVolumes.has(id))throw new Error('Owned image missing');await docker(['restart','--time','2',id])},
@@ -569,7 +586,7 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
         throw new Error('Disposable Linux web not ready')
       },
       async signalWeb(id: string, signal: 'SIGTERM' | 'SIGINT' | 'SIGKILL') { await assertOwned(id); await docker(['kill', '--signal', signal, id]) },
-      async waitWeb(id: string) { await assertOwned(id); return Number(await docker(['wait', id])) },
+      async waitWeb(id: string, timeoutMs=120000) { await assertOwned(id); return Number(await docker(['wait', id],{},timeoutMs)) },
     }
   } catch (error) { await cleanup(); throw error instanceof Error && !('routine' in error) ? error : new Error('Disposable store setup failed') }
 }

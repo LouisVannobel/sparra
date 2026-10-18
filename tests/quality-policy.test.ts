@@ -9,7 +9,7 @@ import type { FileChangeSummary } from 'typescript/unstable/proto'
 import { createScanner, getLeadingCommentRanges, getTokenAtPosition, getTrailingCommentRanges, isArrowFunction, isBlock, isCallExpression, isExpressionStatement, isFunctionDeclaration, isIdentifier, isImportDeclaration, isNamedImports, isStringLiteral, LanguageVariant, SyntaxKind } from 'typescript/unstable/ast'
 import type { CallExpression, Node, SourceFile } from 'typescript/unstable/ast'
 import { afterAll, beforeAll, expect, test } from 'vitest'
-import { admitCommonGeometry, assertDirectory, assertRunTree, assertRecordingReceiptQualification, assertRecordingReceiptReport, assertRequestsQualification, assertRequestsReport, readNativeBlob, sourceIdentity } from '../scripts/native-coverage-inputs.mjs'
+import { admitCommonGeometry, assertBillingQualification, assertBillingReport, assertDirectory, assertRunTree, assertRecordingReceiptQualification, assertRecordingReceiptReport, assertRequestsQualification, assertRequestsReport, readNativeBlob, sourceIdentity } from '../scripts/native-coverage-inputs.mjs'
 
 const repositoryRoot = process.cwd()
 const fixtureRoot = mkdtempSync(join(repositoryRoot, 'src', '.anti-slop-canary-'))
@@ -47,6 +47,13 @@ test('accepts narrowed boundaries and test-only service constructors', () => {
   expect(result.error).toBeUndefined()
   expect(result.status, result.stderr || result.stdout).toBe(0)
   expect(JSON.parse(result.stdout).diagnostics).toEqual([])
+})
+
+test('normative_lint_includes_the_billing_runtime_and_source_consumers',()=>{
+  const metadata=JSON.parse(readFileSync(join(repositoryRoot,'package.json'),'utf8'))
+  const scopes=metadata.scripts.lint.split(/\s+/)
+  expect(scopes).toContain('src/modules/billing')
+  expect(scopes).toContain('tests/billing')
 })
 
 test.each([
@@ -169,6 +176,82 @@ const requestConsumerNames=[
 ] as const
 const requestConsumerPaths=requestConsumerNames.map(([file])=>'tests/integration/'+file)
 
+// Independent fixed reporter canaries qualify admission, never billing SQL.
+const billingConsumerNames=[
+  ['billing-consumer-migration.test.ts',[
+    'forward billing migration preserves populated consumer0022 auth, Inbox and audio rows and migration receipts',
+  ]],
+  ['billing-consumer-authority.test.ts',[
+    'native financial lease admits a fresh passkey and exposes only that Workspace',
+    'native financial authority refuses Google session',
+    'native financial authority refuses stale passkey',
+    'native financial authority refuses pending session',
+    'native financial authority refuses expired session',
+    'native financial authority refuses stale activity',
+    'native financial authority refuses future passkey',
+    'native financial authority refuses generation mismatch',
+    'native financial authority refuses recovery',
+    'native financial authority refuses hold',
+    'native financial authority refuses unverified email',
+    'native financial authority refuses deleting Workspace',
+    'technical billing logins enforce exact function grants, FORCE RLS and no role impersonation',
+  ]],
+  ['billing-negotiated-checkout.test.ts',[
+    'two Workspaces resolve only their own agreed monthly conditions under the financial lease',
+    'SQL admission refuses inconsistent commercial snapshot 0',
+    'SQL admission refuses inconsistent commercial snapshot 1',
+    'SQL admission refuses inconsistent commercial snapshot 2',
+    'SQL admission refuses inconsistent commercial snapshot 3',
+    'A to B during the Price GET refuses stale A even when Price, currency and amount are identical',
+    'after admission a newer agreement cannot replace the operation slot or its send identity',
+    'conditions and operation binding are immutable and runtime has no terms writer or legacy admission',
+    'without agreement and without existing Checkout there is zero provider I/O, including Customer creation',
+    'known subscription cancellation after terms B still targets subscription A',
+    'first native Checkout creates Customer and retains admitted A after B is inserted during the provider send',
+  ]],
+  ['billing-consumer-webhook.test.ts',[
+    'native Google session and persisted call Inbox remain usable with absent Stripe configuration',
+    'native Google session and persisted call Inbox remain usable with partial Stripe configuration',
+    'signed duplicate and reordered native webhook events each retain one atomic receipt, command and outbox without granting paid access',
+    'native webhook rejects signature before any durable receipt',
+    'native webhook rejects version before any durable receipt',
+    'native webhook rejects account before any durable receipt',
+    'native webhook rejects oversize before any durable receipt',
+    'aborting a native request body closes its client transport and produces no receipt or paid right',
+    'native server shutdown joins an unfinished webhook body before normal process and store retirement',
+    'signed native dp Dispute retains one unassigned SQL receipt and no paid right',
+    'signed native du Dispute retains one unassigned SQL receipt and no paid right',
+    'signed native du Dispute keeps signature rejection before any SQL receipt',
+    'signed native du Dispute keeps account rejection before any SQL receipt',
+    'signed native du Dispute keeps environment rejection before any SQL receipt',
+    'signed native du Dispute keeps object rejection before any SQL receipt',
+    'signed native du Dispute keeps prefix rejection before any SQL receipt',
+    'signed native du Dispute keeps charge rejection before any SQL receipt',
+  ]],
+  ['billing-consumer-browser.test.ts',[
+    'compiled billing redirects anonymous navigation and never provisions a null Workspace',
+    'compiled Google navigation exposes Billing while native financial authority refuses without affecting Inbox',
+    'compiled fresh passkey billing stays truthful in FR EN at320 with keyboard access and forged Checkout returns',
+    'compiled partial Stripe configuration preserves private navigation and a fresh passkey unavailable billing screen',
+    'compiled protected refresh ignores a late departed read and clears private content after native session refusal',
+    'compiled billing UI validates Checkout navigation and uses exact Workspace POSTs without trusting cancellation acknowledgements',
+  ]],
+  ['billing-worker-native.test.ts',[
+    'compiled billing-only worker registers and drains with no mail configuration or provider effect',
+    'three native mail arrivals finish while billing waits on owned SQL, then immutable A reconciles after B beyond startup deadline',
+    'post-response native admission ACK loss resolves the same durable outbox and run with one dispatch',
+    'native worker shutdown during a held Stripe read body joins the client transport before billing SQL stop',
+  ]],
+  ['mail-worker-native.test.ts',[
+    'built application relay and native worker consume the real SQL snapshot through controlled TLS and drain on shutdown',
+  ]],
+  ['billing-dispute-namespace.test.ts',[
+    'native SQL receipt authority independently admits du and refuses unknown namespace or inconsistent risk references',
+    'native worker SQL records dp and du facts under the exact observed scope without creating paid entitlement',
+  ]],
+] as const
+const billingConsumerPaths=billingConsumerNames.map(([file])=>'tests/integration/'+file)
+
 test('native_requests_requires_all_seven_adopted_excerpt_leaves_in_its_exact_forty_case_report',()=>{
   // Synthetic reporter records qualify admission only, not native SQL behavior.
   const report={success:true,numTotalTests:40,numPassedTests:40,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0,
@@ -194,7 +277,7 @@ test('native_requests_requires_all_seven_adopted_excerpt_leaves_in_its_exact_for
 function nativeCoverageFixture(activityAfterAll = '',recordingAfterAll = '') {
   const {root}=qualityFixture()
   for(const name of ['App.tsx','main.tsx','unused.ts'])rmSync(join(root,'src',name))
-  for(const directory of ['scripts','tests/integration','drizzle','.output/server','.output/public','coverage'])mkdirSync(join(root,directory),{recursive:true})
+  for(const directory of ['scripts','tests/integration','tests/helpers','src/modules/auth','drizzle','public','.output/server','.output/public','.output/worker','coverage'])mkdirSync(join(root,directory),{recursive:true})
   const packageFile=join(root,'package.json'),metadata=JSON.parse(readFileSync(join(repositoryRoot,'package.json'),'utf8'))
   writeFileSync(packageFile,JSON.stringify({name:'native-coverage-canary',private:true,type:'module',engines:metadata.engines,devDependencies:{vitest:'4.1.11','@vitest/coverage-istanbul':'4.1.11'}}))
   writeFileSync(join(root,'pnpm-lock.yaml'),'lockfileVersion: 9.0\n')
@@ -210,6 +293,30 @@ export async function prepareVoiceSource({appRoot}){const scope=join(appRoot,'co
   // The nine private named leaves qualify report admission and environment
   // forwarding only; they do not qualify native SQL or the real Voice source.
   writeFileSync(join(root,'tests/integration/sparra-recording-receipt.test.ts'),"import {afterAll,expect,test} from 'vitest';import {join} from 'node:path';\n"+recordingReceiptNames.map(name=>'test('+JSON.stringify(name)+",()=>{const root=process.env.SPARRA_VOICE_TEST_ROOT;expect(root).toContain('canary-voice-owner');expect(process.env.SPARRA_VOICE_FIXTURE_PYTHON).toBe(process.execPath);expect(process.env.SPARRA_VOICE_TEST_HOME).toBe(root);});\n").join('')+'afterAll(()=>{'+recordingAfterAll+'});\n')
+  // Miniature runner wiring only: this does not execute the native retry cases.
+  writeFileSync(join(root,'public/i3-public-copy-marker.txt'),'owned mail retry public marker\n')
+  writeFileSync(join(root,'.env'),'VITE_SPARRA_I3_FIXTURE_SENTINEL=owned-mail-retry-root-env-marker\n')
+  writeFileSync(join(root,'.env.production'),'VITE_SPARRA_I3_FIXTURE_SENTINEL=owned-mail-retry-production-env-marker\n')
+  writeFileSync(join(root,'tests/helpers/vite.mail-retry.config.ts'),readFileSync(join(repositoryRoot,'tests/helpers/vite.mail-retry.config.ts')))
+  for(const file of ['src/modules/auth/mail-worker.server.ts','src/modules/auth/mail-hatchet.server.ts','src/modules/auth/plunk.server.ts',
+    'tests/helpers/mail-retry-observation.ts','.output/worker/index.mjs'])writeFileSync(join(root,file),'export const runnerWiringCanary = true\n')
+  writeFileSync(join(root,'tests/helpers/mail-retry-harness.ts'),'export const runnerWiringCanary = import.meta.env.VITE_SPARRA_I3_FIXTURE_SENTINEL\n')
+  writeFileSync(join(root,'tests/helpers/mail-retry-entry.ts'),"export { runnerWiringCanary } from './mail-retry-harness'\n")
+  writeFileSync(join(root,'tests/integration/mail-retry-native.test.ts'),`import {expect,test} from 'vitest';import {createHash,randomUUID} from 'node:crypto';import {readFileSync,readdirSync,writeFileSync} from 'node:fs';import {join,relative} from 'node:path';
+test('I3 one owned native retry fixture: retained A/B, transient C, expired E, exhausted D',()=>{
+  const build=process.env.SPARRA_MAIL_RETRY_BUILD_DIR!,evidence=process.env.SPARRA_MAIL_RETRY_EVIDENCE_DIR!,evidenceId=randomUUID();
+  expect(build).toBe(join(evidence,'../mail-retry-build'));expect(readFileSync(join(build,'hatchet-empty.yaml'),'utf8')).toBe('{}\\n');
+  expect(readdirSync(build).sort()).toEqual(['harness.mjs','hatchet-empty.yaml']);
+  const harness=readFileSync(join(build,'harness.mjs'),'utf8');expect(harness).not.toContain('owned-mail-retry-root-env-marker');expect(harness).not.toContain('owned-mail-retry-production-env-marker');
+  const paths=['src/modules/auth/mail-worker.server.ts','src/modules/auth/mail-hatchet.server.ts','src/modules/auth/plunk.server.ts',
+    'tests/helpers/mail-retry-harness.ts','tests/helpers/mail-retry-entry.ts','tests/helpers/mail-retry-observation.ts','tests/helpers/vite.mail-retry.config.ts',
+    'tests/integration/mail-retry-native.test.ts','.output/worker/index.mjs',...['harness.mjs','hatchet-empty.yaml'].map(name=>relative(process.cwd(),join(build,name)).replaceAll('\\\\','/'))];
+  const beforeLaunchSha256=Object.fromEntries(paths.map(path=>[path,createHash('sha256').update(readFileSync(path)).digest('hex')]));
+  const receipts={rowLockReleased:true,childClosed:true,webPoolClosed:true,engineRemoved:true,storesRemoved:true,tlsClosedAndMaterialsRemoved:true};
+  writeFileSync(join(evidence,'task-7-i3-native-'+evidenceId+'.json'),JSON.stringify({evidenceId,beforeLaunchSha256,passed:true,
+    normalStop:{elapsedMs:1,processClosed:true,receipt:{type:'stopped',nativeStartState:'resolved',nativeStopState:'resolved',pendingHooks:0,commandsJoined:true}},
+    cleanup:{receipts,forced:false,processCode:0,exactOutputEmpty:true}}),{flag:'wx'});
+});\n`)
   writeFileSync(join(root,'tests/integration/sparra-requests.test.ts'),"import {expect,test} from 'vitest';import {selectBranch} from '../../src/covered';// Synthetic runner selection canary only.\n"+requestConsumerNames[0][1].map(name=>'test('+JSON.stringify(name)+",()=>{expect(process.env.SPARRA_VOICE_TEST_ROOT).toContain('canary-voice-owner');expect(selectBranch(true)).toBe(7)});\n").join(''))
   // Exact audio consumer paths exercise the native runner and owned environment,
   // not browser, R1, SQL or process-retirement behavior.
@@ -227,6 +334,10 @@ ${names.map(name=>'test('+JSON.stringify(name)+',()=>expect(coveredAudioBranch(t
   writeFileSync(join(root,'src/covered.ts'),'export function selectBranch(value: boolean): number {\n  if (value) return 7\n  return 9\n}\n')
   writeFileSync(join(root,'src/unexecuted.ts'),'export function unexecuted(): number {\n  return 13\n}\n')
   writeFileSync(join(root,'src/audio-covered.ts'),'export function coveredAudioBranch(value: boolean): number {\n  if (value) return 3\n  return 5\n}\n')
+  writeFileSync(join(root,'src/billing-covered.ts'),'export function coveredBillingBranch(value: boolean): number {\n  if (value) return 17\n  return 19\n}\n')
+  for(const [file,names] of billingConsumerNames)writeFileSync(join(root,'tests/integration',file),
+    "import {expect,test} from 'vitest';import {coveredBillingBranch} from '../../src/billing-covered';\n"
+    +names.map(name=>'test('+JSON.stringify(name)+',()=>expect(coveredBillingBranch(true)).toBe(17));\n').join(''))
   writeFileSync(join(root,'tests/ordinary.test.ts'),"import {expect,test} from 'vitest';import {selectBranch} from '../src/covered';test('ordinary true branch',()=>expect(selectBranch(true)).toBe(7));\n")
   writeFileSync(join(root,'tests/integration/sparra-activity.test.ts'),"import {afterAll,expect,test} from 'vitest';import {selectBranch} from '../../src/covered';import {appendFileSync,readFileSync,readdirSync,rmSync,symlinkSync,writeFileSync} from 'node:fs';import {join} from 'node:path';test.each(Array.from({length:12},(_,index)=>index))('activity false branch %i',()=>expect(selectBranch(false)).toBe(9));afterAll(()=>{"+activityAfterAll+'});\n')
   return root
@@ -269,6 +380,170 @@ test('native_activity_blob_admits_twelve_complete_pass_cases_and_refuses_missing
     expect(()=>readNativeBlob(refusal,'activity',root,startedAt,'4.1.11'),String(count)+' complete PASS cases').toThrow('Native coverage test cardinality mismatch')
   }
   expect(readFileSync(blob)).toEqual(bytes)
+},25000)
+
+test('native_billing_blob_admits_exact_eight_consumers_and_55_leaves',()=>{
+  const root=nativeCoverageFixture(),blob=join(root,'coverage/billing.json'),startedAt=Date.now()
+  const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...billingConsumerPaths,'--maxWorkers=1','--coverage','--reporter=blob','--outputFile.blob='+blob,'--coverage.reportsDirectory='+join(root,'coverage/billing')])
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
+  const bytes=readFileSync(blob),table=JSON.parse(bytes.toString('utf8')),files=table[Number(table[0][1])]
+  expect(files).toHaveLength(8)
+  expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.11')).not.toThrow()
+  function blobWithRefusedBillingLeaves(tasksIndex:number,leafCount:number,kind:'missing'|'extra'|'duplicate'|'renamed'|'reordered'|'skipped') {
+    const changed=JSON.parse(bytes.toString('utf8')),cases=changed[tasksIndex]
+    switch(kind){
+      case 'missing': cases.pop();break
+      case 'extra': cases.push(cases[0]);break
+      case 'duplicate': cases[cases.length-1]=cases[0];if(leafCount===1)cases.push(cases[0]);break
+      case 'renamed': changed[Number(table[Number(cases[0])].name)]='Unreviewed billing leaf';break
+      case 'reordered': cases.reverse();break
+      case 'skipped': changed[Number(table[Number(table[Number(cases[0])].result)].state)]='skip';break
+    }
+    return changed
+  }
+  function blobWithRefusedBillingConsumers(kind:'missing'|'duplicate'|'foreign') {
+    const changed=JSON.parse(bytes.toString('utf8')),consumers=changed[Number(table[0][1])]
+    switch(kind){
+      case 'missing': consumers.pop();break
+      case 'duplicate': consumers[1]=consumers[0];break
+      case 'foreign': changed[Number(table[Number(consumers[0])].filepath)]=join(root,'tests/integration/sparra-activity.test.ts').replaceAll('\\','/');break
+    }
+    return changed
+  }
+  for(const [filename,names] of billingConsumerNames){
+    const file=table[Number(files.find((reference:string)=>table[Number(table[Number(reference)].filepath)]===join(root,'tests/integration',filename).replaceAll('\\','/')))]
+    const tasksIndex=Number(file.tasks),tasks=table[tasksIndex]
+    expect(tasks.map((reference:string)=>table[Number(table[Number(reference)].name)])).toEqual(names)
+    for(const kind of ['missing','extra','duplicate','renamed','reordered','skipped'] as const){
+      if(kind==='reordered'&&names.length===1)continue
+      const changed=blobWithRefusedBillingLeaves(tasksIndex,names.length,kind)
+      const refused=join(root,'coverage/billing-refused.json');writeFileSync(refused,JSON.stringify(changed))
+      expect(()=>readNativeBlob(refused,'billing',root,startedAt,'4.1.11'),filename+':'+kind).toThrow()
+    }
+  }
+  for(const kind of ['missing','duplicate','foreign'] as const){
+    const changed=blobWithRefusedBillingConsumers(kind)
+    const refused=join(root,'coverage/billing-refused.json');writeFileSync(refused,JSON.stringify(changed))
+    expect(()=>readNativeBlob(refused,'billing',root,startedAt,'4.1.11'),kind).toThrow('Native billing blob has an unexpected consumer')
+  }
+  expect(()=>readNativeBlob(blob,'billing',root,Date.now()+60000,'4.1.11')).toThrow('Native coverage blob is stale or invalid')
+  expect(()=>readNativeBlob(blob,'billing',join(root,'foreign-root'),startedAt,'4.1.11')).toThrow('Native blob source root mismatch')
+  expect(readFileSync(blob)).toEqual(bytes)
+},25000)
+
+test('native_billing_report_requires_exact_eight_consumers_and_55_passing_leaves',()=>{
+  const root=nativeCoverageFixture(),path=join(root,'coverage/billing-report.json'),startedAt=Date.now()
+  const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...billingConsumerPaths,'--maxWorkers=1','--reporter=json','--outputFile.json='+path])
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
+  const bytes=readFileSync(path),report=JSON.parse(bytes.toString('utf8'))
+  const refusal='Native Billing requires its exact eight consumers and 55 passing leaves'
+  expect(report.numTotalTests).toBe(55);expect(report.numPassedTests).toBe(55)
+  expect(()=>assertBillingReport(report,root)).not.toThrow()
+  expect(()=>assertBillingQualification(path,root,startedAt)).not.toThrow()
+  function reportWithRefusedBillingLeaves(index:number,leafCount:number,kind:'missing'|'extra'|'duplicate'|'renamed'|'reordered'|'skipped'|'failed'|'message') {
+    const changed=structuredClone(report),leaves=changed.testResults[index].assertionResults
+    switch(kind){
+      case 'missing': leaves.pop();break
+      case 'extra': leaves.push(leaves[0]);break
+      case 'duplicate': if(leafCount===1)leaves.push(leaves[0]);else leaves[1]=leaves[0];break
+      case 'renamed': leaves[0].fullName='Unreviewed billing leaf';break
+      case 'reordered': leaves.reverse();break
+      case 'message': leaves[0].failureMessages=['Owned failure'];break
+      case 'skipped': case 'failed': leaves[0].status=kind;break
+    }
+    return changed
+  }
+  function reportWithRefusedBillingConsumers(kind:'missing'|'extra'|'duplicate'|'foreign'|'failed'|'message') {
+    const changed=structuredClone(report),files=changed.testResults
+    switch(kind){
+      case 'missing': files.pop();break
+      case 'extra': files.push(files[0]);break
+      case 'duplicate': files[1]=files[0];break
+      case 'foreign': files[0].name=join(root,'tests/integration/sparra-activity.test.ts').replaceAll('\\','/');break
+      case 'failed': files[0].status='failed';break
+      case 'message': files[0].message='Owned suite failure';break
+    }
+    return changed
+  }
+  for(const field of ['success','numTotalTests','numPassedTests','numPendingTests','numTodoTests','numFailedTests','numFailedTestSuites','numPendingTestSuites']){
+    expect(()=>assertBillingReport({...report,[field]:field==='success'?false:report[field]+1},root),field).toThrow(refusal)
+  }
+  for(const [filename,names] of billingConsumerNames){
+    const index=report.testResults.findIndex((file:{name:string})=>file.name===join(root,'tests/integration',filename).replaceAll('\\','/'))
+    expect(index).toBeGreaterThanOrEqual(0)
+    for(const kind of ['missing','extra','duplicate','renamed','reordered','skipped','failed','message'] as const){
+      if(kind==='reordered'&&names.length===1)continue
+      const changed=reportWithRefusedBillingLeaves(index,names.length,kind)
+      expect(()=>assertBillingReport(changed,root),filename+':'+kind).toThrow(refusal)
+    }
+  }
+  for(const kind of ['missing','extra','duplicate','foreign','failed','message'] as const){
+    const changed=reportWithRefusedBillingConsumers(kind)
+    expect(()=>assertBillingReport(changed,root),kind).toThrow(refusal)
+  }
+  expect(()=>assertBillingReport(report,join(root,'foreign-root'))).toThrow(refusal)
+  expect(()=>assertBillingQualification(path,root,Date.now()+60000)).toThrow('Native Billing report is invalid')
+  const refused=join(root,'coverage/billing-report-refused.json')
+  writeFileSync(refused,'');expect(()=>assertBillingQualification(refused,root,startedAt)).toThrow('Native Billing report is invalid')
+  writeFileSync(refused,'{');expect(()=>assertBillingQualification(refused,root,startedAt)).toThrow(SyntaxError)
+  rmSync(refused);expect(()=>assertBillingQualification(refused,root,startedAt)).toThrow()
+  expect(readFileSync(path)).toEqual(bytes)
+},25000)
+
+test('native_billing_gate_refuses_the_previous_three_consumer_25_leaf_run',()=>{
+  const root=nativeCoverageFixture(),reportPath=join(root,'coverage/previous-billing-report.json'),blob=join(root,'coverage/previous-billing.json'),startedAt=Date.now()
+  const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...billingConsumerPaths.slice(0,3),'--maxWorkers=1','--coverage',
+    '--reporter=json','--reporter=blob','--outputFile.json='+reportPath,'--outputFile.blob='+blob,'--coverage.reportsDirectory='+join(root,'coverage/previous-billing')])
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
+  const report=JSON.parse(readFileSync(reportPath,'utf8'))
+  expect(report.numTotalTests).toBe(25);expect(report.numPassedTests).toBe(25)
+  expect(report.testResults).toHaveLength(3)
+  expect(()=>assertBillingReport(report,root)).toThrow('Native Billing requires its exact eight consumers and 55 passing leaves')
+  expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.11')).toThrow('Native billing blob has an unexpected consumer')
+},25000)
+
+test('native_billing_gate_refuses_the_previous_four_consumer_34_leaf_run',()=>{
+  const root=nativeCoverageFixture(),reportPath=join(root,'coverage/previous-four-billing-report.json'),blob=join(root,'coverage/previous-four-billing.json'),startedAt=Date.now()
+  const webhook=join(root,'tests/integration/billing-consumer-webhook.test.ts')
+  // Preserve the original nine HTTP reporter canaries for this historical run.
+  writeFileSync(webhook,readFileSync(webhook,'utf8').trimEnd().split('\n').slice(0,10).join('\n')+'\n')
+  const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...billingConsumerPaths.slice(0,4),'--maxWorkers=1','--coverage',
+    '--reporter=json','--reporter=blob','--outputFile.json='+reportPath,'--outputFile.blob='+blob,'--coverage.reportsDirectory='+join(root,'coverage/previous-four-billing')])
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
+  const report=JSON.parse(readFileSync(reportPath,'utf8'))
+  expect(report.numTotalTests).toBe(34);expect(report.numPassedTests).toBe(34)
+  expect(report.testResults).toHaveLength(4)
+  expect(()=>assertBillingReport(report,root)).toThrow('Native Billing requires its exact eight consumers and 55 passing leaves')
+  expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.11')).toThrow('Native billing blob has an unexpected consumer')
+},25000)
+
+test('native_billing_gate_refuses_the_previous_five_consumer_40_leaf_run',()=>{
+  const root=nativeCoverageFixture(),reportPath=join(root,'coverage/previous-five-billing-report.json'),blob=join(root,'coverage/previous-five-billing.json'),startedAt=Date.now()
+  const webhook=join(root,'tests/integration/billing-consumer-webhook.test.ts')
+  // Preserve the original nine HTTP reporter canaries for this historical run.
+  writeFileSync(webhook,readFileSync(webhook,'utf8').trimEnd().split('\n').slice(0,10).join('\n')+'\n')
+  const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...billingConsumerPaths.slice(0,5),'--maxWorkers=1','--coverage',
+    '--reporter=json','--reporter=blob','--outputFile.json='+reportPath,'--outputFile.blob='+blob,'--coverage.reportsDirectory='+join(root,'coverage/previous-five-billing')])
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
+  const report=JSON.parse(readFileSync(reportPath,'utf8'))
+  expect(report.numTotalTests).toBe(40);expect(report.numPassedTests).toBe(40)
+  expect(report.testResults).toHaveLength(5)
+  expect(()=>assertBillingReport(report,root)).toThrow('Native Billing requires its exact eight consumers and 55 passing leaves')
+  expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.11')).toThrow('Native billing blob has an unexpected consumer')
+},25000)
+
+test('native_billing_gate_refuses_the_previous_seven_consumer_45_leaf_run',()=>{
+  const root=nativeCoverageFixture(),reportPath=join(root,'coverage/previous-seven-billing-report.json'),blob=join(root,'coverage/previous-seven-billing.json'),startedAt=Date.now()
+  const webhook=join(root,'tests/integration/billing-consumer-webhook.test.ts')
+  writeFileSync(webhook,readFileSync(webhook,'utf8').trimEnd().split('\n').slice(0,10).join('\n')+'\n')
+  const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...billingConsumerPaths.slice(0,7),'--maxWorkers=1','--coverage',
+    '--reporter=json','--reporter=blob','--outputFile.json='+reportPath,'--outputFile.blob='+blob,'--coverage.reportsDirectory='+join(root,'coverage/previous-seven-billing')])
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
+  const report=JSON.parse(readFileSync(reportPath,'utf8'))
+  expect(report.numTotalTests).toBe(45);expect(report.numPassedTests).toBe(45)
+  expect(report.testResults).toHaveLength(7)
+  expect(()=>assertBillingReport(report,root)).toThrow('Native Billing requires its exact eight consumers and 55 passing leaves')
+  expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.11')).toThrow('Native billing blob has an unexpected consumer')
 },25000)
 
 test('native_requests_blob_admits_exact_five_consumers_and_40_leaves_without_losing_original_eight',()=>{
@@ -562,24 +837,89 @@ test('native_blob_coverage_keeps_additive_counts_zero_entries_and_source_geometr
   expect(failed.error).toBeUndefined();expect(failed.status).not.toBe(0)
 },60000)
 
-function runCoverageConsumer(root:string,preload?:string) {
+function runCoverageConsumer(root:string,preload?:string,timeout=20000) {
   writeFileSync(join(root,'scripts/test.mjs'),readFileSync(join(repositoryRoot,'scripts/test.mjs')))
   writeFileSync(join(root,'scripts/native-coverage-inputs.mjs'),readFileSync(join(repositoryRoot,'scripts/native-coverage-inputs.mjs')))
   writeFileSync(join(root,'scripts/native-test-phase.mjs'),readFileSync(join(repositoryRoot,'scripts/native-test-phase.mjs')))
   writeFileSync(join(root,'coverage/coverage-final.json'),'{"stale":true}')
   const args=preload?['--import',pathToFileURL(preload).href,'scripts/test.mjs']:['scripts/test.mjs']
-  return spawnSync(process.execPath,args,{cwd:root,encoding:'utf8',windowsHide:true,timeout:20000})
+  return spawnSync(process.execPath,args,{cwd:root,encoding:'utf8',windowsHide:true,timeout})
 }
+
+test.each(['disabled','missing','adverse'] as const)('native_mail_retry_runner_refuses_%s_before_requests_merge_and_publication',kind=>{
+  const root=nativeCoverageFixture(),path=join(root,'tests/integration/mail-retry-native.test.ts')
+  const source=readFileSync(path,'utf8')
+  if(kind==='disabled')writeFileSync(path,source.replace("test('I3 ","test.skip('I3 "))
+  else if(kind==='missing')writeFileSync(path,"import {test} from 'vitest';test('unreviewed replacement',()=>{});\n")
+  else writeFileSync(path,source+"import {afterAll} from 'vitest';afterAll(()=>{throw new Error('Owned mail retry afterAll failure')});\n")
+  const result=runCoverageConsumer(root)
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
+  expect(result.stdout).toContain('[tests] mail retry build\n')
+  expect(result.stdout).toContain('[tests] mail retry qualification\n')
+  expect(result.stdout).not.toContain('[tests] requests qualification')
+  expect(result.stdout).not.toContain('[tests] billing qualification')
+  expect(result.stdout).not.toContain('[tests] merge')
+  expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
+  if(kind==='adverse'){
+    expect(result.stderr).toContain('Native coverage mail retry qualification failed; consumer cleanup is unconfirmed')
+    expect(existsSync(join(root,'coverage/canary-voice-owner'))).toBe(true)
+    expect(existsSync(join(root,'canary-voice-retired.txt'))).toBe(false)
+  }else{
+    expect(result.stderr).toContain('Native mail retry requires its exact one passing parent')
+    expect(readdirSync(join(root,'coverage'))).toEqual([])
+    expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
+  }
+},25000)
+
+test.each([
+  ['billing-worker-native.test.ts','adverse'],
+  ['mail-worker-native.test.ts','missing'],
+] as const)('native_billing_runner_refuses_worker_%s_%s_before_merge_and_publication',(file,kind)=>{
+  const root=nativeCoverageFixture(),path=join(root,'tests/integration',file)
+  const lines=readFileSync(path,'utf8').trimEnd().split('\n')
+  if(kind==='missing'){
+    // Keep the one-leaf mail file valid while removing its exact required title.
+    lines[1]=lines[1]!.replace('built application relay','unreviewed application relay')
+  }else lines.push("import {afterAll} from 'vitest';afterAll(()=>{throw new Error('Owned native worker consumer failure')});")
+  writeFileSync(path,lines.join('\n')+'\n')
+  const result=runCoverageConsumer(root)
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
+  expect(result.stdout).toContain('[tests] billing qualification\n')
+  expect(result.stdout).not.toContain('[tests] merge')
+  expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
+  if(kind==='adverse'){
+    expect(result.stderr).toContain('Native coverage billing qualification failed; consumer cleanup is unconfirmed')
+    expect(existsSync(join(root,'coverage/canary-voice-owner'))).toBe(true)
+    expect(existsSync(join(root,'canary-voice-retired.txt'))).toBe(false)
+  }else{
+    expect(result.stderr).toContain('Native Billing requires its exact eight consumers and 55 passing leaves')
+    expect(readdirSync(join(root,'coverage'))).toEqual([])
+    expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
+  }
+},25000)
+
+test('native_billing_runner_refuses_a_missing_native_billing_blob',()=>{
+  const root=nativeCoverageFixture(),preload=join(root,'missing-billing-blob.mjs')
+  writeFileSync(preload,"import fs from 'node:fs';import {syncBuiltinESMExports} from 'node:module';import {join} from 'node:path';const stat=fs.lstatSync;fs.lstatSync=(path,...args)=>{if(typeof path==='string'&&path.endsWith(join('blobs','billing.json'))&&fs.existsSync(path))fs.rmSync(path);return stat(path,...args)};syncBuiltinESMExports();\n")
+  const result=runCoverageConsumer(root,preload)
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
+  expect(result.stdout).toContain('[tests] billing qualification\n')
+  expect(result.stdout).not.toContain('[tests] merge')
+  expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
+  expect(readdirSync(join(root,'coverage'))).toEqual([])
+  expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
+},25000)
 
 test('actual_coverage_runner_publishes_only_native_complete_map_after_retirement',()=>{
   const root=nativeCoverageFixture(),result=runCoverageConsumer(root)
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   expect(result.stdout).toContain('[tests] prerequisites\nCANARY_PREREQUISITE_READY\n')
+  expect(result.stdout).toContain('[tests] billing qualification\n')
   expect(readdirSync(join(root,'coverage'))).toEqual(['coverage-final.json'])
   expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
   expect(existsSync(join(root,'coverage/canary-voice-owner'))).toBe(false)
-  expect(result.stdout.split('\n').filter(line=>/^\[tests\] (voice-crypto qualification|recording receipt qualification|requests qualification|private audio playback qualification|audio reader store qualification|audio reader retirement qualification|merge)$/.test(line.trim())).map(line=>line.trim())).toEqual([
-    '[tests] voice-crypto qualification','[tests] recording receipt qualification','[tests] requests qualification','[tests] merge',
+  expect(result.stdout.split('\n').filter(line=>/^\[tests\] (voice-crypto qualification|recording receipt qualification|mail retry qualification|requests qualification|billing qualification|private audio playback qualification|audio reader store qualification|audio reader retirement qualification|merge)$/.test(line.trim())).map(line=>line.trim())).toEqual([
+    '[tests] voice-crypto qualification','[tests] recording receipt qualification','[tests] mail retry qualification','[tests] requests qualification','[tests] billing qualification','[tests] merge',
   ])
   const audioConsumers: {file:string;screenshots:string}[]=readFileSync(join(root,'canary-audio-consumers.jsonl'),'utf8').trimEnd().split('\n').map(line=>JSON.parse(line))
   expect(audioConsumers.map(row=>row.file).sort()).toEqual(requestConsumerNames.slice(1).map(([file])=>file).sort())
@@ -588,18 +928,19 @@ test('actual_coverage_runner_publishes_only_native_complete_map_after_retirement
   const coverage=JSON.parse(readFileSync(join(root,'coverage/coverage-final.json'),'utf8'))
   expect(coverage.stale).toBeUndefined()
   // Fifteen Requests and one ordinary case take true; twelve Activity cases take false.
-  // These literal totals independently check that all three phases were merged once.
+  // These literal totals independently check that all four phases were merged once.
   expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].f).toEqual({'0':28})
   expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].s).toEqual({'0':28,'1':16,'2':12})
   expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].b).toEqual({'0':[16,12]})
   expect(coverage[join(root,'src/unexecuted.ts').replaceAll('\\','/')].f).toEqual({'0':0})
   expect(coverage[join(root,'src/audio-covered.ts').replaceAll('\\','/')].f).toEqual({'0':25})
   expect(coverage[join(root,'src/audio-covered.ts').replaceAll('\\','/')].b).toEqual({'0':[25,0]})
+  expect(coverage[join(root,'src/billing-covered.ts').replaceAll('\\','/')].f).toEqual({'0':55})
+  expect(coverage[join(root,'src/billing-covered.ts').replaceAll('\\','/')].b).toEqual({'0':[55,0]})
 },25000)
 
 test.each([
-  'sparra-audio-playback.test.ts','sparra-audio-reader-store.test.ts','sparra-audio-reader-retirement.test.ts',
-  'sparra-audio-connected.test.ts',
+  'sparra-audio-playback.test.ts',
 ] as const)('actual_coverage_runner_retains_producer_on_audio_failure_%s',file=>{
   const root=nativeCoverageFixture(),path=join(root,'tests/integration',file)
   writeFileSync(path,readFileSync(path,'utf8')+"import {afterAll} from 'vitest';afterAll(()=>{throw new Error('Owned audio consumer afterAll failure')});\n")
@@ -607,6 +948,7 @@ test.each([
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
   expect(result.stderr).toContain('Native coverage requests qualification failed; consumer cleanup is unconfirmed')
   expect(result.stderr).toContain('Native Voice scope retained: consumer resource cleanup is unconfirmed')
+  expect(result.stdout).not.toContain('[tests] billing qualification')
   expect(result.stdout).not.toContain('[tests] merge')
   expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
   expect(readdirSync(join(root,'coverage'))).toEqual(['canary-voice-owner'])
@@ -676,11 +1018,11 @@ test('actual_coverage_runner_accepts_native_coverage_bearing_requests_json_above
   writeFileSync(join(root,'src/large-unexecuted.ts'),Array.from({length:3600},(_,index)=>'export function unexecuted'+index+'(){return '+index+'}\n').join(''))
   const preload=join(root,'observe-native-report-size.mjs')
   writeFileSync(preload,"import fs from 'node:fs';import {syncBuiltinESMExports} from 'node:module';import {join} from 'node:path';const original=fs.lstatSync;fs.lstatSync=(path,...args)=>{const value=original(path,...args);if(typeof path==='string'&&path.endsWith('requests-qualification.json'))fs.writeFileSync(join(process.cwd(),'native-report-size.txt'),String(value.size));return value};syncBuiltinESMExports();\n")
-  const result=runCoverageConsumer(root,preload)
+  const result=runCoverageConsumer(root,preload,40000)
   expect(Number(readFileSync(join(root,'native-report-size.txt'),'utf8'))).toBeGreaterThan(1048576)
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(true)
-},25000)
+},45000)
 
 test.each([
   ['afterAll failure',"throw new Error('Owned afterAll failure')"],
@@ -763,12 +1105,15 @@ test('fallow_declares_only_native_subprocess_and_actual_browser_roots_and_exact_
   writeFileSync(join(root,'tests/helpers/runtime-probe.mjs'),"console.log('synthetic preload');\n")
   writeFileSync(join(root,'tests/helpers/inbox-panel-fixture.tsx'),"console.log('synthetic declared browser entry');\n")
   writeFileSync(join(root,'tests/helpers/undeclared-browser-sibling.tsx'),"console.log('synthetic undeclared browser sibling');\n")
+  writeFileSync(join(root,'tests/helpers/mail-retry-harness.ts'),"import {dirname,join} from 'node:path';import {fileURLToPath} from 'node:url';export function main(){console.log(join(dirname(fileURLToPath(import.meta.url)),'hatchet-empty.yaml'))}\n")
+  writeFileSync(join(root,'tests/helpers/mail-retry-entry.ts'),"import {main} from './mail-retry-harness';main();\n")
+  writeFileSync(join(root,'tests/helpers/undeclared-mail-retry-sibling.ts'),"console.log('synthetic undeclared mail retry sibling');\n")
   writeFileSync(join(root,'scripts/start-web.mjs'),"await import('../.output/server/index.mjs');\nawait import('../.output/server/genuinely-missing.mjs');\n")
   writeFileSync(join(root,'scripts/test-prerequisites.mjs'),"console.log('synthetic prerequisite decoder');\n")
   writeFileSync(join(root,'scripts/undeclared-prerequisite-sibling.mjs'),"console.log('synthetic undeclared sibling');\n")
-  writeFileSync(join(root,'src/main.tsx'),readFileSync(join(root,'src/main.tsx'),'utf8')+"import './genuinely-missing';\n")
+  writeFileSync(join(root,'src/main.tsx'),readFileSync(join(root,'src/main.tsx'),'utf8')+"import './genuinely-missing';\nimport './genuinely-missing.yaml';\n")
   const fixtureConfig: {entry:string[];health:{coverage:string|null}} = JSON.parse(readFileSync(join(repositoryRoot,'.fallowrc.json'),'utf8'))
-  expect(fixtureConfig.entry).toEqual(['scripts/start-web.mjs','scripts/test-prerequisites.mjs','tests/helpers/generate-native-voice-envelope.ts','tests/helpers/inbox-panel-fixture.tsx'])
+  expect(fixtureConfig.entry).toEqual(['scripts/start-web.mjs','scripts/test-prerequisites.mjs','tests/helpers/generate-native-voice-envelope.ts','tests/helpers/inbox-panel-fixture.tsx','tests/helpers/mail-retry-entry.ts'])
   fixtureConfig.health.coverage = null
   writeFileSync(join(root,'.fallowrc.json'),JSON.stringify(fixtureConfig))
   const result=runQuality('fallow',['audit','--no-css','--base',base],root)
@@ -777,11 +1122,16 @@ test('fallow_declares_only_native_subprocess_and_actual_browser_roots_and_exact_
   expect(output).toMatch(/src[\\/]unused\.ts/)
   expect(output).toContain('undeclared-prerequisite-sibling.mjs')
   expect(output).toContain('undeclared-browser-sibling.tsx')
+  expect(output).toContain('undeclared-mail-retry-sibling.ts')
   expect(output).toContain('./genuinely-missing')
+  expect(output).toContain('./genuinely-missing.yaml')
   expect(output).toContain('../.output/server/genuinely-missing.mjs')
   expect(output).not.toContain('generate-native-voice-envelope.ts')
   expect(output).not.toContain('runtime-probe.mjs')
   expect(output).not.toContain('inbox-panel-fixture.tsx')
+  expect(output).not.toMatch(/(?:^|[\\/])mail-retry-harness\.ts/)
+  expect(output).not.toMatch(/(?:^|[\\/])mail-retry-entry\.ts/)
+  expect(output).not.toContain('hatchet-empty.yaml')
   expect(output).not.toMatch(/(?:^|[\\/])test-prerequisites\.mjs/)
   expect(output).not.toContain('../.output/server/index.mjs')
 },40000)

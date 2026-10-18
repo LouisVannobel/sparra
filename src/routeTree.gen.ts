@@ -12,12 +12,14 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AccountRouteImport } from './routes/account'
 import { Route as AppRouteImport } from './routes/app'
+import { Route as BillingRouteImport } from './routes/billing'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as WorkspaceRouteImport } from './routes/workspace'
 import { Route as AppIndexRouteImport } from './routes/app.index'
 import { Route as AppEntrepriseRouteImport } from './routes/app.entreprise'
 import { Route as HealthLiveRouteImport } from './routes/health.live'
 import { Route as HealthReadyRouteImport } from './routes/health.ready'
+import { Route as WebhooksStripeRouteImport } from './routes/webhooks.stripe'
 import { Route as AppDemandesRequestIdRouteImport } from './routes/app.demandes.$requestId'
 import { Route as AuthMagicConfirmRouteImport } from './routes/auth.magic.confirm'
 import { Route as AuthMagicConsumeRouteImport } from './routes/auth.magic.consume'
@@ -40,6 +42,11 @@ const AccountRoute = AccountRouteImport.update({
 const AppRoute = AppRouteImport.update({
   id: '/app',
   path: '/app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BillingRoute = BillingRouteImport.update({
+  id: '/billing',
+  path: '/billing',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -70,6 +77,11 @@ const HealthLiveRoute = HealthLiveRouteImport.update({
 const HealthReadyRoute = HealthReadyRouteImport.update({
   id: '/health/ready',
   path: '/health/ready',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WebhooksStripeRoute = WebhooksStripeRouteImport.update({
+  id: '/webhooks/stripe',
+  path: '/webhooks/stripe',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppDemandesRequestIdRoute = AppDemandesRequestIdRouteImport.update({
@@ -119,11 +131,13 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
   '/app': typeof AppRouteWithChildren
+  '/billing': typeof BillingRoute
   '/login': typeof LoginRoute
   '/workspace': typeof WorkspaceRoute
   '/app/entreprise': typeof AppEntrepriseRoute
   '/health/live': typeof HealthLiveRoute
   '/health/ready': typeof HealthReadyRoute
+  '/webhooks/stripe': typeof WebhooksStripeRoute
   '/app/': typeof AppIndexRoute
   '/app/demandes/$requestId': typeof AppDemandesRequestIdRoute
   '/auth/magic/confirm': typeof AuthMagicConfirmRoute
@@ -137,11 +151,13 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
+  '/billing': typeof BillingRoute
   '/login': typeof LoginRoute
   '/workspace': typeof WorkspaceRoute
   '/app/entreprise': typeof AppEntrepriseRoute
   '/health/live': typeof HealthLiveRoute
   '/health/ready': typeof HealthReadyRoute
+  '/webhooks/stripe': typeof WebhooksStripeRoute
   '/app': typeof AppIndexRoute
   '/app/demandes/$requestId': typeof AppDemandesRequestIdRoute
   '/auth/magic/confirm': typeof AuthMagicConfirmRoute
@@ -157,11 +173,13 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
   '/app': typeof AppRouteWithChildren
+  '/billing': typeof BillingRoute
   '/login': typeof LoginRoute
   '/workspace': typeof WorkspaceRoute
   '/app/entreprise': typeof AppEntrepriseRoute
   '/health/live': typeof HealthLiveRoute
   '/health/ready': typeof HealthReadyRoute
+  '/webhooks/stripe': typeof WebhooksStripeRoute
   '/app/': typeof AppIndexRoute
   '/app/demandes/$requestId': typeof AppDemandesRequestIdRoute
   '/auth/magic/confirm': typeof AuthMagicConfirmRoute
@@ -178,11 +196,13 @@ export interface FileRouteTypes {
     | '/'
     | '/account'
     | '/app'
+    | '/billing'
     | '/login'
     | '/workspace'
     | '/app/entreprise'
     | '/health/live'
     | '/health/ready'
+    | '/webhooks/stripe'
     | '/app/'
     | '/app/demandes/$requestId'
     | '/auth/magic/confirm'
@@ -196,11 +216,13 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/account'
+    | '/billing'
     | '/login'
     | '/workspace'
     | '/app/entreprise'
     | '/health/live'
     | '/health/ready'
+    | '/webhooks/stripe'
     | '/app'
     | '/app/demandes/$requestId'
     | '/auth/magic/confirm'
@@ -215,11 +237,13 @@ export interface FileRouteTypes {
     | '/'
     | '/account'
     | '/app'
+    | '/billing'
     | '/login'
     | '/workspace'
     | '/app/entreprise'
     | '/health/live'
     | '/health/ready'
+    | '/webhooks/stripe'
     | '/app/'
     | '/app/demandes/$requestId'
     | '/auth/magic/confirm'
@@ -235,10 +259,12 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AccountRoute: typeof AccountRoute
   AppRoute: typeof AppRouteWithChildren
+  BillingRoute: typeof BillingRoute
   LoginRoute: typeof LoginRoute
   WorkspaceRoute: typeof WorkspaceRoute
   HealthLiveRoute: typeof HealthLiveRoute
   HealthReadyRoute: typeof HealthReadyRoute
+  WebhooksStripeRoute: typeof WebhooksStripeRoute
   AuthMagicConfirmRoute: typeof AuthMagicConfirmRoute
   AuthMagicConsumeRoute: typeof AuthMagicConsumeRoute
   AuthMagicEnrollRoute: typeof AuthMagicEnrollRoute
@@ -269,6 +295,13 @@ declare module '@tanstack/react-router' {
       path: '/app'
       fullPath: '/app'
       preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/billing': {
+      id: '/billing'
+      path: '/billing'
+      fullPath: '/billing'
+      preLoaderRoute: typeof BillingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -311,6 +344,13 @@ declare module '@tanstack/react-router' {
       path: '/health/ready'
       fullPath: '/health/ready'
       preLoaderRoute: typeof HealthReadyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/webhooks/stripe': {
+      id: '/webhooks/stripe'
+      path: '/webhooks/stripe'
+      fullPath: '/webhooks/stripe'
+      preLoaderRoute: typeof WebhooksStripeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/app/demandes/$requestId': {
@@ -390,10 +430,12 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AccountRoute: AccountRoute,
   AppRoute: AppRouteWithChildren,
+  BillingRoute: BillingRoute,
   LoginRoute: LoginRoute,
   WorkspaceRoute: WorkspaceRoute,
   HealthLiveRoute: HealthLiveRoute,
   HealthReadyRoute: HealthReadyRoute,
+  WebhooksStripeRoute: WebhooksStripeRoute,
   AuthMagicConfirmRoute: AuthMagicConfirmRoute,
   AuthMagicConsumeRoute: AuthMagicConsumeRoute,
   AuthMagicEnrollRoute: AuthMagicEnrollRoute,

@@ -1,0 +1,1539 @@
+diff --git a/README.md b/README.md
+index e645e6a5d065145357736c9f2cc2b84118543fa8..757d26cdefa1cb736395cddf33633fce45bc1131 100644
+--- a/README.md
++++ b/README.md
+@@ -1,5 +1,69 @@
+ # Hatchet TypeScript SDK
+ 
++## Isolated candidate: owned worker lifecycle
++
++This local candidate adds an opt-in contract to `HatchetClient` from
++`@hatchet-dev/typescript-sdk/v1/index.js`. It is not an upstream SDK guarantee.
++Existing callers that omit `workerLifecycle` keep their existing behavior.
++
++Pass `HatchetV1ClientOptions.workerLifecycle` with a startup AbortSignal and
++absolute `deadlineAt` fixed before construction, a distinct `lifetimeSignal`,
++and `cleanupTimeoutMs: 15000`. The intended startup deadline is
++`Date.now() + 15000`. `getStartupInfo()` caches the constructor tenant probe and
++one admission version read, returning `{ tenantVersion, engineVersion }`.
++Version validation remains the consumer's responsibility; worker startup keeps
++its two engine-version gates.
++
++Owned acquisition is single-use: one modern non-durable worker, ordinary tasks,
++no batch/durable declarations or legacy branch. Failed acquisition does not
++reopen that slot. The owned client does not support legacy, run-result or durable
++listeners, or promise ownership of arbitrary other SDK operations. Both new
++methods reject without extra I/O when lifecycle ownership was not enabled.
++
++Owned tenant/admission-probe and pause REST calls use the ordinary built-in
++Axios HTTP/1 adapter with per-request `maxRedirects: 0` and the phase signal.
++Both configured and effective base URLs must be canonical HTTP(S) URLs.
++Custom adapters/transports, HTTP/2, streaming responses, caller request
++transforms and CancelToken are rejected before the constructor probe. Effective
++defaults are rechecked before each owned dispatch; stock request serialization,
++headers, authentication, JSON parsing, TLS, validators and agents are preserved.
++Redirects are rejected even when a validator accepts 3xx, and no next hop is
++followed. The HTTP join retains the original operation and awaits only a public
++native `ClientRequest.closed` or `close` event identified consistently through
++`response.request`, `reason.request` or `reason.response.request`. A missing,
++non-native or inconsistent handle fails closed;
++wrapper destruction, socket state and Axios rejection are not close receipts.
++The original rejection cause is preserved, including an undefined cause.
++Externally replaced/mutated API instances, interceptors or custom transports
++are outside this exact supported chain. Shared agents are not owned or closed.
++Ordinary late signal cancellation can still discard the outward request handle;
++the observer used by tests never repairs that runtime gap. The scoped Oracle
++approval permits only isolated qualification of this restriction, not complete
++SDK ownership, active adoption or normal pool release on an unsafe outcome.
++
++`worker.stop()` and `client.dispose()` share one fresh cleanup deadline starting
++at the first terminal transition. Startup cancellation does not cancel the
++cleanup signal. Successful startup detaches the old startup deadline; lifetime
++cancellation remains active. `handleKill:false` installs no process handlers.
++Startup commit denotes registration and consumer installation, not engine or
++application readiness.
++Owned signal handlers request joined shutdown and remove their exact references.
++
++Shutdown retains original handler executions independently of cancellable
++futures, and drains STARTED plus one outcome obligation for admitted tasks.
++Terminal transition forbids new dispatch/retry series; a failed COMPLETED
++transmission never becomes a replacement FAILED event. An uncooperative handler
++still prevents disposal from completing. Heartbeat generations terminate and
++join before reconnect can start another generation.
++
++A fulfilled disposal is the local ownership receipt for this supported scope.
++A rejection is not permission to release dependent SQL pools. In particular,
++unknown native settlement retains channels and fails closed; neither an absent
++trailer, an AbortError, nor elapsed time is interpreted as proof of no native
++operation. Local closure does not prove remote registration rollback or that
++the engine did not receive a task event. This candidate still requires isolated
++qualification, clean reconstruction and independent review before adoption.
++
+ <div align="center">
+ 
+ [![npm version](https://badge.fury.io/js/@hatchet-dev%2Ftypescript-sdk.svg)](https://badge.fury.io/js/@hatchet-dev%2Ftypescript-sdk)
+diff --git a/clients/dispatcher/action-listener.d.ts b/clients/dispatcher/action-listener.d.ts
+index 813b8389b7e99790e0bd8022c916a7b761408ba3..ad3abd0d2cdf6eff4351c2beb32a08200d03a808 100644
+--- a/clients/dispatcher/action-listener.d.ts
++++ b/clients/dispatcher/action-listener.d.ts
+@@ -3,6 +3,7 @@ import { ClientConfig } from '../hatchet-client/client-config';
+ import { Logger } from '../../util/logger';
+ import { DispatcherClient } from './dispatcher-client';
+ import { Heartbeat } from './heartbeat/heartbeat-controller';
++import type { OwnedWorkerLifecycle } from '../../util/worker-lifecycle';
+ declare enum ListenStrategy {
+     LISTEN_STRATEGY_V1 = 1,
+     LISTEN_STRATEGY_V2 = 2
+@@ -26,6 +27,11 @@ export declare class ActionListener {
+     listenStrategy: ListenStrategy;
+     heartbeat: Heartbeat;
+     abortController?: AbortController;
++    private lifecycle: OwnedWorkerLifecycle | undefined;
++    private ownedUnsubscribe: Promise<import('../../protoc/dispatcher').WorkerUnsubscribeResponse> | undefined;
++    private _ownedActions;
++    /** @internal Stops only this listener and joins its heartbeat generation. */
++    _stopOwnedLocal(): Promise<void>;
+     constructor(client: DispatcherClient, workerId: string, retryInterval?: number, retryCount?: number);
+     actions: () => AsyncGenerator<Action, void, unknown>;
+     setListenStrategy(strategy: ListenStrategy): Promise<void>;
+diff --git a/clients/dispatcher/action-listener.js b/clients/dispatcher/action-listener.js
+index 4c346e40017143d6071da8415ea98b7534da206f..e41b23a74bd7acd31cb77b3deaf749bc8a354e6f 100644
+--- a/clients/dispatcher/action-listener.js
++++ b/clients/dispatcher/action-listener.js
+@@ -169,6 +169,62 @@ class ActionListener {
+         this.retryInterval = retryInterval;
+         this.retryCount = retryCount;
+         this.heartbeat = new heartbeat_controller_1.Heartbeat(client, workerId);
++        this.lifecycle = client._workerLifecycle;
++        if (this.lifecycle) this.actions = () => this._ownedActions();
++    }
++    async *_ownedActions() {
++        const owner = this.lifecycle;
++        while (!this.done && !owner.terminal) {
++            if (this.retries > DEFAULT_ACTION_LISTENER_RETRY_COUNT) throw new Error('Owned listener retry limit exceeded');
++            if (this.retries >= 1) await owner.delay(DEFAULT_ACTION_LISTENER_RETRY_INTERVAL);
++            if (this.retries > 1) await owner.delay(this.retryInterval);
++            owner.assertRunning();
++            this.abortController = new AbortController();
++            const signal = AbortSignal.any([owner.lifetime.signal, this.abortController.signal]);
++            let trailer = false;
++            let advanced = false;
++            let iterator;
++            let failure;
++            try {
++                const options = { signal, onTrailer: () => { trailer = true; } };
++                const iterable = this.listenStrategy === ListenStrategy.LISTEN_STRATEGY_V1
++                    ? this.client.listen({ workerId: this.workerId }, options)
++                    : this.client.listenV2({ workerId: this.workerId }, options);
++                iterator = iterable[Symbol.asyncIterator]();
++                if (this.listenStrategy === ListenStrategy.LISTEN_STRATEGY_V2) await this.heartbeat.start();
++                this.logger.green(`Connection established using LISTEN_STRATEGY_V${this.listenStrategy}`);
++                while (!this.done && !owner.terminal) {
++                    // Generator construction is not transport entry. Recheck at
++                    // the actual advancement boundary, including reentrant stop.
++                    owner.assertRunning();
++                    advanced = true;
++                    const next = await iterator.next();
++                    if (next.done) break;
++                    if (!this.done && !owner.terminal) yield createAction(next.value);
++                }
++            } catch (error) {
++                failure = error;
++            } finally {
++                this.abortController.abort();
++                if (iterator?.return) {
++                    try { await iterator.return(); } catch (error) { if (!failure) failure = error; }
++                }
++                await owner.retain(this.heartbeat.stop(), false, true);
++                if (advanced && !trailer) owner.unsafe(failure || new Error('Stream ended without observed local status'));
++            }
++            if (this.done || owner.terminal) return;
++            if (failure && (0, grpc_error_1.getGrpcErrorCode)(failure) === nice_grpc_1.Status.UNIMPLEMENTED) {
++                this.listenStrategy = ListenStrategy.LISTEN_STRATEGY_V1;
++            } else if (failure && (0, grpc_error_1.getGrpcErrorCode)(failure) !== nice_grpc_1.Status.UNAVAILABLE) {
++                throw failure;
++            }
++            this.retries += 1;
++        }
++    }
++    _stopOwnedLocal() {
++        this.done = true;
++        this.abortController?.abort();
++        return this.lifecycle.retain(this.heartbeat.stop(), false, true);
+     }
+     setListenStrategy(strategy) {
+         return __awaiter(this, void 0, void 0, function* () {
+@@ -238,6 +294,13 @@ class ActionListener {
+         });
+     }
+     unregister() {
++        if (this.lifecycle) {
++            this._stopOwnedLocal();
++            if (!this.ownedUnsubscribe) {
++                this.ownedUnsubscribe = this.lifecycle.unary((options) => this.client.unsubscribe({ workerId: this.workerId }, options), 'cleanup');
++            }
++            return this.ownedUnsubscribe;
++        }
+         return __awaiter(this, void 0, void 0, function* () {
+             this.done = true;
+             this.heartbeat.stop();
+diff --git a/clients/dispatcher/dispatcher-client.d.ts b/clients/dispatcher/dispatcher-client.d.ts
+index 5052ff694a538f2c829301760ba855b40c7d1bac..f4823f8fe498a19ffca9dc2366aa444a0c5e74c0 100644
+--- a/clients/dispatcher/dispatcher-client.d.ts
++++ b/clients/dispatcher/dispatcher-client.d.ts
+@@ -4,6 +4,7 @@ import { ClientConfig } from '../hatchet-client/client-config';
+ import { Logger } from '../../util/logger';
+ import { SlotConfig } from '../../v1/slot-types';
+ import { ActionListener } from './action-listener';
++import type { OwnedWorkerLifecycle } from '../../util/worker-lifecycle';
+ export type WorkerLabels = Record<string, string | number | undefined>;
+ interface GetActionListenerOptions {
+     workerName: string;
+@@ -28,7 +29,9 @@ export declare class DispatcherClient {
+     config: ClientConfig;
+     client: PbDispatcherClient;
+     logger: Logger;
+-    constructor(config: ClientConfig, channel: Channel, factory: ClientFactory);
++    /** @internal */
++    readonly _workerLifecycle?: OwnedWorkerLifecycle;
++    constructor(config: ClientConfig, channel: Channel, factory: ClientFactory, lifecycle?: OwnedWorkerLifecycle);
+     getRuntimeInfo(): RuntimeInfo;
+     getActionListener(options: GetActionListenerOptions): Promise<ActionListener>;
+     /**
+@@ -36,7 +39,7 @@ export declare class DispatcherClient {
+      * Throws a gRPC error with code UNIMPLEMENTED on older engines.
+      */
+     getVersion(): Promise<string>;
+-    sendStepActionEvent(in_: StepActionEventInput): Promise<import("../../protoc/dispatcher").ActionEventResponse>;
++    sendStepActionEvent(in_: StepActionEventInput, controller?: AbortController): Promise<import("../../protoc/dispatcher").ActionEventResponse>;
+     /**
+      * Reports a lifecycle event (STARTED, COMPLETED, or FAILED) covering one or more
+      * members of a batch task's execution.
+diff --git a/clients/dispatcher/dispatcher-client.js b/clients/dispatcher/dispatcher-client.js
+index 31095bc0fdfb2074f24c8eb2e0af6075e75ce48b..cae05555bee0257c5df57ab05510fdc3b65530c9 100644
+--- a/clients/dispatcher/dispatcher-client.js
++++ b/clients/dispatcher/dispatcher-client.js
+@@ -28,8 +28,13 @@ const retrier_1 = require("../../util/retrier");
+ const version_1 = require("../../version");
+ const slot_types_1 = require("../../v1/slot-types");
+ const action_listener_1 = require("./action-listener");
++const { waitForChannelReady } = require("nice-grpc");
+ class DispatcherClient {
+-    constructor(config, channel, factory) {
++    constructor(config, channel, factory, lifecycle) {
++        this._workerLifecycle = lifecycle;
++        if (lifecycle) {
++            this._waitForOwnedCleanupReady = (deadline) => waitForChannelReady(channel, deadline);
++        }
+         this.config = config;
+         this.client = factory.create(dispatcher_1.DispatcherDefinition, channel);
+         this.logger = config.logger(`Dispatcher`, config.log_level);
+@@ -50,14 +55,19 @@ class DispatcherClient {
+                     ? Object.assign(Object.assign({}, (options.slots || options.maxRuns
+                         ? { [slot_types_1.SlotType.Default]: options.slots || options.maxRuns || 0 }
+                         : {})), (options.durableSlots ? { [slot_types_1.SlotType.Durable]: options.durableSlots } : {})) : undefined);
+-            const registration = yield this.client.register({
++            const request = {
+                 workerName: options.workerName,
+                 services: options.services,
+                 actions: options.actions,
+                 slotConfig,
+                 labels: options.labels ? mapLabels(options.labels) : undefined,
+                 runtimeInfo: this.getRuntimeInfo(),
+-            });
++            };
++            const original = this._workerLifecycle
++                ? this._workerLifecycle.unary((options) => this.client.register(request, options))
++                : this.client.register(request);
++            const registration = yield (this._workerLifecycle ? this._workerLifecycle.adoptRegistration(original) : original);
++            this._workerLifecycle?.assertStartup();
+             return new action_listener_1.ActionListener(this, registration.workerId);
+         });
+     }
+@@ -67,14 +77,28 @@ class DispatcherClient {
+      */
+     getVersion() {
+         return __awaiter(this, void 0, void 0, function* () {
+-            const response = yield this.client.getVersion({});
++            const response = yield (this._workerLifecycle
++                ? this._workerLifecycle.unary((options) => this.client.getVersion({}, options))
++                : this.client.getVersion({}));
+             return response.version;
+         });
+     }
+-    sendStepActionEvent(in_) {
++    sendStepActionEvent(in_, controller) {
+         return __awaiter(this, void 0, void 0, function* () {
+             const { taskId, taskRunExternalId } = in_, rest = __rest(in_, ["taskId", "taskRunExternalId"]);
+             const event = Object.assign(Object.assign({}, rest), { taskId: taskId !== null && taskId !== void 0 ? taskId : '', taskRunExternalId: taskRunExternalId !== null && taskRunExternalId !== void 0 ? taskRunExternalId : '' });
++            if (this._workerLifecycle) {
++                const owner = this._workerLifecycle;
++                if (!controller) throw new Error('Owned task event has no reserved obligation');
++                const series = (0, retrier_1.retrier)(
++                    () => owner.unary((options) => this.client.sendStepActionEvent(event, options), 'protocol', controller),
++                    this.logger,
++                    { shouldRetry: () => !owner.terminal, signal: owner.lifetime.signal },
++                );
++                owner.retain(series, false, true);
++                try { return yield series; }
++                catch (error) { owner.requestTerminal(); throw error; }
++            }
+             try {
+                 return yield (0, retrier_1.retrier)(() => __awaiter(this, void 0, void 0, function* () { return this.client.sendStepActionEvent(event); }), this.logger);
+             }
+diff --git a/clients/dispatcher/heartbeat/heartbeat-controller.d.ts b/clients/dispatcher/heartbeat/heartbeat-controller.d.ts
+index 54f922e0a32ad61a4b850b84a50f53620ae447a1..46028b91d9f1662c0d6a7dd014336cbab2a544e7 100644
+--- a/clients/dispatcher/heartbeat/heartbeat-controller.d.ts
++++ b/clients/dispatcher/heartbeat/heartbeat-controller.d.ts
+@@ -4,6 +4,7 @@ import { Worker } from 'worker_threads';
+ import { ClientConfig } from '../../hatchet-client';
+ import { DispatcherClient } from '../dispatcher-client';
+ import { z } from 'zod/v4';
++import type { OwnedWorkerLifecycle } from '../../../util/worker-lifecycle';
+ declare const HeartbeatMessageSchema: z.ZodObject<{
+     type: z.ZodEnum<{
+         error: "error";
+@@ -22,6 +23,13 @@ export declare class Heartbeat {
+     workerId: string;
+     logger: Logger;
+     heartbeatWorker: Worker | undefined;
++    private lifecycle: OwnedWorkerLifecycle | undefined;
++    private transition: Promise<void>;
++    private termination: Promise<void> | undefined;
++    private onMessage: ((message: unknown) => void) | undefined;
++    private onError: ((error: Error) => void) | undefined;
++    private onExit: (() => void) | undefined;
++    private retiring: Worker | undefined;
+     constructor(client: DispatcherClient, workerId: string);
+     start(): Promise<void>;
+     stop(): Promise<void>;
+diff --git a/clients/dispatcher/heartbeat/heartbeat-controller.js b/clients/dispatcher/heartbeat/heartbeat-controller.js
+index 2e2d47bb5f2e78253b2c39226559ee7b478861ba..a7a21b9f9151be7863daea20e190cf1e291a6b01 100644
+--- a/clients/dispatcher/heartbeat/heartbeat-controller.js
++++ b/clients/dispatcher/heartbeat/heartbeat-controller.js
+@@ -36,12 +36,43 @@ exports.isHeartbeatMessage = isHeartbeatMessage;
+ exports.STOP_HEARTBEAT = 'stop';
+ class Heartbeat {
+     constructor(client, workerId) {
++        this.lifecycle = client._workerLifecycle;
++        this.transition = Promise.resolve();
+         this.config = client.config;
+         this.client = client.client;
+         this.workerId = workerId;
+         this.logger = client.config.logger(`HeartbeatController`, this.config.log_level);
+     }
+     start() {
++        if (this.lifecycle) {
++            const operation = this.transition.then(() => {
++                this.lifecycle.assertRunning();
++                if (this.heartbeatWorker) return;
++                const { middleware, logger, ...config } = this.config;
++                let thread;
++                try {
++                    thread = (0, thread_helper_1.runThreaded)(path_1.default.join(__dirname, './heartbeat-worker'), {
++                        workerData: { config, workerId: this.workerId },
++                    });
++                } catch (error) { this.lifecycle.unsafe(error); throw error; }
++                this.heartbeatWorker = thread;
++                this.onMessage = (message) => {
++                    if ((0, exports.isHeartbeatMessage)(message)) this.logger[message.type](message.message);
++                };
++                this.onError = (error) => { this.lifecycle.record(error); this.lifecycle.requestTerminal(); };
++                this.onExit = () => {
++                    if (this.retiring !== thread && !this.lifecycle.terminal) {
++                        this.lifecycle.record(new Error('Owned heartbeat thread exited unexpectedly'));
++                        this.lifecycle.requestTerminal();
++                    }
++                };
++                thread.on('message', this.onMessage);
++                thread.on('error', this.onError);
++                thread.once('exit', this.onExit);
++            });
++            this.transition = operation.catch(() => {});
++            return operation;
++        }
+         return __awaiter(this, void 0, void 0, function* () {
+             if (!this.heartbeatWorker) {
+                 const _a = this.config, { middleware: _m, logger: _l } = _a, clonableConfig = __rest(_a, ["middleware", "logger"]);
+@@ -61,6 +92,37 @@ class Heartbeat {
+         });
+     }
+     stop() {
++        if (this.lifecycle) {
++            if (this.termination) return this.termination;
++            const operation = this.transition.then(async () => {
++                const thread = this.heartbeatWorker;
++                if (!thread) return;
++                const onMessage = this.onMessage;
++                const onError = this.onError;
++                const onExit = this.onExit;
++                this.retiring = thread;
++                // terminate() itself is the real thread-exit join. Never clear
++                // this generation while termination is still pending.
++                try { await thread.terminate(); }
++                catch (error) { this.lifecycle.unsafe(error); throw error; }
++                if (onMessage) thread.removeListener('message', onMessage);
++                if (onError) thread.removeListener('error', onError);
++                if (onExit) thread.removeListener('exit', onExit);
++                if (this.heartbeatWorker === thread) {
++                    this.heartbeatWorker = undefined;
++                    this.onMessage = undefined;
++                    this.onError = undefined;
++                    this.onExit = undefined;
++                    this.retiring = undefined;
++                }
++            });
++            const joined = operation.finally(() => {
++                if (this.termination === joined) this.termination = undefined;
++            });
++            this.termination = joined;
++            this.transition = joined.catch(() => {});
++            return joined;
++        }
+         return __awaiter(this, void 0, void 0, function* () {
+             var _a, _b;
+             (_a = this.heartbeatWorker) === null || _a === void 0 ? void 0 : _a.postMessage(exports.STOP_HEARTBEAT);
+diff --git a/util/retrier.d.ts b/util/retrier.d.ts
+index 998f93e3af23208d2d1da67380bdc0bb012b587f..4bf484a411106a65931cbc969d222de97e1668ee 100644
+--- a/util/retrier.d.ts
++++ b/util/retrier.d.ts
+@@ -3,6 +3,8 @@ export declare const DEFAULT_RETRY_INTERVAL = 0.1;
+ export declare const DEFAULT_RETRY_COUNT = 8;
+ export declare const DEFAULT_MAX_JITTER = 100;
+ export interface RetrierConfig {
++    /** @internal Cancels pending retry delays without cancelling an entered attempt. */
++    signal?: AbortSignal;
+     maxAttempts?: number;
+     initialInterval?: number;
+     maxJitter?: number;
+diff --git a/util/retrier.js b/util/retrier.js
+index 2735b367c3620f6b86a5159ece2b8a3db81b0e12..ebba80b814c0cf89a935b4ab28f9b6d42194d416 100644
+--- a/util/retrier.js
++++ b/util/retrier.js
+@@ -27,6 +27,7 @@ function retrier(fn, logger, config) {
+         const shouldRetry = (_d = config === null || config === void 0 ? void 0 : config.shouldRetry) !== null && _d !== void 0 ? _d : (() => true);
+         let lastError;
+         for (let i = 0; i < retries; i++) {
++            if (i > 0 && config?.signal?.aborted) throw lastError;
+             try {
+                 return yield fn();
+             }
+@@ -39,7 +40,19 @@ function retrier(fn, logger, config) {
+                 if (i < retries - 1) {
+                     const exponentialDelay = interval * 2 ** i * 1000;
+                     const jitter = Math.random() * maxJitter;
+-                    yield (0, sleep_1.default)(exponentialDelay + jitter);
++                    if (config?.signal) {
++                        const signal = config.signal;
++                        yield new Promise((resolve, reject) => {
++                            const onAbort = () => {
++                                clearTimeout(timer);
++                                signal.removeEventListener('abort', onAbort);
++                                reject(lastError);
++                            };
++                            const timer = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve(); }, exponentialDelay + jitter);
++                            signal.addEventListener('abort', onAbort, { once: true });
++                            if (signal.aborted) onAbort();
++                        });
++                    } else yield (0, sleep_1.default)(exponentialDelay + jitter);
+                 }
+             }
+         }
+diff --git a/util/worker-lifecycle.d.ts b/util/worker-lifecycle.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..3691d85a44a1623dd873e933b68c7e1144a83f5b
+--- /dev/null
++++ b/util/worker-lifecycle.d.ts
+@@ -0,0 +1,51 @@
++import type { Channel, CallOptions } from 'nice-grpc';
++import type { WorkerRegisterResponse } from '../protoc/dispatcher';
++import type { HatchetWorkerLifecycle } from '../v1/client/client';
++import type { InternalWorker } from '../v1/client/worker/worker-internal';
++import type { Context } from '../v1/client/worker/context';
++import type { AxiosRequestConfig, AxiosResponse } from 'axios';
++import type { Api } from '../clients/rest/generated/Api';
++/** @internal Finite obligations belonging to one admitted ordinary task. */
++export interface OwnedDispatch {
++    context?: Context;
++    readonly started: AbortController;
++    readonly outcome: AbortController;
++    finalization?: Promise<unknown>;
++    startedPromise?: Promise<unknown>;
++    handler?: Promise<unknown>;
++    handlerOutcome?: { status: 'fulfilled'; value: unknown } | { status: 'rejected'; reason: unknown };
++}
++/** @internal Concrete owner shared by the client and its one worker. */
++export declare class OwnedWorkerLifecycle {
++    static validateHttpOptions(apiUrl: string, options?: AxiosRequestConfig): void;
++    constructor(options: HatchetWorkerLifecycle, api?: Api);
++    readonly startup: AbortController;
++    readonly startupFailure: Error;
++    readonly lifetime: AbortController;
++    readonly cleanup: AbortController;
++    readonly options: HatchetWorkerLifecycle;
++    terminal: boolean;
++    committed: boolean;
++    cleanupDeadlineAt?: number;
++    workerId?: string;
++    assertStartup(): void;
++    assertRunning(): void;
++    assertCleanup(): void;
++    reserveWorker(): void;
++    bindWorker(worker: InternalWorker): void;
++    commit(): void;
++    record(error: unknown): void;
++    retain<T>(original: Promise<T>, startup?: boolean, reportError?: boolean): Promise<T>;
++    startupCore<T>(original: Promise<T>): Promise<T>;
++    channel(channel: Channel): Channel;
++    unsafe(error: unknown): void;
++    unary<T>(invoke: (options: CallOptions) => Promise<T>, phase?: 'startup' | 'cleanup' | 'protocol', controller?: AbortController): Promise<T>;
++    http<T>(invoke: (options: AxiosRequestConfig) => Promise<AxiosResponse<T>>, phase?: 'startup' | 'cleanup'): Promise<AxiosResponse<T>>;
++    adoptRegistration(original: Promise<WorkerRegisterResponse>): Promise<WorkerRegisterResponse>;
++    reserveDispatch(): OwnedDispatch;
++    finishDispatch(record: OwnedDispatch): void;
++    delay(ms: number): Promise<void>;
++    requestTerminal(reason?: unknown): void;
++    dispose(): Promise<void>;
++    private finish;
++}
+diff --git a/util/worker-lifecycle.js b/util/worker-lifecycle.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..f8935986d33cc0f06680092f570b6960d82166ff
+--- /dev/null
++++ b/util/worker-lifecycle.js
+@@ -0,0 +1,294 @@
++"use strict";
++Object.defineProperty(exports, "__esModule", { value: true });
++exports.OwnedWorkerLifecycle = void 0;
++const { ClientRequest } = require('node:http');
++const { isCancel } = require('axios');
++
++/** Internal owner for exactly one modern non-durable SDK worker. */
++class OwnedWorkerLifecycle {
++    static validateHttpOptions(apiUrl, options = {}) {
++        const url = new URL(apiUrl);
++        if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash ||
++            (url.href !== apiUrl && url.href !== `${apiUrl}/`)) {
++            throw new TypeError('Owned workers require a canonical HTTP(S) API URL');
++        }
++        if ((options.adapter != null && options.adapter !== 'http') || options.transport != null ||
++            (options.httpVersion != null && options.httpVersion !== 1) || options.responseType === 'stream' ||
++            options.cancelToken != null || options.transformRequest != null || options.securityWorker != null) {
++            throw new TypeError('Owned REST requires the built-in Axios HTTP/1 adapter and no custom transport');
++        }
++    }
++    constructor(options, api) {
++        if (!options || !(options.startup.signal instanceof AbortSignal) ||
++            !(options.lifetimeSignal instanceof AbortSignal) ||
++            !Number.isFinite(options.startup.deadlineAt) ||
++            options.startup.deadlineAt > Date.now() + 15000 ||
++            !Number.isFinite(options.cleanupTimeoutMs) || options.cleanupTimeoutMs <= 0 || options.cleanupTimeoutMs > 15000) {
++            throw new TypeError('Invalid owned worker lifecycle');
++        }
++        this.options = options;
++        this.httpApi = api;
++        const transforms = api?.instance.defaults.transformRequest;
++        this.requestTransforms = Array.isArray(transforms) ? [...transforms] : transforms;
++        const adapters = api?.instance.defaults.adapter;
++        this.adapters = Array.isArray(adapters) ? [...adapters] : adapters;
++        this.startup = new AbortController();
++        this.startupFailure = new Error('Owned worker startup is closed');
++        this.cancelledStartupCauses = new Set();
++        this.lifetime = new AbortController();
++        this.cleanup = new AbortController();
++        this.pending = new Set();
++        this.startupCores = new Set();
++        this.channels = new Set();
++        this.tasks = new Set();
++        this.protocols = new Set();
++        this.errors = new Set();
++        this.terminal = false;
++        this.committed = false;
++        this.reserved = false;
++        this.unsafeTransport = false;
++        this.onStartup = () => {
++            if (!this.committed) this.requestTerminal(options.startup.signal.aborted ? options.startup.signal.reason : this.startupFailure);
++        };
++        this.onLifetime = () => this.requestTerminal(options.lifetimeSignal.reason);
++        options.startup.signal.addEventListener('abort', this.onStartup, { once: true });
++        options.lifetimeSignal.addEventListener('abort', this.onLifetime, { once: true });
++        this.startupTimer = setTimeout(this.onStartup, Math.max(0, options.startup.deadlineAt - Date.now()));
++        if (options.startup.signal.aborted) this.onStartup();
++        else if (options.lifetimeSignal.aborted) this.onLifetime();
++        else if (Date.now() >= options.startup.deadlineAt) this.requestTerminal();
++    }
++    assertStartup() {
++        if (this.terminal || this.options.startup.signal.aborted || Date.now() >= this.options.startup.deadlineAt) {
++            this.requestTerminal(this.options.startup.signal.aborted ? this.options.startup.signal.reason : this.startupFailure);
++            throw this.startup.signal.reason;
++        }
++    }
++    assertRunning() {
++        if (this.terminal) throw new Error('Owned worker lifetime is closed');
++        if (!this.committed) this.assertStartup();
++    }
++    assertCleanup() {
++        if (!this.terminal || this.cleanup.signal.aborted || Date.now() >= this.cleanupDeadlineAt) {
++            throw new Error('Owned worker cleanup deadline expired');
++        }
++    }
++    reserveWorker() {
++        if (this.reserved) throw new Error('Owned worker acquisition is single-use');
++        this.reserved = true;
++        this.assertStartup();
++    }
++    bindWorker(worker) {
++        if (this.worker) throw new Error('Owned worker acquisition is single-use');
++        this.assertStartup();
++        this.reserved = true;
++        this.worker = worker;
++    }
++    commit() {
++        this.assertStartup();
++        this.committed = true;
++        clearTimeout(this.startupTimer);
++        this.options.startup.signal.removeEventListener('abort', this.onStartup);
++    }
++    record(error) { this.errors.add(error); }
++    retain(original, startup = false, reportError = false) {
++        const record = { original, settled: undefined };
++        this.pending.add(record);
++        if (startup) this.startupCores.add(record);
++        record.settled = original.then(
++            () => { this.pending.delete(record); this.startupCores.delete(record); },
++            (error) => {
++                if (reportError) this.record(error);
++                this.pending.delete(record);
++                this.startupCores.delete(record);
++            },
++        );
++        return original;
++    }
++    startupCore(original) {
++        this.retain(original, true);
++        original.catch((error) => {
++            // Startup cancellation is reported by its original outward promise.
++            // It does not turn a successfully joined teardown into a cleanup
++            // failure. Unknown native status is audited separately and never
++            // suppressed by this phase-specific cancellation distinction.
++            if (error !== this.startupFailure && !this.cancelledStartupCauses.has(error)) this.record(error);
++            this.requestTerminal();
++        });
++        return original;
++    }
++    channel(channel) {
++        this.channels.add(channel);
++        return channel;
++    }
++    unsafe(error) {
++        this.unsafeTransport = true;
++        this.record(new Error('Native operation settlement is unknown; owned resources must not be released', { cause: error }));
++        this.requestTerminal();
++    }
++    unary(invoke, phase = 'startup', controller) {
++        if (phase === 'startup') this.assertStartup();
++        else if (phase === 'cleanup' || this.terminal) this.assertCleanup();
++        else this.assertRunning();
++        const signal = controller ? controller.signal : phase === 'startup' ? this.startup.signal : this.cleanup.signal;
++        if (signal.aborted) throw new Error('Owned request admission is closed');
++        let trailer = false;
++        let original;
++        try { original = invoke({ signal, onTrailer: () => { trailer = true; } }); }
++        catch (error) {
++            // Invocation is not a native-entry receipt. Never classify a throw
++            // by its message or infer no native call from an absent trailer.
++            this.unsafe(error);
++            original = Promise.reject(error);
++        }
++        const audited = original.then(
++            () => { if (!trailer) this.unsafe(new Error('Unary result without observed local status')); },
++            (error) => { if (!trailer) this.unsafe(error); },
++        );
++        this.retain(audited, phase === 'startup');
++        this.retain(original, phase === 'startup');
++        return original;
++    }
++    http(invoke, phase = 'startup') {
++        if (phase === 'startup') this.assertStartup();
++        else this.assertCleanup();
++        const signal = phase === 'startup' ? this.startup.signal : this.cleanup.signal;
++        if (signal.aborted) throw new Error('Owned HTTP admission is closed');
++        if (!this.httpApi) throw new Error('Owned HTTP API was not configured');
++        const defaults = this.httpApi.instance.defaults;
++        OwnedWorkerLifecycle.validateHttpOptions(defaults.baseURL, {
++            transport: defaults.transport, httpVersion: defaults.httpVersion,
++            responseType: defaults.responseType, cancelToken: defaults.cancelToken,
++            securityWorker: this.httpApi.securityWorker,
++        });
++        const matches = (actual, expected) => Array.isArray(expected)
++            ? Array.isArray(actual) && actual.length === expected.length && actual.every((value, index) => value === expected[index])
++            : actual === expected;
++        if (!matches(defaults.transformRequest, this.requestTransforms) || !matches(defaults.adapter, this.adapters)) {
++            throw new TypeError('Owned HTTP instance request rewriting is unsupported');
++        }
++        let original;
++        try { original = invoke({ adapter: 'http', httpVersion: 1, maxRedirects: 0, signal }); }
++        catch (cause) { original = Promise.reject(cause); }
++        this.retain(original, phase === 'startup');
++        const joined = (async () => {
++            let response;
++            let cause;
++            let rejected = false;
++            try { response = await original; }
++            catch (error) { rejected = true; cause = error; }
++            let request;
++            try {
++                const direct = rejected ? cause?.request : response?.request;
++                const nested = rejected ? cause?.response?.request : undefined;
++                const candidates = [direct, nested].filter((value) => value !== undefined && value !== null);
++                if (candidates.length && candidates.every((value) => value instanceof ClientRequest && value === candidates[0])) request = candidates[0];
++            }
++            catch (error) {
++                this.unsafe(error);
++                if (rejected) throw cause;
++                throw error;
++            }
++            if (!(request instanceof ClientRequest)) {
++                const unknown = new Error('Owned HTTP outcome has no public native ClientRequest', { cause });
++                this.unsafe(unknown);
++                // Preserve the exact original rejection, including undefined.
++                if (rejected) throw cause;
++                throw unknown;
++            }
++            try {
++                await new Promise((resolve) => {
++                    const onClose = function ownedHttpRequestClosed() { request.removeListener('close', onClose); resolve(); };
++                    if (request.closed) { resolve(); return; }
++                    request.once('close', onClose);
++                    if (request.closed) onClose();
++                });
++            } catch (error) {
++                this.unsafe(error);
++                if (rejected) throw cause;
++                throw error;
++            }
++            if (rejected && phase === 'startup' && signal.aborted && isCancel(cause)) this.cancelledStartupCauses.add(cause);
++            if (rejected) throw cause;
++            if (response.status >= 300 && response.status < 400) throw new Error('Owned REST redirects are not supported');
++            return response;
++        })();
++        return this.retain(joined, phase === 'startup');
++    }
++    adoptRegistration(original) {
++        // Capture a genuinely returned identity before terminal admission. The
++        // cleanup coordinator joins this constituent before deciding its ID.
++        return this.startupCore(original.then((registration) => {
++            this.workerId = registration.workerId;
++            this.assertStartup();
++            return registration;
++        }));
++    }
++    reserveDispatch() {
++        this.assertRunning();
++        const record = { context: undefined, started: new AbortController(), outcome: new AbortController() };
++        this.tasks.add(record);
++        this.protocols.add(record.started);
++        this.protocols.add(record.outcome);
++        return record;
++    }
++    finishDispatch(record) {
++        this.tasks.delete(record);
++        this.protocols.delete(record.started);
++        this.protocols.delete(record.outcome);
++    }
++    delay(ms) {
++        this.assertRunning();
++        const signal = this.lifetime.signal;
++        return this.retain(new Promise((resolve, reject) => {
++            const onAbort = () => { clearTimeout(timer); signal.removeEventListener('abort', onAbort); reject(new Error('Owned worker delay cancelled')); };
++            const timer = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve(); }, ms);
++            signal.addEventListener('abort', onAbort, { once: true });
++            if (signal.aborted) onAbort();
++        }));
++    }
++    requestTerminal(reason = this.startupFailure) {
++        if (this.terminal) return;
++        this.terminal = true;
++        // Reserve the shared outward join before abort can invoke reentrant
++        // user callbacks. Its coordinator starts only after this stack ends.
++        this.join = Promise.resolve().then(() => this.finish());
++        this.join.catch(() => {});
++        this.cleanupDeadlineAt = Date.now() + this.options.cleanupTimeoutMs;
++        clearTimeout(this.startupTimer);
++        this.options.startup.signal.removeEventListener('abort', this.onStartup);
++        this.options.lifetimeSignal.removeEventListener('abort', this.onLifetime);
++        this.cleanupTimer = setTimeout(() => {
++            this.record(new Error('Owned cleanup deadline expired before all work joined'));
++            this.cleanup.abort();
++            for (const controller of this.protocols) controller.abort();
++        }, this.options.cleanupTimeoutMs);
++        this.startup.abort(reason);
++        this.cancelledStartupCauses.add(this.startup.signal.reason);
++        this.lifetime.abort();
++        for (const record of this.tasks) record.context?.abortController.abort();
++        if (this.worker) this.worker._requestOwnedStop();
++        // Constituents only request this transition; none awaits this join.
++    }
++    async finish() {
++        while (this.startupCores.size) await Promise.all([...this.startupCores].map((record) => record.settled));
++        if (this.worker) {
++            try { await this.worker._cleanupOwned(); } catch (error) { this.record(error); }
++        }
++        while (this.pending.size) await Promise.all([...this.pending].map((record) => record.settled));
++        if (Date.now() >= this.cleanupDeadlineAt) this.record(new Error('Owned cleanup exceeded its original deadline'));
++        clearTimeout(this.cleanupTimer);
++        if (this.worker) this.worker._removeOwnedHandlers();
++        if (!this.unsafeTransport) {
++            for (const channel of this.channels) {
++                try { channel.close(); } catch (error) { this.unsafe(error); }
++            }
++        }
++        if (this.errors.size) throw new AggregateError([...this.errors], 'Owned worker cleanup failed');
++    }
++    dispose() {
++        this.requestTerminal();
++        return this.join;
++    }
++}
++exports.OwnedWorkerLifecycle = OwnedWorkerLifecycle;
+diff --git a/v1/client/admin.d.ts b/v1/client/admin.d.ts
+index aff3721162e3e9b7608c17fc158c04df1ea5d95a..2e234f1511c8feb27693fd66c989dd538a4ea1f5 100644
+--- a/v1/client/admin.d.ts
++++ b/v1/client/admin.d.ts
+@@ -6,6 +6,7 @@ import { Api } from '../../clients/rest/generated/Api';
+ import { WorkflowServiceClient } from '../../protoc/workflows';
+ import { AdminServiceClient, CreateWorkflowVersionRequest } from '../../protoc/v1/workflows';
+ import { Logger } from '../../util/logger';
++import type { OwnedWorkerLifecycle } from '../../util/worker-lifecycle';
+ type DesiredWorkerLabelOpt = {
+     value: string | number;
+     required?: boolean;
+@@ -40,7 +41,8 @@ export declare class AdminClient {
+     listenerClient: RunListenerClient;
+     runs: RunsClient;
+     logger: Logger;
+-    constructor(config: ClientConfig, api: Api, runs: RunsClient);
++    private lifecycle;
++    constructor(config: ClientConfig, api: Api, runs: RunsClient, lifecycle?: OwnedWorkerLifecycle);
+     /**
+      * Creates a new workflow or updates an existing workflow via the v1 admin service.
+      * @param workflow a workflow definition to create
+diff --git a/v1/client/admin.js b/v1/client/admin.js
+index dc637ec477154ec95eef5c1eda8b85869156b627..58849971bc95549bc7586000062c9b3232ecf0f7 100644
+--- a/v1/client/admin.js
++++ b/v1/client/admin.js
+@@ -131,13 +131,20 @@ function convertDesiredWorkerLabels(labels) {
+     ]));
+ }
+ class AdminClient {
+-    constructor(config, api, runs) {
++    constructor(config, api, runs, lifecycle) {
++        this.lifecycle = lifecycle;
++        lifecycle?.assertStartup();
+         this.config = config;
+         this.logger = config.logger(`Admin`, config.log_level);
+-        const { client, channel, factory } = (0, grpc_helpers_1.createGrpcClient)(config, workflows_2.WorkflowServiceDefinition);
++        let created;
++        try { created = (0, grpc_helpers_1.createGrpcClient)(config, workflows_2.WorkflowServiceDefinition); }
++        catch (error) { lifecycle?.unsafe(error); throw error; }
++        const { client, channel, factory } = created;
++        lifecycle?.channel(channel);
+         this.workflowsGrpc = client;
+-        this.adminGrpc = factory.create(workflows_3.AdminServiceDefinition, channel);
+-        this.listenerClient = new child_listener_client_1.RunListenerClient(config, channel, factory, api);
++        try { this.adminGrpc = factory.create(workflows_3.AdminServiceDefinition, channel); }
++        catch (error) { lifecycle?.unsafe(error); throw error; }
++        if (!lifecycle) this.listenerClient = new child_listener_client_1.RunListenerClient(config, channel, factory, api);
+         this.runs = runs;
+     }
+     /**
+@@ -145,6 +152,11 @@ class AdminClient {
+      * @param workflow a workflow definition to create
+      */
+     putWorkflow(workflow) {
++        if (this.lifecycle) {
++            // Owned registration is one attempt; the default internal retrier
++            // deliberately remains unchanged for all existing callers.
++            return this.lifecycle.unary((options) => this.adminGrpc.putWorkflow(workflow, options));
++        }
+         return __awaiter(this, void 0, void 0, function* () {
+             try {
+                 return yield (0, retrier_1.retrier)(() => __awaiter(this, void 0, void 0, function* () { return this.adminGrpc.putWorkflow(workflow); }), this.logger);
+diff --git a/v1/client/client.d.ts b/v1/client/client.d.ts
+index acbbbdfd2ad63397e0082d648cec8345cc69edb7..e7ad062eea43f9da6c6c31f4a98bf3a8bbee6d28 100644
+--- a/v1/client/client.d.ts
++++ b/v1/client/client.d.ts
+@@ -22,6 +22,19 @@ import { CELClient, CronClient, FiltersClient, LogsClient, MetricsClient, Rateli
+ import { InputType, OutputType, UnknownInputType, StrictWorkflowOutputType, Resolved } from '../types';
+ import { AdminClient } from './admin';
+ import { DurableContext } from './worker/context';
++import type { OwnedWorkerLifecycle } from '../../util/worker-lifecycle';
++export interface HatchetWorkerLifecycle {
++    readonly startup: { readonly signal: AbortSignal; readonly deadlineAt: number };
++    readonly lifetimeSignal: AbortSignal;
++    readonly cleanupTimeoutMs: number;
++}
++export interface HatchetV1ClientOptions extends HatchetClientOptions {
++    readonly workerLifecycle?: HatchetWorkerLifecycle;
++}
++export interface HatchetStartupInfo {
++    readonly tenantVersion: string;
++    readonly engineVersion: string;
++}
+ type MergeIfNonEmpty<Base, Extra extends Record<string, any>> = keyof Extra extends never ? Base : Base & Extra;
+ /**
+  * HatchetV1 implements the main client interface for interacting with the Hatchet workflow engine.
+@@ -32,6 +45,12 @@ type MergeIfNonEmpty<Base, Extra extends Record<string, any>> = keyof Extra exte
+  * @template MiddlewareAfter - Extra fields merged into task output by post-middleware hooks. Inferred from middleware config.
+  */
+ export declare class HatchetClient<GlobalInput extends Record<string, any> = {}, GlobalOutput extends Record<string, any> = {}, MiddlewareBefore extends Record<string, any> = {}, MiddlewareAfter extends Record<string, any> = {}> implements IHatchetClient {
++    /** @internal Concrete owner for the opted-in worker only. */
++    readonly _workerLifecycle?: OwnedWorkerLifecycle;
++    private _ownedProbe;
++    private _startupInfo;
++    getStartupInfo(): Promise<HatchetStartupInfo>;
++    dispose(): Promise<void>;
+     private _v0;
+     _api: Api;
+     _listener: RunListenerClient;
+@@ -52,9 +71,8 @@ export declare class HatchetClient<GlobalInput extends Record<string, any> = {},
+      * @param config - Optional configuration for the client
+      * @param options - Optional client options
+      * @param axiosConfig - Optional Axios configuration for HTTP requests
+-     * @internal
+      */
+-    constructor(config?: Partial<ClientConfig>, options?: HatchetClientOptions, axiosConfig?: AxiosRequestConfig);
++    constructor(config?: Partial<ClientConfig>, options?: HatchetV1ClientOptions, axiosConfig?: AxiosRequestConfig);
+     /**
+      * Static factory method to create a new Hatchet client instance.
+      * @template T - Global input type required by all tasks created from this client. Defaults to `{}`.
+@@ -63,9 +81,8 @@ export declare class HatchetClient<GlobalInput extends Record<string, any> = {},
+      * @param options - Optional client options.
+      * @param axiosConfig - Optional Axios configuration for HTTP requests.
+      * @returns A new Hatchet client instance. Chain `.withMiddleware()` to attach typed middleware.
+-     * @internal
+      */
+-    static init<T extends Record<string, any> = {}, U extends Record<string, any> = {}>(config?: Omit<Partial<ClientConfig>, 'middleware'>, options?: HatchetClientOptions, axiosConfig?: AxiosRequestConfig): HatchetClient<T, U>;
++    static init<T extends Record<string, any> = {}, U extends Record<string, any> = {}>(config?: Omit<Partial<ClientConfig>, 'middleware'>, options?: HatchetV1ClientOptions, axiosConfig?: AxiosRequestConfig): HatchetClient<T, U>;
+     /**
+      * Attaches middleware to this client and returns a re-typed instance
+      * with inferred pre/post middleware types.
+diff --git a/v1/client/client.js b/v1/client/client.js
+index 19bdd477c9ae7de44cb4da0d98a6ded593ffd246..9a0bbd59d198ba02bd70cbe2a733da5279860f5a 100644
+--- a/v1/client/client.js
++++ b/v1/client/client.js
+@@ -35,6 +35,7 @@ const legacy_transformer_1 = require("../../legacy/legacy-transformer");
+ const worker_1 = require("./worker/worker");
+ const features_1 = require("./features");
+ const admin_1 = require("./admin");
++const worker_lifecycle_1 = require("../../util/worker-lifecycle");
+ /**
+  * HatchetV1 implements the main client interface for interacting with the Hatchet workflow engine.
+  * It provides methods for creating and executing workflows, as well as managing workers.
+@@ -49,6 +50,7 @@ class HatchetClient {
+      * @hidden
+      */
+     get v0() {
++        if (this._workerLifecycle) throw new Error('Owned workers do not support the legacy client');
+         if (!this._v0) {
+             this._v0 = new hatchet_client_1.LegacyHatchetClient(this._config, this._options, this._axiosConfig, this.runs, this._listener, this.events, this.dispatcher, this.logger, this.durableListener);
+         }
+@@ -59,7 +61,6 @@ class HatchetClient {
+      * @param config - Optional configuration for the client
+      * @param options - Optional client options
+      * @param axiosConfig - Optional Axios configuration for HTTP requests
+-     * @internal
+      */
+     constructor(config, options, axiosConfig) {
+         var _a;
+@@ -76,11 +77,24 @@ class HatchetClient {
+             this._config = clientConfig;
+             this.tenantId = clientConfig.tenant_id;
+             this.logger = clientConfig.logger('HatchetClient', clientConfig.log_level);
++            if (options?.workerLifecycle) worker_lifecycle_1.OwnedWorkerLifecycle.validateHttpOptions(clientConfig.api_url, axiosConfig);
+             this._api = (0, rest_1.default)(clientConfig.api_url, clientConfig.token, axiosConfig);
++            if (options?.workerLifecycle) {
++                // The public instance defaults include inherited Axios defaults.
++                // Reject an effective custom transport before the probe exists;
++                // the per-request adapter is always explicitly the built-in http.
++                const defaults = this._api.instance.defaults;
++                worker_lifecycle_1.OwnedWorkerLifecycle.validateHttpOptions(defaults.baseURL, {
++                    transport: defaults.transport, httpVersion: defaults.httpVersion,
++                    responseType: defaults.responseType, cancelToken: defaults.cancelToken,
++                    securityWorker: this._api.securityWorker,
++                });
++            }
+             this._clientFactory = (0, nice_grpc_1.createClientFactory)().use((0, grpc_helpers_1.addTokenMiddleware)(this.config.token));
+             this._credentials =
+                 (_a = options === null || options === void 0 ? void 0 : options.credentials) !== null && _a !== void 0 ? _a : config_loader_1.ConfigLoader.createCredentials(this.config.tls_config);
+-            this._listener = new child_listener_client_1.RunListenerClient(this.config, (0, grpc_helpers_1.channelFactory)(this.config, this._credentials), this._clientFactory, this.api);
++            this._workerLifecycle = options?.workerLifecycle ? new worker_lifecycle_1.OwnedWorkerLifecycle(options.workerLifecycle, this._api) : undefined;
++            if (!this._workerLifecycle) this._listener = new child_listener_client_1.RunListenerClient(this.config, (0, grpc_helpers_1.channelFactory)(this.config, this._credentials), this._clientFactory, this.api);
+             this._options = options;
+             this._axiosConfig = axiosConfig;
+         }
+@@ -90,6 +104,13 @@ class HatchetClient {
+             }
+             throw e;
+         }
++        if (this._workerLifecycle) {
++            const owner = this._workerLifecycle;
++            this._ownedProbe = owner.startupCore(owner.terminal
++                ? Promise.reject(owner.startup.signal.reason)
++                : this.tenant.get());
++            return;
++        }
+         try {
+             this.tenant
+                 .get()
+@@ -116,11 +137,33 @@ class HatchetClient {
+      * @param options - Optional client options.
+      * @param axiosConfig - Optional Axios configuration for HTTP requests.
+      * @returns A new Hatchet client instance. Chain `.withMiddleware()` to attach typed middleware.
+-     * @internal
+      */
+     static init(config, options, axiosConfig) {
+         return new HatchetClient(config, options, axiosConfig);
+     }
++    getStartupInfo() {
++        const owner = this._workerLifecycle;
++        if (!owner) return Promise.reject(new Error('getStartupInfo requires workerLifecycle'));
++        if (!this._startupInfo) {
++            const core = owner.startupCore((async () => {
++                owner.assertStartup();
++                const tenant = await this._ownedProbe;
++                owner.assertStartup();
++                const engineVersion = await this.dispatcher.getVersion();
++                owner.assertStartup();
++                return { tenantVersion: tenant.version, engineVersion };
++            })());
++            this._startupInfo = core.catch(async (error) => {
++                try { await owner.dispose(); } catch (cleanupError) { throw new AggregateError([error, cleanupError], 'Owned admission failed'); }
++                throw error;
++            });
++        }
++        return this._startupInfo;
++    }
++    dispose() {
++        if (!this._workerLifecycle) return Promise.reject(new Error('dispose requires workerLifecycle'));
++        return this._workerLifecycle.dispose();
++    }
+     /**
+      * Attaches middleware to this client and returns a re-typed instance
+      * with inferred pre/post middleware types.
+@@ -285,7 +328,15 @@ class HatchetClient {
+      */
+     get dispatcher() {
+         if (!this._dispatcher) {
+-            this._dispatcher = new dispatcher_client_1.DispatcherClient(this._config, (0, grpc_helpers_1.channelFactory)(this._config, this._credentials), this._clientFactory);
++            this._workerLifecycle?.assertStartup();
++            try {
++                const channel = (0, grpc_helpers_1.channelFactory)(this._config, this._credentials);
++                this._workerLifecycle?.channel(channel);
++                this._dispatcher = new dispatcher_client_1.DispatcherClient(this._config, channel, this._clientFactory, this._workerLifecycle);
++            } catch (error) {
++                this._workerLifecycle?.unsafe(error);
++                throw error;
++            }
+         }
+         return this._dispatcher;
+     }
+@@ -305,6 +356,7 @@ class HatchetClient {
+      * @internal
+      */
+     get durableListener() {
++        if (this._workerLifecycle) throw new Error('Owned workers do not support durable listeners');
+         if (!this._durableListener) {
+             this._durableListener = new durable_listener_client_1.DurableListenerClient(this._config, (0, grpc_helpers_1.channelFactory)(this._config, this._credentials), this._clientFactory);
+         }
+@@ -316,6 +368,7 @@ class HatchetClient {
+      * @internal
+      */
+     get listener() {
++        if (this._workerLifecycle) throw new Error('Owned workers do not support run-result listeners');
+         return this._listener;
+     }
+     /**
+@@ -437,7 +490,8 @@ class HatchetClient {
+      */
+     get admin() {
+         if (!this._admin) {
+-            this._admin = new admin_1.AdminClient(this._config, this.api, this.runs);
++            this._workerLifecycle?.assertStartup();
++            this._admin = new admin_1.AdminClient(this._config, this.api, this.runs, this._workerLifecycle);
+         }
+         return this._admin;
+     }
+@@ -448,6 +502,15 @@ class HatchetClient {
+      */
+     worker(name, options) {
+         const opts = typeof options === 'number' ? { slots: options } : (options !== null && options !== void 0 ? options : {});
++        if (this._workerLifecycle) {
++            const owner = this._workerLifecycle;
++            try { owner.reserveWorker(); } catch (error) { return Promise.reject(error); }
++            const core = owner.startupCore(worker_1.Worker.create(this, name, opts));
++            return core.catch(async (error) => {
++                try { await owner.dispose(); } catch (cleanupError) { throw new AggregateError([error, cleanupError], 'Owned acquisition failed'); }
++                throw error;
++            });
++        }
+         return worker_1.Worker.create(this, name, opts);
+     }
+     runRef(id) {
+diff --git a/v1/client/features/tenant.d.ts b/v1/client/features/tenant.d.ts
+index 17355a9c26f84d16a4ba22ffee8bfa44541c67d5..9734db21aea430b3754659ae3bd4dba234977f24 100644
+--- a/v1/client/features/tenant.d.ts
++++ b/v1/client/features/tenant.d.ts
+@@ -7,6 +7,7 @@ import { HatchetClient } from '../client';
+  * Client for managing Tenants
+  */
+ export declare class TenantClient {
++    private lifecycle;
+     api: HatchetClient['api'];
+     tenantId: string;
+     constructor(client: HatchetClient);
+diff --git a/v1/client/features/tenant.js b/v1/client/features/tenant.js
+index d34a96c92c59c115e8b0e35e473d8f8ff283c17c..b139d92fff3838cf0a1c60fa4bee0f993c179eff 100644
+--- a/v1/client/features/tenant.js
++++ b/v1/client/features/tenant.js
+@@ -15,6 +15,7 @@ exports.TenantClient = void 0;
+  */
+ class TenantClient {
+     constructor(client) {
++        this.lifecycle = client._workerLifecycle;
+         this.api = client.api;
+         this.tenantId = client.tenantId;
+     }
+@@ -24,6 +25,7 @@ class TenantClient {
+      */
+     get() {
+         return __awaiter(this, void 0, void 0, function* () {
++            if (this.lifecycle) return (yield this.lifecycle.http((options) => this.api.tenantGet(this.tenantId, options))).data;
+             return (yield this.api.tenantGet(this.tenantId)).data;
+         });
+     }
+diff --git a/v1/client/features/workers.d.ts b/v1/client/features/workers.d.ts
+index 1ee44f917b5cf3923d0ce57adf2bed7005248300..2c3654fee5a48218541ff2d556d3507f4e55ae47 100644
+--- a/v1/client/features/workers.d.ts
++++ b/v1/client/features/workers.d.ts
+@@ -3,6 +3,7 @@ import { HatchetClient } from '../client';
+  * The workers client is a client for managing workers programmatically within Hatchet.
+  */
+ export declare class WorkersClient {
++    private lifecycle;
+     api: HatchetClient['api'];
+     tenantId: string;
+     constructor(client: HatchetClient);
+diff --git a/v1/client/features/workers.js b/v1/client/features/workers.js
+index 87d5464054763c0c484b9494de390b83ac2df166..7c2db2592f392ed308cb70a1c6225dd923e12649 100644
+--- a/v1/client/features/workers.js
++++ b/v1/client/features/workers.js
+@@ -15,6 +15,7 @@ exports.WorkersClient = void 0;
+  */
+ class WorkersClient {
+     constructor(client) {
++        this.lifecycle = client._workerLifecycle;
+         this.api = client.api;
+         this.tenantId = client.tenantId;
+     }
+@@ -57,6 +58,7 @@ class WorkersClient {
+      */
+     pause(workerId) {
+         return __awaiter(this, void 0, void 0, function* () {
++            if (this.lifecycle) return (yield this.lifecycle.http((options) => this.api.workerUpdate(workerId, { isPaused: true }, options), 'cleanup')).data;
+             const { data } = yield this.api.workerUpdate(workerId, {
+                 isPaused: true,
+             });
+diff --git a/v1/client/worker/worker-internal.d.ts b/v1/client/worker/worker-internal.d.ts
+index f24f1b6ef66850abfca6587608b843aeaf518389..87595a5c499a9e6ec9289b9658452a3b1b474642 100644
+--- a/v1/client/worker/worker-internal.d.ts
++++ b/v1/client/worker/worker-internal.d.ts
+@@ -12,6 +12,7 @@ import { Context } from './context';
+ import { SlotConfig } from '../../slot-types';
+ import { DurableEvictionManager } from './eviction/eviction-manager';
+ import { EvictionPolicy } from './eviction/eviction-policy';
++import type { OwnedDispatch } from '../../../util/worker-lifecycle';
+ export type ActionRegistry = Record<Action['actionId'], Function>;
+ export interface WorkerOpts {
+     name: string;
+@@ -23,6 +24,16 @@ export interface WorkerOpts {
+     enableHealthServer?: boolean;
+ }
+ export declare class InternalWorker {
++    private ownedLifecycle;
++    private ownedDispatches: Map<ActionKey, OwnedDispatch> | undefined;
++    private ownedKillHandler;
++    /** @internal */
++    _requestOwnedStop(): void;
++    /** @internal */
++    _cleanupOwned(): Promise<void>;
++    /** @internal */
++    _removeOwnedHandlers(): void;
++    private _dispatchOwned;
+     client: HatchetClient;
+     name: string;
+     workerId: string | undefined;
+diff --git a/v1/client/worker/worker-internal.js b/v1/client/worker/worker-internal.js
+index 90bfb0def1a6db4219223812b1a57141eeb17cc6..2e1ec08f80fbaba2bb2933baa5ef3b2f5f0360f6 100644
+--- a/v1/client/worker/worker-internal.js
++++ b/v1/client/worker/worker-internal.js
+@@ -90,6 +90,9 @@ class InternalWorker {
+         this.labels = {};
+         this.status = health_server_1.workerStatus.INITIALIZED;
+         this.client = client;
++        this.ownedLifecycle = client._workerLifecycle;
++        if (this.ownedLifecycle) this.ownedDispatches = new Map();
++        this.ownedLifecycle?.bindWorker(this);
+         this.name = (0, apply_namespace_1.applyNamespace)(options.name, this.client.config.namespace);
+         this.action_registry = {};
+         this.slots = options.slots;
+@@ -100,9 +103,21 @@ class InternalWorker {
+         this.healthPort = (_d = (_c = client.config.healthcheck) === null || _c === void 0 ? void 0 : _c.port) !== null && _d !== void 0 ? _d : 8001;
+         this.killing = false;
+         this.handle_kill = options.handleKill === undefined ? true : options.handleKill;
+-        process.on('SIGTERM', () => this.exitGracefully(this.handle_kill));
+-        process.on('SIGINT', () => this.exitGracefully(this.handle_kill));
++        if (this.ownedLifecycle) {
++            if (this.handle_kill) {
++                this.ownedKillHandler = () => {
++                    this.ownedLifecycle.requestTerminal();
++                    this.ownedLifecycle.dispose().catch((error) => this.logger.error('Owned worker shutdown failed', error));
++                };
++                process.on('SIGTERM', this.ownedKillHandler);
++                process.on('SIGINT', this.ownedKillHandler);
++            }
++        } else {
++            process.on('SIGTERM', () => this.exitGracefully(this.handle_kill));
++            process.on('SIGINT', () => this.exitGracefully(this.handle_kill));
++        }
+         this.logger = client.config.logger(`Worker/${this.name}`, this.client.config.log_level);
++        this.ownedLifecycle?.assertStartup();
+         if (this.enableHealthServer && this.healthPort) {
+             this.initializeHealthServer();
+         }
+@@ -363,6 +378,7 @@ class InternalWorker {
+                 this.workflow_registry.push(workflow);
+             }
+             catch (e) {
++                if (this.ownedLifecycle) throw e;
+                 throw new hatchet_error_1.default(`Could not register workflow: ${e.message}`);
+             }
+             this.registerActions(workflow);
+@@ -424,6 +440,7 @@ class InternalWorker {
+     handleStartStepRun(action) {
+         return __awaiter(this, void 0, void 0, function* () {
+             var _a;
++            const owned = this.ownedDispatches?.get(action.key);
+             const { actionId, taskRunExternalId, taskName } = action;
+             const actionKey = action.key;
+             try {
+@@ -444,6 +461,10 @@ class InternalWorker {
+                     context = new context_1.Context(action, this.client, this);
+                 }
+                 this.contexts[actionKey] = context;
++                if (owned) {
++                    owned.context = context;
++                    if (this.ownedLifecycle.terminal) context.abortController.abort();
++                }
+                 const step = this.action_registry[actionId];
+                 if (!step) {
+                     this.logger.error(`Registered actions: '${Object.keys(this.action_registry).join(', ')}'`);
+@@ -495,9 +516,10 @@ class InternalWorker {
+                         }
+                         this.logger.info((0, logger_1.taskRunLog)(taskName, taskRunExternalId, 'completed'));
+                         const event = this.getStepActionEvent(action, dispatcher_1.StepActionEventType.STEP_EVENT_TYPE_COMPLETED, false, result || null, action.retryCount);
+-                        yield this.client.dispatcher.sendStepActionEvent(event);
++                        yield this.client.dispatcher.sendStepActionEvent(event, owned?.outcome);
+                     }
+                     catch (actionEventError) {
++                        if (owned) throw actionEventError;
+                         this.logger.error(`Could not send completed action event: ${actionEventError.message || actionEventError}`);
+                         const failureEvent = this.getStepActionEvent(action, dispatcher_1.StepActionEventType.STEP_EVENT_TYPE_FAILED, false, actionEventError.message, action.retryCount);
+                         try {
+@@ -526,19 +548,29 @@ class InternalWorker {
+                             message: error === null || error === void 0 ? void 0 : error.message,
+                             stack: error === null || error === void 0 ? void 0 : error.stack,
+                         }, action.retryCount);
+-                        yield this.client.dispatcher.sendStepActionEvent(event);
++                        yield this.client.dispatcher.sendStepActionEvent(event, owned?.outcome);
+                     }
+                     catch (e) {
++                        if (owned) throw e;
+                         this.logger.error(`Could not send action event: ${e.message}`);
+                     }
+                     finally {
+                         this.cleanupRun(actionKey);
+                     }
+                 });
+-                const future = new hatchet_promise_1.default((() => __awaiter(this, void 0, void 0, function* () {
++                const finalization = (() => __awaiter(this, void 0, void 0, function* () {
+                     let result;
+                     try {
+-                        result = yield run();
++                        const originalHandler = run();
++                        if (owned) {
++                            owned.handler = originalHandler;
++                            this.ownedLifecycle.retain(originalHandler);
++                            this.ownedLifecycle.retain(originalHandler.then(
++                                (value) => { owned.handlerOutcome = { status: 'fulfilled', value }; },
++                                (reason) => { owned.handlerOutcome = { status: 'rejected', reason }; },
++                            ));
++                        }
++                        result = yield originalHandler;
+                     }
+                     catch (e) {
+                         yield failure(e);
+@@ -556,11 +588,18 @@ class InternalWorker {
+                     (0, abort_error_1.throwIfAborted)(context.abortController.signal);
+                     yield success(result);
+                     return undefined;
+-                }))());
++                }))();
++                if (owned) {
++                    owned.finalization = finalization;
++                    this.ownedLifecycle.retain(finalization, false, true);
++                }
++                const future = new hatchet_promise_1.default(finalization);
+                 this.futures[actionKey] = future;
+                 // Send the action event to the dispatcher
+                 const event = this.getStepActionEvent(action, dispatcher_1.StepActionEventType.STEP_EVENT_TYPE_STARTED, false, undefined, action.retryCount);
+-                this.client.dispatcher.sendStepActionEvent(event).catch((e) => {
++                const started = this.client.dispatcher.sendStepActionEvent(event, owned?.started);
++                if (owned) owned.startedPromise = started;
++                started.catch((e) => {
+                     this.logger.error(`Could not send action event: ${e.message}`);
+                 });
+                 try {
+@@ -717,6 +756,24 @@ class InternalWorker {
+      * Keep the signature in sync with the instrumentor wrapper.
+      */
+     handleCancelStepRun(action) {
++        if (this.ownedLifecycle) {
++            return (async () => {
++                const key = action.key;
++                const context = this.contexts[key];
++                const future = this.futures[key];
++                context?.abortController.abort(new task_run_terminated_error_1.TaskRunTerminatedError('cancelled', 'Cancelled by worker'));
++                try {
++                    if (future) {
++                        future.promise.catch(() => {});
++                        future.cancel(hatchet_promise_1.CancellationReason.CANCELLED_BY_WORKER);
++                        // The owned dispatch retains this supervisor and the
++                        // original finalization. No detached warning/grace timer
++                        // can be mistaken for the handler's settlement.
++                        await Promise.allSettled([future.inner]);
++                    }
++                } finally { this.cleanupRun(key); }
++            })();
++        }
+         return __awaiter(this, void 0, void 0, function* () {
+             var _a, _b, _c;
+             const { taskRunExternalId, taskName } = action;
+@@ -781,11 +838,13 @@ class InternalWorker {
+         });
+     }
+     stop() {
++        if (this.ownedLifecycle) return this.ownedLifecycle.dispose();
+         return __awaiter(this, void 0, void 0, function* () {
+             yield this.exitGracefully(false);
+         });
+     }
+     exitGracefully(handleKill) {
++        if (this.ownedLifecycle) return this.ownedLifecycle.dispose();
+         return __awaiter(this, void 0, void 0, function* () {
+             var _a;
+             this.killing = true;
+@@ -842,6 +901,63 @@ class InternalWorker {
+             }
+         });
+     }
++    _requestOwnedStop() {
++        this.killing = true;
++        if (this.listener) this.listener._stopOwnedLocal();
++    }
++    _removeOwnedHandlers() {
++        if (this.ownedKillHandler) {
++            process.removeListener('SIGINT', this.ownedKillHandler);
++            process.removeListener('SIGTERM', this.ownedKillHandler);
++            this.ownedKillHandler = undefined;
++        }
++    }
++    async _cleanupOwned() {
++        const owner = this.ownedLifecycle;
++        this._requestOwnedStop();
++        const operations = [];
++        const workerId = owner.workerId;
++        // Registration's original adoption constituent has settled before this
++        // method is called, including the response-exposed terminal race.
++        if (workerId) {
++            operations.push(Promise.resolve().then(() => this.client.workers.pause(workerId)));
++            operations.push(Promise.resolve().then(async () => {
++                owner.assertCleanup();
++                await this.client.dispatcher._waitForOwnedCleanupReady(new Date(owner.cleanupDeadlineAt));
++                owner.assertCleanup();
++                return this.listener
++                    ? this.listener.unregister()
++                    : owner.unary((options) => this.client.dispatcher.client.unsubscribe({ workerId }, options), 'cleanup');
++            }));
++        }
++        if (this.healthServer) operations.push(this.healthServer.stop());
++        const results = await Promise.allSettled(operations);
++        for (const result of results) if (result.status === 'rejected') owner.record(result.reason);
++    }
++    _dispatchOwned(action) {
++        const owner = this.ownedLifecycle;
++        if (owner.terminal) return;
++        if (action.actionType === dispatcher_1.ActionType.CANCEL_STEP_RUN) {
++            owner.retain(this.handleAction(action), false, true);
++            return;
++        }
++        if (action.actionType !== dispatcher_1.ActionType.START_STEP_RUN) {
++            owner.record(new Error('Unsupported owned worker dispatch'));
++            owner.requestTerminal();
++            return;
++        }
++        const record = owner.reserveDispatch();
++        this.ownedDispatches.set(action.key, record);
++        const original = this.handleAction(action);
++        owner.retain(original, false, true);
++        const drain = (async () => {
++            await Promise.allSettled([original]);
++            await Promise.allSettled([record.finalization, record.startedPromise]);
++            owner.finishDispatch(record);
++            if (this.ownedDispatches.get(action.key) === record) this.ownedDispatches.delete(action.key);
++        })();
++        owner.retain(drain, false, true);
++    }
+     /**
+      * Creates an action listener by registering the worker with the dispatcher.
+      * Override in subclasses to change registration behavior (e.g. legacy engines).
+@@ -866,6 +982,7 @@ class InternalWorker {
+                     yield this.healthServer.start();
+                 }
+                 catch (e) {
++                    if (this.ownedLifecycle) throw e;
+                     this.logger.error(`Could not start health server: ${e.message}`);
+                     this.setStatus(health_server_1.workerStatus.UNHEALTHY);
+                     return;
+@@ -878,10 +995,12 @@ class InternalWorker {
+             }
+             try {
+                 this.listener = yield this.createListener();
++                this.ownedLifecycle?.assertStartup();
+                 this.workerId = this.listener.workerId;
+                 this.setStatus(health_server_1.workerStatus.HEALTHY);
+                 const generator = this.listener.actions();
+                 this.logger.info(`Worker ${this.name} listening for actions`);
++                if (this.ownedLifecycle) this.ownedLifecycle.commit();
+                 try {
+                     for (var _d = true, generator_1 = __asyncValues(generator), generator_1_1; generator_1_1 = yield generator_1.next(), _a = generator_1_1.done, !_a; _d = true) {
+                         _c = generator_1_1.value;
+@@ -889,7 +1008,8 @@ class InternalWorker {
+                         const action = _c;
+                         const receivedType = (0, logger_1.actionMap)(action.actionType);
+                         this.logger.info((0, logger_1.taskRunLog)(action.taskName, action.taskRunExternalId, `${receivedType}`));
+-                        void this.handleAction(action);
++                        if (this.ownedLifecycle) this._dispatchOwned(action);
++                        else void this.handleAction(action);
+                     }
+                 }
+                 catch (e_1_1) { e_1 = { error: e_1_1 }; }
+@@ -902,6 +1022,10 @@ class InternalWorker {
+             }
+             catch (e) {
+                 this.setStatus(health_server_1.workerStatus.UNHEALTHY);
++                if (this.ownedLifecycle) {
++                    if (this.killing) return;
++                    throw e;
++                }
+                 if (this.killing) {
+                     this.logger.info(`Exiting worker, ignoring error: ${e.message}`);
+                     return;
+diff --git a/v1/client/worker/worker.d.ts b/v1/client/worker/worker.d.ts
+index f921e608b8d6e4323e1c7c16f476f02b6420bcc3..885c5f8994064fcf8a8e47be61fcceaf142d13b1 100644
+--- a/v1/client/worker/worker.d.ts
++++ b/v1/client/worker/worker.d.ts
+@@ -27,6 +27,7 @@ export declare class Worker {
+     private _legacyWorker;
+     /** Tracks all workflows registered after construction (via registerWorkflow/registerWorkflows) */
+     private _registeredWorkflows;
++    private _ownedStart;
+     /**
+      * Creates a new HatchetWorker instance
+      * @param nonDurable - The V0 worker implementation
+diff --git a/v1/client/worker/worker.js b/v1/client/worker/worker.js
+index e25877cc6262d32ac34e88a15101ee35b3443c49..bfb0a4f91c7ecf30f0865de2c95cc698f2d812c5 100644
+--- a/v1/client/worker/worker.js
++++ b/v1/client/worker/worker.js
+@@ -46,11 +46,22 @@ class Worker {
+         return __awaiter(this, void 0, void 0, function* () {
+             // Normalize any legacy workflows before resolving worker options
+             const normalizedOptions = Object.assign(Object.assign({}, options), { workflows: options.workflows ? (0, legacy_transformer_1.normalizeWorkflows)(options.workflows) : undefined });
++            if (v1._workerLifecycle) {
++                v1._workerLifecycle.assertStartup();
++                for (const workflow of normalizedOptions.workflows || []) {
++                    if (workflow.definition._durableTasks.length || workflow.definition._tasks.some((task) => task.batch)) {
++                        throw new Error('Owned workers support ordinary non-durable tasks only');
++                    }
++                }
++                if (options.durableSlots) throw new Error('Owned workers do not support durable slots');
++            }
+             const resolvedOptions = (0, slot_utils_1.resolveWorkerOptions)(normalizedOptions);
++            if (v1._workerLifecycle && resolvedOptions.durableSlots) throw new Error('Owned workers do not support durable slots');
+             const opts = Object.assign({ name }, resolvedOptions);
+             const internalWorker = new worker_internal_1.InternalWorker(v1, opts);
+             const worker = new Worker(v1, internalWorker, normalizedOptions, name);
+             yield worker.registerWorkflows(normalizedOptions.workflows);
++            v1._workerLifecycle?.assertStartup();
+             return worker;
+         });
+     }
+@@ -65,6 +76,10 @@ class Worker {
+         return __awaiter(this, void 0, void 0, function* () {
+             const normalized = workflows ? (0, legacy_transformer_1.normalizeWorkflows)(workflows) : [];
+             for (const wf of normalized) {
++                if (this._v1._workerLifecycle) {
++                    this._v1._workerLifecycle.assertStartup();
++                    if (wf.definition._durableTasks.length || wf.definition._tasks.some((task) => task.batch)) throw new Error('Owned workers support ordinary non-durable tasks only');
++                }
+                 yield this._internal.registerWorkflow(wf);
+                 if (wf.definition._durableTasks.length > 0) {
+                     this._internal.registerDurableActions(wf.definition);
+@@ -88,6 +103,29 @@ class Worker {
+      * @returns Promise that resolves when the worker is stopped or killed
+      */
+     start() {
++        if (this._v1._workerLifecycle) {
++            if (this._ownedStart) return this._ownedStart;
++            const owner = this._v1._workerLifecycle;
++            const core = owner.startupCore((async () => {
++                owner.assertStartup();
++                if (await (0, deprecated_1.isLegacyEngine)(this._v1)) throw new Error('Owned workers require a modern engine');
++                owner.assertStartup();
++                const version = await (0, deprecated_1.fetchEngineVersion)(this._v1);
++                owner.assertStartup();
++                this._checkEvictionSupport(version);
++                this._internal.engineVersion = version;
++                return this._internal.start();
++            })());
++            this._ownedStart = core.then(
++                async () => { if (owner.terminal) await owner.dispose(); },
++                async (error) => {
++                    owner.requestTerminal();
++                    try { await owner.dispose(); } catch (cleanupError) { throw new AggregateError([error, cleanupError], 'Owned worker start failed'); }
++                    throw error;
++                },
++            );
++            return this._ownedStart;
++        }
+         return __awaiter(this, void 0, void 0, function* () {
+             // Check engine version and fall back to legacy dual-worker mode if needed
+             if (yield (0, deprecated_1.isLegacyEngine)(this._v1)) {
+@@ -133,6 +171,7 @@ class Worker {
+      * @returns Promise that resolves when the worker stops
+      */
+     stop() {
++        if (this._v1._workerLifecycle) return this._v1._workerLifecycle.dispose();
+         if (this._legacyWorker) {
+             return this._legacyWorker.stop();
+         }

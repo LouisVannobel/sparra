@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs'
-import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 export function assertDirectory(path, owner) {
   const stat = lstatSync(path)
@@ -9,6 +9,31 @@ export function assertDirectory(path, owner) {
     throw new Error('Native coverage directory ownership changed')
   }
   return stat
+}
+
+export function assertMailRetryBuildConfig(root, output, config) {
+  if (!output || !isAbsolute(output) || resolve(config.root) !== root || realpathSync(config.root) !== root
+    || resolve(config.build.outDir) !== output || config.envDir !== false || config.build.copyPublicDir !== false) throw new Error('Native mail retry build ownership refused')
+  const run = dirname(output)
+  if (dirname(run) !== join(root, 'coverage') || !/^\.native-[0-9a-f-]{36}$/.test(basename(run))
+    || basename(output) !== 'mail-retry-build') throw new Error('Native mail retry build ownership refused')
+  for (const path of [root, join(root, 'coverage'), run, output]) {
+    const stat = lstatSync(path)
+    if (!stat.isDirectory() || stat.isSymbolicLink() || realpathSync(path) !== path) throw new Error('Native mail retry build ownership refused')
+  }
+}
+
+export function readMailRetryBuildIdentity(buildDirectory, startedAt) {
+  assertDirectory(buildDirectory)
+  if (readdirSync(buildDirectory).sort().join('|') !== 'harness.mjs|hatchet-empty.yaml') throw new Error('Native mail retry build requires its exact resources')
+  const digest = createHash('sha256')
+  for (const name of ['harness.mjs', 'hatchet-empty.yaml']) {
+    const path = join(buildDirectory, name), stat = lstatSync(path)
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.mtimeMs < startedAt || stat.size === 0 || stat.size > 268435456) throw new Error('Native mail retry build is stale or invalid')
+    digest.update(name).update('\0').update(readFileSync(path)).update('\0')
+  }
+  if (readFileSync(join(buildDirectory, 'hatchet-empty.yaml'), 'utf8') !== '{}\n') throw new Error('Native mail retry configuration changed')
+  return digest.digest('hex')
 }
 
 export function assertRunTree(path) {
@@ -114,15 +139,27 @@ function admitCoverageEntries(table, coverage, root) {
   }
 }
 
+function passedLeafNames(table,file,expectedNames,refusal) {
+  const names=[],count=passedTests(table,file,names)
+  if(count!==expectedNames.length)throw new Error('Native coverage test cardinality mismatch')
+  if(names.some((name,index)=>name!==expectedNames[index]))throw new Error(refusal)
+  return count
+}
+
 function requestsBlobFile(table,file,fileCount,root,seen) {
   const filepath=resolve(blobValue(table,file.filepath))
   const consumer=requestConsumers.find(([path])=>filepath===join(root,path))
   if(fileCount!==5||!consumer||seen.has(filepath))throw new Error('Native requests blob has an unexpected consumer')
   seen.add(filepath)
-  const names=[],count=passedTests(table,file,names)
-  if(count!==consumer[1].length)throw new Error('Native coverage test cardinality mismatch')
-  if(names.some((name,index)=>name!==consumer[1][index]))throw new Error('Native requests blob has unexpected leaves')
-  return count
+  return passedLeafNames(table,file,consumer[1],'Native requests blob has unexpected leaves')
+}
+
+function billingBlobFile(table,file,fileCount,root,seen) {
+  const filepath=resolve(blobValue(table,file.filepath))
+  const consumer=billingConsumers.find(([path])=>filepath===join(root,path))
+  if(fileCount!==8||!consumer||seen.has(filepath))throw new Error('Native billing blob has an unexpected consumer')
+  seen.add(filepath)
+  return passedLeafNames(table,file,consumer[1],'Native billing blob has unexpected leaves')
 }
 
 function admitTestFile(table, file, name, fileCount, root, startedAt, seen) {
@@ -134,11 +171,12 @@ function admitTestFile(table, file, name, fileCount, root, startedAt, seen) {
     throw new Error('Native activity blob has an unexpected consumer')
   }
   if (name === 'requests') return requestsBlobFile(table,file,fileCount,root,seen)
+  if (name === 'billing') return billingBlobFile(table,file,fileCount,root,seen)
   return passedTests(table, file)
 }
 
 export function readNativeBlob(filePath, name, root, startedAt, version) {
-  if(!['ordinary','activity','requests'].includes(name))throw new Error('Unknown native coverage consumer')
+  if(!['ordinary','activity','requests','billing'].includes(name))throw new Error('Unknown native coverage consumer')
   const {table, envelope, digest} = readBlob(filePath, startedAt, version)
   const files = admitEnvelope(table, envelope)
   let count = 0
@@ -146,7 +184,8 @@ export function readNativeBlob(filePath, name, root, startedAt, version) {
   for (const reference of files) {
     count += admitTestFile(table, blobValue(table, reference), name, files.length, root, startedAt, seen)
   }
-  if (!count || (name === 'activity' && count !== 12) || (name === 'requests' && count !== 40)) throw new Error('Native coverage test cardinality mismatch')
+  if (!count || (name === 'activity' && count !== 12) || (name === 'requests' && count !== 40)
+    || (name === 'billing' && count !== 55)) throw new Error('Native coverage test cardinality mismatch')
   const coverage = blobValue(table, envelope[3])
   admitCoverageEntries(table, coverage, root)
   return { table, coverage, digest }
@@ -303,4 +342,172 @@ export function assertRecordingReceiptQualification(path,root,startedAt) {
   const stat = lstatSync(path)
   if (!stat.isFile() || stat.isSymbolicLink() || stat.mtimeMs < startedAt || stat.size === 0 || stat.size > 268435456) throw new Error('Native Recording receipt report is invalid')
   assertRecordingReceiptReport(JSON.parse(readFileSync(path,'utf8')),root)
+}
+
+const mailRetryLeafName = 'I3 one owned native retry fixture: retained A/B, transient C, expired E, exhausted D'
+
+export function assertMailRetryReport(report, root, startedAt) {
+  const counters = {numTotalTests:1,numPassedTests:1,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
+  if (report?.success !== true || !Object.entries(counters).every(([key, wanted]) => report[key] === wanted)
+    || !Number.isFinite(report.startTime) || report.startTime < startedAt
+    || !Array.isArray(report.testResults) || report.testResults.length !== 1
+    || !mailRetryFilePassed(report.testResults[0], root, startedAt)) throw new Error('Native mail retry requires its exact one passing parent')
+}
+
+function mailRetryFilePassed(file, root, startedAt) {
+  const leaf = file?.assertionResults?.[0]
+  return file?.name === join(root, 'tests/integration/mail-retry-native.test.ts').replaceAll('\\', '/')
+    && file.status === 'passed' && file.message === '' && Number.isFinite(file.startTime) && file.startTime >= startedAt
+    && Array.isArray(file.assertionResults) && file.assertionResults.length === 1
+    && leaf?.status === 'passed' && leaf.fullName === mailRetryLeafName
+    && Array.isArray(leaf.failureMessages) && leaf.failureMessages.length === 0
+}
+
+function readMailRetryRecord(path, startedAt) {
+  const stat = lstatSync(path)
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.mtimeMs < startedAt || stat.size === 0 || stat.size > 268435456) throw new Error('Native mail retry report or receipt is invalid')
+  return JSON.parse(readFileSync(path, 'utf8'))
+}
+
+function assertMailRetryHashes(receipt, root, buildDirectory) {
+  const paths = ['src/modules/auth/mail-worker.server.ts', 'src/modules/auth/mail-hatchet.server.ts', 'src/modules/auth/plunk.server.ts',
+    'tests/helpers/mail-retry-harness.ts', 'tests/helpers/mail-retry-entry.ts', 'tests/helpers/mail-retry-observation.ts', 'tests/helpers/vite.mail-retry.config.ts',
+    'tests/integration/mail-retry-native.test.ts', '.output/worker/index.mjs',
+    ...['harness.mjs', 'hatchet-empty.yaml'].map(name => relative(root, join(buildDirectory, name)).replaceAll('\\', '/'))]
+  const hashes = receipt?.beforeLaunchSha256
+  if (!hashes || typeof hashes !== 'object' || Array.isArray(hashes) || Object.keys(hashes).sort().join('|') !== [...paths].sort().join('|')
+    || !paths.every(path => hashes[path] === createHash('sha256').update(readFileSync(join(root, path))).digest('hex'))) throw new Error('Native mail retry receipt source changed')
+}
+
+function assertMailRetryCleanupReceipt(receipt, cleanup, names) {
+  if (receipt?.passed !== true || receipt.failure !== undefined || cleanup?.forced !== false || cleanup.processCode !== 0 || cleanup.exactOutputEmpty !== true
+    || !cleanup.receipts || Object.keys(cleanup.receipts).sort().join('|') !== [...names].sort().join('|')
+    || !names.every(name => cleanup.receipts[name] === true)) throw new Error('Native mail retry retirement is unconfirmed')
+}
+
+function assertMailRetryNormalStop(receipt, stop) {
+  if (receipt.normalStop.processClosed !== true || !Number.isFinite(receipt.normalStop.elapsedMs) || receipt.normalStop.elapsedMs > 15000
+    || stop?.type !== 'stopped' || stop.nativeStartState !== 'resolved' || stop.nativeStopState !== 'resolved'
+    || stop.pendingHooks !== 0 || stop.commandsJoined !== true) throw new Error('Native mail retry retirement is unconfirmed')
+}
+
+function assertMailRetryRetirement(receipt) {
+  const names = ['rowLockReleased', 'childClosed', 'webPoolClosed', 'engineRemoved', 'storesRemoved', 'tlsClosedAndMaterialsRemoved']
+  const cleanup = receipt?.cleanup, stop = receipt?.normalStop?.receipt
+  assertMailRetryCleanupReceipt(receipt, cleanup, names)
+  assertMailRetryNormalStop(receipt, stop)
+}
+
+export function assertMailRetryQualification(path, root, startedAt, evidenceDirectory) {
+  const runDirectory = dirname(evidenceDirectory), buildDirectory = join(runDirectory, 'mail-retry-build')
+  if (dirname(runDirectory) !== join(root, 'coverage') || !/^\.native-[0-9a-f-]{36}$/.test(basename(runDirectory))
+    || basename(evidenceDirectory) !== 'mail-retry-evidence' || path !== join(runDirectory, 'mail-retry-qualification.json')) throw new Error('Native mail retry evidence is not owned')
+  for (const directory of [join(root, 'coverage'), runDirectory, evidenceDirectory, buildDirectory]) assertDirectory(directory)
+  assertRunTree(buildDirectory)
+  assertMailRetryReport(readMailRetryRecord(path, startedAt), root, startedAt)
+  const files = readdirSync(evidenceDirectory)
+  if (files.length !== 1 || !/^task-7-i3-native-[0-9a-f-]{36}\.json$/.test(files[0])) throw new Error('Native mail retry requires exactly one fresh receipt')
+  const receipt = readMailRetryRecord(join(evidenceDirectory, files[0]), startedAt)
+  if (files[0] !== 'task-7-i3-native-' + receipt?.evidenceId + '.json') throw new Error('Native mail retry receipt identity changed')
+  assertMailRetryHashes(receipt, root, buildDirectory)
+  assertMailRetryRetirement(receipt)
+}
+
+const billingConsumers=[
+  ['tests/integration/billing-consumer-migration.test.ts',[
+    'forward billing migration preserves populated consumer0022 auth, Inbox and audio rows and migration receipts',
+  ]],
+  ['tests/integration/billing-consumer-authority.test.ts',[
+    'native financial lease admits a fresh passkey and exposes only that Workspace',
+    'native financial authority refuses Google session',
+    'native financial authority refuses stale passkey',
+    'native financial authority refuses pending session',
+    'native financial authority refuses expired session',
+    'native financial authority refuses stale activity',
+    'native financial authority refuses future passkey',
+    'native financial authority refuses generation mismatch',
+    'native financial authority refuses recovery',
+    'native financial authority refuses hold',
+    'native financial authority refuses unverified email',
+    'native financial authority refuses deleting Workspace',
+    'technical billing logins enforce exact function grants, FORCE RLS and no role impersonation',
+  ]],
+  ['tests/integration/billing-negotiated-checkout.test.ts',[
+    'two Workspaces resolve only their own agreed monthly conditions under the financial lease',
+    'SQL admission refuses inconsistent commercial snapshot 0',
+    'SQL admission refuses inconsistent commercial snapshot 1',
+    'SQL admission refuses inconsistent commercial snapshot 2',
+    'SQL admission refuses inconsistent commercial snapshot 3',
+    'A to B during the Price GET refuses stale A even when Price, currency and amount are identical',
+    'after admission a newer agreement cannot replace the operation slot or its send identity',
+    'conditions and operation binding are immutable and runtime has no terms writer or legacy admission',
+    'without agreement and without existing Checkout there is zero provider I/O, including Customer creation',
+    'known subscription cancellation after terms B still targets subscription A',
+    'first native Checkout creates Customer and retains admitted A after B is inserted during the provider send',
+  ]],
+  ['tests/integration/billing-consumer-webhook.test.ts',[
+    'native Google session and persisted call Inbox remain usable with absent Stripe configuration',
+    'native Google session and persisted call Inbox remain usable with partial Stripe configuration',
+    'signed duplicate and reordered native webhook events each retain one atomic receipt, command and outbox without granting paid access',
+    'native webhook rejects signature before any durable receipt',
+    'native webhook rejects version before any durable receipt',
+    'native webhook rejects account before any durable receipt',
+    'native webhook rejects oversize before any durable receipt',
+    'aborting a native request body closes its client transport and produces no receipt or paid right',
+    'native server shutdown joins an unfinished webhook body before normal process and store retirement',
+    'signed native dp Dispute retains one unassigned SQL receipt and no paid right',
+    'signed native du Dispute retains one unassigned SQL receipt and no paid right',
+    'signed native du Dispute keeps signature rejection before any SQL receipt',
+    'signed native du Dispute keeps account rejection before any SQL receipt',
+    'signed native du Dispute keeps environment rejection before any SQL receipt',
+    'signed native du Dispute keeps object rejection before any SQL receipt',
+    'signed native du Dispute keeps prefix rejection before any SQL receipt',
+    'signed native du Dispute keeps charge rejection before any SQL receipt',
+  ]],
+  ['tests/integration/billing-consumer-browser.test.ts',[
+    'compiled billing redirects anonymous navigation and never provisions a null Workspace',
+    'compiled Google navigation exposes Billing while native financial authority refuses without affecting Inbox',
+    'compiled fresh passkey billing stays truthful in FR EN at320 with keyboard access and forged Checkout returns',
+    'compiled partial Stripe configuration preserves private navigation and a fresh passkey unavailable billing screen',
+    'compiled protected refresh ignores a late departed read and clears private content after native session refusal',
+    'compiled billing UI validates Checkout navigation and uses exact Workspace POSTs without trusting cancellation acknowledgements',
+  ]],
+  ['tests/integration/billing-worker-native.test.ts',[
+    'compiled billing-only worker registers and drains with no mail configuration or provider effect',
+    'three native mail arrivals finish while billing waits on owned SQL, then immutable A reconciles after B beyond startup deadline',
+    'post-response native admission ACK loss resolves the same durable outbox and run with one dispatch',
+    'native worker shutdown during a held Stripe read body joins the client transport before billing SQL stop',
+  ]],
+  ['tests/integration/mail-worker-native.test.ts',[
+    'built application relay and native worker consume the real SQL snapshot through controlled TLS and drain on shutdown',
+  ]],
+  ['tests/integration/billing-dispute-namespace.test.ts',[
+    'native SQL receipt authority independently admits du and refuses unknown namespace or inconsistent risk references',
+    'native worker SQL records dp and du facts under the exact observed scope without creating paid entitlement',
+  ]],
+]
+
+function billingSummaryPassed(report) {
+  const counters={numTotalTests:55,numPassedTests:55,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
+  return report?.success===true&&Object.entries(counters).every(([key,wanted])=>report[key]===wanted)
+}
+
+export function assertBillingReport(report,root) {
+  if(!billingSummaryPassed(report)||!Array.isArray(report.testResults)||report.testResults.length!==8
+    ||!billingConsumers.every(([path,names])=>{
+      const matches=report.testResults.filter(file=>file?.name===join(root,path).replaceAll('\\','/'))
+      const file=matches[0]
+      return matches.length===1&&file.status==='passed'&&file.message===''
+        &&Array.isArray(file.assertionResults)&&file.assertionResults.length===names.length
+        &&file.assertionResults.every((test,index)=>test?.status==='passed'&&test.fullName===names[index]
+          &&Array.isArray(test.failureMessages)&&test.failureMessages.length===0)
+    })) {
+    throw new Error('Native Billing requires its exact eight consumers and 55 passing leaves')
+  }
+}
+
+export function assertBillingQualification(path,root,startedAt) {
+  const stat=lstatSync(path)
+  if(!stat.isFile()||stat.isSymbolicLink()||stat.mtimeMs<startedAt||stat.size===0||stat.size>268435456)throw new Error('Native Billing report is invalid')
+  assertBillingReport(JSON.parse(readFileSync(path,'utf8')),root)
 }

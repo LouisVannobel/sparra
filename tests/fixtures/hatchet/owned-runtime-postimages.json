@@ -1,0 +1,209 @@
+{
+  "schema_version": 1,
+  "postimages": [
+    {
+      "package": "hatchet",
+      "path": "README.md",
+      "sha256": "9dfe2c0c6e67c14f5223dd9bbf060b19b3cf009675a1ca5c81b97d2c6a58a1dd"
+    },
+    {
+      "package": "hatchet",
+      "path": "clients/dispatcher/action-listener.d.ts",
+      "sha256": "cc324b689cb0a07c173c760d6d7a497372555e59e2a83ebf6792c1e431063898"
+    },
+    {
+      "package": "hatchet",
+      "path": "clients/dispatcher/action-listener.js",
+      "sha256": "3bb099568753b7047f3e1e527798414c94c20d1feb8571ba5512447a512c7427"
+    },
+    {
+      "package": "hatchet",
+      "path": "clients/dispatcher/dispatcher-client.d.ts",
+      "sha256": "59d690549f2c16e6f75f1906bb8c5e96b4c5410c99eed2f31f8a63e1f2b068a6"
+    },
+    {
+      "package": "hatchet",
+      "path": "clients/dispatcher/dispatcher-client.js",
+      "sha256": "b89f91de0faabe77f1fbf9c02ef776699615907616fa4b523a3fab3f0bc81bd0"
+    },
+    {
+      "package": "hatchet",
+      "path": "clients/dispatcher/heartbeat/heartbeat-controller.d.ts",
+      "sha256": "7b0390b99288c9ed40b58b234a5a45569d1e0b6d1a82b822c104d77e9ea72187"
+    },
+    {
+      "package": "hatchet",
+      "path": "clients/dispatcher/heartbeat/heartbeat-controller.js",
+      "sha256": "e7fdf01ac2c3ac47267d1d3ac0d47a36dab9528a13cd36614d1d5dfad76e8064"
+    },
+    {
+      "package": "hatchet",
+      "path": "util/retrier.d.ts",
+      "sha256": "cfd36231de0a4fc27d6ab777c9d97d06c19b4b3f2d16afff3ad146f7b0529128"
+    },
+    {
+      "package": "hatchet",
+      "path": "util/retrier.js",
+      "sha256": "f75a8832a544c56075301eab67b285e7ef39b5ca0bf6a2e83711c61bd60beaa1"
+    },
+    {
+      "package": "hatchet",
+      "path": "util/worker-lifecycle.d.ts",
+      "sha256": "fbdff4fa072f567b2cc6f2bf3c6b704ceb1b97852ece255feb4782c0a3c623cf"
+    },
+    {
+      "package": "hatchet",
+      "path": "util/worker-lifecycle.js",
+      "sha256": "eebe6e3d75a0f4fcd3cbcbf9e75e16f0c5ae03aad68fcbf8b5f52c96d9d64605"
+    },
+    {
+      "package": "hatchet",
+      "path": "v1/client/admin.d.ts",
+      "sha256": "13a017556fc193aea687fdcb4a2ed334468d93e6d5a52dc62817ce781b091591"
+    },
+    {
+      "package": "hatchet",
+      "path": "v1/client/admin.js",
+      "sha256": "e3d1abd2685e8f81071dadc693d21750414975bec9964325d3b79447a32ba271"
+    },
+    {
+      "package": "hatchet",
+      "path": "v1/client/client.d.ts",
+      "sha256": "67569a46ecd01f5df3b72fdd57bd576469d9756a7d4c47873f5020c050833a0d"
+    },
+    {
+      "package": "hatchet",
+      "path": "v1/client/client.js",
+      "sha256": "db698499032f9b5aec5288646f10dff50024aa7d4bbd9592c04c3d71c24c6d67"
+    },
+    {
+      "package": "hatchet",
+      "path": "v1/client/features/tenant.d.ts",
+      "sha256": "515d272943f5604d7d39431a147641974f302f7e8148719b95f48eedded84673"
+    },
+    {
+      "package": "hatchet",
+      "path": "v1/client/features/tenant.js",
+      "sha256": "9027a222811f2a050f87dfcdbc6407c22cbcd308b4b0b1e031b51188010cf6e1"
+    },
+    {
+      "package": "hatchet",
+      "path": "v1/client/features/workers.d.ts",
+      "sha256": "dfa2df858714084a435a96d61abfc251afb6634daa05a170af0844f7f4b42c79"
+    },
+    {
+      "package": "hatchet",
+      "path": "v1/client/features/workers.js",
+      "sha256": "9afab707e0feda7ef82cbce09d3bacf77a1c58fcf4fb1153b6d9c1ad786895ef"
+    },
+    {
+      "package": "hatchet",
+      "path": "v1/client/worker/worker-internal.d.ts",
+      "sha256": "0acb161d937d8462ed4adcd82075665f2817182dba35aee33390eda0bfc4cf76"
+    },
+    {
+      "package": "hatchet",
+      "path": "v1/client/worker/worker-internal.js",
+      "sha256": "39a0c0df420b2364f14b024881a5eae0719090c1581ca160b31a5da6612392bc"
+    },
+    {
+      "package": "hatchet",
+      "path": "v1/client/worker/worker.d.ts",
+      "sha256": "e66c0446324f4f57ce95f5368b0d059cb59a67089cbe37e795378c94c40ccf18"
+    },
+    {
+      "package": "hatchet",
+      "path": "v1/client/worker/worker.js",
+      "sha256": "802636bd79769537525b0ca1354898d24ef01ffc8f4fbd8db2e99e81c478bcff"
+    },
+    {
+      "package": "nice-grpc",
+      "path": "README.md",
+      "sha256": "e77c352a89cdca75d3eea416d8d762e49eb0d830563cbf3c49cab5a2be6e3a8d"
+    },
+    {
+      "package": "nice-grpc",
+      "path": "lib/client/createServerStreamingMethod.js",
+      "sha256": "de4c6338831e8f24e0ab919f41586ae8936a9b6566af3c7167488f8ed6053c9f"
+    },
+    {
+      "package": "nice-grpc",
+      "path": "lib/client/createUnaryMethod.js",
+      "sha256": "d8c112307aac4b9630a1d3695f079886df9f69c8f46d804b11444a3c559a2b1f"
+    },
+    {
+      "package": "nice-grpc",
+      "path": "src/client/createServerStreamingMethod.ts",
+      "sha256": "1808457fc5dc3b51c9e92a2dba928db89d818960eba3a8c966cfadd558128c13"
+    },
+    {
+      "package": "nice-grpc",
+      "path": "src/client/createUnaryMethod.ts",
+      "sha256": "6359a190fbe81cc7c9ea5068ae121da360281aa09c3f19e218f534d3ae6a1f9c"
+    }
+  ],
+  "assets": [
+    {
+      "package": "hatchet",
+      "path": "v1/index.js",
+      "sha256": "4c9944d18a754e9cd6c6e3a64a6b953a3c0c64ad3eefe7cec73a8e5f6a2f9d07"
+    },
+    {
+      "package": "hatchet",
+      "path": "v1/index.d.ts",
+      "sha256": "447f253bfa4297160dd369d0d3978b01bf3b599d924e71e7f67186eb347c815d"
+    },
+    {
+      "package": "hatchet",
+      "path": "v1/client/client.js",
+      "sha256": "db698499032f9b5aec5288646f10dff50024aa7d4bbd9592c04c3d71c24c6d67"
+    },
+    {
+      "package": "hatchet",
+      "path": "v1/client/client.d.ts",
+      "sha256": "67569a46ecd01f5df3b72fdd57bd576469d9756a7d4c47873f5020c050833a0d"
+    },
+    {
+      "package": "hatchet",
+      "path": "clients/dispatcher/heartbeat/heartbeat-worker.js",
+      "sha256": "ff1c10a2c23bf8cad32880f21193ce952a185a84c7129ae8d099118dd1b32c33"
+    },
+    {
+      "package": "hatchet",
+      "path": "util/config-loader/config-loader.js",
+      "sha256": "cb7757e7734d610d5ba8b9587c1ab0319da6b9b7bd590ea58843ce5715d89b8d"
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "hatchet",
+      "name": "@hatchet-dev/typescript-sdk",
+      "version": "1.28.2"
+    },
+    {
+      "from": "hatchet",
+      "name": "nice-grpc",
+      "version": "2.1.17"
+    },
+    {
+      "from": "hatchet",
+      "name": "axios",
+      "version": "1.20.0"
+    },
+    {
+      "from": "hatchet",
+      "name": "@grpc/grpc-js",
+      "version": "1.14.5"
+    },
+    {
+      "from": "nice-grpc",
+      "name": "@grpc/grpc-js",
+      "version": "1.14.5"
+    },
+    {
+      "from": "hatchet",
+      "name": "nice-grpc-common",
+      "version": "2.0.4"
+    }
+  ]
+}

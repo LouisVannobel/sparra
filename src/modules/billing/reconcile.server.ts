@@ -1,0 +1,449 @@
+import { createHash } from 'node:crypto'
+import { hasBoundedBillingPageData, hasCustomerBalanceTransactionScalars } from './provider-shapes.server'
+import type Stripe from 'stripe'
+import type { StripeConfig } from './stripe-config.server'
+import type { UnpaidInvoiceObservation } from './billing-agreement.server'
+
+type MonthlyLine = Pick<Stripe.InvoiceLineItem,
+  'id' | 'object' | 'amount' | 'currency' | 'livemode' | 'period' | 'pricing' |
+  'quantity' | 'subscription' | 'parent' | 'pretax_credit_amounts'>
+type MonthlyInvoice = Pick<Stripe.Invoice,
+  'id' | 'object' | 'livemode' | 'customer' | 'customer_account' | 'parent' |
+  'billing_reason' | 'collection_method' | 'currency' | 'status' | 'amount_due' |
+  'amount_paid' | 'amount_remaining' | 'amount_overpaid' | 'total' |
+  'starting_balance' | 'ending_balance' | 'pre_payment_credit_notes_amount' |
+  'post_payment_credit_notes_amount' | 'period_start' | 'period_end' |
+  'amount_paid_off_stripe' | 'total_pretax_credit_amounts'> & {
+    lines: { object: 'list'; data: MonthlyLine[]; has_more: boolean }
+  }
+type InvoiceAllocation = Pick<Stripe.InvoicePayment,
+  'id' | 'object' | 'invoice' | 'livemode' | 'currency' | 'amount_requested' |
+  'amount_paid' | 'status' | 'status_transitions' | 'payment' | 'is_default' | 'created'>
+type CapturedIntent = Pick<Stripe.PaymentIntent,
+  'id' | 'object' | 'livemode' | 'customer' | 'amount' | 'amount_received' |
+  'currency' | 'status' | 'latest_charge'>
+type CapturedCharge = Pick<Stripe.Charge,
+  'id' | 'object' | 'livemode' | 'customer' | 'amount' | 'amount_captured' |
+  'amount_refunded' | 'captured' | 'currency' | 'disputed' | 'paid' |
+  'payment_intent' | 'refunded' | 'status' | 'fraud_details' | 'review' | 'outcome'>
+type BalanceTransaction = Pick<Stripe.CustomerBalanceTransaction,
+  'id' | 'object' | 'amount' | 'checkout_session' | 'created' | 'credit_note' |
+  'currency' | 'customer' | 'customer_account' | 'ending_balance' | 'invoice' |
+  'livemode' | 'type'>
+
+export type MonetaryProvider = Readonly<{
+  retrieveInvoice(id: string): Promise<MonthlyInvoice>
+  listInvoicePayments(invoiceId: string, cursor?: string): Promise<{
+    object: 'list'; data: InvoiceAllocation[]; has_more: boolean
+  }>
+  listCustomerBalanceTransactions(customerId: string, cursor?: string): Promise<{
+    object: 'list'; data: BalanceTransaction[]; has_more: boolean
+  }>
+  retrievePaymentIntent(id: string): Promise<CapturedIntent>
+  retrieveCharge(id: string): Promise<CapturedCharge>
+}>
+export type BoundMonthlyInvoice = Readonly<{
+  environment: 'sandbox' | 'live'; accountId: string; customerId: string
+  subscriptionId: string; invoiceId: string; monthlyPriceId: string
+  agreedTermsId: string
+  currency: string; expectedAmount: number; periodStart: number; periodEnd: number
+  firstPeriod?: boolean
+  onboarding?: Readonly<{ priceId: string; amount: number }> | null
+}>
+export type PaidMonthlyInvoiceProof = Readonly<{
+  invoiceId: string; subscriptionId: string; customerId: string; currency: string
+  amount: number; periodStart: number; periodEnd: number
+  allocationIds: readonly string[]; paymentIntentIds: readonly string[]; chargeIds: readonly string[]
+}>
+
+export class BillingMonetaryError extends Error {
+  constructor() { super('Billing monetary proof unavailable'); this.name = 'BillingMonetaryError' }
+}
+
+const invoiceId = /^in_[A-Za-z0-9]+$/
+const customerId = /^cus_[A-Za-z0-9]+$/
+const subscriptionId = /^sub_[A-Za-z0-9]+$/
+const priceId = /^price_[A-Za-z0-9]+$/
+const allocationId = /^inpay_[A-Za-z0-9]+$/
+const intentId = /^pi_[A-Za-z0-9]+$/
+const chargeId = /^ch_[A-Za-z0-9]+$/
+const creditNoteId = /^cn_[A-Za-z0-9]+$/
+const checkoutId = { sandbox: /^cs_test_[A-Za-z0-9]+$/, live: /^cs_live_[A-Za-z0-9]+$/ } as const
+const positive = (value: number): boolean => Number.isSafeInteger(value) && value > 0
+const zero = (value: number): boolean => Number.isSafeInteger(value) && value === 0
+function fail(): never { throw new BillingMonetaryError() }
+const idOf = (value: unknown): string | null => typeof value === 'string' ? value
+  : value !== null && typeof value === 'object' && 'id' in value && typeof value.id === 'string' ? value.id : null
+
+function ownedBound(bound: BoundMonthlyInvoice): BoundMonthlyInvoice {
+  const snapshot = { ...bound }
+  if (snapshot.onboarding != null) snapshot.onboarding = { ...snapshot.onboarding }
+  return snapshot
+}
+
+function requireBound(config: StripeConfig, bound: BoundMonthlyInvoice): void {
+  if (bound.environment !== config.environment || bound.accountId !== config.accountId
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(bound.agreedTermsId)
+    || !customerId.test(bound.customerId)
+    || !subscriptionId.test(bound.subscriptionId) || !invoiceId.test(bound.invoiceId)
+    || !priceId.test(bound.monthlyPriceId) || !/^[a-z]{3}$/.test(bound.currency)
+    || !positive(bound.expectedAmount) || !positive(bound.periodStart)
+    || !positive(bound.periodEnd) || bound.periodEnd <= bound.periodStart
+    || bound.onboarding != null) fail()
+}
+
+function requireInvoiceScope(invoice: MonthlyInvoice, bound: BoundMonthlyInvoice, expectedLive: boolean, unpaid: boolean): void {
+  if (invoice.id !== bound.invoiceId || invoice.object !== 'invoice' || invoice.livemode !== expectedLive
+    || idOf(invoice.customer) !== bound.customerId || invoice.customer_account !== null
+    || invoice.parent?.type !== 'subscription_details'
+    || idOf(invoice.parent.subscription_details?.subscription) !== bound.subscriptionId
+    || invoice.billing_reason !== 'subscription_cycle' && invoice.billing_reason !== 'subscription_create'
+    || invoice.collection_method !== 'charge_automatically'
+    || bound.firstPeriod !== undefined && invoice.billing_reason !== (bound.firstPeriod ? 'subscription_create' : 'subscription_cycle')
+    || invoice.currency !== bound.currency
+    || (unpaid ? invoice.status !== 'open' && invoice.status !== 'uncollectible' : invoice.status !== 'paid')) fail()
+}
+
+function requireInvoiceAmounts(invoice: MonthlyInvoice, bound: BoundMonthlyInvoice, unpaid: boolean): void {
+  if (!positive(invoice.amount_due) || invoice.amount_due !== bound.expectedAmount
+    || invoice.amount_paid !== (unpaid ? 0 : bound.expectedAmount) || invoice.total !== bound.expectedAmount
+    || invoice.amount_remaining !== (unpaid ? bound.expectedAmount : 0) || !zero(invoice.amount_overpaid)
+    || !zero(invoice.starting_balance) || invoice.ending_balance !== 0
+    || !zero(invoice.pre_payment_credit_notes_amount)
+    || !zero(invoice.post_payment_credit_notes_amount)
+    || invoice.amount_paid_off_stripe !== undefined && !zero(invoice.amount_paid_off_stripe)
+    || unpaid && invoice.amount_paid_off_stripe === undefined
+    || !Array.isArray(invoice.total_pretax_credit_amounts)
+    || invoice.total_pretax_credit_amounts.length !== 0) fail()
+}
+
+function requireInvoiceLineEnvelope(invoice: MonthlyInvoice): void {
+  if (!Number.isSafeInteger(invoice.period_start) || invoice.period_start < 0
+    || !Number.isSafeInteger(invoice.period_end) || invoice.period_end < invoice.period_start
+    || invoice.lines?.object !== 'list' || invoice.lines.has_more !== false
+    || !Array.isArray(invoice.lines.data) || invoice.lines.data.length !== 1) fail()
+}
+
+function requireMonthlyLineScope(line: MonthlyLine | undefined, bound: BoundMonthlyInvoice,
+  expectedLive: boolean, monthlyAmount: number): asserts line is MonthlyLine {
+  const subscriptionItem = line?.parent?.subscription_item_details
+  if (!line || line.object !== 'line_item' || line.livemode !== expectedLive
+    || line.currency !== bound.currency || line.amount !== monthlyAmount
+    || line.quantity !== 1 || idOf(line.subscription) !== bound.subscriptionId
+    || line.period?.start !== bound.periodStart || line.period.end !== bound.periodEnd
+    || line.parent?.type !== 'subscription_item_details'
+    || idOf(subscriptionItem?.subscription) !== bound.subscriptionId
+    || subscriptionItem?.proration !== false) fail()
+}
+
+function checkedMonthlyLine(invoice: MonthlyInvoice, bound: BoundMonthlyInvoice, expectedLive: boolean, monthlyAmount: number) {
+  const line = invoice.lines.data.find(row => idOf(row.pricing?.price_details?.price) === bound.monthlyPriceId)
+  requireMonthlyLineScope(line, bound, expectedLive, monthlyAmount)
+  if (line.pricing?.type !== 'price_details'
+    || idOf(line.pricing.price_details?.price) !== bound.monthlyPriceId
+    || !Array.isArray(line.pretax_credit_amounts) || line.pretax_credit_amounts.length !== 0) fail()
+
+  return line
+}
+
+function checkedInvoice(invoice: MonthlyInvoice, bound: BoundMonthlyInvoice, expectedLive: boolean, unpaid = false): string {
+  requireInvoiceScope(invoice, bound, expectedLive, unpaid)
+  requireInvoiceAmounts(invoice, bound, unpaid)
+  requireInvoiceLineEnvelope(invoice)
+
+  const line = checkedMonthlyLine(invoice, bound, expectedLive, bound.expectedAmount)
+
+  // Compare values rather than the provider object's identity. A second
+  // response can be a different allocation or line snapshot for the same ID.
+  return JSON.stringify({
+    id: invoice.id, customer: bound.customerId, subscription: bound.subscriptionId,
+    billingReason: invoice.billing_reason, amount: invoice.amount_paid, currency: invoice.currency,
+    invoiceWindowStart: invoice.period_start, invoiceWindowEnd: invoice.period_end,
+    servicePeriodStart: bound.periodStart, servicePeriodEnd: bound.periodEnd,
+    lineId: line.id, lineAmount: line.amount, linePeriod: line.period,
+    price: bound.monthlyPriceId, amountPaidOffStripe: invoice.amount_paid_off_stripe ?? 0,
+    status: invoice.status, remaining: invoice.amount_remaining,
+    onboarding: null,
+  })
+}
+
+function requirePaidAllocationScope(payment: InvoiceAllocation, bound: BoundMonthlyInvoice,
+  expectedLive: boolean, amount: number, paidAt: number): void {
+  if (payment.object !== 'invoice_payment' || !allocationId.test(payment.id)
+    || idOf(payment.invoice) !== bound.invoiceId || payment.livemode !== expectedLive
+    || payment.currency !== bound.currency || payment.status !== 'paid'
+    || !positive(amount) || payment.amount_requested !== amount
+    || !Number.isSafeInteger(payment.created) || payment.created < 0
+    || !Number.isSafeInteger(paidAt) || paidAt < 0) fail()
+}
+
+function checkedAllocation(payment: InvoiceAllocation, bound: BoundMonthlyInvoice, expectedLive: boolean, seen: Set<string>) {
+  const amount = payment.amount_paid
+  const paidAt = payment.status_transitions?.paid_at
+  const piId = payment.payment?.payment_intent
+  if (typeof amount !== 'number' || typeof paidAt !== 'number' || typeof piId !== 'string') fail()
+  requirePaidAllocationScope(payment, bound, expectedLive, amount, paidAt)
+  if (payment.status_transitions.canceled_at !== null
+    || payment.payment?.type !== 'payment_intent'
+    || !intentId.test(piId)
+    || payment.payment.charge != null || payment.payment.payment_record != null) fail()
+  const fact = {
+    id: payment.id, invoiceId: bound.invoiceId, amount,
+    currency: payment.currency, paymentIntentId: piId,
+    created: payment.created, paidAt,
+    isDefault: payment.is_default,
+  }
+  if (seen.has(fact.id)) fail()
+  seen.add(fact.id)
+  return fact
+}
+
+async function allocations(provider: MonetaryProvider, bound: BoundMonthlyInvoice, expectedLive: boolean) {
+  const all: ReturnType<typeof checkedAllocation>[] = []
+  const seen = new Set<string>()
+  let cursor: string | undefined
+  for (let pageNumber = 0; pageNumber < 5; pageNumber++) {
+    const page = await provider.listInvoicePayments(bound.invoiceId, cursor)
+    if (page?.object !== 'list' || !hasBoundedBillingPageData(page)) fail()
+    for (const payment of page.data) all.push(checkedAllocation(payment, bound, expectedLive, seen))
+    if (!page.has_more) {
+      if (all.length === 0) fail()
+      return all.sort((a, b) => a.id.localeCompare(b.id))
+    }
+    const next = all.at(-1)?.id
+    if (!next || next === cursor || seen.size > 500) fail()
+    cursor = next
+  }
+  return fail()
+}
+
+function checkedBalanceTransaction(row: BalanceTransaction, bound: BoundMonthlyInvoice, expectedLive: boolean, seen: Set<string>) {
+  const invoice = idOf(row.invoice), checkout = idOf(row.checkout_session), creditNote = idOf(row.credit_note)
+  if (!hasCustomerBalanceTransactionScalars(row, bound.customerId, expectedLive)
+    || row.invoice !== null && (!invoice || !invoiceId.test(invoice))
+    || row.checkout_session !== null && (!checkout || !checkoutId[bound.environment].test(checkout))
+    || row.credit_note !== null && (!creditNote || !creditNoteId.test(creditNote))) fail()
+
+  // Even an unapplied/reversed entry is a relevant credit-history fact.
+  // Without an Invoice reference, these application types cannot be proved
+  // unrelated to the invoice under reconciliation.
+  if (invoice === bound.invoiceId || invoice === null && (
+    row.type !== 'adjustment' && row.type !== 'initial' && row.type !== 'migration'
+    || checkout !== null || creditNote !== null)) fail()
+  const fact = {
+    id: row.id, type: row.type, amount: row.amount, endingBalance: row.ending_balance,
+    created: row.created, currency: row.currency, customer: bound.customerId,
+    customerAccount: row.customer_account, livemode: row.livemode,
+    invoice, checkout, creditNote,
+  }
+  if (seen.has(fact.id)) fail()
+  seen.add(fact.id)
+  return fact
+}
+
+async function customerBalance(provider: MonetaryProvider, bound: BoundMonthlyInvoice, expectedLive: boolean) {
+  const all: ReturnType<typeof checkedBalanceTransaction>[] = []
+  const seen = new Set<string>()
+  let cursor: string | undefined
+  for (let pageNumber = 0; pageNumber < 5; pageNumber++) {
+    const page = await provider.listCustomerBalanceTransactions(bound.customerId, cursor)
+    if (page?.object !== 'list' || !hasBoundedBillingPageData(page)) fail()
+    for (const row of page.data) all.push(checkedBalanceTransaction(row, bound, expectedLive, seen))
+    if (!page.has_more) return all.sort((a, b) => a.id.localeCompare(b.id))
+    const next = all.at(-1)?.id
+    if (!next || next === cursor) fail()
+    cursor = next
+  }
+  return fail()
+}
+
+function digest(facts: readonly unknown[]): string {
+  return createHash('sha256').update(JSON.stringify(facts)).digest('hex')
+}
+
+function safeChargeOutcome(charge: CapturedCharge): boolean {
+  if (charge.review !== null) return false
+  const outcome = charge.outcome
+  if (outcome === null) return true
+  if (!outcome || outcome.type !== 'authorized'
+    || outcome.network_status === 'declined_by_network'
+    || outcome.network_status === 'reversed_after_approval'
+    || outcome.risk_level !== undefined && outcome.risk_level !== 'normal'
+      && outcome.risk_level !== 'not_assessed'
+    || outcome.reason !== null && outcome.reason !== 'rule') return false
+  return true
+}
+
+function requireCapturedChargeAmounts(charge: CapturedCharge, latestChargeId: string,
+  allocationAmount: number, bound: BoundMonthlyInvoice, expectedLive: boolean): void {
+  if (charge.id !== latestChargeId || charge.object !== 'charge'
+    || charge.livemode !== expectedLive || idOf(charge.customer) !== bound.customerId
+    || charge.currency !== bound.currency || charge.status !== 'succeeded'
+    || charge.amount !== allocationAmount || charge.amount_captured !== allocationAmount
+    || charge.captured !== true || charge.paid !== true
+    || !zero(charge.amount_refunded) || charge.refunded !== false || charge.disputed !== false) fail()
+}
+
+function requireCapturedCharge(charge: CapturedCharge, latestChargeId: string, pi: CapturedIntent,
+  allocationAmount: number, bound: BoundMonthlyInvoice, expectedLive: boolean, seenCharges: Set<string>): void {
+  requireCapturedChargeAmounts(charge, latestChargeId, allocationAmount, bound, expectedLive)
+  if (idOf(charge.payment_intent) !== pi.id || seenCharges.has(charge.id)
+    || !safeChargeOutcome(charge)
+    || charge.fraud_details !== null && (charge.fraud_details.stripe_report !== undefined
+      || charge.fraud_details.user_report !== undefined && charge.fraud_details.user_report !== 'safe')) fail()
+}
+
+async function capturedAllocation(provider: MonetaryProvider, allocation: ReturnType<typeof checkedAllocation>,
+  bound: BoundMonthlyInvoice, expectedLive: boolean, seenIntents: Set<string>, seenCharges: Set<string>) {
+  const allocationPiId = allocation.paymentIntentId
+  const allocationAmount = allocation.amount
+  const pi = await provider.retrievePaymentIntent(allocationPiId)
+  const latestChargeId = pi.latest_charge
+  if (typeof latestChargeId !== 'string' || !chargeId.test(latestChargeId)) fail()
+  if (pi.id !== allocationPiId || pi.object !== 'payment_intent'
+    || pi.livemode !== expectedLive || idOf(pi.customer) !== bound.customerId
+    || pi.currency !== bound.currency || pi.status !== 'succeeded'
+    || pi.amount !== allocationAmount || pi.amount_received !== allocationAmount
+    || seenIntents.has(pi.id)) fail()
+  const charge = await provider.retrieveCharge(latestChargeId)
+  requireCapturedCharge(charge, latestChargeId, pi, allocationAmount, bound, expectedLive, seenCharges)
+  return { pi, charge, allocationAmount }
+}
+
+export async function provePaidMonthlyInvoice(config: StripeConfig, provider: MonetaryProvider,
+  bound: BoundMonthlyInvoice): Promise<PaidMonthlyInvoiceProof> {
+  config = config && { ...config }
+  bound = bound && ownedBound(bound)
+  requireBound(config, bound)
+  const expectedLive = config.environment === 'live'
+  const firstInvoice = checkedInvoice(await provider.retrieveInvoice(bound.invoiceId), bound, expectedLive)
+  const firstAllocations = await allocations(provider, bound, expectedLive)
+  const secondInvoice = checkedInvoice(await provider.retrieveInvoice(bound.invoiceId), bound, expectedLive)
+  const secondAllocations = await allocations(provider, bound, expectedLive)
+  if (firstInvoice !== secondInvoice || digest(firstAllocations) !== digest(secondAllocations)) fail()
+  const firstBalance = await customerBalance(provider, bound, expectedLive)
+
+  let sum = 0
+  const paymentIntentIds: string[] = [], chargeIds: string[] = []
+  const seenIntents = new Set<string>(), seenCharges = new Set<string>()
+  for (const allocation of secondAllocations) {
+    const { pi, charge, allocationAmount } = await capturedAllocation(provider, allocation, bound, expectedLive, seenIntents, seenCharges)
+    sum += allocationAmount
+    if (!Number.isSafeInteger(sum) || sum > bound.expectedAmount) fail()
+    seenIntents.add(pi.id); seenCharges.add(charge.id)
+    paymentIntentIds.push(pi.id); chargeIds.push(charge.id)
+  }
+  if (sum !== bound.expectedAmount) fail()
+  const secondBalance = await customerBalance(provider, bound, expectedLive)
+  if (digest(firstBalance) !== digest(secondBalance)) fail()
+  return Object.freeze({
+    invoiceId: bound.invoiceId, subscriptionId: bound.subscriptionId,
+    customerId: bound.customerId, currency: bound.currency,
+    amount: sum, periodStart: bound.periodStart, periodEnd: bound.periodEnd,
+    allocationIds: Object.freeze(secondAllocations.map(payment => payment.id)),
+    paymentIntentIds: Object.freeze(paymentIntentIds), chargeIds: Object.freeze(chargeIds),
+  })
+}
+
+function requireUnpaidAllocationScope(payment: InvoiceAllocation, bound: BoundMonthlyInvoice,
+  live: boolean, seen: Set<string>, canceledAt: number | null): asserts payment is InvoiceAllocation & { status: 'open' | 'canceled' } {
+  if (payment.object !== 'invoice_payment' || !allocationId.test(payment.id) || seen.has(payment.id)
+    || idOf(payment.invoice) !== bound.invoiceId || payment.livemode !== live || payment.currency !== bound.currency
+    || payment.status !== 'open' && payment.status !== 'canceled' || payment.amount_paid !== null
+    || !positive(payment.amount_requested) || payment.amount_requested > bound.expectedAmount
+    || payment.status_transitions?.paid_at !== null
+    || payment.status === 'open' && canceledAt !== null
+    || payment.status === 'canceled' && (typeof canceledAt !== 'number' || !positive(canceledAt))) fail()
+}
+
+function checkedUnpaidAllocation(payment: InvoiceAllocation, bound: BoundMonthlyInvoice, live: boolean, seen: Set<string>) {
+  const intent = payment.payment?.payment_intent, canceledAt = payment.status_transitions?.canceled_at
+  requireUnpaidAllocationScope(payment, bound, live, seen, canceledAt)
+  if (!Number.isSafeInteger(payment.created) || payment.created < 0 || typeof payment.is_default !== 'boolean'
+    || payment.payment?.type !== 'payment_intent' || typeof intent !== 'string' || !intentId.test(intent)
+    || payment.payment.charge != null || payment.payment.payment_record != null) fail()
+  return { id: payment.id, paymentIntentId: intent, amount: payment.amount_requested, status: payment.status,
+    created: payment.created, canceledAt, isDefault: payment.is_default }
+}
+
+async function unpaidAllocations(provider: MonetaryProvider, bound: BoundMonthlyInvoice, live: boolean) {
+  const all: Array<{ id: string; paymentIntentId: string; amount: number; status: 'open' | 'canceled';
+    created: number; canceledAt: number | null; isDefault: boolean }> = []
+  const seen = new Set<string>()
+  let cursor: string | undefined
+  for (let count = 0; count < 5; count++) {
+    const page = await provider.listInvoicePayments(bound.invoiceId, cursor)
+    if (page.object !== 'list' || !hasBoundedBillingPageData(page)) fail()
+    for (const payment of page.data) {
+      const fact = checkedUnpaidAllocation(payment, bound, live, seen)
+      seen.add(payment.id)
+      all.push(fact)
+    }
+    if (!page.has_more) return all.sort((a, b) => a.id.localeCompare(b.id))
+    const next = page.data.at(-1)?.id
+    if (!next || next === cursor) fail()
+    cursor = next
+  }
+  return fail()
+}
+
+function requireUnpaidIntent(pi: CapturedIntent, allocation: Awaited<ReturnType<typeof unpaidAllocations>>[number],
+  bound: BoundMonthlyInvoice, live: boolean): void {
+  if (pi.object !== 'payment_intent' || pi.id !== allocation.paymentIntentId || pi.livemode !== live
+    || idOf(pi.customer) !== bound.customerId || pi.currency !== bound.currency || pi.amount !== allocation.amount
+    || pi.amount_received !== 0 || !['requires_payment_method', 'requires_confirmation', 'requires_action', 'canceled'].includes(pi.status)
+    || allocation.status === 'canceled' && pi.status !== 'canceled') fail()
+}
+
+function requireUncapturedCharge(observedCharge: CapturedCharge, pi: CapturedIntent,
+  bound: BoundMonthlyInvoice, live: boolean): void {
+  if (observedCharge.id !== pi.latest_charge || observedCharge.object !== 'charge' || observedCharge.livemode !== live
+    || idOf(observedCharge.customer) !== bound.customerId || idOf(observedCharge.payment_intent) !== pi.id
+    || observedCharge.currency !== bound.currency || observedCharge.amount !== pi.amount
+    || observedCharge.amount_captured !== 0 || observedCharge.amount_refunded !== 0
+    || observedCharge.captured !== false || observedCharge.paid !== false || observedCharge.refunded !== false) fail()
+}
+
+async function observeUnpaidIntent(provider: MonetaryProvider, allocation: Awaited<ReturnType<typeof unpaidAllocations>>[number],
+  bound: BoundMonthlyInvoice, live: boolean) {
+  const pi = await provider.retrievePaymentIntent(allocation.paymentIntentId)
+  requireUnpaidIntent(pi, allocation, bound, live)
+  let observedCharge: CapturedCharge | null = null
+  if (pi.latest_charge !== null) {
+    if (typeof pi.latest_charge !== 'string' || !chargeId.test(pi.latest_charge)) fail()
+    observedCharge = await provider.retrieveCharge(pi.latest_charge)
+    requireUncapturedCharge(observedCharge, pi, bound, live)
+  }
+  return { id: pi.id, status: pi.status, amount: pi.amount, received: pi.amount_received,
+    chargeId: observedCharge?.id ?? null, captured: observedCharge?.amount_captured ?? 0 }
+}
+
+export async function proveUnpaidMonthlyInvoice(config: StripeConfig, provider: MonetaryProvider,
+  bound: BoundMonthlyInvoice): Promise<UnpaidInvoiceObservation> {
+  config = config && { ...config }
+  bound = bound && ownedBound(bound)
+  requireBound(config, bound)
+  const live = config.environment === 'live'
+  const invoice = await provider.retrieveInvoice(bound.invoiceId)
+  const first = checkedInvoice(invoice, bound, live, true)
+  const firstAllocations = await unpaidAllocations(provider, bound, live)
+  const second = checkedInvoice(await provider.retrieveInvoice(bound.invoiceId), bound, live, true)
+  const secondAllocations = await unpaidAllocations(provider, bound, live)
+  if (first !== second || digest(firstAllocations) !== digest(secondAllocations)) fail()
+  const firstBalance = await customerBalance(provider, bound, live)
+  const intents: unknown[] = [], seen = new Set<string>()
+  for (const allocation of secondAllocations) {
+    if (seen.has(allocation.paymentIntentId)) fail()
+    seen.add(allocation.paymentIntentId)
+    intents.push(await observeUnpaidIntent(provider, allocation, bound, live))
+  }
+  const secondBalance = await customerBalance(provider, bound, live)
+  if (digest(firstBalance) !== digest(secondBalance) || invoice.status !== 'open' && invoice.status !== 'uncollectible') fail()
+  const status: UnpaidInvoiceObservation['status'] = invoice.status === 'open' ? 'open' : 'uncollectible'
+  return Object.freeze({ kind: 'unpaid-invoice', invoiceId: bound.invoiceId, customerId: bound.customerId,
+    subscriptionId: bound.subscriptionId, currency: bound.currency, status,
+    amountDue: bound.expectedAmount, amountPaid: 0, amountRemaining: bound.expectedAmount,
+    periodStart: bound.periodStart, periodEnd: bound.periodEnd,
+    invoicePaymentIds: Object.freeze(secondAllocations.map(value => value.id)),
+    observationDigest: digest([first, secondAllocations, secondBalance, intents]) })
+}

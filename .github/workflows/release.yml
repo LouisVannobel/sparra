@@ -177,6 +177,51 @@ jobs:
           retention-days: 1
           compression-level: 0
 
+      - name: Build separate same-main worker and capture immutable ID
+        id: worker
+        run: |
+          set -Eeuo pipefail
+          mkdir dist-worker
+          docker buildx build --platform linux/amd64 --target worker --load --iidfile "$RUNNER_TEMP/worker.iid" .
+          image_id=$(cat "$RUNNER_TEMP/worker.iid")
+          [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
+          docker --host unix:///var/run/docker.sock image save --output dist-worker/worker-image.tar "$image_id"
+          printf 'image-id=%s\n' "$image_id" >> "$GITHUB_OUTPUT"
+      - name: Block fixable worker vulnerabilities and secret leakage
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          version: v0.74.0
+          scan-type: image
+          image-ref: ${{ steps.worker.outputs.image-id }}
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+      - name: Export SPDX from this exact worker object
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          version: v0.74.0
+          scan-type: image
+          image-ref: ${{ steps.worker.outputs.image-id }}
+          format: spdx-json
+          output: dist-worker/worker-sbom.spdx.json
+      - name: Qualify this built worker without a second image build
+        env:
+          SPARRA_TEST_WORKER_IMAGE_ID: ${{ steps.worker.outputs.image-id }}
+        run: pnpm run test:worker-image
+      - name: Prepare only a temporary worker candidate receipt
+        env:
+          WORKER_IMAGE_ID: ${{ steps.worker.outputs.image-id }}
+        run: node scripts/write-worker-candidate.mjs --directory dist-worker --commit "$GITHUB_SHA" --image-id "$WORKER_IMAGE_ID" --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: sparra-worker-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist-worker/*
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+          compression-level: 0
+
   verify-migrator-reload:
     needs: qualify-published
     runs-on: ubuntu-24.04
@@ -248,6 +293,42 @@ jobs:
         with:
           name: sparra-migrator-${{ github.sha }}
           path: dist-migrator/*
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 90
+          compression-level: 0
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: sparra-worker-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist-worker
+      - name: Bind exact worker archive bytes before actual native image reload
+        id: loaded-worker
+        run: |
+          set -Eeuo pipefail
+          node scripts/inspect-worker-candidate.mjs --directory dist-worker --commit "$GITHUB_SHA" --output "$RUNNER_TEMP/worker.iid"
+          image_id=$(cat "$RUNNER_TEMP/worker.iid")
+          [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
+          docker --host unix:///var/run/docker.sock image load --input dist-worker/worker-image.tar > /dev/null
+          [[ "$(docker --host unix:///var/run/docker.sock image inspect "$image_id" --format '{{.Id}}|{{.Os}}/{{.Architecture}}')" == "$image_id|linux/amd64" ]]
+          printf 'image-id=%s\n' "$image_id" >> "$GITHUB_OUTPUT"
+      - name: Actual fresh-runner loaded worker closure registration and cleanup
+        env:
+          SPARRA_TEST_WORKER_IMAGE_ID: ${{ steps.loaded-worker.outputs.image-id }}
+        run: pnpm run test:worker-image
+      - name: Worker archive reload is now an actual witnessed check
+        run: |
+          node --input-type=module <<'JS'
+          import {readFile,writeFile} from 'node:fs/promises';
+          const path='dist-worker/worker-receipt.json',receipt=JSON.parse(await readFile(path,'utf8'));
+          if(receipt.checks.archive_reload!==false)throw Error('Unexpected worker candidate authority');
+          receipt.checks.archive_reload=true;await writeFile(path,JSON.stringify(receipt)+'\n');
+          JS
+          node scripts/verify-worker-release.mjs --directory dist-worker --commit "$GITHUB_SHA"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: sparra-worker-${{ github.sha }}
+          path: dist-worker/*
           if-no-files-found: error
           overwrite: false
           retention-days: 90

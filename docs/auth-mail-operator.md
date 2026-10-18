@@ -106,7 +106,7 @@ Queued200 purges ciphertext/nonce/tag while preserving an admissible verifier. M
 
 Use the repository's pinned Node `24.14.0`/pnpm `10.32.1`, one lockfile and
 `pnpm install --frozen-lockfile`. `pnpm build` builds web and
-`.output/worker/index.mjs`; `pnpm start:worker` starts only the mail worker, with
+`.output/worker/index.mjs`; `pnpm start:worker` starts the configured application worker, with
 no web HTTP listener. Keep production `node_modules` alongside the output: SDK
 `1.28.2` remains external because its heartbeat thread resolves package-relative
 JavaScript. The build emits an empty owned Hatchet YAML file; no existing
@@ -127,6 +127,66 @@ values explicitly:
 - `AUTH_MAIL_API_ORIGIN`, `AUTH_MAIL_PROJECT_ID`, `AUTH_MAIL_CREDENTIAL_ID`, `AUTH_MAIL_PLUNK_SECRET`: exact frozen Plunk binding and scoped secret.
 - `HATCHET_CLIENT_TOKEN`, `HATCHET_CLIENT_HOST_PORT`, `HATCHET_CLIENT_API_URL`, `HATCHET_CLIENT_TLS_STRATEGY=tls`: selected V1 tenant/engine. The application checks V1 and engine `v0.101.27`. Explicit test-only loopback permits `none`; it is not a production fallback.
 - Existing bounded `DB_*` options and `NODE_ENV=production` apply. No `.env` is loaded by this entrypoint.
+
+The same worker entrypoint also hosts optional billing reconciliation. A complete
+mail configuration registers `auth-email-delivery`; a complete Stripe configuration
+plus `BILLING_RELAY_DATABASE_URL` and `BILLING_WORKER_DATABASE_URL` registers
+`billing-reconciliation`. Billing alone needs no envelope, mail DSN or Plunk
+binding. Google/passkey authentication remains independent in the Web process.
+No global Price setting is used: each admitted operation retains its agreed
+Workspace conditions.
+
+The Dockerfile's separate `worker` target packages that same entrypoint and the
+intact pruned production dependencies. The final/default target remains `web`;
+the Web image does not contain this worker. `worker-source-manifest.json` binds
+the pinned toolchain, lockfile, Dockerfile, build configuration, patches and
+application sources. Image acceptance checks all 28 patched runtime files and
+six SDK entrypoint/heartbeat/config-loader assets, including both selected
+grpc-js resolutions 1.14.5. The retained production graph is shared with the
+migrator; no independent dependency installation or version selection occurs.
+
+`pnpm test:worker-image` exercises the actual image only on the owned Linux
+qualification runner. It uses explicit synthetic settings, a disposable native
+Hatchet tenant and two disposable billing SQL logins. Its test-only host network
+keeps those fixtures' loopback endpoints valid. It uses no checkout, test/probe
+mount, IPC preload or inherited provider credentials. Native registration and
+normal SIGTERM exit with retired SQL clients precede the UID/GID 10001:10001
+assertion. Unsupported host transport fails explicitly. A finite test timeout
+does not establish a hard process-shutdown bound.
+
+This prepares an installable image candidate; it does not activate billing,
+qualify operator secret delivery or establish a real Stripe payment. Neither a
+real Stripe account/key nor a production worker is configured by this fixture.
+The existing native process and Web/migrator image gates remain independent.
+
+A partial or invalid capability is explicitly reported as
+`mail-config-rejected` or `billing-config-rejected` and is not registered or
+given SQL/provider resources. Another complete capability can still start.
+With neither capability complete, startup refuses before creating an empty
+worker. Shared Hatchet settings must be valid for either capability.
+Each configured relay/worker login has a pool limit of1: two pools for one
+capability, four for both. Combined mode requires `DB_POOL_MAX>=2` and stays
+inside the prior two-pool connection budget.
+
+The runtime opts into the qualified SDK1.28.2 owned lifecycle with separate
+startup and lifetime cancellation and bounded cleanup. Normal pool retirement
+requires joined acquisition, native execution/ACKs, relay REST, handlers and
+provider transports. A rejected or unproved close rejects disposal and keeps
+the SQL scope retained; canceled work alone is not a successful close receipt.
+
+The 18 October consumer branch adds a cleanup-ordering delta to that baseline:
+only `clients/dispatcher/dispatcher-client.js` and
+`v1/client/worker/worker-internal.js` change. The SDK patch moves from
+`e669fb6c4cb5e2f9c45af82ad7418bba1c9b121f46f729c17b93663676e732af` to
+`d4c0f21c2f37dd7b888618297f73dc4c1b2739bfd56a87a1f584e6df06e50f74`;
+the nice-grpc patch and remaining 26 postimages plus six assets stay unchanged.
+Cleanup awaits public channel readiness on the same already-owned dispatcher
+channel, inside its existing join and original absolute cleanup deadline, before
+its one unsubscribe. Readiness failure, late readiness or ordinary unsubscribe
+failure still rejects cleanup. This candidate remains unqualified until the
+unchanged native I4 consumer passes; the earlier 116-test baseline does not
+qualify the new patch or prove business recovery. No SDK version or app runtime
+changes, extra RPC, retry or new timeout setting accompany this delta.
 
 SIGINT/SIGTERM stop new owned work, cancel the relay/handlers, then join the real handlers, HTTP sockets, native DNS callbacks, SDK lifecycle and per-login pools. SDK `stop()` alone is not drain evidence. DNS lookup has no Node cancellation API: the business deadline destroys the socket but capacity and shutdown remain held until its callback completes. Consequently no hard OS/process shutdown bound is claimed, and an external forced kill leaves the durable attempting marker for later safe reconciliation.
 

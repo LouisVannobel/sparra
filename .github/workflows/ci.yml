@@ -11,8 +11,9 @@ permissions:
 
 jobs:
   maintained:
-    uses: LouisVannobel/projetV0-pipelines/.github/workflows/reusable-saas-ci.yml@5b464b9b2d47bc867d3c046c924244c3f9c2d609 # v1.5.0
+    uses: LouisVannobel/projetV0-pipelines/.github/workflows/reusable-saas-ci.yml@8b714fed63579c46bec1613de7b391977970a690 # maintenance from v1.5.0 (PR #35)
     with:
+      quality-timeout-minutes: 35
       node-version: '24.14.0'
       pnpm-version: '10.32.1'
       working-directory: .
@@ -48,6 +49,8 @@ jobs:
           sudo apt-get install --no-install-recommends -y ffmpeg
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm run build
+      - name: Native worker image and compiled mail retirement
+        run: pnpm exec vitest run --config vitest.integration.config.ts tests/integration/worker-image.test.ts tests/integration/mail-worker-native.test.ts --maxWorkers=1
       - name: Ordinary source consumers on the installed graph and build
         run: pnpm test
       - name: Actual Linux stores, direct ingress and caller-free recovery
