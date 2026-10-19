@@ -28,7 +28,7 @@
 
 ### Task 1: Bounded commercial assignment CLI and native qualification
 
-**Files:** Create `scripts/assign-billing-terms.ts`, `tests/billing/commercial-offer.test.ts`, `tests/integration/billing-commercial-offer.test.ts`; add a small shared monthly Price predicate under `src/modules/billing/` and consume it in `checkout.server.ts`. Narrowly adapt existing Stripe transport/config types if required by a real read-only consumer; include the new script in lint. Add concise operator usage to existing billing documentation.
+**Files:** Create `scripts/assign-billing-terms.ts`, `tests/billing/commercial-offer.test.ts`, `tests/integration/billing-commercial-offer.test.ts` and concise usage `docs/billing-operator.md`; add a small shared monthly Price predicate under `src/modules/billing/` and consume it in `checkout.server.ts`. Narrowly adapt existing Stripe transport/config types if required by a real read-only consumer; include the new script in lint.
 
 **Interfaces:** An import-safe one-shot command accepting `--workspace`, `--environment`, `--account`, `--monthly-price`, `--monthly-amount-cents`, `--expected-revision`; reject unknown/duplicate/missing arguments. Consume existing migration database config and protected Stripe key/account/environment; never require a Customer or invoke Checkout. Return only scoped nonsecret assignment ID/revision/status; throw constant-safe refusals or explicit unknown-commit outcome. Expose testable named parser/assignment functions without adding a service framework.
 
