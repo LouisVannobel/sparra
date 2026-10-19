@@ -49,6 +49,42 @@ async function validateProvider(input: BillingTermsInput, config: StripeAccessCo
   if (failed) throw unavailable()
 }
 type TermsRow = { id: string; revision: string; monthly_price_id: string; currency: string; monthly_unit_amount: string }
+type AssignmentPhase = 'connecting' | 'active' | 'committing' | 'committed'
+async function assignLockedTerms(client: Client, input: BillingTermsInput): Promise<Assignment> {
+  const workspace = await client.query<{ kind: string; lifecycle: string; owner_user_id: string; auth_organization_id: string | null }>(
+    'SELECT kind,lifecycle,owner_user_id,auth_organization_id FROM public.workspace WHERE id=$1 FOR UPDATE', [input.workspaceId])
+  const row = workspace.rows[0]
+  if (!row || row.kind !== 'personal' || row.lifecycle !== 'active' || !row.owner_user_id || row.auth_organization_id !== null)
+    throw new BillingOfferError('Billing Workspace unavailable')
+  const current = (await client.query<TermsRow>(
+    'SELECT id,revision,monthly_price_id,currency,monthly_unit_amount FROM public.billing_agreed_terms WHERE workspace_id=$1 AND environment=$2 AND account_id=$3 ORDER BY revision DESC LIMIT 1',
+    [input.workspaceId, input.environment, input.accountId])).rows[0]
+  const revision = current ? Number(current.revision) : 0
+  if (!Number.isSafeInteger(revision) || revision < 0) throw unavailable()
+  if (current && revision === input.expectedRevision + 1 && current.monthly_price_id === input.monthlyPriceId
+    && current.currency === 'eur' && Number(current.monthly_unit_amount) === input.monthlyUnitAmount) {
+    return { id: current.id, workspaceId: input.workspaceId, environment: input.environment, accountId: input.accountId, revision, status: 'existing' }
+  }
+  if (revision !== input.expectedRevision) throw new BillingOfferError('Billing offer conflict')
+  const inserted = (await client.query<{ id: string }>(
+    "INSERT INTO public.billing_agreed_terms(workspace_id,environment,account_id,revision,monthly_price_id,currency,monthly_unit_amount) VALUES($1,$2,$3,$4,$5,'eur',$6) RETURNING id",
+    [input.workspaceId, input.environment, input.accountId, revision + 1, input.monthlyPriceId, input.monthlyUnitAmount])).rows[0]
+  if (!inserted) throw unavailable()
+  return { id: inserted.id, workspaceId: input.workspaceId, environment: input.environment, accountId: input.accountId, revision: revision + 1, status: 'assigned' }
+}
+async function retireAssignment(client: Client, phase: AssignmentPhase, cleanupTimeoutMs: number): Promise<BillingOfferError | undefined> {
+  // One budget owns rollback and connection shutdown. A pending COMMIT is an
+  // unknown outcome: close its transport, never issue rollback or replay it.
+  const timer = setTimeout(() => client.connection.stream.destroy(), cleanupTimeoutMs)
+  let failed = false
+  try {
+    if (phase === 'active') await client.query('ROLLBACK')
+    else if (phase === 'committing') client.connection.stream.destroy()
+  } catch { failed = true }
+  try { await client.end() } catch { failed = true }
+  clearTimeout(timer)
+  return failed ? new BillingOfferError(phase === 'committed' ? 'Billing offer committed; cleanup failed' : 'Billing offer unavailable') : undefined
+}
 export async function assignBillingTerms(input: BillingTermsInput, database: ReturnType<typeof readMigrationConfig>,
   config: StripeAccessConfig, providerFactory: PriceReaderFactory = createStripePriceReader): Promise<Assignment> {
   if (!validInput(input) || input.environment !== config.environment || input.accountId !== config.accountId) throw inputError()
@@ -57,50 +93,22 @@ export async function assignBillingTerms(input: BillingTermsInput, database: Ret
     connectionTimeoutMillis: database.connectTimeoutMs, statement_timeout: database.statementTimeoutMs,
     query_timeout: database.statementTimeoutMs + database.cleanupTimeoutMs })
   client.on('error', () => {})
-  let transactionStarted = false, commitAttempted = false, committed = false
+  let phase: AssignmentPhase = 'connecting'
   let assignment: Assignment | undefined, failure: BillingOfferError | undefined
   try {
     await client.connect()
-    await client.query('BEGIN ISOLATION LEVEL READ COMMITTED'); transactionStarted = true
-    const workspace = await client.query<{ kind: string; lifecycle: string; owner_user_id: string; auth_organization_id: string | null }>(
-      'SELECT kind,lifecycle,owner_user_id,auth_organization_id FROM public.workspace WHERE id=$1 FOR UPDATE', [input.workspaceId])
-    const row = workspace.rows[0]
-    if (!row || row.kind !== 'personal' || row.lifecycle !== 'active' || !row.owner_user_id || row.auth_organization_id !== null)
-      throw new BillingOfferError('Billing Workspace unavailable')
-    const current = (await client.query<TermsRow>(
-      'SELECT id,revision,monthly_price_id,currency,monthly_unit_amount FROM public.billing_agreed_terms WHERE workspace_id=$1 AND environment=$2 AND account_id=$3 ORDER BY revision DESC LIMIT 1',
-      [input.workspaceId, input.environment, input.accountId])).rows[0]
-    const revision = current ? Number(current.revision) : 0
-    if (!Number.isSafeInteger(revision) || revision < 0) throw unavailable()
-    if (current && revision === input.expectedRevision + 1 && current.monthly_price_id === input.monthlyPriceId
-      && current.currency === 'eur' && Number(current.monthly_unit_amount) === input.monthlyUnitAmount) {
-      assignment = { id: current.id, workspaceId: input.workspaceId, environment: input.environment, accountId: input.accountId, revision, status: 'existing' }
-    } else {
-      if (revision !== input.expectedRevision) throw new BillingOfferError('Billing offer conflict')
-      const inserted = (await client.query<{ id: string }>(
-        "INSERT INTO public.billing_agreed_terms(workspace_id,environment,account_id,revision,monthly_price_id,currency,monthly_unit_amount) VALUES($1,$2,$3,$4,$5,'eur',$6) RETURNING id",
-        [input.workspaceId, input.environment, input.accountId, revision + 1, input.monthlyPriceId, input.monthlyUnitAmount])).rows[0]
-      if (!inserted) throw unavailable()
-      assignment = { id: inserted.id, workspaceId: input.workspaceId, environment: input.environment, accountId: input.accountId, revision: revision + 1, status: 'assigned' }
-    }
-    commitAttempted = true
+    await client.query('BEGIN ISOLATION LEVEL READ COMMITTED'); phase = 'active'
+    assignment = await assignLockedTerms(client, input)
+    phase = 'committing'
     const result = await client.query('COMMIT')
     if (result.command !== 'COMMIT') throw unavailable()
-    committed = true
+    phase = 'committed'
   } catch (error) {
-    failure = commitAttempted && !committed ? new BillingOfferError('Billing offer commit unknown; rerun the identical command to observe')
+    failure = phase === 'committing' ? new BillingOfferError('Billing offer commit unknown; rerun the identical command to observe')
       : error instanceof BillingOfferError ? error : unavailable()
   } finally {
-    // One owned cleanup budget covers rollback and shutdown. An uncertain COMMIT
-    // is never called a rollback and never automatically replayed.
-    const timer = setTimeout(() => client.connection.stream.destroy(), database.cleanupTimeoutMs)
-    try {
-      if (commitAttempted && !committed) client.connection.stream.destroy()
-      try { if (transactionStarted && !commitAttempted) await client.query('ROLLBACK') }
-      finally { await client.end() }
-    } catch {
-      failure ??= new BillingOfferError(committed ? 'Billing offer committed; cleanup failed' : 'Billing offer unavailable')
-    } finally { clearTimeout(timer) }
+    const cleanupFailure = await retireAssignment(client, phase, database.cleanupTimeoutMs)
+    failure ??= cleanupFailure
   }
   if (failure) throw failure
   if (!assignment) throw unavailable()

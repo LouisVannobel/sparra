@@ -26,12 +26,8 @@ export function readStripeOperatorConfig(env: Environment): StripeAccessConfig {
   return access
 }
 function decodeStripeAccess(env: Environment, invalid: string[]): StripeAccessConfig | null {
-  const decode = <A>(key: string, schema: Schema.ConstraintDecoder<A, never>): A | undefined => {
-    try { return Schema.decodeUnknownSync(schema)(env[key]) }
-    catch { invalid.push(key); return undefined }
-  }
-  const key = decode('STRIPE_API_KEY', apiKey), account = decode('STRIPE_ACCOUNT_ID', accountId)
-  const environment = decode('STRIPE_ENVIRONMENT', stripeEnvironment)
+  const key = decodeStripeField(env, 'STRIPE_API_KEY', apiKey, invalid), account = decodeStripeField(env, 'STRIPE_ACCOUNT_ID', accountId, invalid)
+  const environment = decodeStripeField(env, 'STRIPE_ENVIRONMENT', stripeEnvironment, invalid)
   if (key && environment && (environment === 'sandbox') !== /^(?:sk|rk)_test_/.test(key)) {
     invalid.push('STRIPE_API_KEY', 'STRIPE_ENVIRONMENT')
   }
@@ -39,16 +35,17 @@ function decodeStripeAccess(env: Environment, invalid: string[]): StripeAccessCo
     environment, apiVersion: '2026-09-30.endive' }) : null
 }
 
+function decodeStripeField<A>(env: Environment, key: string, schema: Schema.ConstraintDecoder<A, never>, invalid: string[]): A | undefined {
+  try { return Schema.decodeUnknownSync(schema)(env[key]) }
+  catch { invalid.push(key); return undefined }
+}
+
 export function readStripeConfig(env: Environment): StripeConfig | null {
   if (stripeKeys.every(key => env[key] === undefined)) return null
 
   const invalid: string[] = []
-  const decode = <A>(key: string, schema: Schema.ConstraintDecoder<A, never>): A | undefined => {
-    try { return Schema.decodeUnknownSync(schema)(env[key]) }
-    catch { invalid.push(key); return undefined }
-  }
   const access = decodeStripeAccess(env, invalid)
-  const secret = decode('STRIPE_WEBHOOK_SECRET', webhookSecret)
+  const secret = decodeStripeField(env, 'STRIPE_WEBHOOK_SECRET', webhookSecret, invalid)
 
   let origin: string | undefined
   try { origin = readWebConfig({ APP_ORIGIN: env.APP_ORIGIN, NODE_ENV: env.NODE_ENV }).origin }
