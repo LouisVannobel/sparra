@@ -2,7 +2,7 @@ import Stripe from 'stripe'
 import tls, { type TLSSocket } from 'node:tls'
 import { Redacted } from 'effect'
 import { Agent, fetch as nativeFetch, type buildConnector } from 'undici'
-import type { StripeConfig } from './stripe-config.server'
+import type { StripeAccessConfig } from './stripe-config.server.ts'
 export class StripeInputError extends Error {
   constructor() { super('Stripe billing input rejected'); this.name = 'StripeInputError' }
 }
@@ -24,7 +24,7 @@ function stripeRequestDestination(input: string | URL, init: RequestInit | undef
 
 // Own complete SDK calls, including FetchHttpClient.toJSON, rather than only
 // the fetch promise that resolves as soon as response headers arrive.
-export function createStripeTransport(config: StripeConfig, signal: AbortSignal, deadlineAtMs: number) {
+export function createStripeTransport(config: StripeAccessConfig, signal: AbortSignal, deadlineAtMs: number) {
   if (!Number.isSafeInteger(deadlineAtMs) || !(signal instanceof AbortSignal)) throw new StripeInputError()
   const deadline = Math.min(deadlineAtMs, Date.now() + 30000)
   const stop = new AbortController()
@@ -185,4 +185,16 @@ export function createStripeTransport(config: StripeConfig, signal: AbortSignal,
     })()
   }
   return Object.freeze({ stripe, owned, close })
+}
+
+// The operator owns only these two reads; no write method enters its interface.
+export function createStripePriceReader(config: StripeAccessConfig, signal: AbortSignal, deadlineAtMs: number) {
+  const transport = createStripeTransport(config, signal, deadlineAtMs)
+  return Object.freeze({
+    retrievePrice(id: string): Promise<Stripe.Price> {
+      if (!/^price_[A-Za-z0-9]+$/.test(id) || id.length > 255) throw new StripeInputError()
+      return transport.owned(() => transport.stripe.prices.retrieve(id))
+    },
+    close: transport.close,
+  })
 }

@@ -8,6 +8,7 @@ import type { StripeConfig } from './stripe-config.server'
 import { buildCheckoutParameters, type CheckoutIntent, type createStripeBillingClient } from './stripe.server'
 import { billingAgreement, billingCurrentAgreement, billingCustomer, billingOperation } from './schema.server'
 import { operationMonthlyTerms, readAgreedMonthlyTerms, type AgreedMonthlyTerms } from './agreed-terms.server'
+import { matchesMonthlyPrice } from './monthly-price.server'
 
 export type BillingClient = Pick<ReturnType<typeof createStripeBillingClient>, 'retrievePrice' | 'createCustomer' | 'createCheckout'>
 export type BillingInput = Readonly<{ workspaceId: string }>
@@ -139,11 +140,6 @@ export async function readBillingState(owner: AuthTransactions, principal: Admit
   })
 }
 
-function validPrice(price: Stripe.Price, id: string, live: boolean) {
-  return price.object === 'price' && price.id === id && price.livemode === live && price.active
-    && /^[a-z]{3}$/.test(price.currency) && typeof price.unit_amount === 'number'
-    && Number.isSafeInteger(price.unit_amount) && price.unit_amount > 0
-}
 async function catalog(owner: AuthTransactions, config: StripeConfig, client: BillingClient, terms: AgreedMonthlyTerms): Promise<void> {
   owner.assertNoActiveAuthTransaction()
   let monthly: Stripe.Price
@@ -151,12 +147,7 @@ async function catalog(owner: AuthTransactions, config: StripeConfig, client: Bi
     monthly = await client.retrievePrice(terms.monthlyPriceId)
   } catch { throw refusal(503) }
   const live = config.environment === 'live'
-  if (!validPrice(monthly, terms.monthlyPriceId, live) || monthly.type !== 'recurring'
-    || monthly.billing_scheme !== 'per_unit' || monthly.recurring?.interval !== 'month'
-    || monthly.recurring.interval_count !== 1 || monthly.recurring.usage_type !== 'licensed'
-    || monthly.recurring.meter != null || monthly.currency !== terms.currency
-    || monthly.transform_quantity != null || monthly.custom_unit_amount != null
-    || monthly.unit_amount !== terms.monthlyUnitAmount) throw refusal(503)
+  if (!matchesMonthlyPrice(monthly, terms.monthlyPriceId, live, terms.currency, terms.monthlyUnitAmount)) throw refusal(503)
 }
 function customerBody(workspaceId: string) { return JSON.stringify({ metadata: { workspace_id: workspaceId } }) }
 function checkoutBody(config: StripeConfig, intent: CheckoutIntent) { return JSON.stringify(buildCheckoutParameters(config, intent)) }
