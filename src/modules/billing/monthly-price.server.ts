@@ -9,4 +9,3 @@ export function matchesMonthlyPrice(price: Stripe.Price, id: string, live: boole
     && price.recurring.interval_count === 1 && price.recurring.usage_type === 'licensed'
     && price.recurring.meter == null && price.transform_quantity == null && price.custom_unit_amount == null
 }
-

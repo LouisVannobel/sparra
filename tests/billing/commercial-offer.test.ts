@@ -63,4 +63,3 @@ test('the Price-only reader owns deadline cancellation through complete body par
     await expect.poll(peer.evidence).toEqual({ clientSockets: 0, serverSockets: 0, requests: 0, responses: 0 })
   } finally { await reader.close(); await peer.close() }
 })
-

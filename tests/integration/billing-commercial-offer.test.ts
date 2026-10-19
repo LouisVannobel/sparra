@@ -227,5 +227,3 @@ test('the native Node24 imported assignment executes real SQL without a bundler'
   expect(JSON.parse(result.stdout)).toMatchObject({ workspaceId: f.workspaceId, revision: 1, status: 'assigned' })
   expect(result.stderr).toBe(''); expect(await count(f.workspaceId)).toBe(1)
 })
-
-
