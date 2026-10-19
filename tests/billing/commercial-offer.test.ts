@@ -49,7 +49,7 @@ test('the native CLI rejects invalid argv with a constant diagnostic and no cred
 test('operator access requires only the protected key/account/mode and rejects mixed key modes', () => {
   const environment = { STRIPE_API_KEY: 'sk_test_fixture', STRIPE_ACCOUNT_ID: 'acct_fixture', STRIPE_ENVIRONMENT: 'sandbox' }
   expect(readStripeOperatorConfig(environment)).toMatchObject({ accountId: 'acct_fixture', environment: 'sandbox' })
-  expect(() => readStripeOperatorConfig({ ...environment, STRIPE_API_KEY: 'sk_live_syntheticPrivate' })).toThrow('Invalid configuration keys: STRIPE_API_KEY, STRIPE_ENVIRONMENT')
+  expect(() => readStripeOperatorConfig({ ...environment, STRIPE_API_KEY: 'sk_live_fixture' })).toThrow('Invalid configuration keys: STRIPE_API_KEY, STRIPE_ENVIRONMENT')
   expect(() => readStripeOperatorConfig({})).toThrow()
   expect(readStripeOperatorConfig({ ...environment, STRIPE_API_KEY: 'rk_live_fixture', STRIPE_ENVIRONMENT: 'live' })).toMatchObject({ environment: 'live' })
 })
