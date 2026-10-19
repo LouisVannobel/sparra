@@ -35,7 +35,7 @@ vi.mock('pg', () => ({ Client: class {
   on() {} async connect() {} async query() { return { rows: [{ server_version: '16.15' }] } }
   end() { return external.end() }
 } }))
-vi.mock('../../helpers/web-process.ts', () => ({ unusedLoopbackPort: async () => 43210 }))
+vi.mock('../../helpers/web-process.ts', () => ({ unusedLoopbackPort: async () => 43210, unusedLoopbackPortPair: async () => [43210, 43211] }))
 
 type Failure = 'ownership' | 'removal' | 'administrator' | 'network-ownership' | 'network-removal' | 'temporary-path' | 'temporary-removal' | 'inventory' | 'volume-foreign' | 'volume-unknown' | 'volume-removal' | 'none'
 function dockerDouble() {
@@ -99,7 +99,7 @@ function dockerDouble() {
         if (cleaning && failure === 'ownership' && args[1] === 'owned-1') throw new Error('synthetic secret Docker output')
         stdout = JSON.stringify({ 'projetv0.template.auth-fixture': containers.get(args[1])?.label.split('=')[1] })
       } else if (args.at(-1) === '{{json .NetworkSettings.Ports}}') {
-        stdout = JSON.stringify(Object.fromEntries(['5432','6379','8888','7077'].map(port => [`${port}/tcp`, [{ HostIp: '127.0.0.1', HostPort: '43210' }]])))
+        stdout = JSON.stringify(Object.fromEntries(['5432','6379','8888','7077'].map(port => [`${port}/tcp`, [{ HostIp: '127.0.0.1', HostPort: port === '7077' ? '43211' : '43210' }]])))
       } else if (args.at(-1) === '{{.Image}}') stdout = 'synthetic-image'
       else if (args.at(-1) === '{{.State.Status}}') stdout = 'running'
       else if (args.at(-1) === '{{.State.Running}}') stdout = 'false'

@@ -20,6 +20,26 @@ export async function unusedLoopbackPort(): Promise<number> {
   }
 }
 
+export async function unusedLoopbackPortPair(): Promise<readonly [number, number]> {
+  const reservations = [createServer(), createServer()]
+  try {
+    // Keep both real binds alive until both addresses are known. Sequential
+    // single-port selection can return the same released ephemeral port twice.
+    const listening = await Promise.allSettled(reservations.map(reservation => bounded(new Promise<void>((ready, reject) => {
+      reservation.once('error', reject); reservation.listen(0, '127.0.0.1', ready)
+    }))))
+    if (listening.some(result => result.status === 'rejected')) throw new Error('Loopback port pair unavailable')
+    const first = reservations[0].address(), second = reservations[1].address()
+    if (!first || typeof first === 'string' || !second || typeof second === 'string' || first.port === second.port)
+      throw new Error('Expected distinct loopback TCP ports')
+    return [first.port, second.port]
+  } finally {
+    const closed = await Promise.allSettled(reservations.filter(reservation => reservation.listening).map(reservation =>
+      new Promise<void>((resolve, reject) => reservation.close(error => error ? reject(error) : resolve()))))
+    if (closed.some(result => result.status === 'rejected')) throw new Error('Loopback port reservations did not retire')
+  }
+}
+
 export function startWeb(overrides: Record<string, string | undefined> = {}) {
   const entry = resolve('.output/server/index.mjs')
   if (!existsSync(entry)) throw new Error('Production web artifact missing: run pnpm build')
