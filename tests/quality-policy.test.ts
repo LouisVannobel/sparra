@@ -249,6 +249,44 @@ const billingConsumerNames=[
     'native SQL receipt authority independently admits du and refuses unknown namespace or inconsistent risk references',
     'native worker SQL records dp and du facts under the exact observed scope without creating paid entitlement',
   ]],
+  ['billing-commercial-offer.test.ts',[
+    "first assignment inserts once and an identical explicit retry observes the same immutable row",
+    "a stale or competing offer cannot append while an explicitly newer revision can",
+    "two concurrent competing assignments with the same expected revision have one winner",
+    "invalid provider Price ('wrong object') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('inactive') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('foreign ID') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('wrong mode') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('wrong currency') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('wrong amount') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('missing amount') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('zero amount') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('unsafe amount') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('one time') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('missing recurrence') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('tiered') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('yearly') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('two months') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('metered') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('meter') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('quantity transformation') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('custom amount') causes zero native terms writes and only owned GETs",
+    "a foreign own Account is refused before the Price read or any terms write",
+    "the real bounded provider reader performs only own-account and exact Price GETs before assignment",
+    "foreign protected config scope refuses before provider creation 0",
+    "foreign protected config scope refuses before provider creation 1",
+    "provider reads and cleanup complete outside a database transaction or Workspace lock",
+    "provider read failure exposes a constant-safe error, performs zero SQL writes and retires ownership",
+    "provider close failure exposes a constant-safe error, performs zero SQL writes and retires ownership",
+    "unavailable Workspace missing refuses without a terms row",
+    "unavailable Workspace provisioning refuses without a terms row",
+    "unavailable Workspace deleting refuses without a terms row",
+    "exact retry is scoped to Workspace/account/environment and does not borrow a foreign revision",
+    "native triggers preserve immutability/revision and runtime, relay and worker cannot assign",
+    "an unacknowledged real COMMIT is unknown, never replayed, and a later explicit retry observes its row",
+    "Checkout consumes its operator-assigned terms and retains its admitted conditions after a newer assignment",
+    "the native Node24 imported assignment executes real SQL without a bundler",
+  ]],
 ] as const
 const billingConsumerPaths=billingConsumerNames.map(([file])=>'tests/integration/'+file)
 
@@ -382,14 +420,14 @@ test('native_activity_blob_admits_twelve_complete_pass_cases_and_refuses_missing
   expect(readFileSync(blob)).toEqual(bytes)
 },25000)
 
-test('native_billing_blob_admits_exact_eight_consumers_and_55_leaves',()=>{
+test('native_billing_blob_admits_exact_nine_consumers_and_91_leaves',()=>{
   const root=nativeCoverageFixture(),blob=join(root,'coverage/billing.json'),startedAt=Date.now()
   const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...billingConsumerPaths,'--maxWorkers=1','--coverage','--reporter=blob','--outputFile.blob='+blob,'--coverage.reportsDirectory='+join(root,'coverage/billing')])
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   const bytes=readFileSync(blob),table=JSON.parse(bytes.toString('utf8')),files=table[Number(table[0][1])]
-  expect(files).toHaveLength(8)
+  expect(files).toHaveLength(9)
   expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.11')).not.toThrow()
-  function blobWithRefusedBillingLeaves(tasksIndex:number,leafCount:number,kind:'missing'|'extra'|'duplicate'|'renamed'|'reordered'|'skipped') {
+  function blobWithRefusedBillingLeaves(tasksIndex:number,leafCount:number,kind:'missing'|'extra'|'duplicate'|'renamed'|'reordered'|'skipped'|'failed') {
     const changed=JSON.parse(bytes.toString('utf8')),cases=changed[tasksIndex]
     switch(kind){
       case 'missing': cases.pop();break
@@ -398,13 +436,15 @@ test('native_billing_blob_admits_exact_eight_consumers_and_55_leaves',()=>{
       case 'renamed': changed[Number(table[Number(cases[0])].name)]='Unreviewed billing leaf';break
       case 'reordered': cases.reverse();break
       case 'skipped': changed[Number(table[Number(table[Number(cases[0])].result)].state)]='skip';break
+      case 'failed': changed[Number(table[Number(table[Number(cases[0])].result)].state)]='fail';break
     }
     return changed
   }
-  function blobWithRefusedBillingConsumers(kind:'missing'|'duplicate'|'foreign') {
+  function blobWithRefusedBillingConsumers(kind:'missing'|'extra'|'duplicate'|'foreign') {
     const changed=JSON.parse(bytes.toString('utf8')),consumers=changed[Number(table[0][1])]
     switch(kind){
       case 'missing': consumers.pop();break
+      case 'extra': consumers.push(consumers[0]);break
       case 'duplicate': consumers[1]=consumers[0];break
       case 'foreign': changed[Number(table[Number(consumers[0])].filepath)]=join(root,'tests/integration/sparra-activity.test.ts').replaceAll('\\','/');break
     }
@@ -414,14 +454,14 @@ test('native_billing_blob_admits_exact_eight_consumers_and_55_leaves',()=>{
     const file=table[Number(files.find((reference:string)=>table[Number(table[Number(reference)].filepath)]===join(root,'tests/integration',filename).replaceAll('\\','/')))]
     const tasksIndex=Number(file.tasks),tasks=table[tasksIndex]
     expect(tasks.map((reference:string)=>table[Number(table[Number(reference)].name)])).toEqual(names)
-    for(const kind of ['missing','extra','duplicate','renamed','reordered','skipped'] as const){
+    for(const kind of ['missing','extra','duplicate','renamed','reordered','skipped','failed'] as const){
       if(kind==='reordered'&&names.length===1)continue
       const changed=blobWithRefusedBillingLeaves(tasksIndex,names.length,kind)
       const refused=join(root,'coverage/billing-refused.json');writeFileSync(refused,JSON.stringify(changed))
       expect(()=>readNativeBlob(refused,'billing',root,startedAt,'4.1.11'),filename+':'+kind).toThrow()
     }
   }
-  for(const kind of ['missing','duplicate','foreign'] as const){
+  for(const kind of ['missing','extra','duplicate','foreign'] as const){
     const changed=blobWithRefusedBillingConsumers(kind)
     const refused=join(root,'coverage/billing-refused.json');writeFileSync(refused,JSON.stringify(changed))
     expect(()=>readNativeBlob(refused,'billing',root,startedAt,'4.1.11'),kind).toThrow('Native billing blob has an unexpected consumer')
@@ -431,13 +471,13 @@ test('native_billing_blob_admits_exact_eight_consumers_and_55_leaves',()=>{
   expect(readFileSync(blob)).toEqual(bytes)
 },25000)
 
-test('native_billing_report_requires_exact_eight_consumers_and_55_passing_leaves',()=>{
+test('native_billing_report_requires_exact_nine_consumers_and_91_passing_leaves',()=>{
   const root=nativeCoverageFixture(),path=join(root,'coverage/billing-report.json'),startedAt=Date.now()
   const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...billingConsumerPaths,'--maxWorkers=1','--reporter=json','--outputFile.json='+path])
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   const bytes=readFileSync(path),report=JSON.parse(bytes.toString('utf8'))
-  const refusal='Native Billing requires its exact eight consumers and 55 passing leaves'
-  expect(report.numTotalTests).toBe(55);expect(report.numPassedTests).toBe(55)
+  const refusal='Native Billing requires its exact nine consumers and 91 passing leaves'
+  expect(report.numTotalTests).toBe(91);expect(report.numPassedTests).toBe(91)
   expect(()=>assertBillingReport(report,root)).not.toThrow()
   expect(()=>assertBillingQualification(path,root,startedAt)).not.toThrow()
   function reportWithRefusedBillingLeaves(index:number,leafCount:number,kind:'missing'|'extra'|'duplicate'|'renamed'|'reordered'|'skipped'|'failed'|'message') {
@@ -498,7 +538,7 @@ test('native_billing_gate_refuses_the_previous_three_consumer_25_leaf_run',()=>{
   const report=JSON.parse(readFileSync(reportPath,'utf8'))
   expect(report.numTotalTests).toBe(25);expect(report.numPassedTests).toBe(25)
   expect(report.testResults).toHaveLength(3)
-  expect(()=>assertBillingReport(report,root)).toThrow('Native Billing requires its exact eight consumers and 55 passing leaves')
+  expect(()=>assertBillingReport(report,root)).toThrow('Native Billing requires its exact nine consumers and 91 passing leaves')
   expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.11')).toThrow('Native billing blob has an unexpected consumer')
 },25000)
 
@@ -513,7 +553,7 @@ test('native_billing_gate_refuses_the_previous_four_consumer_34_leaf_run',()=>{
   const report=JSON.parse(readFileSync(reportPath,'utf8'))
   expect(report.numTotalTests).toBe(34);expect(report.numPassedTests).toBe(34)
   expect(report.testResults).toHaveLength(4)
-  expect(()=>assertBillingReport(report,root)).toThrow('Native Billing requires its exact eight consumers and 55 passing leaves')
+  expect(()=>assertBillingReport(report,root)).toThrow('Native Billing requires its exact nine consumers and 91 passing leaves')
   expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.11')).toThrow('Native billing blob has an unexpected consumer')
 },25000)
 
@@ -528,7 +568,7 @@ test('native_billing_gate_refuses_the_previous_five_consumer_40_leaf_run',()=>{
   const report=JSON.parse(readFileSync(reportPath,'utf8'))
   expect(report.numTotalTests).toBe(40);expect(report.numPassedTests).toBe(40)
   expect(report.testResults).toHaveLength(5)
-  expect(()=>assertBillingReport(report,root)).toThrow('Native Billing requires its exact eight consumers and 55 passing leaves')
+  expect(()=>assertBillingReport(report,root)).toThrow('Native Billing requires its exact nine consumers and 91 passing leaves')
   expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.11')).toThrow('Native billing blob has an unexpected consumer')
 },25000)
 
@@ -542,7 +582,19 @@ test('native_billing_gate_refuses_the_previous_seven_consumer_45_leaf_run',()=>{
   const report=JSON.parse(readFileSync(reportPath,'utf8'))
   expect(report.numTotalTests).toBe(45);expect(report.numPassedTests).toBe(45)
   expect(report.testResults).toHaveLength(7)
-  expect(()=>assertBillingReport(report,root)).toThrow('Native Billing requires its exact eight consumers and 55 passing leaves')
+  expect(()=>assertBillingReport(report,root)).toThrow('Native Billing requires its exact nine consumers and 91 passing leaves')
+  expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.11')).toThrow('Native billing blob has an unexpected consumer')
+},25000)
+
+test('native_billing_gate_refuses_the_previous_eight_consumer_55_leaf_run',()=>{
+  const root=nativeCoverageFixture(),reportPath=join(root,'coverage/previous-eight-billing-report.json'),blob=join(root,'coverage/previous-eight-billing.json'),startedAt=Date.now()
+  const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...billingConsumerPaths.slice(0,8),'--maxWorkers=1','--coverage',
+    '--reporter=json','--reporter=blob','--outputFile.json='+reportPath,'--outputFile.blob='+blob,'--coverage.reportsDirectory='+join(root,'coverage/previous-eight-billing')])
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
+  const report=JSON.parse(readFileSync(reportPath,'utf8'))
+  expect(report.numTotalTests).toBe(55);expect(report.numPassedTests).toBe(55)
+  expect(report.testResults).toHaveLength(8)
+  expect(()=>assertBillingReport(report,root)).toThrow('Native Billing requires its exact nine consumers and 91 passing leaves')
   expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.11')).toThrow('Native billing blob has an unexpected consumer')
 },25000)
 
@@ -874,12 +926,14 @@ test.each(['disabled','missing','adverse'] as const)('native_mail_retry_runner_r
 test.each([
   ['billing-worker-native.test.ts','adverse'],
   ['mail-worker-native.test.ts','missing'],
-] as const)('native_billing_runner_refuses_worker_%s_%s_before_merge_and_publication',(file,kind)=>{
+  ['billing-commercial-offer.test.ts','adverse'],
+  ['billing-commercial-offer.test.ts','missing'],
+] as const)('native_billing_runner_refuses_consumer_%s_%s_before_merge_and_publication',(file,kind)=>{
   const root=nativeCoverageFixture(),path=join(root,'tests/integration',file)
   const lines=readFileSync(path,'utf8').trimEnd().split('\n')
   if(kind==='missing'){
-    // Keep the one-leaf mail file valid while removing its exact required title.
-    lines[1]=lines[1]!.replace('built application relay','unreviewed application relay')
+    // Keep the consumer valid while removing its first exact required title.
+    lines[1]="test('unreviewed replacement',()=>{});"
   }else lines.push("import {afterAll} from 'vitest';afterAll(()=>{throw new Error('Owned native worker consumer failure')});")
   writeFileSync(path,lines.join('\n')+'\n')
   const result=runCoverageConsumer(root)
@@ -892,7 +946,7 @@ test.each([
     expect(existsSync(join(root,'coverage/canary-voice-owner'))).toBe(true)
     expect(existsSync(join(root,'canary-voice-retired.txt'))).toBe(false)
   }else{
-    expect(result.stderr).toContain('Native Billing requires its exact eight consumers and 55 passing leaves')
+    expect(result.stderr).toContain('Native Billing requires its exact nine consumers and 91 passing leaves')
     expect(readdirSync(join(root,'coverage'))).toEqual([])
     expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
   }
@@ -935,8 +989,8 @@ test('actual_coverage_runner_publishes_only_native_complete_map_after_retirement
   expect(coverage[join(root,'src/unexecuted.ts').replaceAll('\\','/')].f).toEqual({'0':0})
   expect(coverage[join(root,'src/audio-covered.ts').replaceAll('\\','/')].f).toEqual({'0':25})
   expect(coverage[join(root,'src/audio-covered.ts').replaceAll('\\','/')].b).toEqual({'0':[25,0]})
-  expect(coverage[join(root,'src/billing-covered.ts').replaceAll('\\','/')].f).toEqual({'0':55})
-  expect(coverage[join(root,'src/billing-covered.ts').replaceAll('\\','/')].b).toEqual({'0':[55,0]})
+  expect(coverage[join(root,'src/billing-covered.ts').replaceAll('\\','/')].f).toEqual({'0':91})
+  expect(coverage[join(root,'src/billing-covered.ts').replaceAll('\\','/')].b).toEqual({'0':[91,0]})
 },25000)
 
 test.each([
@@ -1110,10 +1164,11 @@ test('fallow_declares_only_native_subprocess_and_actual_browser_roots_and_exact_
   writeFileSync(join(root,'tests/helpers/undeclared-mail-retry-sibling.ts'),"console.log('synthetic undeclared mail retry sibling');\n")
   writeFileSync(join(root,'scripts/start-web.mjs'),"await import('../.output/server/index.mjs');\nawait import('../.output/server/genuinely-missing.mjs');\n")
   writeFileSync(join(root,'scripts/test-prerequisites.mjs'),"console.log('synthetic prerequisite decoder');\n")
+  writeFileSync(join(root,'scripts/assign-billing-terms.ts'),"console.log('synthetic standalone billing operator');\n")
+  writeFileSync(join(root,'scripts/undeclared-billing-operator-sibling.ts'),"console.log('synthetic undeclared operator sibling');\n")
   writeFileSync(join(root,'scripts/undeclared-prerequisite-sibling.mjs'),"console.log('synthetic undeclared sibling');\n")
   writeFileSync(join(root,'src/main.tsx'),readFileSync(join(root,'src/main.tsx'),'utf8')+"import './genuinely-missing';\nimport './genuinely-missing.yaml';\n")
   const fixtureConfig: {entry:string[];health:{coverage:string|null}} = JSON.parse(readFileSync(join(repositoryRoot,'.fallowrc.json'),'utf8'))
-  expect(fixtureConfig.entry).toEqual(['scripts/start-web.mjs','scripts/test-prerequisites.mjs','tests/helpers/generate-native-voice-envelope.ts','tests/helpers/inbox-panel-fixture.tsx','tests/helpers/mail-retry-entry.ts'])
   fixtureConfig.health.coverage = null
   writeFileSync(join(root,'.fallowrc.json'),JSON.stringify(fixtureConfig))
   const result=runQuality('fallow',['audit','--no-css','--base',base],root)
@@ -1121,12 +1176,14 @@ test('fallow_declares_only_native_subprocess_and_actual_browser_roots_and_exact_
   const output=result.stdout+result.stderr
   expect(output).toMatch(/src[\\/]unused\.ts/)
   expect(output).toContain('undeclared-prerequisite-sibling.mjs')
+  expect(output).toContain('undeclared-billing-operator-sibling.ts')
   expect(output).toContain('undeclared-browser-sibling.tsx')
   expect(output).toContain('undeclared-mail-retry-sibling.ts')
   expect(output).toContain('./genuinely-missing')
   expect(output).toContain('./genuinely-missing.yaml')
   expect(output).toContain('../.output/server/genuinely-missing.mjs')
   expect(output).not.toContain('generate-native-voice-envelope.ts')
+  expect(output).not.toContain('assign-billing-terms.ts')
   expect(output).not.toContain('runtime-probe.mjs')
   expect(output).not.toContain('inbox-panel-fixture.tsx')
   expect(output).not.toMatch(/(?:^|[\\/])mail-retry-harness\.ts/)
@@ -1134,6 +1191,7 @@ test('fallow_declares_only_native_subprocess_and_actual_browser_roots_and_exact_
   expect(output).not.toContain('hatchet-empty.yaml')
   expect(output).not.toMatch(/(?:^|[\\/])test-prerequisites\.mjs/)
   expect(output).not.toContain('../.output/server/index.mjs')
+  expect(fixtureConfig.entry).toEqual(['scripts/start-web.mjs','scripts/test-prerequisites.mjs','tests/helpers/generate-native-voice-envelope.ts','tests/helpers/inbox-panel-fixture.tsx','tests/helpers/mail-retry-entry.ts','scripts/assign-billing-terms.ts'])
 },40000)
 
 test('declared_inbox_browser_entry_is_the_exact_HTML_module_mounting_the_runtime_panel',()=>{
