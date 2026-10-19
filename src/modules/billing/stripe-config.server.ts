@@ -1,15 +1,14 @@
 import { Redacted, Schema } from 'effect'
-import { ConfigurationError, readWebConfig } from '../../platform/config.server'
+import { ConfigurationError, readWebConfig } from '../../platform/config.server.ts'
 
 type Environment = Readonly<Record<string, string | undefined>>
-export type StripeConfig = Readonly<{
+export type StripeAccessConfig = Readonly<{
   apiKey: Redacted.Redacted<string>
-  webhookSecret: Redacted.Redacted<string>
   accountId: string
   environment: 'sandbox' | 'live'
-  origin: string
   apiVersion: '2026-09-30.endive'
 }>
+export type StripeConfig = StripeAccessConfig & Readonly<{ webhookSecret: Redacted.Redacted<string>; origin: string }>
 
 const apiKey = Schema.String.check(Schema.isPattern(/^(?:sk|rk)_(?:test|live)_[A-Za-z0-9_]+$/))
 const webhookSecret = Schema.String.check(Schema.isPattern(/^whsec_[A-Za-z0-9_]+$/))
@@ -20,22 +19,33 @@ const stripeKeys = [
   'STRIPE_ENVIRONMENT',
 ] as const
 
+export function readStripeOperatorConfig(env: Environment): StripeAccessConfig {
+  const invalid: string[] = []
+  const access = decodeStripeAccess(env, invalid)
+  if (invalid.length || !access) throw new ConfigurationError([...new Set(invalid)])
+  return access
+}
+function decodeStripeAccess(env: Environment, invalid: string[]): StripeAccessConfig | null {
+  const key = decodeStripeField(env, 'STRIPE_API_KEY', apiKey, invalid), account = decodeStripeField(env, 'STRIPE_ACCOUNT_ID', accountId, invalid)
+  const environment = decodeStripeField(env, 'STRIPE_ENVIRONMENT', stripeEnvironment, invalid)
+  if (key && environment && (environment === 'sandbox') !== /^(?:sk|rk)_test_/.test(key)) {
+    invalid.push('STRIPE_API_KEY', 'STRIPE_ENVIRONMENT')
+  }
+  return key && account && environment ? Object.freeze({ apiKey: Redacted.make(key), accountId: account,
+    environment, apiVersion: '2026-09-30.endive' }) : null
+}
+
+function decodeStripeField<A>(env: Environment, key: string, schema: Schema.ConstraintDecoder<A, never>, invalid: string[]): A | undefined {
+  try { return Schema.decodeUnknownSync(schema)(env[key]) }
+  catch { invalid.push(key); return undefined }
+}
+
 export function readStripeConfig(env: Environment): StripeConfig | null {
   if (stripeKeys.every(key => env[key] === undefined)) return null
 
   const invalid: string[] = []
-  const decode = <A>(key: string, schema: Schema.ConstraintDecoder<A, never>): A | undefined => {
-    try { return Schema.decodeUnknownSync(schema)(env[key]) }
-    catch { invalid.push(key); return undefined }
-  }
-  const key = decode('STRIPE_API_KEY', apiKey)
-  const secret = decode('STRIPE_WEBHOOK_SECRET', webhookSecret)
-  const account = decode('STRIPE_ACCOUNT_ID', accountId)
-  const environment = decode('STRIPE_ENVIRONMENT', stripeEnvironment)
-
-  if (key && environment && (environment === 'sandbox') !== /^(?:sk|rk)_test_/.test(key)) {
-    invalid.push('STRIPE_API_KEY', 'STRIPE_ENVIRONMENT')
-  }
+  const access = decodeStripeAccess(env, invalid)
+  const secret = decodeStripeField(env, 'STRIPE_WEBHOOK_SECRET', webhookSecret, invalid)
 
   let origin: string | undefined
   try { origin = readWebConfig({ APP_ORIGIN: env.APP_ORIGIN, NODE_ENV: env.NODE_ENV }).origin }
@@ -45,16 +55,13 @@ export function readStripeConfig(env: Environment): StripeConfig | null {
   }
 
   if (invalid.length) throw new ConfigurationError([...new Set(invalid)])
-  if (!key || !secret || !account || !environment || !origin) {
+  if (!access || !secret || !origin) {
     throw new ConfigurationError(['STRIPE_API_KEY'])
   }
 
   return Object.freeze({
-    apiKey: Redacted.make(key),
+    ...access,
     webhookSecret: Redacted.make(secret),
-    accountId: account,
-    environment,
     origin,
-    apiVersion: '2026-09-30.endive',
   })
 }

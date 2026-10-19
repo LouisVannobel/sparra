@@ -8,7 +8,7 @@ import { Client } from 'pg'
 import { fetch as imageFetch } from 'undici'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { migrate as migrateDrizzle } from 'drizzle-orm/node-postgres/migrator'
-import { unusedLoopbackPort } from '../../helpers/web-process.ts'
+import { unusedLoopbackPort, unusedLoopbackPortPair } from '../../helpers/web-process.ts'
 import { proveHatchetStatementDeadline, readHatchetClaimExpiry, readHatchetClock, readHatchetRestartSnapshot } from './hatchet-restart-observation.ts'
 import { fixtureDockerEndpoint, fixtureDockerEnvironment, assertFixtureDockerEndpoint, fixtureDockerFileUser } from './docker-endpoint.ts'
 import { awaitCredentialInit,retireFixtureDirectory } from '../../helpers/credential-init-retirement.ts'
@@ -216,7 +216,7 @@ async function startAuthFixture(artifactDirectory: string | undefined) {
     if (!administrator) throw new Error('Disposable PostgreSQL did not become ready')
     if (hatchet) {
       const tenantId = randomUUID()
-      const apiPort = await unusedLoopbackPort(), grpcPort = await unusedLoopbackPort()
+      const [apiPort, grpcPort] = await unusedLoopbackPortPair()
       const configDirectory = join(directory, 'config')
       await mkdir(configDirectory)
       const clientConfigPath = join(directory, 'sdk-empty.yaml')

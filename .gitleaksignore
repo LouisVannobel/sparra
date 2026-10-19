@@ -18,3 +18,6 @@
 # Exact historical occurrences only; future findings remain scanned.
 d86a533b38ac3c81e809c200529f15e2fce03348:tests/billing/ui.test.tsx:stripe-access-token:106
 d86a533b38ac3c81e809c200529f15e2fce03348:tests/billing/ui.test.tsx:stripe-access-token:110
+# Explicit synthetic wrong-mode unit fixture replaced with the established short fixture.
+# Exact historical occurrence only; current and future findings remain scanned.
+f5a7dc23d39ed831bd624c8a2b9e2d6aef7db94c:tests/billing/commercial-offer.test.ts:stripe-access-token:52

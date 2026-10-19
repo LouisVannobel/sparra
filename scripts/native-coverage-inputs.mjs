@@ -157,7 +157,7 @@ function requestsBlobFile(table,file,fileCount,root,seen) {
 function billingBlobFile(table,file,fileCount,root,seen) {
   const filepath=resolve(blobValue(table,file.filepath))
   const consumer=billingConsumers.find(([path])=>filepath===join(root,path))
-  if(fileCount!==8||!consumer||seen.has(filepath))throw new Error('Native billing blob has an unexpected consumer')
+  if(fileCount!==9||!consumer||seen.has(filepath))throw new Error('Native billing blob has an unexpected consumer')
   seen.add(filepath)
   return passedLeafNames(table,file,consumer[1],'Native billing blob has unexpected leaves')
 }
@@ -185,7 +185,7 @@ export function readNativeBlob(filePath, name, root, startedAt, version) {
     count += admitTestFile(table, blobValue(table, reference), name, files.length, root, startedAt, seen)
   }
   if (!count || (name === 'activity' && count !== 12) || (name === 'requests' && count !== 40)
-    || (name === 'billing' && count !== 55)) throw new Error('Native coverage test cardinality mismatch')
+    || (name === 'billing' && count !== 91)) throw new Error('Native coverage test cardinality mismatch')
   const coverage = blobValue(table, envelope[3])
   admitCoverageEntries(table, coverage, root)
   return { table, coverage, digest }
@@ -485,15 +485,53 @@ const billingConsumers=[
     'native SQL receipt authority independently admits du and refuses unknown namespace or inconsistent risk references',
     'native worker SQL records dp and du facts under the exact observed scope without creating paid entitlement',
   ]],
+  ['tests/integration/billing-commercial-offer.test.ts',[
+    "first assignment inserts once and an identical explicit retry observes the same immutable row",
+    "a stale or competing offer cannot append while an explicitly newer revision can",
+    "two concurrent competing assignments with the same expected revision have one winner",
+    "invalid provider Price ('wrong object') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('inactive') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('foreign ID') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('wrong mode') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('wrong currency') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('wrong amount') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('missing amount') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('zero amount') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('unsafe amount') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('one time') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('missing recurrence') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('tiered') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('yearly') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('two months') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('metered') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('meter') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('quantity transformation') causes zero native terms writes and only owned GETs",
+    "invalid provider Price ('custom amount') causes zero native terms writes and only owned GETs",
+    "a foreign own Account is refused before the Price read or any terms write",
+    "the real bounded provider reader performs only own-account and exact Price GETs before assignment",
+    "foreign protected config scope refuses before provider creation 0",
+    "foreign protected config scope refuses before provider creation 1",
+    "provider reads and cleanup complete outside a database transaction or Workspace lock",
+    "provider read failure exposes a constant-safe error, performs zero SQL writes and retires ownership",
+    "provider close failure exposes a constant-safe error, performs zero SQL writes and retires ownership",
+    "unavailable Workspace missing refuses without a terms row",
+    "unavailable Workspace provisioning refuses without a terms row",
+    "unavailable Workspace deleting refuses without a terms row",
+    "exact retry is scoped to Workspace/account/environment and does not borrow a foreign revision",
+    "native triggers preserve immutability/revision and runtime, relay and worker cannot assign",
+    "an unacknowledged real COMMIT is unknown, never replayed, and a later explicit retry observes its row",
+    "Checkout consumes its operator-assigned terms and retains its admitted conditions after a newer assignment",
+    "the native Node24 imported assignment executes real SQL without a bundler",
+  ]],
 ]
 
 function billingSummaryPassed(report) {
-  const counters={numTotalTests:55,numPassedTests:55,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
+  const counters={numTotalTests:91,numPassedTests:91,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
   return report?.success===true&&Object.entries(counters).every(([key,wanted])=>report[key]===wanted)
 }
 
 export function assertBillingReport(report,root) {
-  if(!billingSummaryPassed(report)||!Array.isArray(report.testResults)||report.testResults.length!==8
+  if(!billingSummaryPassed(report)||!Array.isArray(report.testResults)||report.testResults.length!==9
     ||!billingConsumers.every(([path,names])=>{
       const matches=report.testResults.filter(file=>file?.name===join(root,path).replaceAll('\\','/'))
       const file=matches[0]
@@ -502,7 +540,7 @@ export function assertBillingReport(report,root) {
         &&file.assertionResults.every((test,index)=>test?.status==='passed'&&test.fullName===names[index]
           &&Array.isArray(test.failureMessages)&&test.failureMessages.length===0)
     })) {
-    throw new Error('Native Billing requires its exact eight consumers and 55 passing leaves')
+    throw new Error('Native Billing requires its exact nine consumers and 91 passing leaves')
   }
 }
 

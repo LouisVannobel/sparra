@@ -140,6 +140,7 @@ try {
     'tests/integration/billing-consumer-browser.test.ts',
     'tests/integration/billing-worker-native.test.ts','tests/integration/mail-worker-native.test.ts',
     'tests/integration/billing-dispute-namespace.test.ts',
+    'tests/integration/billing-commercial-offer.test.ts',
     '--maxWorkers=1', '--coverage', '--reporter=default', '--reporter=json', '--reporter=blob', '--outputFile.json=' + billingReport,
     '--outputFile.blob='+join(blobs,'billing.json'),'--coverage.reportsDirectory='+join(runDirectory,'billing')], 600000)
   assertBillingQualification(billingReport,root,startedAt)
