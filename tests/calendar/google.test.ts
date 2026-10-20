@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from 'node:crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MockAgent, request } from 'undici'
 import { readCalendarConfig } from '../../src/modules/calendar/config.server'
@@ -5,6 +6,7 @@ import { createGoogleCalendarClient, GOOGLE_CALENDAR_SCOPES } from '../../src/mo
 
 const config = readCalendarConfig({ APP_ORIGIN: 'https://sparra.example', SPARRA_GOOGLE_CALENDAR_CLIENT_ID: 'calendar-client', SPARRA_GOOGLE_CALENDAR_CLIENT_SECRET: 'test-sensitive-secret', SPARRA_CALENDAR_TOKEN_KEY: Buffer.alloc(32, 9).toString('base64url') })!
 const event = { id: 'sparra123', summary: 'Entretien', start: { dateTime: '2026-10-21T10:00:00+02:00', timeZone: 'Europe/Paris' }, end: { dateTime: '2026-10-21T10:30:00+02:00', timeZone: 'Europe/Paris' }, extendedProperties: { private: { sparraOperationId: 'operation-a' } } }
+const signingKey = { ...generateKeyPairSync('rsa', { modulusLength: 2048 }).publicKey.export({ format: 'jwk' }), kid: 'google-key-a', alg: 'RS256', use: 'sig' }
 const cleanups: Array<() => Promise<void>> = []
 function setup(deadline = Date.now() + 10000) {
   const agent = new MockAgent({ enableCallHistory: true })
@@ -28,6 +30,16 @@ describe('native Google boundary', () => {
     } }).reply(200, { access_token: 'access', refresh_token: 'refresh', token_type: 'Bearer', expires_in: 3600, scope: GOOGLE_CALENDAR_SCOPES.join(' ') })
     expect(await client.exchangeCode({ code: 'code', codeVerifier: 'verifier', redirectUri: 'https://sparra.example/api/calendar/callback' })).toEqual({ accessToken: 'access', refreshToken: 'refresh', tokenType: 'Bearer', expiresIn: 3600, grantedScopes: GOOGLE_CALENDAR_SCOPES })
     agent.assertNoPendingInterceptors()
+  })
+  it('propagates the bounded OIDC ID token for initial identity verification', async () => {
+    const { client, oauth } = setup()
+    oauth.intercept({ path: '/token', method: 'POST' }).reply(200, { access_token: 'access', token_type: 'Bearer', scope: 'openid email', id_token: 'test.header.signature' })
+    expect(await client.exchangeCode({ code: 'code', codeVerifier: 'verifier', redirectUri: 'https://sparra.example/api/calendar/callback' })).toMatchObject({ idToken: 'test.header.signature', grantedScopes: ['openid', 'email'] })
+  })
+  it.each(['', 'x'.repeat(16385), 42])('rejects malformed optional ID tokens without retaining them', async idToken => {
+    const { client, oauth } = setup()
+    oauth.intercept({ path: '/token', method: 'POST' }).reply(200, { access_token: 'access', token_type: 'Bearer', scope: 'openid', id_token: idToken })
+    await expect(client.exchangeCode({ code: 'code', codeVerifier: 'verifier', redirectUri: 'https://sparra.example/api/calendar/callback' })).rejects.toMatchObject({ code: 'rejected' })
   })
   it.each([
     { access_token: '', token_type: 'Bearer', scope: 'openid' },
@@ -58,11 +70,39 @@ describe('native Google boundary', () => {
     agent.get('https://openidconnect.googleapis.com').intercept({ path: '/v1/userinfo', headers: { authorization: 'Bearer access-sensitive' } }).reply(200, { sub: 'google-user', email: 'owner@example.test', email_verified: true, name: 'ignored' })
     expect(await client.userInfo('access-sensitive')).toEqual({ sub: 'google-user', email: 'owner@example.test', emailVerified: true })
   })
+  it('loads bounded public signing keys only from fixed Google certs without authorization', async () => {
+    const { client, google, agent } = setup()
+    google.intercept({ path: '/oauth2/v3/certs', method: 'GET' }).reply(200, { keys: [{ ...signingKey, unrelated: 'discarded' }] })
+    expect(await client.signingKeys()).toEqual([signingKey])
+    const sent = agent.getCallHistory()?.firstCall()
+    expect(sent?.fullUrl).toBe('https://www.googleapis.com/oauth2/v3/certs')
+    expect(sent?.headers).not.toHaveProperty('authorization')
+  })
+  it.each([
+    { keys: [] },
+    { keys: Array.from({ length: 17 }, (_, index) => ({ ...signingKey, kid: `key-${index}` })) },
+    { keys: [signingKey, signingKey] },
+    { keys: [{ ...signingKey, kty: 'EC' }] },
+    { keys: [{ ...signingKey, alg: 'none' }] },
+    { keys: [{ ...signingKey, use: 'enc' }] },
+    { keys: [{ ...signingKey, n: 'not base64url' }] },
+    { keys: [{ ...signingKey, n: 'AQAB' }] },
+    { keys: [{ ...signingKey, e: 'AA' }] },
+  ])('rejects malformed, ambiguous or excessive signing key sets safely', async response => {
+    const { client, google } = setup()
+    google.intercept({ path: '/oauth2/v3/certs' }).reply(200, response)
+    await expect(client.signingKeys()).rejects.toMatchObject({ code: 'rejected' })
+  })
   it('lists finite pages with encoded page tokens and discards unused provider fields', async () => {
     const { client, google } = setup()
     google.intercept({ path: '/calendar/v3/users/me/calendarList?maxResults=250' }).reply(200, { items: [{ id: 'a', summary: 'A', timeZone: 'Europe/Paris', accessRole: 'writer', unknown: 'ignored' }], nextPageToken: 'a/b +?' })
     google.intercept({ path: '/calendar/v3/users/me/calendarList?maxResults=250&pageToken=a%2Fb+%2B%3F' }).reply(200, { items: [{ id: 'b', summary: 'B', timeZone: 'UTC', accessRole: 'owner' }] })
     expect(await client.listCalendars('access-sensitive')).toEqual([{ id: 'a', summary: 'A', timeZone: 'Europe/Paris', accessRole: 'writer' }, { id: 'b', summary: 'B', timeZone: 'UTC', accessRole: 'owner' }])
+  })
+  it('retains effective write access without private-event visibility from CalendarList', async () => {
+    const { client, google } = setup()
+    google.intercept({ path: '/calendar/v3/users/me/calendarList?maxResults=250' }).reply(200, { items: [{ id: 'shared', summary: 'Shared', timeZone: 'Europe/Paris', accessRole: 'writerWithoutPrivateAccess' }] })
+    expect(await client.listCalendars('access')).toEqual([{ id: 'shared', summary: 'Shared', timeZone: 'Europe/Paris', accessRole: 'writerWithoutPrivateAccess' }])
   })
   it('rejects endless pagination', async () => {
     const { client, google } = setup()
@@ -108,6 +148,35 @@ describe('native Google boundary', () => {
   it('keeps a mismatched creation identity uncertain', async () => {
     const { client, google } = setup()
     google.intercept({ path: /\/events\?/, method: 'POST' }).reply(200, { ...event, id: 'other', status: 'confirmed' })
+    await expect(client.insertEvent('access', { calendarId: 'a', event })).rejects.toMatchObject({ code: 'unknown' })
+  })
+  it('observes a sparse cancelled event with its stable identity intact', async () => {
+    const { client, google } = setup()
+    google.intercept({ path: '/calendar/v3/calendars/a/events/sparra123' }).reply(200, { id: 'sparra123', status: 'cancelled' })
+    expect(await client.getEvent('access', { calendarId: 'a', eventId: 'sparra123' })).toEqual({ id: 'sparra123', status: 'cancelled' })
+  })
+  it('observes an event manually changed to all-day with date-only boundaries', async () => {
+    const { client, google } = setup()
+    const observed = { id: 'sparra123', status: 'confirmed', start: { date: '2026-10-21' }, end: { date: '2026-10-22' }, extendedProperties: event.extendedProperties }
+    google.intercept({ path: '/calendar/v3/calendars/a/events/sparra123' }).reply(200, observed)
+    expect(await client.getEvent('access', { calendarId: 'a', eventId: 'sparra123' })).toEqual(observed)
+  })
+  it.each([
+    { id: 'sparra123', status: 'confirmed' },
+    { id: 'sparra123', status: 'confirmed', start: { date: '2026-10-21' }, end: event.end },
+    { id: 'sparra123', status: 'confirmed', start: { date: '2026-02-30' }, end: { date: '2026-03-01' } },
+  ])('rejects incomplete or inconsistent ordinary observations safely', async observed => {
+    const { client, google } = setup()
+    google.intercept({ path: '/calendar/v3/calendars/a/events/sparra123' }).reply(200, observed)
+    await expect(client.getEvent('access', { calendarId: 'a', eventId: 'sparra123' })).rejects.toMatchObject({ code: 'rejected' })
+  })
+  it.each([
+    { id: 'sparra123', status: 'cancelled' },
+    { ...event, status: 'cancelled' },
+    { ...event, status: 'confirmed', start: { date: '2026-10-21' }, end: { date: '2026-10-22' } },
+  ])('never accepts cancelled or date-only observations as verified timed creation', async observed => {
+    const { client, google } = setup()
+    google.intercept({ path: /\/events\?/, method: 'POST' }).reply(200, observed)
     await expect(client.insertEvent('access', { calendarId: 'a', event })).rejects.toMatchObject({ code: 'unknown' })
   })
   it('accepts an equivalent Google time serialization for verified creation', async () => {

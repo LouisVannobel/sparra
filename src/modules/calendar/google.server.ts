@@ -17,25 +17,33 @@ const text = (max: number) => Schema.String.check(Schema.isMinLength(1), Schema.
 const identifier = text(1024).check(Schema.makeFilter(value => value !== '.' && value !== '..'))
 const dateTime = text(64).check(Schema.isPattern(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?(?:Z|[+-]\d\d:\d\d)$/), Schema.makeFilter(value => Number.isFinite(Date.parse(value))))
 const time = Schema.Struct({ dateTime, timeZone: Schema.optionalKey(text(128)) })
+const date = text(10).check(Schema.isPattern(/^\d{4}-\d\d-\d\d$/), Schema.makeFilter(value => Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value))
+const day = Schema.Struct({ date, timeZone: Schema.optionalKey(text(128)) })
 const privateProperties = Schema.Record(text(128), text(1024)).check(Schema.makeFilter(value => Object.keys(value).length <= 16))
 const correlation = Schema.Struct({ private: privateProperties })
-const eventShape = Schema.Struct({
-  id: text(1024), status: Schema.Literals(['confirmed', 'tentative', 'cancelled']),
-  start: time, end: time,
+const eventMetadata = {
+  id: text(1024),
   htmlLink: Schema.optionalKey(text(4096)),
   extendedProperties: Schema.optionalKey(correlation),
-})
+}
+const createdEventShape = Schema.Struct({ ...eventMetadata, status: Schema.Literal('confirmed'), start: time, end: time })
+const eventShape = Schema.Union([
+  Schema.Struct({ ...eventMetadata, status: Schema.Literals(['confirmed', 'tentative']), start: time, end: time }),
+  Schema.Struct({ ...eventMetadata, status: Schema.Literals(['confirmed', 'tentative']), start: day, end: day }),
+  Schema.Struct({ ...eventMetadata, status: Schema.Literal('cancelled') }),
+])
 export type GoogleEvent = typeof eventShape.Type
-const calendarShape = Schema.Struct({ id: text(1024), summary: text(1024), timeZone: text(128), accessRole: Schema.Literals(['freeBusyReader', 'reader', 'writer', 'owner']) })
+const calendarShape = Schema.Struct({ id: text(1024), summary: text(1024), timeZone: text(128), accessRole: Schema.Literals(['freeBusyReader', 'reader', 'writerWithoutPrivateAccess', 'writer', 'owner']) })
 export type GoogleCalendar = typeof calendarShape.Type
 const calendarPage = Schema.Struct({ items: Schema.optionalKey(Schema.Array(calendarShape).check(Schema.isMaxLength(250))), nextPageToken: Schema.optionalKey(text(4096)) })
 const tokenShape = Schema.Struct({
   access_token: text(16384), token_type: Schema.Literals(['Bearer', 'bearer']),
   refresh_token: Schema.optionalKey(text(16384)),
+  id_token: Schema.optionalKey(text(16384)),
   expires_in: Schema.optionalKey(Schema.Finite.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 31536000 }))),
   scope: text(32768).check(Schema.isPattern(/^[\x21\x23-\x5B\x5D-\x7E]+(?: [\x21\x23-\x5B\x5D-\x7E]+)*$/)),
 })
-export type GoogleTokenResponse = { readonly accessToken: string; readonly tokenType: 'Bearer'; readonly refreshToken?: string; readonly expiresIn?: number; readonly grantedScopes: readonly string[] }
+export type GoogleTokenResponse = { readonly accessToken: string; readonly tokenType: 'Bearer'; readonly refreshToken?: string; readonly idToken?: string; readonly expiresIn?: number; readonly grantedScopes: readonly string[] }
 export type GoogleEventInput = {
   readonly id: string; readonly summary: string; readonly description?: string
   readonly start: { readonly dateTime: string; readonly timeZone?: string }
@@ -44,6 +52,21 @@ export type GoogleEventInput = {
 }
 const eventInput = Schema.Struct({ id: text(1024).check(Schema.isPattern(/^[0-9a-v]{5,1024}$/)), summary: text(1024), description: Schema.optionalKey(text(8192)), start: time, end: time, extendedProperties: correlation })
 const identity = Schema.Struct({ sub: text(255), email: text(320), email_verified: Schema.Boolean })
+const signingKeyShape = Schema.Struct({
+  kid: text(256), kty: Schema.Literal('RSA'), alg: Schema.Literal('RS256'), use: Schema.Literal('sig'),
+  n: text(2048).check(Schema.isPattern(/^[A-Za-z0-9_-]+$/), Schema.makeFilter(value => {
+    const bytes = Buffer.from(value, 'base64url')
+    return bytes.toString('base64url') === value && bytes.length >= 256 && bytes.length <= 1024 && (bytes.length > 256 ? bytes[0] !== 0 : (bytes[0] ?? 0) >= 128)
+  })),
+  e: text(8).check(Schema.isPattern(/^[A-Za-z0-9_-]+$/), Schema.makeFilter(value => {
+    const bytes = Buffer.from(value, 'base64url')
+    if (bytes.toString('base64url') !== value || bytes.length < 1 || bytes.length > 4 || bytes[0] === 0) return false
+    const exponent = bytes.readUIntBE(0, bytes.length)
+    return exponent > 1 && exponent % 2 === 1
+  })),
+})
+export type GoogleSigningKey = typeof signingKeyShape.Type
+const signingKeysShape = Schema.Struct({ keys: Schema.Array(signingKeyShape).check(Schema.isMinLength(1), Schema.isMaxLength(16), Schema.makeFilter(keys => new Set(keys.map(key => key.kid)).size === keys.length)) })
 const interval = Schema.Struct({ start: dateTime, end: dateTime })
 const freeBusyShape = Schema.Struct({ calendars: Schema.Record(text(1024), Schema.Struct({ busy: Schema.optionalKey(Schema.Array(interval).check(Schema.isMaxLength(10000))), errors: Schema.optionalKey(Schema.Array(Schema.Unknown).check(Schema.isMaxLength(100))) })) })
 
@@ -125,7 +148,7 @@ export function createGoogleCalendarClient(config: CalendarConfig, signal: Abort
     const parsed = await send(`${TOKEN}/token`, 'POST', invocationSignal, Schema.decodeUnknownSync(tokenShape), { body, form: true })
     const grantedScopes = [...new Set(parsed.scope.split(' '))]
     if (grantedScopes.length > 32) throw new CalendarProviderError('rejected')
-    return { accessToken: parsed.access_token, tokenType: 'Bearer', grantedScopes, ...(parsed.refresh_token ? { refreshToken: parsed.refresh_token } : {}), ...(parsed.expires_in ? { expiresIn: parsed.expires_in } : {}) }
+    return { accessToken: parsed.access_token, tokenType: 'Bearer', grantedScopes, ...(parsed.refresh_token ? { refreshToken: parsed.refresh_token } : {}), ...(parsed.id_token ? { idToken: parsed.id_token } : {}), ...(parsed.expires_in ? { expiresIn: parsed.expires_in } : {}) }
   }
 
   return {
@@ -139,6 +162,9 @@ export function createGoogleCalendarClient(config: CalendarConfig, signal: Abort
         const value = await send('https://openidconnect.googleapis.com/v1/userinfo', 'GET', s, Schema.decodeUnknownSync(identity), { accessToken })
         return { sub: value.sub, email: value.email, emailVerified: value.email_verified }
       })
+    },
+    signingKeys() {
+      return invoke(false, async s => (await send('https://www.googleapis.com/oauth2/v3/certs', 'GET', s, Schema.decodeUnknownSync(signingKeysShape))).keys)
     },
     listCalendars(accessToken: string) {
       return invoke(false, async s => {
@@ -171,7 +197,7 @@ export function createGoogleCalendarClient(config: CalendarConfig, signal: Abort
       return invoke(true, async s => {
         let event: typeof eventInput.Type
         try { event = Schema.decodeUnknownSync(eventInput, { onExcessProperty: 'error' })(input.event) } catch { throw new CalendarProviderError('rejected') }
-        const value = await send(`${API}/calendars/${pathId(input.calendarId)}/events?sendUpdates=none`, 'POST', s, Schema.decodeUnknownSync(eventShape), { accessToken, body: JSON.stringify(event), write: true })
+        const value = await send(`${API}/calendars/${pathId(input.calendarId)}/events?sendUpdates=none`, 'POST', s, Schema.decodeUnknownSync(createdEventShape), { accessToken, body: JSON.stringify(event), write: true })
         if (value.id !== event.id || value.status !== 'confirmed' || Date.parse(value.start.dateTime) !== Date.parse(event.start.dateTime) || Date.parse(value.end.dateTime) !== Date.parse(event.end.dateTime) || Object.entries(event.extendedProperties.private).some(([key, expected]) => value.extendedProperties?.private[key] !== expected)) throw new CalendarProviderError('unknown')
         return value
       })
