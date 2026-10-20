@@ -56,7 +56,7 @@ La boucle Calendar est initialisée indépendamment de la réussite Hatchet. À 
 
 ## Données et validation
 
-L'événement contient seulement service, nom/numéro utiles, date et référence de demande. Aucune transcription complète n'est envoyée. L'application et sa base restent sur les serveurs français existants ; les données d'agenda sont aussi transmises à Google. La rétention Inbox de 30 jours n'efface pas implicitement le rendez-vous métier chez Google.
+L'événement contient seulement la prestation, la date et une référence avec lien vers la demande privée Sparra. Le nom, le numéro et la conversation restent dans l'Inbox existante ; ils ne transitent pas dans la nouvelle file de commandes Calendar. Cela évite une seconde copie de coordonnées et un nouveau circuit de clés de déchiffrement dans le worker. Les contacts utiles sont recueillis et récapitulés par le flux vocal existant, avec sa persistance chiffrée. Aucune transcription complète n'est envoyée à Google. L'application et sa base restent sur les serveurs français existants ; les données d'agenda sont aussi transmises à Google. La rétention Inbox de 30 jours n'efface pas implicitement le rendez-vous métier chez Google.
 
 Avant activation : tests d'isolation, consentement/renouvellement/révocation, permissions partielles, conflits, résultat perdu, rejeu, interruption avant/après envoi, changement d'heure et fin d'appel. Puis une vraie réservation contrôlée : voix audible, date/service corrects, événement dans le bon agenda et statut/référence concordants dans l'Inbox. Aucun double de test ne prouve ce dernier critère.
 
