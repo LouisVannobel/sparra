@@ -8,10 +8,11 @@ import '../../src/ui/auth/auth.css'
 import '../../src/ui/sparra/sparra.css'
 function Fixture(){
   const [events,setEvents]=useState<string[]>([])
-  const state:CalendarState={available:true,status:new URLSearchParams(location.search).get('mode')==='reconnect'?'reconnect_required':'connected',accountEmail:'owner@example.test',selectedCalendar:null,calendars:[{id:'opaque-real-id',summary:'Observed calendar',timeZone:'Europe/Paris',accessRole:'writer'}],enabled:false,policy:null,revision:0}
+  const mode=new URLSearchParams(location.search).get('mode')
+  const state:CalendarState={available:true,status:mode?.startsWith('reconnect')?'reconnect_required':'connected',accountEmail:'owner@example.test',selectedCalendar:null,calendars:[{id:'opaque-real-id',summary:'Observed calendar',timeZone:'Europe/Paris',accessRole:'writer'}],enabled:false,policy:null,revision:0}
   return <Theme theme={neutralTheme} mode="light"><CalendarPanel locale="en" state={state}
     onConnect={async()=>{setEvents(value=>[...value,'connect']);return '#connected'}}
-    onDisconnect={async()=>{setEvents(value=>[...value,'disconnect'])}}
+    onDisconnect={async()=>{setEvents(value=>[...value,'disconnect']);if(mode==='reconnect-blocked')throw new Response('Calendar unavailable',{status:409})}}
     onRead={async()=>state}
     onSave={async data=>{setEvents(value=>[...value,JSON.stringify(data)]);throw new Response('fixture conflict',{status:409})}}/>
     <output aria-label="Fixture events">{events.join('\n')}</output></Theme>

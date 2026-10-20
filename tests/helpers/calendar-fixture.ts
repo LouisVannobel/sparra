@@ -16,7 +16,7 @@ export function calendarPeer() {
   const provider = {
     async exchangeCode(_input: { code: string; codeVerifier: string; redirectUri: string }) { state.exchanges++; const result=tokens(); await state.exchangeGate(); return result },
     async refreshTokens(_token: string) { state.refreshes++; const result=tokens(); await state.refreshGate(); return result },
-    async revokeToken(_token: string) { state.revocations++; await state.revokeGate() },
+    async revokeToken(_token: string) { state.revocations++; await state.revokeGate();return 'revoked' as const },
     async signingKeys() { return [{ kty:'RSA' as const, alg:'RS256' as const, use:'sig' as const, kid:'fixture-key', n:key.n!, e:key.e! }] },
     async userInfo(_access: string) { return { sub:state.sub, email:'owner@example.test', emailVerified:true } },
     async listCalendars(_access: string) { await state.listGate();return [{ id:'primary-calendar', summary:'Mon agenda', timeZone:'Europe/Paris', accessRole:state.writable ? 'writerWithoutPrivateAccess' as const : 'reader' as const }] },

@@ -12,6 +12,10 @@ export type CalendarProviderErrorCode = 'unavailable' | 'unauthorized' | 'rate_l
 export class CalendarProviderError extends Error {
   constructor(readonly code: CalendarProviderErrorCode) { super(`Calendar provider ${code}`); this.name = 'CalendarProviderError' }
 }
+export type GoogleRevocationResult = 'revoked' | 'invalid_token'
+export class CalendarRevocationError extends CalendarProviderError {
+  constructor(readonly outcome:'not_sent'|'unknown') { super(outcome==='not_sent'?'unavailable':'unknown'); this.name='CalendarRevocationError' }
+}
 
 const text = (max: number) => Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(max))
 const identifier = text(1024).check(Schema.makeFilter(value => value !== '.' && value !== '..'))
@@ -111,7 +115,8 @@ export function createGoogleCalendarClient(config: CalendarConfig, signal: Abort
     return pending
   }
 
-  async function send<T>(url: string, method: 'GET' | 'POST', invocationSignal: AbortSignal, decode: (value: unknown) => T, options: { accessToken?: string; body?: string; form?: boolean; write?: boolean; empty?: boolean } = {}): Promise<T> {
+  async function send<T>(url: string, method: 'GET' | 'POST', invocationSignal: AbortSignal, decode: (value: unknown) => T, options: { accessToken?: string; body?: string; form?: boolean; write?: boolean; revoke?: boolean } = {}): Promise<T> {
+    if(options.revoke&&invocationSignal.aborted)throw new CalendarRevocationError('not_sent')
     let response: Dispatcher.ResponseData
     try {
       response = await request(url, {
@@ -122,7 +127,8 @@ export function createGoogleCalendarClient(config: CalendarConfig, signal: Abort
       })
     } catch { throw new CalendarProviderError(options.write ? 'unknown' : 'unavailable') }
     try {
-      const oauthFailure = url === `${TOKEN}/token` && response.statusCode === 400
+      const oauthFailure = (url === `${TOKEN}/token`||options.revoke) && response.statusCode === 400
+      if(options.revoke&&response.statusCode!==200&&response.statusCode!==400)throw new CalendarRevocationError('unknown')
       if (!oauthFailure && (response.statusCode < 200 || response.statusCode >= 300)) throw httpError(response.statusCode, options.write ?? false)
       const chunks: Buffer[] = []
       let bytes = 0
@@ -133,8 +139,12 @@ export function createGoogleCalendarClient(config: CalendarConfig, signal: Abort
         if (bytes > MAX_BYTES) throw new CalendarProviderError(options.write ? 'unknown' : 'rejected')
         chunks.push(buffer)
       }
-      if (options.empty) return decode(undefined)
+      if(options.revoke&&response.statusCode===200)return decode('revoked')
       const value: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+      if(options.revoke) {
+        Schema.decodeUnknownSync(Schema.Struct({error:Schema.Literal('invalid_token')}))(value)
+        return decode('invalid_token')
+      }
       if (oauthFailure) {
         const failure = Schema.decodeUnknownSync(Schema.Struct({ error: text(128) }))(value)
         throw new CalendarProviderError(failure.error === 'invalid_grant' ? 'unauthorized' : 'rejected')
@@ -156,7 +166,11 @@ export function createGoogleCalendarClient(config: CalendarConfig, signal: Abort
       return invoke(false, s => tokenRequest({ grant_type: 'authorization_code', code: input.code, code_verifier: input.codeVerifier, redirect_uri: input.redirectUri }, s))
     },
     refreshTokens(refreshToken: string) { return invoke(false, s => tokenRequest({ grant_type: 'refresh_token', refresh_token: refreshToken }, s)) },
-    revokeToken(token: string) { return invoke(false, async s => { await send(`${TOKEN}/revoke`, 'POST', s, () => undefined, { body: new URLSearchParams({ token }).toString(), form: true, empty: true }) }) },
+    revokeToken(token: string):Promise<GoogleRevocationResult> {
+      if(closed||signal.aborted||shutdown.signal.aborted||!Number.isFinite(deadlineAtMs)||deadlineAtMs<=Date.now()||typeof token!=='string'||!token||token.length>16384)return Promise.reject(new CalendarRevocationError('not_sent'))
+      return invoke(true,s=>send(`${TOKEN}/revoke`,'POST',s,Schema.decodeUnknownSync(Schema.Literals(['revoked','invalid_token'])),{body:new URLSearchParams({token}).toString(),form:true,write:true,revoke:true}))
+        .catch(error=>{throw error instanceof CalendarRevocationError?error:new CalendarRevocationError('unknown')})
+    },
     userInfo(accessToken: string) {
       return invoke(false, async s => {
         const value = await send('https://openidconnect.googleapis.com/v1/userinfo', 'GET', s, Schema.decodeUnknownSync(identity), { accessToken })

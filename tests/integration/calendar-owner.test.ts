@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, expect, test } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
+import { MockAgent } from 'undici'
+import { createGoogleCalendarClient, CalendarRevocationError } from '../../src/modules/calendar/google.server'
 import { startDisposableStores } from '../fixtures/db/disposable-stores'
 import { createTransactions } from '../../src/platform/db/transactions.server'
 import { createPersonalWorkspaces } from '../../src/modules/workspaces/personal.server'
@@ -115,8 +117,8 @@ test('superseded or expired intentions never exchange and consent denial consume
   await expect(f.operations.completeConnection(f.principal,{state:expired.searchParams.get('state')!,code:'fixture'})).rejects.toThrow()
   expect(f.peer.state.exchanges).toBe(0)
 })
-test('failed revocation retains subject exclusivity and retry releases it only after provider settlement',async()=>{
-  const f=await fixture();await connect(f);f.peer.state.revokeGate=async()=>{throw new Error('private-provider-error')}
+test('proven pre-dispatch refusal retains subject exclusivity and allows a later safe attempt',async()=>{
+  const f=await fixture();await connect(f);f.peer.state.revokeGate=async()=>{throw new CalendarRevocationError('not_sent')}
   await expect(f.operations.disconnect(f.principal)).rejects.toThrow('Calendar unavailable')
   expect(await f.operations.read(f.principal)).toMatchObject({status:'revoking',enabled:false})
   const g=await fixture();g.peer.state.sub=f.peer.state.sub;await expect(connect(g)).rejects.toThrow()
@@ -136,4 +138,72 @@ test('Google canonical userinfo.email grant is accepted for initial consent and 
   f.peer.state.expired=true;await connect(f);f.peer.state.expired=false
   expect(await f.operations.read(f.principal)).toMatchObject({status:'connected',accountEmail:'owner@example.test'})
   expect(f.peer.state.refreshes).toBe(1)
+})
+test('accepted revoke with lost response keeps its claim across local close and cannot be resent or replaced',async()=>{
+  const f=await fixture();await connect(f)
+  const agent=new MockAgent({enableCallHistory:true});agent.disableNetConnect()
+  const oauth=agent.get('https://oauth2.googleapis.com');let accepted=0
+  const client=createGoogleCalendarClient(calendarFixtureConfig,new AbortController().signal,Date.now()+75,agent)
+  const operations=createCalendarOperations(owner,calendarFixtureConfig,{...f.peer.provider,revokeToken:client.revokeToken})
+  try{
+    oauth.intercept({path:'/revoke',method:'POST'}).reply(()=>{accepted++;return {statusCode:200,data:''}}).delay(250)
+    await expect(operations.disconnect(f.principal)).rejects.toThrow('Calendar unavailable');await client.close()
+    expect(accepted).toBe(1)
+    const retryClient=createGoogleCalendarClient(calendarFixtureConfig,new AbortController().signal,Date.now()+5000,agent)
+    const retry=createCalendarOperations(owner,calendarFixtureConfig,{...f.peer.provider,revokeToken:retryClient.revokeToken})
+    oauth.intercept({path:'/revoke',method:'POST'}).reply(400,{error:'invalid_token'})
+    try{
+      await expect(retry.disconnect(f.principal)).rejects.toMatchObject({code:'busy'})
+      await expect(retry.beginConnection(f.principal)).rejects.toMatchObject({code:'busy'})
+      expect(agent.getCallHistory()?.calls()).toHaveLength(1)
+      expect(await retry.read(f.principal)).toMatchObject({status:'revoking',enabled:false})
+    }finally{await retryClient.close()}
+  }finally{await client.close();await agent.close()}
+})
+test.each(['revoked','expired'] as const)('reconnect retires both stored credentials when the refresh token is already %s',async kind=>{
+  const f=await fixture();await connect(f)
+  const agent=new MockAgent({enableCallHistory:true});agent.disableNetConnect()
+  const oauth=agent.get('https://oauth2.googleapis.com'),client=createGoogleCalendarClient(calendarFixtureConfig,new AbortController().signal,Date.now()+5000,agent)
+  const operations=createCalendarOperations(owner,calendarFixtureConfig,{...f.peer.provider,revokeToken:client.revokeToken})
+  try{
+    oauth.intercept({path:'/revoke',method:'POST',body:'token=secret-refresh'}).reply(400,{error:'invalid_token'})
+    oauth.intercept({path:'/revoke',method:'POST',body:'token=secret-access'}).reply(kind==='revoked'?400:200,kind==='revoked'?{error:'invalid_token'}:'').delay(100)
+    const pending=operations.disconnect(f.principal)
+    await expect.poll(()=>agent.getCallHistory()?.calls().length).toBe(2)
+    await expect(operations.beginConnection(f.principal)).rejects.toMatchObject({code:'busy'})
+    await pending
+    expect(await operations.read(f.principal)).toMatchObject({status:'disconnected',accountEmail:null,enabled:false})
+    expect(agent.getCallHistory()?.calls()).toHaveLength(2);agent.assertNoPendingInterceptors()
+    const url=new URL(await operations.beginConnection(f.principal));f.peer.state.nonce=url.searchParams.get('nonce')!
+    await operations.completeConnection(f.principal,{state:url.searchParams.get('state')!,code:'fixture'})
+    expect(await operations.read(f.principal)).toMatchObject({status:'connected',enabled:false})
+  }finally{await client.close();await agent.close()}
+})
+test('invalid refresh token followed by ambiguous access-token revocation keeps the replacement barrier',async()=>{
+  const f=await fixture();await connect(f)
+  const agent=new MockAgent({enableCallHistory:true});agent.disableNetConnect()
+  const oauth=agent.get('https://oauth2.googleapis.com'),client=createGoogleCalendarClient(calendarFixtureConfig,new AbortController().signal,Date.now()+5000,agent)
+  const operations=createCalendarOperations(owner,calendarFixtureConfig,{...f.peer.provider,revokeToken:client.revokeToken})
+  try{
+    oauth.intercept({path:'/revoke',method:'POST',body:'token=secret-refresh'}).reply(400,{error:'invalid_token'})
+    oauth.intercept({path:'/revoke',method:'POST',body:'token=secret-access'}).replyWithError(new Error('lost response'))
+    await expect(operations.disconnect(f.principal)).rejects.toThrow('Calendar unavailable')
+    await expect(operations.disconnect(f.principal)).rejects.toMatchObject({code:'busy'})
+    await expect(operations.beginConnection(f.principal)).rejects.toMatchObject({code:'busy'})
+    expect(agent.getCallHistory()?.calls()).toHaveLength(2)
+  }finally{await client.close();await agent.close()}
+})
+test('a nonterminal revoke 400 never retires the grant or permits replacement',async()=>{
+  const f=await fixture();await connect(f)
+  const agent=new MockAgent({enableCallHistory:true});agent.disableNetConnect()
+  const client=createGoogleCalendarClient(calendarFixtureConfig,new AbortController().signal,Date.now()+5000,agent)
+  const operations=createCalendarOperations(owner,calendarFixtureConfig,{...f.peer.provider,revokeToken:client.revokeToken})
+  try{
+    agent.get('https://oauth2.googleapis.com').intercept({path:'/revoke',method:'POST'}).reply(400,{error:'invalid_request'})
+    await expect(operations.disconnect(f.principal)).rejects.toThrow('Calendar unavailable')
+    expect(await operations.read(f.principal)).toMatchObject({status:'revoking',accountEmail:'owner@example.test'})
+    await expect(operations.disconnect(f.principal)).rejects.toMatchObject({code:'busy'})
+    await expect(operations.beginConnection(f.principal)).rejects.toMatchObject({code:'busy'})
+    expect(agent.getCallHistory()?.calls()).toHaveLength(1)
+  }finally{await client.close();await agent.close()}
 })

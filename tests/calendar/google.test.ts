@@ -65,6 +65,30 @@ describe('native Google boundary', () => {
     oauth.intercept({ path: '/token', method: 'POST' }).reply(400, { error: 'invalid_grant', error_description: 'sensitive account detail' })
     await expect(client.refreshTokens('revoked')).rejects.toMatchObject({ code: 'unauthorized' })
   })
+  it('returns typed revoke confirmation and the exact terminal invalid_token response',async()=>{
+    const {client,oauth}=setup()
+    oauth.intercept({path:'/revoke',method:'POST'}).reply(200,'')
+    expect(await client.revokeToken('valid')).toBe('revoked')
+    oauth.intercept({path:'/revoke',method:'POST'}).reply(400,{error:'invalid_token',error_description:'private account detail'})
+    expect(await client.revokeToken('expired')).toBe('invalid_token')
+  })
+  it.each([{error:'invalid_request'},{error:'invalid_grant'},{error:'INVALID_TOKEN'},'invalid_token',{error:42}])('never accepts another revoke 400 as terminal success: %j',async body=>{
+    const {client,oauth}=setup();oauth.intercept({path:'/revoke',method:'POST'}).reply(400,body)
+    await expect(client.revokeToken('secret')).rejects.toMatchObject({code:'unknown',outcome:'unknown'})
+  })
+  it('keeps accepted revoke with a lost response unknown after local close, without retry',async()=>{
+    const {client,oauth,agent}=setup(Date.now()+50);let accepted=0
+    oauth.intercept({path:'/revoke',method:'POST'}).reply(()=>{accepted++;return {statusCode:200,data:''}}).delay(200)
+    await expect(client.revokeToken('secret')).rejects.toMatchObject({code:'unknown',outcome:'unknown'})
+    await client.close();expect(accepted).toBe(1);expect(agent.getCallHistory()?.calls()).toHaveLength(1)
+  })
+  it('identifies refusal before dispatch and bounds revoke error bodies',async()=>{
+    const first=setup();first.controller.abort()
+    await expect(first.client.revokeToken('secret')).rejects.toMatchObject({code:'unavailable',outcome:'not_sent'})
+    expect(first.agent.getCallHistory()?.calls()).toHaveLength(0)
+    const second=setup();second.oauth.intercept({path:'/revoke',method:'POST'}).reply(400,'x'.repeat(1_048_577))
+    await expect(second.client.revokeToken('secret')).rejects.toMatchObject({code:'unknown',outcome:'unknown'})
+  })
   it('reads identity from the fixed userinfo endpoint with a bearer header', async () => {
     const { client, agent } = setup()
     agent.get('https://openidconnect.googleapis.com').intercept({ path: '/v1/userinfo', headers: { authorization: 'Bearer access-sensitive' } }).reply(200, { sub: 'google-user', email: 'owner@example.test', email_verified: true, name: 'ignored' })

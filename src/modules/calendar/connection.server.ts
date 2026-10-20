@@ -6,7 +6,7 @@ import { createAuthorizationURL, verifyProviderIdToken } from 'better-auth/oauth
 import { generateRandomString, symmetricEncrypt, symmetricDecrypt } from 'better-auth/crypto'
 import { google } from 'better-auth/social-providers'
 import type { CalendarConfig } from './config.server'
-import { createGoogleCalendarClient, GOOGLE_CALENDAR_SCOPES, CalendarProviderError, type GoogleCalendar } from './google.server'
+import { createGoogleCalendarClient, GOOGLE_CALENDAR_SCOPES, CalendarProviderError, CalendarRevocationError, type GoogleCalendar } from './google.server'
 import type { AuthTransactions } from '../../platform/db/transactions.server'
 import type { PersonalWorkspaceLease } from '../../platform/db/auth-pg-lease.server'
 import type { AdmittedPrincipal } from '../auth/session.server'
@@ -187,11 +187,15 @@ export function createCalendarOperations(owner:AuthTransactions, config:Calendar
     },signal)
     if(!claimed||claimed.status!=='revoking'||!claimed.tokenEnvelope)return
     try {
-      await provider.revokeToken(decryptCalendarTokens(config,binding(claimed),claimed.tokenEnvelope).refreshToken)
+      const tokens=decryptCalendarTokens(config,binding(claimed),claimed.tokenEnvelope)
+      const result=await provider.revokeToken(tokens.refreshToken)
+      // An expired refresh token does not establish that its access token is unusable.
+      if(result==='invalid_token')await provider.revokeToken(tokens.accessToken)
       await tx(principal,async lease=>{const current=await row(lease);if(!current||current.generation!==claimed.generation||current.status!=='revoking'||current.workId!==claimed.workId)throw new CalendarOperationError('conflict');await update(lease,current,{status:'disconnected',tokenEnvelope:null,googleSubject:null,accountEmail:null,...noWork})},signal)
     } catch(error) {
-      // The bounded transport has settled before allowing a retry. Unknown/crashed sends remain fenced.
-      await tx(principal,async lease=>{const current=await row(lease);if(current?.generation===claimed.generation&&current.status==='revoking'&&current.workId===claimed.workId)await update(lease,current,noWork)}).catch(()=>{})
+      // Local abort/join cannot prove that Google did not receive a revoke.
+      // Only a typed refusal before dispatch releases ownership for another attempt.
+      if(error instanceof CalendarRevocationError&&error.outcome==='not_sent')await tx(principal,async lease=>{const current=await row(lease);if(current?.generation===claimed.generation&&current.status==='revoking'&&current.workId===claimed.workId)await update(lease,current,noWork)}).catch(()=>{})
       throw error instanceof CalendarOperationError?error:new CalendarOperationError('unavailable')
     }
   }

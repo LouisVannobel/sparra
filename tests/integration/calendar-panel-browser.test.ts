@@ -33,3 +33,15 @@ test('keyboard reconnect waits for disconnect before issuing new consent',async(
   try{await page.goto(origin+'/tests/helpers/calendar-panel.html?mode=reconnect');const button=page.getByRole('button',{name:'Reconnect Google',exact:true});await button.focus();await button.press('Enter');await page.waitForURL(/#connected$/);expect(await page.getByLabel('Fixture events').textContent()).toBe('disconnect\nconnect')}
   finally{await context.close()}
 })
+test('keyboard reconnect cannot issue replacement consent while revocation remains unresolved',async()=>{
+  const context=await browser.newContext(),page=await context.newPage();page.setDefaultTimeout(5000)
+  try{
+    await page.goto(origin+'/tests/helpers/calendar-panel.html?mode=reconnect-blocked')
+    const button=page.getByRole('button',{name:'Reconnect Google',exact:true});await button.focus();await button.press('Enter')
+    await page.getByText('Settings changed or an operation is in progress. Refresh before retrying.').waitFor()
+    expect(await page.getByLabel('Fixture events').textContent()).toBe('disconnect')
+    expect(new URL(page.url()).hash).toBe('')
+    await button.press('Enter');await expect.poll(()=>page.getByLabel('Fixture events').textContent()).toBe('disconnect\ndisconnect')
+    expect(new URL(page.url()).hash).toBe('')
+  }finally{await context.close()}
+})
