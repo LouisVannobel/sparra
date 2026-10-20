@@ -57,6 +57,17 @@ function RequestTranscript({locale,detail}:{locale:Locale;detail:RequestDetailDt
   return <section className="sparra-request-conversation"><Heading level={2}>{t.transcript}</Heading>{detail.transcriptAvailability==='unavailable'&&<p>{t.transcriptUnavailable}</p>}{detail.transcriptAvailability==='partial'&&<p>{t.transcriptPartial}: {detail.unavailableTurnCount} {t.unavailableTurns}.</p>}{detail.transcriptLossCount>0&&<p>{detail.transcriptLossCount} {t.lostTurns}.</p>}{detail.moreTurns&&<p>{t.moreTurns}</p>}<ol className="sparra-call-transcript">{detail.transcript.map(turn=><li key={turn.id}><p><strong>{turn.role==='user'?t.caller:t.assistant}</strong>{turn.interrupted?` — ${t.interrupted}`:''}</p><p>{turn.text}</p></li>)}</ol></section>
 }
 
+function RequestBookings({locale,detail}:{locale:Locale;detail:RequestDetailDto}){
+  if(!detail.bookings?.length)return null
+  return <section aria-label={locale==='fr'?'Rendez-vous':'Appointments'}>{detail.bookings.map((booking,index)=><div key={booking.providerReference??index}>
+    <Heading level={2}>{booking.observedState==='cancelled'?(locale==='fr'?'Rendez-vous annulé':'Cancelled appointment'):booking.state==='confirmed'?(locale==='fr'?'Rendez-vous confirmé':'Confirmed appointment'):(locale==='fr'?'Rendez-vous à confirmer':'Appointment to confirm')}</Heading>
+    <p>{booking.serviceName}</p><p><time dateTime={booking.start}>{new Intl.DateTimeFormat(locale,{dateStyle:'long',timeStyle:'short',timeZone:booking.timezone}).format(new Date(booking.start))}</time> · {booking.timezone}</p>
+    {booking.providerReference&&<p>{locale==='fr'?'Référence Google':'Google reference'} : {booking.providerReference}</p>}
+    {booking.originalStart&&booking.originalStart!==booking.start&&<p>{locale==='fr'?'Date initialement réservée':'Originally booked for'} : <time dateTime={booking.originalStart}>{new Intl.DateTimeFormat(locale,{dateStyle:'long',timeStyle:'short',timeZone:booking.timezone}).format(new Date(booking.originalStart))}</time></p>}
+    {booking.observedState==='cancelled'&&<p>{locale==='fr'?'Annulation observée dans Google Agenda.':'Cancellation observed in Google Calendar.'}</p>}
+  </div>)}</section>
+}
+
 function RequestConfigurationSnapshot({locale,configuration}:{locale:Locale;configuration:RequestDetailDto['configuration']}){
   const t=appMessages[locale],a=activityMessages[locale]
   return <section className="sparra-request-knowledge" data-configuration-snapshot><Heading level={2}>{t.snapshot}</Heading>{configuration?<><p>{configuration.businessName} — {t.version} {configuration.revision}</p><dl>{(['openingHours','services','prices','faq','instructions'] as const).map(field=><div key={field}><dt>{a[field]}</dt><dd>{configuration.knowledge[field]||'—'}</dd></div>)}</dl></>:<p>{t.noSnapshot}</p>}</section>
@@ -126,6 +137,7 @@ export function RequestPanel({locale,loaded,onTreat,onErase,onRefused}:Props){
       <RequestMetadata locale={locale} detail={detail}/>
       <div className="sparra-call-workspace">
       <RequestSummary locale={locale} detail={detail}/>
+      <RequestBookings locale={locale} detail={detail}/>
       <RequestTranscript locale={locale} detail={detail}/>
       <RequestAudio locale={locale} detail={detail} blocked={pending&&confirm}/>
       <RequestConfigurationSnapshot locale={locale} configuration={detail.configuration}/>

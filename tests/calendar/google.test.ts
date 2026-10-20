@@ -19,6 +19,15 @@ function setup(deadline = Date.now() + 10000) {
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup() })
 
 describe('native Google boundary', () => {
+  it.each([
+    {start:{dateTime:'2026-02-30T10:00:00Z'},end:{dateTime:'2026-03-02T11:00:00Z'}},
+    {start:{dateTime:'2026-10-21T11:00:00Z'},end:{dateTime:'2026-10-21T10:00:00Z'}},
+    {start:{date:'2026-10-22'},end:{date:'2026-10-21'}},
+  ])('rejects normalized impossible Gregorian dates and unordered retrieved intervals',async times=>{
+    const {client,google}=setup()
+    google.intercept({path:'/calendar/v3/calendars/primary/events/sparra123',method:'GET'}).reply(200,{...event,...times,status:'confirmed'})
+    await expect(client.getEvent('token',{calendarId:'primary',eventId:'sparra123'})).rejects.toMatchObject({code:'rejected'})
+  })
   it('uses the exact shared-calendar event and freebusy scopes', () => {
     expect(GOOGLE_CALENDAR_SCOPES).toEqual(['https://www.googleapis.com/auth/calendar.calendarlist.readonly', 'https://www.googleapis.com/auth/calendar.events.freebusy', 'https://www.googleapis.com/auth/calendar.events'])
   })

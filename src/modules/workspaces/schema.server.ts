@@ -17,6 +17,7 @@ export const workspace = pgTable('workspace', {
   check('workspace_nonzero_id', sql`${table.id} <> '00000000-0000-0000-0000-000000000000'::uuid`),
   check('workspace_display_name', sql`length(${table.displayName}) between 1 and 80 and length(btrim(${table.displayName})) > 0 and ${table.displayName} !~ '[[:cntrl:]]' and position(chr(8232) in ${table.displayName}) = 0 and position(chr(8233) in ${table.displayName}) = 0`),
   pgPolicy('workspace_voice_read',{to:'sparra_voice_definer',for:'select',using:sql`id = voice_private.bound_workspace()`}),
+  pgPolicy('calendar_workspace_worker',{to:'calendar_definer',for:'all',using:sql`true`,withCheck:sql`true`}),
   pgPolicy('workspace_voice_lock',{to:'sparra_voice_definer',for:'update',using:sql`id = voice_private.bound_workspace()`,withCheck:sql`id = voice_private.bound_workspace()`}),
   pgPolicy('workspace_local_audio_read',{to:'workspace_owner',for:'select',using:sql`${table.id}::text = current_setting('app.tenant_id',true) and current_setting('app.tenant_id',true) <> '00000000-0000-0000-0000-000000000000' and ${table.kind} = 'personal' and ${table.lifecycle} = 'active' and ${table.authOrganizationId} is null`}),
   pgPolicy('workspace_tenant', { to: 'runtime', for: 'all', using: sql`${table.id}::text = current_setting('app.tenant_id', true) and ${table.lifecycle} = 'active'`, withCheck: sql`${table.id}::text = current_setting('app.tenant_id', true) and ${table.lifecycle} = 'active'` }),

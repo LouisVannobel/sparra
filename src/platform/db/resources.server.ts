@@ -5,12 +5,12 @@ import { randomUUID } from 'node:crypto'
 import type { readDatabaseConfig } from './config.server'
 import { createTransactions } from './transactions.server'
 
-type DatabaseLogin = 'auth_mail_relay' | 'auth_mail_worker' | 'billing_relay' | 'billing_worker'
+type DatabaseLogin = 'auth_mail_relay' | 'auth_mail_worker' | 'billing_relay' | 'billing_worker' | 'calendar_worker'
 type DatabaseReadiness = {
   version: string; login?: string; currentUser?: string; canImpersonate?: boolean
   superuser: string; bypassrls: string; databaseOwner: string; tableOwner: string
   fsync: string; fullPageWrites: string; synchronousCommit: string; schemaReady: string
-  billingReady?: string; workspaceReady?: string
+  billingReady?: string; workspaceReady?: string;calendarReady?:string
 }
 
 function validateDatabaseIdentity(observed: DatabaseReadiness, expectedLogin: DatabaseLogin | undefined) {
@@ -24,6 +24,7 @@ function validateDatabaseReadiness(observed: DatabaseReadiness | undefined, expe
   validateDatabaseIdentity(observed, expectedLogin)
   if (observed.fsync !== 'on' || observed.fullPageWrites !== 'on' || observed.synchronousCommit !== 'on'
     || observed.schemaReady !== 'true' || billingLogin && observed.billingReady !== 'true'
+    || expectedLogin==='calendar_worker'&&observed.calendarReady!=='true'
     || !expectedLogin && observed.workspaceReady !== 'true') throw new Error('Database contract mismatch')
 }
 
@@ -128,6 +129,18 @@ export const acquireDatabase = Effect.fn('acquireDatabase')(function* (database:
               else array[to_regprocedure('app_private.billing_claim_command(uuid,uuid)'),to_regprocedure('app_private.billing_observe_command(uuid,uuid,bigint,jsonb,jsonb)'),
                 to_regprocedure('app_private.billing_apply_command(uuid,uuid,bigint,jsonb,jsonb)'),to_regprocedure('app_private.billing_record_risk(uuid,uuid,bigint,jsonb)')] end))
           ),false)::text` } : {}),
+          ...(expectedLogin==='calendar_worker'?{calendarReady:sql<string>`coalesce((
+            not rolcreaterole and not rolcreatedb and not rolreplication and not rolinherit
+            and (select count(*)=2 from pg_roles where rolname in ('calendar_worker','calendar_definer') and rolcanlogin=(rolname='calendar_worker') and not rolsuper and not rolbypassrls and not rolcreaterole and not rolcreatedb and not rolreplication and not rolinherit)
+            and not exists(select 1 from pg_auth_members m join pg_roles r on r.oid=m.member or r.oid=m.roleid where r.rolname in ('calendar_worker','calendar_definer'))
+            and (select count(*)=3 from pg_class c join pg_roles r on r.oid=c.relowner where c.oid in (to_regclass('public.sparra_calendar_connection'),to_regclass('public.sparra_calendar_command'),to_regclass('public.sparra_calendar_offer')) and c.relrowsecurity and c.relforcerowsecurity and r.rolname='workspace_owner')
+            and has_schema_privilege(current_user,'app_private','USAGE') and not has_schema_privilege(current_user,'app_private','CREATE') and not has_schema_privilege(current_user,'public','CREATE')
+            and not exists(select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname in ('public','voice_private') and c.relkind in ('r','p','v','m','f') and has_table_privilege(current_user,c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'))
+            and (select bool_and(coalesce(p.oid is not null and p.prosecdef and p.provolatile='v' and r.rolname='calendar_definer' and p.proconfig @> array['search_path=pg_catalog, pg_temp'] and has_function_privilege(current_user,p.oid,'EXECUTE') and not exists(select 1 from aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a where a.grantee=0),false)) from (values
+              ('app_private.calendar_claim_v1()'),('app_private.calendar_read_v1(uuid,bigint)'),('app_private.calendar_prepare_create_v1(uuid,bigint)'),('app_private.calendar_observe_v1(uuid,bigint,uuid,jsonb)'),('app_private.calendar_finish_v1(uuid,bigint,jsonb)'),('app_private.calendar_token_claim_v1(uuid,bigint)'),('app_private.calendar_token_finish_v1(uuid,bigint,uuid,text,boolean)')
+            ) required(signature) left join pg_proc p on p.oid=to_regprocedure(required.signature) left join pg_roles r on r.oid=p.proowner)
+            and (select count(*)=7 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in ('app_private','voice','voice_private') and has_function_privilege(current_user,p.oid,'EXECUTE'))
+          ),false)::text`}:{}),
           ...(!expectedLogin ? { workspaceReady: sql<string>`coalesce((
             session_user = 'runtime' and current_user = 'runtime' and not rolcreaterole and not rolcreatedb and not rolreplication and not rolinherit
             and (select count(*) = 2 from pg_roles where rolname in ('workspace_owner','workspace_bootstrap') and not rolcanlogin and not rolsuper and not rolbypassrls and not rolcreaterole and not rolcreatedb and not rolreplication and not rolinherit)

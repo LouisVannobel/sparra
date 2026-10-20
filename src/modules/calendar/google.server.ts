@@ -1,6 +1,7 @@
 import { Redacted, Schema } from 'effect'
 import { Agent, request, type Dispatcher } from 'undici'
 import type { CalendarConfig } from './config.server'
+import { validCalendarInstant } from './time'
 
 export const GOOGLE_CALENDAR_SCOPES = [
   'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
@@ -19,7 +20,7 @@ export class CalendarRevocationError extends CalendarProviderError {
 
 const text = (max: number) => Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(max))
 const identifier = text(1024).check(Schema.makeFilter(value => value !== '.' && value !== '..'))
-const dateTime = text(64).check(Schema.isPattern(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?(?:Z|[+-]\d\d:\d\d)$/), Schema.makeFilter(value => Number.isFinite(Date.parse(value))))
+const dateTime = text(64).check(Schema.makeFilter(validCalendarInstant))
 const time = Schema.Struct({ dateTime, timeZone: Schema.optionalKey(text(128)) })
 const date = text(10).check(Schema.isPattern(/^\d{4}-\d\d-\d\d$/), Schema.makeFilter(value => Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value))
 const day = Schema.Struct({ date, timeZone: Schema.optionalKey(text(128)) })
@@ -30,10 +31,11 @@ const eventMetadata = {
   htmlLink: Schema.optionalKey(text(4096)),
   extendedProperties: Schema.optionalKey(correlation),
 }
-const createdEventShape = Schema.Struct({ ...eventMetadata, status: Schema.Literal('confirmed'), start: time, end: time })
+const orderedTime=Schema.makeFilter((value:{start:{dateTime:string};end:{dateTime:string}})=>Date.parse(value.start.dateTime)<Date.parse(value.end.dateTime))
+const createdEventShape = Schema.Struct({ ...eventMetadata, status: Schema.Literal('confirmed'), start: time, end: time }).check(orderedTime)
 const eventShape = Schema.Union([
-  Schema.Struct({ ...eventMetadata, status: Schema.Literals(['confirmed', 'tentative']), start: time, end: time }),
-  Schema.Struct({ ...eventMetadata, status: Schema.Literals(['confirmed', 'tentative']), start: day, end: day }),
+  Schema.Struct({ ...eventMetadata, status: Schema.Literals(['confirmed', 'tentative']), start: time, end: time }).check(orderedTime),
+  Schema.Struct({ ...eventMetadata, status: Schema.Literals(['confirmed', 'tentative']), start: day, end: day }).check(Schema.makeFilter(value=>value.start.date<value.end.date)),
   Schema.Struct({ ...eventMetadata, status: Schema.Literal('cancelled') }),
 ])
 export type GoogleEvent = typeof eventShape.Type
@@ -54,7 +56,7 @@ export type GoogleEventInput = {
   readonly end: { readonly dateTime: string; readonly timeZone?: string }
   readonly extendedProperties: { readonly private: Readonly<Record<string, string>> }
 }
-const eventInput = Schema.Struct({ id: text(1024).check(Schema.isPattern(/^[0-9a-v]{5,1024}$/)), summary: text(1024), description: Schema.optionalKey(text(8192)), start: time, end: time, extendedProperties: correlation })
+const eventInput = Schema.Struct({ id: text(1024).check(Schema.isPattern(/^[0-9a-v]{5,1024}$/)), summary: text(1024), description: Schema.optionalKey(text(8192)), start: time, end: time, extendedProperties: correlation }).check(orderedTime)
 const identity = Schema.Struct({ sub: text(255), email: text(320), email_verified: Schema.Boolean })
 const signingKeyShape = Schema.Struct({
   kid: text(256), kty: Schema.Literal('RSA'), alg: Schema.Literal('RS256'), use: Schema.Literal('sig'),
