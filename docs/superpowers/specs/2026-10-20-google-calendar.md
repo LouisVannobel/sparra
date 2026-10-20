@@ -22,6 +22,8 @@ Le backend Effect possède la connexion Google, les règles, les offres et les o
 
 Réutiliser le pont PostgreSQL existant : `voice.calendar_submit_v1(call_id uuid, operation_id uuid, request jsonb)` et `voice.calendar_result_v1(call_id uuid, operation_id uuid)`. Le binding immuable session_user/OID déduit le Workspace et le déploiement. Les droits Voice restent EXECUTE seulement. Les commandes persistées sont traitées par une petite boucle Effect indépendante dans le worker existant, concurrence un, attente inactive 250 ms ; aucun Hatchet pour cette interaction et aucun nouveau serveur HTTP d'authentification machine.
 
+Un troisième accès en lecture, `voice.calendar_catalog_v1(call_id uuid)`, fournit le catalogue réellement activé après admission : version, call_id, révision de politique, fuseau et services (ID, nom, durée). Ne pas modifier le snapshot d'admission strict existant pour ce catalogue. Une lecture indisponible conserve la prise de message et désactive seulement les outils Calendar. La révision est incluse dans les recherches de créneaux et contrôlée côté serveur.
+
 Un login `calendar_worker` sans appartenance de rôle et un definer NOLOGIN étroit accèdent seulement aux fonctions Calendar. Réutiliser les pools, transactions courtes et durées de vie natives ; ne pas donner une autorité arbitraire de tenant au runtime d'auth. Ne jamais conserver de transaction ou de verrou pendant un appel Google. Le worker rejoint toutes ses opérations à l'arrêt et ferme le transport avant son pool.
 
 ## Connexion Google
@@ -37,6 +39,8 @@ Configuration dédiée : `SPARRA_GOOGLE_CALENDAR_CLIENT_ID`, `SPARRA_GOOGLE_CALE
 ## Réservation et reprise
 
 Chaque offre est opaque, liée à l'appel, au service, à la connexion/politique et à son expiration. La confirmation prouve le récapitulatif réellement émis et le nouveau tour utilisateur qui l'accepte. Relier le scope natif de tour au UUID de transcription persistant ; un booléen libre `confirmed:true` ne donne aucun droit.
+
+Réutiliser le mécanisme Telnyx de marque de lecture déjà utilisé pour la dernière phrase de l'appel : le récapitulatif doit être réellement acquitté, sans interruption, avant d'accepter le nouveau tour. Le handler natif fournit les identités des tours de récapitulatif et de confirmation ainsi que la marque acquittée ; ces champs ne sont pas des arguments du modèle. Les tentatives de fin d'appel et de récapitulatif ont des noms de marque distincts.
 
 Avant POST Google : enregistrer une opération stable, un ID d'événement Google dérivé de cette opération et l'intervalle ; dédupliquer l'intention même avec un nouveau tool_call_id ; verrouiller brièvement la ressource, refuser tout chevauchement local et relire les disponibilités. Une erreur par agenda dans un HTTP 200 freeBusy n'est jamais interprétée comme libre.
 
