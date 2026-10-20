@@ -96,8 +96,8 @@ afterEach(async () => {
   if (stores) {
     await stores.administrator.query('DELETE FROM sparra_calendar_offer;DELETE FROM sparra_calendar_command')
     await stores.administrator.query(
-      "UPDATE sparra_calendar_connection SET generation=1,policy_revision=1,status='connected',enabled=true,work_id=NULL,work_expires_at=NULL WHERE id=$1",
-      [connection],
+      "UPDATE sparra_calendar_connection SET generation=1,policy_revision=1,status='connected',enabled=true,work_id=NULL,work_expires_at=NULL,policy=$2 WHERE id=$1",
+      [connection, calendarFixturePolicy()],
     )
   }
 })
@@ -349,6 +349,63 @@ test('revision, disconnect and deadline are rechecked at final send transition',
     )
   }
 })
+
+test.each([-1, 30])(
+  'an unexpired offer starting in %i minutes cannot bypass current notice at admission',
+  async (minutes) => {
+    if (minutes < 0)
+      await stores.administrator.query(
+        "UPDATE sparra_calendar_connection SET policy=jsonb_set(policy,'{noticeMinutes}','0')",
+      )
+    const id = await call(),
+      o = await offer(id, new Date(Date.now() + minutes * 60000).toISOString()),
+      op = randomUUID()
+    expect(Date.parse(o.expiresAt)).toBeGreaterThan(Date.now())
+    await expect(
+      submit(id, op, { kind: 'book_appointment', offerId: o.offerId, confirmation: await confirmation(id) }),
+    ).rejects.toMatchObject({ code: 'PV202' })
+    expect(
+      (
+        await stores.administrator.query(
+          'SELECT possible_send_fence FROM sparra_calendar_command WHERE id=$1',
+          [op],
+        )
+      ).rows,
+    ).toEqual([])
+  },
+)
+
+test.each([-1, 30])(
+  'final send refuses an admitted slot now starting in %i minutes without marking possible send',
+  async (minutes) => {
+    if (minutes < 0)
+      await stores.administrator.query(
+        "UPDATE sparra_calendar_connection SET policy=jsonb_set(policy,'{noticeMinutes}','0')",
+      )
+    const id = await call(),
+      o = await offer(id),
+      op = randomUUID()
+    await submit(id, op, {
+      kind: 'book_appointment',
+      offerId: o.offerId,
+      confirmation: await confirmation(id),
+    })
+    const q = await work('calendar_claim_v1')
+    await stores.administrator.query(
+      'UPDATE sparra_calendar_command SET window_start=clock_timestamp()+make_interval(mins=>$2),window_end=clock_timestamp()+make_interval(mins=>$2+30),current_start=clock_timestamp()+make_interval(mins=>$2),current_end=clock_timestamp()+make_interval(mins=>$2+40) WHERE id=$1',
+      [op, minutes],
+    )
+    expect(await work('calendar_prepare_create_v1', [op, q.fence])).toBe(false)
+    expect(
+      (
+        await stores.administrator.query(
+          'SELECT possible_send_fence FROM sparra_calendar_command WHERE id=$1',
+          [op],
+        )
+      ).rows,
+    ).toEqual([{ possible_send_fence: null }])
+  },
+)
 test('one existing workId/generation owner controls refresh and stale settlement cannot restore disconnect', async () => {
   const id = await call(),
     op = randomUUID()

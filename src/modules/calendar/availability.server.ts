@@ -10,6 +10,8 @@ export function findCalendarSlots(
     windowEnd: string
     now: number
     busy: readonly CalendarInterval[]
+    /** Persisted intervals already include their reservation buffer. */
+    holds?: readonly CalendarInterval[]
   },
 ): CalendarInterval[] {
   policy = Schema.decodeUnknownSync(calendarPolicySchema)(policy)
@@ -24,18 +26,23 @@ export function findCalendarSlots(
     end <= start ||
     end - start > calendarOfferLimits.horizonDays * 86400000 ||
     end > input.now + calendarOfferLimits.horizonDays * 86400000 ||
-    input.busy.length > 10000
+    input.busy.length > 10000 ||
+    (input.holds?.length ?? 0) > 1000
   )
     throw new Error('Invalid Calendar window')
-  const busy = input.busy.map((value) => {
+  function interval(value: CalendarInterval, bufferMinutes: number) {
     if (
       !validCalendarInstant(value.start) ||
       !validCalendarInstant(value.end) ||
       Date.parse(value.start) >= Date.parse(value.end)
     )
       throw new Error('Invalid Calendar interval')
-    return [Date.parse(value.start), Date.parse(value.end) + policy.bufferMinutes * 60000] as const
-  })
+    return [Date.parse(value.start), Date.parse(value.end) + bufferMinutes * 60000] as const
+  }
+  const busy = [
+    ...input.busy.map((value) => interval(value, policy.bufferMinutes)),
+    ...(input.holds ?? []).map((value) => interval(value, 0)),
+  ]
   const format = new Intl.DateTimeFormat('en-CA', {
     timeZone: policy.timeZone,
     year: 'numeric',

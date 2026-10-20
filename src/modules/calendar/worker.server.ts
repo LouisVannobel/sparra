@@ -200,6 +200,12 @@ export async function runCalendarOnce(
       timeMax: new Date(Date.parse(command.windowEnd) + buffer).toISOString(),
     })
     if (command.kind === 'find_slots') {
+      // Observations and concurrent admissions may have changed the holds while
+      // Google was queried. SQL still excludes any later race under its lock.
+      const current = await store.read(command)
+      if (!current || current.fence !== command.fence || current.state !== 'running') {
+        throw new CalendarProviderError('unavailable')
+      }
       await finish({
         state: 'offered',
         slots: findCalendarSlots(policy, {
@@ -208,6 +214,7 @@ export async function runCalendarOnce(
           windowEnd: command.windowEnd,
           now: Date.now(),
           busy,
+          holds: current.blockers.map((hold) => ({ start: hold.start, end: hold.end })),
         }),
       })
       return true

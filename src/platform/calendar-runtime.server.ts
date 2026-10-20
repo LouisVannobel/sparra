@@ -32,12 +32,14 @@ export function createCalendarWorkerResources(env: Readonly<Record<string, strin
       const database = yield* acquireDatabase(readCalendarDatabaseConfig(env), 'calendar_worker')
       const store = createCalendarStore(database.transactions)
       let loop: Promise<void> = Promise.resolve()
+      let loopFailure: Error | undefined
       yield* Effect.addFinalizer(() =>
         Effect.promise(async () => {
           stopping = true
           controller.abort()
           await loop
           database.stop()
+          if (loopFailure) throw loopFailure
         }),
       )
       if (!stopping) {
@@ -49,7 +51,11 @@ export function createCalendarWorkerResources(env: Readonly<Record<string, strin
               await delay(250, undefined, { signal: controller.signal }).catch(() => {})
           }
         })().catch(() => {
-          if (!stopping) fail()
+          // Normal provider cancellation is settled inside runCalendarOnce.
+          // Any rejection escaping it is an unresolved command or cleanup fault,
+          // including faults that arrive after shutdown has started.
+          loopFailure = new Error('Calendar command cleanup or settlement failed')
+          fail()
         })
       }
       return { enabled: true, failure, isReady: () => !stopping && !failed && database.isReady() }

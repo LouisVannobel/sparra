@@ -263,6 +263,7 @@ BEGIN
       RETURN voice.calendar_result_v1(cid,q.id);
     END IF;
     IF o.expires_at<=clock_timestamp()
+      OR o.start<clock_timestamp()+make_interval(mins=>(n.policy->>'noticeMinutes')::int)
       OR ROW(n.id,n.generation,n.policy_revision,n.google_subject,n.calendar_id) IS DISTINCT FROM
     ROW(source.connection_id,source.generation,source.policy_revision,source.google_subject,source.calendar_id) THEN
       RAISE EXCEPTION 'Calendar offer expired' USING ERRCODE='PV202';
@@ -421,6 +422,9 @@ BEGIN
     OR q.possible_send_fence IS NOT NULL
     OR q.lease_until<=clock_timestamp()
     OR q.first_send_deadline<=clock_timestamp() THEN
+    RETURN false;
+  END IF;
+  IF q.window_start<clock_timestamp()+make_interval(mins=>(q.policy->>'noticeMinutes')::int) THEN
     RETURN false;
   END IF;
   SELECT * INTO n FROM public.sparra_calendar_connection WHERE id=q.connection_id

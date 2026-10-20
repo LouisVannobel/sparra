@@ -2,12 +2,20 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { Effect } from 'effect'
 import { createTransactions } from '../../src/platform/db/transactions.server'
 import { createCalendarWorkerResources } from '../../src/platform/calendar-runtime.server'
-type Observation = { events: string[]; active: boolean; block: boolean; fail: boolean; release: () => void }
+type Observation = {
+  events: string[]
+  active: boolean
+  block: boolean
+  fail: boolean
+  failAfterAbort: boolean
+  release: () => void
+}
 const state = vi.hoisted((): Observation => ({
   events: [],
   active: false,
   block: false,
   fail: false,
+  failAfterAbort: false,
   release: () => {},
 }))
 vi.mock('../../src/platform/db/resources.server', () => ({
@@ -47,6 +55,7 @@ vi.mock('../../src/modules/calendar/worker.server', () => ({
       })
     state.active = false
     state.events.push('transport-close')
+    if (state.failAfterAbort) throw new Error('Active command cleanup or settlement failed')
     return false
   },
 }))
@@ -61,11 +70,15 @@ const env = {
 const owned: ReturnType<typeof createCalendarWorkerResources>[] = []
 afterEach(async () => {
   state.release()
-  for (const r of owned.splice(0)) await r.dispose()
+  for (const r of owned.splice(0)) {
+    if (state.fail || state.failAfterAbort) await expect(r.dispose()).rejects.toThrow()
+    else await r.dispose()
+  }
   state.events.length = 0
   state.active = false
   state.block = false
   state.fail = false
+  state.failAfterAbort = false
 })
 test('Calendar absent is inert and independent of missing Hatchet configuration', async () => {
   const r = createCalendarWorkerResources({})
@@ -90,6 +103,18 @@ test('pump failure remains visible after shutdown', async () => {
   const ready = await r.ready()
   await ready.failure
   expect(r.hasFailed()).toBe(true)
-  await r.dispose()
+  await expect(r.dispose()).rejects.toThrow()
   expect(state.events).toContain('pool-close')
+})
+
+test('active shutdown retains cleanup failure and releases the pool only after the command joins', async () => {
+  state.block = true
+  state.failAfterAbort = true
+  const r = createCalendarWorkerResources(env)
+  owned.push(r)
+  await r.ready()
+  await expect.poll(() => state.active).toBe(true)
+  await expect(r.dispose()).rejects.toThrow('Calendar worker cleanup unavailable')
+  expect(r.hasFailed()).toBe(true)
+  expect(state.events).toEqual(['calendar_worker:1', 'command', 'transport-close', 'pool-stop', 'pool-close'])
 })

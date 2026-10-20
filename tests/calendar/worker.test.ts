@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest'
+import { expect, test, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import {
   runCalendarOnce,
@@ -175,12 +175,20 @@ test('lost finish acknowledgement reads committed result without another POST', 
   expect(f.calls.filter((x) => x === 'POST')).toHaveLength(1)
   expect(f.calls).toContain('read')
 })
-test('lost deferred-finish acknowledgement recognizes the durable pending state',async()=>{
- const f=fixture()
- f.provider.freeBusy=async()=>{throw new CalendarProviderError('unavailable')}
- f.store.finish=async(_q,result)=>{expect(result.state).toBe('retry');f.q={...f.q,state:'pending'};throw new Error('Lost commit')}
- await expect(runCalendarOnce(f.store,calendarFixtureConfig,new AbortController().signal,f.provider)).resolves.toBe(true)
- expect(f.calls).not.toContain('POST')
+test('lost deferred-finish acknowledgement recognizes the durable pending state', async () => {
+  const f = fixture()
+  f.provider.freeBusy = async () => {
+    throw new CalendarProviderError('unavailable')
+  }
+  f.store.finish = async (_q, result) => {
+    expect(result.state).toBe('retry')
+    f.q = { ...f.q, state: 'pending' }
+    throw new Error('Lost commit')
+  }
+  await expect(
+    runCalendarOnce(f.store, calendarFixtureConfig, new AbortController().signal, f.provider),
+  ).resolves.toBe(true)
+  expect(f.calls).not.toContain('POST')
 })
 test('disconnect or expired first-send deadline prevents a write after freeBusy', async () => {
   const f = fixture()
@@ -295,4 +303,97 @@ test('an existing refresh owner prevents a second token exchange or any provider
   await runCalendarOnce(f.store, calendarFixtureConfig, new AbortController().signal, f.provider)
   expect(f.finishes[0]?.state).toBe('retry')
   expect(f.calls).toEqual(['claim', 'close'])
+})
+
+test.each(['unknown', 'cancelled', 'moved'] as const)(
+  'search selects three genuinely free slots after refreshing %s local holds',
+  async (observation) => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-26T07:00:00Z'))
+    try {
+      const f = fixture(),
+        bookingId = randomUUID(),
+        policy = calendarFixturePolicy()
+      f.q = {
+        ...f.q,
+        kind: 'find_slots',
+        eventId: null,
+        policy: { ...policy, bufferMinutes: 15, noticeMinutes: 0 },
+        windowStart: '2026-10-26T08:00:00Z',
+        windowEnd: '2026-10-26T11:00:00Z',
+        blockers: [
+          {
+            id: bookingId,
+            eventId: 'held',
+            calendarId: f.q.calendarId,
+            googleSubject: f.q.googleSubject,
+            state: observation === 'unknown' ? 'unknown' : 'confirmed',
+            start: '2026-10-26T08:00:00Z',
+            end: '2026-10-26T09:00:00Z',
+            observedState: observation === 'unknown' ? null : 'confirmed',
+          },
+        ],
+      }
+      f.provider.getEvent = async () =>
+        observation === 'cancelled'
+          ? { id: 'held', status: 'cancelled' }
+          : {
+              id: 'held',
+              status: 'confirmed',
+              start: { dateTime: '2026-10-26T09:00:00Z' },
+              end: { dateTime: '2026-10-26T09:30:00Z' },
+            }
+      f.store.observe = async () => {
+        f.q = {
+          ...f.q,
+          blockers:
+            observation === 'cancelled'
+              ? []
+              : [{ ...f.q.blockers[0]!, start: '2026-10-26T09:00:00Z', end: '2026-10-26T09:45:00Z' }],
+        }
+        return true
+      }
+      await runCalendarOnce(f.store, calendarFixtureConfig, new AbortController().signal, f.provider)
+      const result = f.finishes[0]
+      expect(result?.state).toBe('offered')
+      if (result?.state !== 'offered') throw new Error('Expected offers')
+      expect(result.slots.map((slot) => slot.start)).toEqual(
+        observation === 'unknown'
+          ? ['2026-10-26T09:00:00.000Z', '2026-10-26T09:15:00.000Z', '2026-10-26T09:30:00.000Z']
+          : observation === 'cancelled'
+            ? ['2026-10-26T08:00:00.000Z', '2026-10-26T08:15:00.000Z', '2026-10-26T08:30:00.000Z']
+            : ['2026-10-26T08:00:00.000Z', '2026-10-26T08:15:00.000Z', '2026-10-26T09:45:00.000Z'],
+      )
+      expect(f.calls).toContain('read')
+    } finally {
+      vi.useRealTimers()
+    }
+  },
+)
+
+test('shutdown cancellation settles safely but transport closure and unresolved settlement still reject', async () => {
+  for (const failure of ['none', 'close', 'settlement']) {
+    const f = fixture(),
+      controller = new AbortController()
+    f.provider.freeBusy = async () => {
+      controller.abort()
+      throw new CalendarProviderError('unavailable')
+    }
+    if (failure === 'close')
+      f.provider.close = async () => {
+        throw new Error('Transport did not close')
+      }
+    if (failure === 'settlement') {
+      f.store.finish = async () => {
+        throw new Error('Settlement failed')
+      }
+      f.store.read = async () => {
+        throw new Error('Readback failed')
+      }
+    }
+    const pending = runCalendarOnce(f.store, calendarFixtureConfig, controller.signal, f.provider)
+    if (failure === 'none') await expect(pending).resolves.toBe(true)
+    else await expect(pending).rejects.toThrow()
+    expect(f.calls).not.toContain('POST')
+  }
 })
