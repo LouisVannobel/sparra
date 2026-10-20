@@ -103,3 +103,8 @@
 .sparra-billing [role=alert] { border-inline-start:3px solid var(--sp-ink); padding-inline-start:12px; }
 .sparra-billing [tabindex="-1"]:focus { outline:2px solid var(--sp-ink); outline-offset:4px; }
 .sparra-billing-actions { display:flex; flex-wrap:wrap; gap:12px; }
+.sparra-calendar-actions,.sparra-calendar-row{display:flex;flex-wrap:wrap;gap:1rem;align-items:end;margin-block:1rem}
+.sparra-calendar-day{margin-block:1rem}
+.sparra-calendar-row label,.sparra-calendar-number{display:flex;flex-direction:column;gap:.4rem}
+.sparra-calendar-row input{font:inherit;color:inherit;background:transparent;border:1px solid currentColor;border-radius:.5rem;padding:.65rem;max-width:100%;box-sizing:border-box}
+.sparra-calendar-row input:focus-visible{outline:2px solid currentColor;outline-offset:3px}

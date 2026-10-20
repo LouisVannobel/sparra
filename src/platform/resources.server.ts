@@ -4,6 +4,7 @@ import type { createApplicationAuth } from '../modules/auth/auth.server'
 import type { createPersonalWorkspaces } from '../modules/workspaces/personal.server'
 import type { createAudioReaderOwner } from '../modules/sparra/audio-reader.server'
 import type { createApplicationBilling } from '../modules/billing/billing.server'
+import type { createCalendarOperations } from '../modules/calendar/connection.server'
 
 export type WebResources = Readonly<{
   transactions: AuthTransactions
@@ -12,6 +13,7 @@ export type WebResources = Readonly<{
   workspaces: ReturnType<typeof createPersonalWorkspaces>
   audioReader?: ReturnType<typeof createAudioReaderOwner>
   billing?: ReturnType<typeof createApplicationBilling>
+  calendar?: ReturnType<typeof createCalendarOperations>
   isReady(): boolean
 }>
 

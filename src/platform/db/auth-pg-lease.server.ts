@@ -5,11 +5,13 @@ import { authSchema } from '../../modules/auth/schema.server'
 import type { AdmittedPrincipal } from '../../modules/auth/session.server'
 import { workspace, workspaceSchema } from '../../modules/workspaces/schema.server'
 import { billingSchema } from '../../modules/billing/schema.server'
+import { calendarSchema } from '../../modules/calendar/schema.server'
 import { eq } from 'drizzle-orm'
 import { guardedPgQuery } from './guarded-pg-query.server'
 
 export type AuthQueryDb = Pick<NodePgDatabase<typeof authSchema>, 'select' | 'insert' | 'update' | 'delete'>
-export type WorkspaceQueryDb = Pick<NodePgDatabase<typeof workspaceSchema>, 'select' | 'insert' | 'update'>
+const personalSchema = { ...workspaceSchema, ...calendarSchema }
+export type WorkspaceQueryDb = Pick<NodePgDatabase<typeof personalSchema>, 'select' | 'insert' | 'update'>
 export type PersonalWorkspaceLease = Readonly<{ db: WorkspaceQueryDb; workspaceId: string }>
 export type BillingQueryDb = Pick<NodePgDatabase<typeof billingSchema>, 'select'>
 export type BillingWorkspaceLease = Readonly<{ db: BillingQueryDb; workspaceId: string }>
@@ -164,7 +166,7 @@ export async function openAuthPgLease(client: PoolClient, options: AuthPgLeaseOp
     accepting = true
     const query = guardedPgQuery(raw, admit, queryError)
     const guarded = Proxy.revocable<PoolClient>(client, {
-      get(_target, key): unknown { if (key === 'query') return query; throw error() },
+      get(_target, key): typeof query { if (key === 'query') return query; throw error() },
       getOwnPropertyDescriptor() { throw error() },
       ownKeys() { throw error() },
       getPrototypeOf() { throw error() },
@@ -206,7 +208,7 @@ export async function openAuthPgLease(client: PoolClient, options: AuthPgLeaseOp
         const selected = await admit(() => raw("SELECT set_config('app.tenant_id', $1, true) AS tenant_id", [workspaceId]))
         const verified = await admit(() => raw("SELECT current_setting('app.tenant_id', true) AS tenant_id"))
         if (selected.rows.length !== 1 || selected.rows[0].tenant_id !== workspaceId || verified.rows.length !== 1 || verified.rows[0].tenant_id !== workspaceId) throw queryError()
-        const tenant = drizzle({ client: guarded.proxy, schema: workspaceSchema })
+        const tenant = drizzle({ client: guarded.proxy, schema: personalSchema })
         const [locked] = await tenant.select({ id: workspace.id, ownerUserId: workspace.ownerUserId, kind: workspace.kind, lifecycle: workspace.lifecycle, organization: workspace.authOrganizationId }).from(workspace).where(eq(workspace.id, workspaceId)).for('update')
         if (!locked || locked.ownerUserId !== principal.userId || locked.kind !== 'personal' || locked.lifecycle !== 'active' || locked.organization !== null) throw queryError()
         return Object.freeze({ workspaceId, db: Object.freeze({ select: tenant.select.bind(tenant), insert: tenant.insert.bind(tenant), update: tenant.update.bind(tenant) }) })

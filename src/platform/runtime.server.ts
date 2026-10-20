@@ -8,6 +8,8 @@ import { createPersonalWorkspaces } from '../modules/workspaces/personal.server'
 import { createAudioReaderOwner, readAudioIncarnation } from '../modules/sparra/audio-reader.server'
 import { readStripeConfig, type StripeConfig } from '../modules/billing/stripe-config.server'
 import { createApplicationBilling } from '../modules/billing/billing.server'
+import { createCalendarOperations } from '../modules/calendar/connection.server'
+import { readCalendarConfig, type CalendarConfig } from '../modules/calendar/config.server'
 
 class Resources extends Context.Service<Resources, WebResources>()('app/web/resources') {}
 
@@ -20,12 +22,15 @@ export function createWebResources(env: Readonly<Record<string, string | undefin
   // intact and contain a rejected/partial configuration inside billing alone.
   let stripeConfig: StripeConfig | null
   try { stripeConfig = readStripeConfig(env) } catch { stripeConfig = null }
+  let calendarConfig: CalendarConfig | null
+  try { calendarConfig = readCalendarConfig(env) } catch { calendarConfig = null }
   let stopping = false
   let disposal: Promise<void> | undefined
   let readiness: Promise<WebResources> | undefined
   let stopDatabase = () => {}
   let audioReader: ReturnType<typeof createAudioReaderOwner> | undefined
   let billing: ReturnType<typeof createApplicationBilling> | undefined
+  let calendar: ReturnType<typeof createCalendarOperations> | undefined
   const layer = Layer.effect(Resources, Effect.gen(function* () {
     const databaseResource = yield* acquireDatabase(database)
     stopDatabase = databaseResource.stop
@@ -42,18 +47,19 @@ export function createWebResources(env: Readonly<Record<string, string | undefin
     ) : null
     const workspaces = createPersonalWorkspaces(transactions)
     billing = createApplicationBilling(transactions, auth, stripeConfig)
+    calendar = createCalendarOperations(transactions, calendarConfig)
     audioReader = yield* Effect.acquireRelease(
       Effect.tryPromise({ try: async () => createAudioReaderOwner(transactions, await readAudioIncarnation(env)),
         catch: () => new Error('Audio reader unavailable') }),
       reader => Effect.promise(() => reader.shutdown()),
     )
-    return Object.freeze({ transactions, limiter, auth, workspaces, audioReader, billing, isReady: () => !stopping && databaseResource.isReady() && limiter.isReady() })
+    return Object.freeze({ transactions, limiter, auth, workspaces, audioReader, billing, calendar, isReady: () => !stopping && databaseResource.isReady() && limiter.isReady() })
   }))
   const runtime = ManagedRuntime.make(layer)
   function dispose() {
     stopping = true
     return disposal ??= (async () => {
-      const stopped = await Promise.allSettled([audioReader?.shutdown(), billing?.stop()])
+      const stopped = await Promise.allSettled([audioReader?.shutdown(), billing?.stop(), calendar?.stop()])
       if (stopped.some(result => result.status === 'rejected')) throw new Error('Application resource cleanup unproven')
       stopDatabase()
       await runtime.dispose()
