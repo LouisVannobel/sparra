@@ -1,0 +1,195 @@
+import { Redacted, Schema } from 'effect'
+import { Agent, request, type Dispatcher } from 'undici'
+import type { CalendarConfig } from './config.server'
+
+export const GOOGLE_CALENDAR_SCOPES = [
+  'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
+  'https://www.googleapis.com/auth/calendar.events.freebusy',
+  'https://www.googleapis.com/auth/calendar.events',
+] as const
+
+export type CalendarProviderErrorCode = 'unavailable' | 'unauthorized' | 'rate_limited' | 'not_found' | 'conflict' | 'rejected' | 'unknown'
+export class CalendarProviderError extends Error {
+  constructor(readonly code: CalendarProviderErrorCode) { super(`Calendar provider ${code}`); this.name = 'CalendarProviderError' }
+}
+
+const text = (max: number) => Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(max))
+const identifier = text(1024).check(Schema.makeFilter(value => value !== '.' && value !== '..'))
+const dateTime = text(64).check(Schema.isPattern(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?(?:Z|[+-]\d\d:\d\d)$/), Schema.makeFilter(value => Number.isFinite(Date.parse(value))))
+const time = Schema.Struct({ dateTime, timeZone: Schema.optionalKey(text(128)) })
+const privateProperties = Schema.Record(text(128), text(1024)).check(Schema.makeFilter(value => Object.keys(value).length <= 16))
+const correlation = Schema.Struct({ private: privateProperties })
+const eventShape = Schema.Struct({
+  id: text(1024), status: Schema.Literals(['confirmed', 'tentative', 'cancelled']),
+  start: time, end: time,
+  htmlLink: Schema.optionalKey(text(4096)),
+  extendedProperties: Schema.optionalKey(correlation),
+})
+export type GoogleEvent = typeof eventShape.Type
+const calendarShape = Schema.Struct({ id: text(1024), summary: text(1024), timeZone: text(128), accessRole: Schema.Literals(['freeBusyReader', 'reader', 'writer', 'owner']) })
+export type GoogleCalendar = typeof calendarShape.Type
+const calendarPage = Schema.Struct({ items: Schema.optionalKey(Schema.Array(calendarShape).check(Schema.isMaxLength(250))), nextPageToken: Schema.optionalKey(text(4096)) })
+const tokenShape = Schema.Struct({
+  access_token: text(16384), token_type: Schema.Literals(['Bearer', 'bearer']),
+  refresh_token: Schema.optionalKey(text(16384)),
+  expires_in: Schema.optionalKey(Schema.Finite.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 31536000 }))),
+  scope: text(32768).check(Schema.isPattern(/^[\x21\x23-\x5B\x5D-\x7E]+(?: [\x21\x23-\x5B\x5D-\x7E]+)*$/)),
+})
+export type GoogleTokenResponse = { readonly accessToken: string; readonly tokenType: 'Bearer'; readonly refreshToken?: string; readonly expiresIn?: number; readonly grantedScopes: readonly string[] }
+export type GoogleEventInput = {
+  readonly id: string; readonly summary: string; readonly description?: string
+  readonly start: { readonly dateTime: string; readonly timeZone?: string }
+  readonly end: { readonly dateTime: string; readonly timeZone?: string }
+  readonly extendedProperties: { readonly private: Readonly<Record<string, string>> }
+}
+const eventInput = Schema.Struct({ id: text(1024).check(Schema.isPattern(/^[0-9a-v]{5,1024}$/)), summary: text(1024), description: Schema.optionalKey(text(8192)), start: time, end: time, extendedProperties: correlation })
+const identity = Schema.Struct({ sub: text(255), email: text(320), email_verified: Schema.Boolean })
+const interval = Schema.Struct({ start: dateTime, end: dateTime })
+const freeBusyShape = Schema.Struct({ calendars: Schema.Record(text(1024), Schema.Struct({ busy: Schema.optionalKey(Schema.Array(interval).check(Schema.isMaxLength(10000))), errors: Schema.optionalKey(Schema.Array(Schema.Unknown).check(Schema.isMaxLength(100))) })) })
+
+const API = 'https://www.googleapis.com/calendar/v3'
+const TOKEN = 'https://oauth2.googleapis.com'
+const MAX_BYTES = 1024 * 1024
+
+function pathId(value: string): string {
+  try { return encodeURIComponent(Schema.decodeUnknownSync(identifier)(value)) } catch { throw new CalendarProviderError('rejected') }
+}
+
+function httpError(status: number, write: boolean): CalendarProviderError {
+  if (status === 401) return new CalendarProviderError('unauthorized')
+  if (status === 404) return new CalendarProviderError('not_found')
+  if (status === 409) return new CalendarProviderError('conflict')
+  if (status === 429) return new CalendarProviderError('rate_limited')
+  if (status >= 400 && status < 500) return new CalendarProviderError('rejected')
+  return new CalendarProviderError(write ? 'unknown' : 'unavailable')
+}
+
+/** No retry/redirect interceptor is installed. An injected dispatcher remains caller-owned. */
+export function createGoogleCalendarClient(config: CalendarConfig, signal: AbortSignal, deadlineAtMs: number, suppliedDispatcher?: Dispatcher) {
+  const dispatcher = suppliedDispatcher ?? new Agent({ connections: 2, pipelining: 1, maxOrigins: 3, maxHeaderSize: 16384, maxResponseSize: MAX_BYTES, connectTimeout: 10000, headersTimeout: 10000, bodyTimeout: 10000 })
+  const shutdown = new AbortController()
+  const active = new Set<Promise<unknown>>()
+  let closed = false
+  let closing: Promise<void> | undefined
+
+  function invoke<T>(write: boolean, operation: (invocationSignal: AbortSignal) => Promise<T>): Promise<T> {
+    if (closed || signal.aborted || shutdown.signal.aborted || !Number.isFinite(deadlineAtMs) || deadlineAtMs <= Date.now()) return Promise.reject(new CalendarProviderError('unavailable'))
+    const timeout = new AbortController()
+    const timer = setTimeout(() => timeout.abort(), Math.max(1, Math.min(10000, deadlineAtMs - Date.now())))
+    const invocationSignal = AbortSignal.any([signal, shutdown.signal, timeout.signal])
+    const pending = (async () => {
+      try { return await operation(invocationSignal) } catch (error) {
+        if (error instanceof CalendarProviderError) throw error
+        throw new CalendarProviderError(write ? 'unknown' : invocationSignal.aborted ? 'unavailable' : 'rejected')
+      } finally { clearTimeout(timer) }
+    })()
+    active.add(pending)
+    void pending.then(() => active.delete(pending), () => active.delete(pending))
+    return pending
+  }
+
+  async function send<T>(url: string, method: 'GET' | 'POST', invocationSignal: AbortSignal, decode: (value: unknown) => T, options: { accessToken?: string; body?: string; form?: boolean; write?: boolean; empty?: boolean } = {}): Promise<T> {
+    let response: Dispatcher.ResponseData
+    try {
+      response = await request(url, {
+        dispatcher, method, signal: invocationSignal, idempotent: false,
+        headersTimeout: 10000, bodyTimeout: 10000,
+        headers: { accept: 'application/json', ...(options.accessToken ? { authorization: `Bearer ${options.accessToken}` } : {}), ...(options.body !== undefined ? { 'content-type': options.form ? 'application/x-www-form-urlencoded' : 'application/json' } : {}) },
+        ...(options.body !== undefined ? { body: options.body } : {}),
+      })
+    } catch { throw new CalendarProviderError(options.write ? 'unknown' : 'unavailable') }
+    try {
+      const oauthFailure = url === `${TOKEN}/token` && response.statusCode === 400
+      if (!oauthFailure && (response.statusCode < 200 || response.statusCode >= 300)) throw httpError(response.statusCode, options.write ?? false)
+      const chunks: Buffer[] = []
+      let bytes = 0
+      for await (const chunk of response.body) {
+        if (!(chunk instanceof Uint8Array) && typeof chunk !== 'string') throw new CalendarProviderError(options.write ? 'unknown' : 'rejected')
+        const buffer = Buffer.from(chunk)
+        bytes += buffer.length
+        if (bytes > MAX_BYTES) throw new CalendarProviderError(options.write ? 'unknown' : 'rejected')
+        chunks.push(buffer)
+      }
+      if (options.empty) return decode(undefined)
+      const value: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+      if (oauthFailure) {
+        const failure = Schema.decodeUnknownSync(Schema.Struct({ error: text(128) }))(value)
+        throw new CalendarProviderError(failure.error === 'invalid_grant' ? 'unauthorized' : 'rejected')
+      }
+      return decode(value)
+    } finally { if (!response.body.readableEnded) response.body.destroy() }
+  }
+
+  async function tokenRequest(fields: Readonly<Record<string, string>>, invocationSignal: AbortSignal): Promise<GoogleTokenResponse> {
+    const body = new URLSearchParams({ client_id: Redacted.value(config.clientId), client_secret: Redacted.value(config.clientSecret), ...fields }).toString()
+    const parsed = await send(`${TOKEN}/token`, 'POST', invocationSignal, Schema.decodeUnknownSync(tokenShape), { body, form: true })
+    const grantedScopes = [...new Set(parsed.scope.split(' '))]
+    if (grantedScopes.length > 32) throw new CalendarProviderError('rejected')
+    return { accessToken: parsed.access_token, tokenType: 'Bearer', grantedScopes, ...(parsed.refresh_token ? { refreshToken: parsed.refresh_token } : {}), ...(parsed.expires_in ? { expiresIn: parsed.expires_in } : {}) }
+  }
+
+  return {
+    exchangeCode(input: { code: string; codeVerifier: string; redirectUri: string }) {
+      return invoke(false, s => tokenRequest({ grant_type: 'authorization_code', code: input.code, code_verifier: input.codeVerifier, redirect_uri: input.redirectUri }, s))
+    },
+    refreshTokens(refreshToken: string) { return invoke(false, s => tokenRequest({ grant_type: 'refresh_token', refresh_token: refreshToken }, s)) },
+    revokeToken(token: string) { return invoke(false, async s => { await send(`${TOKEN}/revoke`, 'POST', s, () => undefined, { body: new URLSearchParams({ token }).toString(), form: true, empty: true }) }) },
+    userInfo(accessToken: string) {
+      return invoke(false, async s => {
+        const value = await send('https://openidconnect.googleapis.com/v1/userinfo', 'GET', s, Schema.decodeUnknownSync(identity), { accessToken })
+        return { sub: value.sub, email: value.email, emailVerified: value.email_verified }
+      })
+    },
+    listCalendars(accessToken: string) {
+      return invoke(false, async s => {
+        const result: GoogleCalendar[] = []
+        const seen = new Set<string>()
+        let pageToken: string | undefined
+        for (let page = 0; page < 10; page++) {
+          const query = new URLSearchParams({ maxResults: '250', ...(pageToken ? { pageToken } : {}) })
+          const value = await send(`${API}/users/me/calendarList?${query}`, 'GET', s, Schema.decodeUnknownSync(calendarPage), { accessToken })
+          result.push(...value.items ?? [])
+          if (!value.nextPageToken) return result
+          if (seen.has(value.nextPageToken)) throw new CalendarProviderError('rejected')
+          pageToken = value.nextPageToken
+          seen.add(pageToken)
+        }
+        throw new CalendarProviderError('rejected')
+      })
+    },
+    freeBusy(accessToken: string, input: { calendarId: string; timeMin: string; timeMax: string }) {
+      return invoke(false, async s => {
+        Schema.decodeUnknownSync(Schema.Struct({ calendarId: identifier, timeMin: dateTime, timeMax: dateTime }))(input)
+        if (Date.parse(input.timeMax) <= Date.parse(input.timeMin)) throw new CalendarProviderError('rejected')
+        const value = await send(`${API}/freeBusy`, 'POST', s, Schema.decodeUnknownSync(freeBusyShape), { accessToken, body: JSON.stringify({ timeMin: input.timeMin, timeMax: input.timeMax, items: [{ id: input.calendarId }] }) })
+        const calendar = Object.hasOwn(value.calendars, input.calendarId) ? value.calendars[input.calendarId] : undefined
+        if (!calendar || calendar.errors?.length || !calendar.busy || calendar.busy.some(busy => Date.parse(busy.end) <= Date.parse(busy.start))) throw new CalendarProviderError('rejected')
+        return calendar.busy
+      })
+    },
+    insertEvent(accessToken: string, input: { calendarId: string; event: GoogleEventInput }) {
+      return invoke(true, async s => {
+        let event: typeof eventInput.Type
+        try { event = Schema.decodeUnknownSync(eventInput, { onExcessProperty: 'error' })(input.event) } catch { throw new CalendarProviderError('rejected') }
+        const value = await send(`${API}/calendars/${pathId(input.calendarId)}/events?sendUpdates=none`, 'POST', s, Schema.decodeUnknownSync(eventShape), { accessToken, body: JSON.stringify(event), write: true })
+        if (value.id !== event.id || value.status !== 'confirmed' || Date.parse(value.start.dateTime) !== Date.parse(event.start.dateTime) || Date.parse(value.end.dateTime) !== Date.parse(event.end.dateTime) || Object.entries(event.extendedProperties.private).some(([key, expected]) => value.extendedProperties?.private[key] !== expected)) throw new CalendarProviderError('unknown')
+        return value
+      })
+    },
+    getEvent(accessToken: string, input: { calendarId: string; eventId: string }) {
+      return invoke(false, async s => {
+        const value = await send(`${API}/calendars/${pathId(input.calendarId)}/events/${pathId(input.eventId)}`, 'GET', s, Schema.decodeUnknownSync(eventShape), { accessToken })
+        if (value.id !== input.eventId) throw new CalendarProviderError('rejected')
+        return value
+      })
+    },
+    close(): Promise<void> {
+      if (!closing) {
+        closed = true
+        shutdown.abort()
+        closing = (async () => { await Promise.allSettled([...active]); if (!suppliedDispatcher) await dispatcher.close() })()
+      }
+      return closing
+    },
+  }
+}
