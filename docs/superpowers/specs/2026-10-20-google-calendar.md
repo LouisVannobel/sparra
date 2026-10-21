@@ -69,4 +69,3 @@ Avant activation : tests d'isolation, consentement/renouvellement/révocation, p
 - https://developers.google.com/workspace/calendar/api/v3/reference/events/get
 - https://developers.google.com/identity/protocols/oauth2/web-server
 - https://developers.google.com/identity/protocols/oauth2#expiration
-

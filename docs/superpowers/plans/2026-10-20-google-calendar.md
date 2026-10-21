@@ -115,4 +115,3 @@
 - [ ] Configure the separate Google Calendar OAuth project/client using the owner's authorized account; enable the API, canonical callback, scoped consent and protected secret delivery. If sign-in/MFA/consent requires the owner, request only that action asynchronously while continuing source/CI work.
 - [ ] Prepare immutable owned web/worker/Voice release and forward-migration recovery, then deploy to owned ops02 via the actual ops01 Dokploy manager. Never use the unrelated OVH Dokploy MCP. Preserve the phone's financial authority, existing SQLite state and unrelated services.
 - [ ] Connect the real calendar and save real services/hours. Verify one genuine controlled phone appointment, Google event and Inbox reference with no invented data. Only then claim end-to-end booking ready; report source, hosted, provider and human-call acceptance separately.
-
