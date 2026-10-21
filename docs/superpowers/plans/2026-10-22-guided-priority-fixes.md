@@ -55,8 +55,11 @@
 - [ ] Add native compiled Business regression(s) for declined/accepted language departure with enterprise/prepared FAQ work, using the existing test's native identity/store helpers. Parent runs these and the existing targeted auth-refusal case only after a coordinated disposable-store window; component-browser RED/GREEN can run first without Docker. Do not modernize old fixtures or replay unrelated cases.
 - [ ] Commit owned files and write report. Independent task review.
 
+Task 2 review adjustment: the new abandonment guard also affects three deliberate departures in the existing native browser consumer. Add one-shot dialog type checks and acceptance at those exact two dirty reloads and the uncertain-save Account departure; preserve the fixture and all existing assertions. Include the existing cancellation scenario in the coordinated native smoke. This adapts the consumer to the intended confirmation without a global auto-accept handler.
+
 ### Task 3: Combined qualification and final independent review
 
+- [ ] Bind the new Business browser consumer and expanded Calendar leaves to the existing mandatory Calendar test phase and its exact qualification manifest. Update matching positive/adverse policy fixtures and declare the new browser entry for Fallow; preserve fail-closed counts, identity and retirement checks. This is necessary test integration for these corrections, not a CI redesign.
 - [ ] Run focused unit/UI and component-browser tests, typecheck, lint and web/worker build in this worktree. No shared node_modules scratch directory.
 - [ ] If a compiled native smoke is necessary, coordinate a sequential resource window with the other chat before using disposable stores. Keep the old legacy fixture failures separate, not repaired or suppressed here.
 - [ ] Review final diff for scope, native cancellation/auth lifetimes and both task contracts using a fresh whole-diff reviewer. Fix material findings and re-review.
