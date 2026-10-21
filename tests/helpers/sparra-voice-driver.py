@@ -45,6 +45,10 @@ async def main():
             print(json.dumps({"phase": "driver-models"}), flush=True)
         sys.path.insert(0, str(Path(__file__).parents[1]))
         voice_tests = Path(__import__("projetv0_voice").__file__).parents[2] / "tests" / "integration"
+        voice_root = voice_tests.parents[1]
+        if "source_root" in incoming:
+            assert voice_root == selected_source.parent
+        sys.path.insert(0, str(voice_root))
         sys.path.insert(0, str(voice_tests))
         from sparra_connected_scenario import connected
         if request.get("audio_candidate"):
