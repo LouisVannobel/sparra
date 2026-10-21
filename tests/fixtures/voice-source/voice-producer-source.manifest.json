@@ -1,7 +1,7 @@
 {
   "repository": "LouisVannobel/projetV0-voice",
-  "commit": "1569200e3f50e547ab3851c313d092565a3d9e6d",
-  "tree": "ae84a041716a02c019e124fda40a3a84eda980fe",
+  "commit": "990c2ad7b83da72b535772991b23602afc6a7567",
+  "tree": "54ada63dee46192371f76a1b1567e30c69908ad5",
   "owned_ref": "refs/heads/main",
   "input_roots": [
     ".python-version",
@@ -14,9 +14,9 @@
     "deployment-profiles",
     "tests/integration/sparra_connected_scenario.py"
   ],
-  "archive_sha256": "0fc3fc126ca27ed8b2cfbdba6109b9fe078d75ca91c406fe77ae3fb814bde741",
-  "archive_size": 402839,
-  "decoded_source_bytes": 1930866,
+  "archive_sha256": "2f5ca2c313584d290512f36881cf1373c845af189a12fb0494ec03adf5736813",
+  "archive_size": 402976,
+  "decoded_source_bytes": 1931238,
   "members": [
     {
       "path": ".python-version",
@@ -62,9 +62,9 @@
     },
     {
       "path": "pyproject.toml",
-      "size": 1307,
-      "git_blob": "1f2e768d689a8a34cbcdf27907b9536f36fd5b41",
-      "sha256": "baab44657ea99f492454ef57745e632412fb4959535b3fb471db679875ce9052"
+      "size": 1527,
+      "git_blob": "f8b6609caee0ab4b53e280a0178293b0cd178bb9",
+      "sha256": "48af3b78bd9b7ed1be12174a8c448f501539bb23068d75f954af00c252198641"
     },
     {
       "path": "scripts/export_runtime_contract.py",
@@ -362,9 +362,9 @@
     },
     {
       "path": "uv.lock",
-      "size": 348336,
-      "git_blob": "e63478125bd881b08c514d9f5f04b22335cf60d8",
-      "sha256": "505c5ca152752a10c1043f282c8d9d3f5fa5d04828ce9f8b088a2f861bfb6118"
+      "size": 348488,
+      "git_blob": "c34ef47504f3c24701f09efd0e7c08036704ca62",
+      "sha256": "dfc95727e1150d814493634d75fc6f9411c8daa03a9d7f321d4babfc8d252311"
     }
   ]
 }
