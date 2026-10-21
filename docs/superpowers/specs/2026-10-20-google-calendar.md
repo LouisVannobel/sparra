@@ -60,6 +60,10 @@ L'événement contient seulement la prestation, la date et une référence avec 
 
 Avant activation : tests d'isolation, consentement/renouvellement/révocation, permissions partielles, conflits, résultat perdu, rejeu, interruption avant/après envoi, changement d'heure et fin d'appel. Puis une vraie réservation contrôlée : voix audible, date/service corrects, événement dans le bon agenda et statut/référence concordants dans l'Inbox. Aucun double de test ne prouve ce dernier critère.
 
+## Qualification finale de la maintenabilité
+
+La tâche 4d corrige les erreurs de code mort et de complexité introduites signalées par le contrôle Fallow 3.18.0 inchangé, après le passage réel des deux cohortes natives complètes. La revue Oracle ciblée autorise uniquement des responsabilités privées cohérentes et des éditeurs contrôlés. Le worker conserve la transition d'envoi possible avant toute attente d'insertion extraite, ses lectures après accusé perdu et son propriétaire de clôture. Le formulaire conserve un seul verrou et contrôleur d'annulation ; une annulation empêche les actions dépendantes et la publication d'un résultat tardif. Les tests mesurent le chemin réellement exécuté. Aucun nouveau cadre générique, relâchement de seuil ou changement de l'autorité SQL, vocale ou financière n'appartient à ce lot. La qualification native, la couverture et les contrôles hébergés doivent repasser sur la source finale.
+
 ## Références officielles
 
 - https://developers.google.com/workspace/calendar/api/auth
