@@ -6,7 +6,7 @@
 
 **Architecture:** One native Google connector owned by Effect, with owner settings on Entreprise. Voice submits bounded PostgreSQL commands through its existing deployment binding; one small independent worker pump executes and reconciles them. Native Pipecat tools retain real caller-turn authority.
 
-**Tech Stack:** Existing pinned TanStack Start, Effect 4, Better Auth 1.7.4, Drizzle/PostgreSQL, Undici 7.30.1, Python 3.13 and Pipecat 1.12.0; no dependency upgrade.
+**Tech Stack:** Existing pinned TanStack Start, Effect 4, Better Auth 1.7.4, Drizzle/PostgreSQL, Undici 7.30.1, Python 3.13 and Pipecat 1.12.0. Task 4a is the narrowly qualified security exception for the existing aiohttp/yarl transitive lock entries.
 
 **Spec:** `docs/superpowers/specs/2026-10-20-google-calendar.md`
 
@@ -84,6 +84,16 @@
 - [ ] Extend the existing native tool guard explicitly for typed Calendar arguments, preserving the single caller-turn owner and bounded tool count. Fetch the actual catalogue after admission; unavailable means message-taking only. Send a short deterministic recap, reuse existing Telnyx playback-mark acknowledgement with a distinct recap namespace, then require a new real caller acceptance tied to that exact recap/offer and recorded turn UUID. If ambiguous or interrupted, ask again rather than submit. Confirmation evidence is native-generated and never part of model-controlled tool arguments.
 - [ ] Add typed methods to the existing Psycopg sink, retaining its native transaction/unknown-commit boundary. Release the pool connection before each polling delay. No Google token, new orchestration runtime or provider client in Voice.
 - [ ] Speak a confirmed result only for a verified provider booking; suppress stale output after barge-in. Unknown/conflict preserves a useful Inbox request. Run covering pytest, Ruff and mypy, then full offline Voice gate once before final qualification. Commit/report.
+
+### Task 4a: Qualify the existing Voice dependency security patch
+
+**Reason:** The unchanged hosted repository security gate failed on aiohttp 3.14.3, reporting CVE-2026-111064 and GHSA-2g87-pp6c-29x5. Official upstream advisories fix these in 3.14.4; 3.14.5 is the current non-yanked patch and adds a WebSocket control-frame compatibility fix. It requires yarl >=1.25.1; the current lock has 1.24.5. The feature's Pipecat/Python/provider pins remain unchanged.
+
+**Files:** Voice `uv.lock`, only the two consumed package entries and necessary artifact metadata. No new direct dependency, workflow change, security ignore, model/provider or financial change. Use existing native consumers and immutable image/security gates.
+
+- [ ] After Task 4 source correction/re-review, refresh exactly aiohttp 3.14.5 and yarl 1.25.1, both officially published, non-yanked and available for Python 3.13 Windows/Linux. Preserve all other lock entries; report any unavoidable solver delta before broadening.
+- [ ] Run frozen lock/sync, actual existing affected native HTTP/WebSocket consumers, Ruff and mypy. Dependency refresh does not need an implementation-mirroring version test. Record the hosted security failure as RED, and require a new actual repository scan plus full source/image qualification at the new exact source before release.
+- [ ] Independent review of the bounded package delta/compatibility evidence. Do not change the dependency graph under the still-active Task 4 implementation, suppress the advisories or assume an old image scan covers the new graph.
 
 ### Task 5: Qualification, Google setup and owned deployment
 

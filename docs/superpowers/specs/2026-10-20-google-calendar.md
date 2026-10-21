@@ -36,7 +36,7 @@ Ajouter `openid email` à ce consentement séparé, avec nonce lié à l'intenti
 
 Utiliser un projet OAuth Calendar distinct du projet de login : la révocation Google affecte tous les clients du même projet, un simple second client ne suffit pas. Un projet External/Testing délivre ici des refresh tokens valables sept jours ; publication et vérification OAuth applicables sont des conditions de disponibilité durable. L'usage API standard n'a actuellement pas de coût supplémentaire, sous quotas, sans promesse de gratuité illimitée.
 
-Configuration dédiée : `SPARRA_GOOGLE_CALENDAR_CLIENT_ID`, `SPARRA_GOOGLE_CALENDAR_CLIENT_SECRET`, `SPARRA_CALENDAR_TOKEN_KEY` (32 octets base64url canoniques), `APP_ORIGIN`. En leur absence, Calendar est indisponible et le reste de Sparra fonctionne. Le worker reçoit en plus un DSN dédié `SPARRA_CALENDAR_DATABASE_URL`. Aucun changement des pins n'est requis pour ce lot.
+Configuration dédiée : `SPARRA_GOOGLE_CALENDAR_CLIENT_ID`, `SPARRA_GOOGLE_CALENDAR_CLIENT_SECRET`, `SPARRA_CALENDAR_TOKEN_KEY` (32 octets base64url canoniques), `APP_ORIGIN`. En leur absence, Calendar est indisponible et le reste de Sparra fonctionne. Le worker reçoit en plus un DSN dédié `SPARRA_CALENDAR_DATABASE_URL`. Le connecteur conserve les pins du socle ; le correctif de sécurité transitive aiohttp/yarl détecté par la CI est qualifié séparément dans la tâche 4a, sans modifier Pipecat, les modèles ou le budget.
 
 ## Réservation et reprise
 
