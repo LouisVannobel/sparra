@@ -86,9 +86,19 @@ afterAll(async()=>{
 
 test('native session_user and execute-only catalog including restricted Workspace column locks',async()=>{
  for(const [url,role] of [[stores.voiceUrlA,'sparra_voice_a'],[stores.voiceUrlB,'sparra_voice_b']])expect(await nativeVoice({action:'identity',url})).toEqual({ok:{login:role,role}})
- expect((await admin("SELECT count(*)::int n FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='voice'")).rows[0].n).toBe(6)
  const functions=(await admin("SELECT p.prosecdef,p.proconfig,r.rolname,p.oid::regprocedure::text signature FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_roles r ON r.oid=p.proowner WHERE n.nspname='voice'")).rows
- expect(functions).toHaveLength(6);for(const f of functions)expect(f).toMatchObject({prosecdef:true,rolname:'sparra_voice_definer',proconfig:['search_path=pg_catalog, pg_temp']})
+ // 0016 owns six V1 RPCs; 0020 adds two V2 RPCs and 0025 adds three Calendar RPCs.
+ // Exact signatures make unexpected additions fail without weakening execute-only checks.
+ const catalogSignatures=[
+  'voice.ack_call_erasure_v1(uuid,uuid,timestamp with time zone)',
+  'voice.ack_recording_purge_v1(uuid,uuid,text,timestamp with time zone)',
+  'voice.begin_call_v1(text,uuid,jsonb)','voice.begin_call_v2(text,uuid,jsonb)',
+  'voice.calendar_catalog_v1(uuid)','voice.calendar_result_v1(uuid,uuid)','voice.calendar_submit_v1(uuid,uuid,jsonb)',
+  'voice.ingest_operation_v1(jsonb)','voice.ingest_operation_v2(jsonb)',
+  'voice.lease_call_erasure_v1(text,integer,integer)','voice.lease_recording_purge_v1(text,integer,integer)',
+ ]
+ expect(functions.map(f=>f.signature).sort()).toEqual(catalogSignatures)
+ for(const f of functions)expect(f).toMatchObject({prosecdef:true,rolname:'sparra_voice_definer',proconfig:['search_path=pg_catalog, pg_temp']})
  expect((await admin("SELECT rolcanlogin,rolinherit,rolsuper,rolbypassrls,rolcreatedb,rolcreaterole,rolreplication FROM pg_roles WHERE rolname='sparra_voice_definer'")).rows[0]).toEqual({rolcanlogin:false,rolinherit:false,rolsuper:false,rolbypassrls:false,rolcreatedb:false,rolcreaterole:false,rolreplication:false})
  expect((await admin("SELECT count(*)::int n FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.roleid OR r.oid=m.member WHERE r.rolname IN ('sparra_voice_definer','sparra_voice_a','sparra_voice_b')")).rows[0].n).toBe(0)
  for(const role of ['sparra_voice_a','sparra_voice_b']){
@@ -96,7 +106,12 @@ test('native session_user and execute-only catalog including restricted Workspac
   expect((await admin(`SELECT has_column_privilege($1,'public.workspace','owner_user_id','SELECT') AS owner,has_schema_privilege($1,'voice_private','USAGE') AS private`,[role])).rows[0]).toEqual({owner:false,private:false})
  }
  expect((await admin(`SELECT has_column_privilege('sparra_voice_definer','public.workspace','id','UPDATE') AS lock,has_column_privilege('sparra_voice_definer','public.workspace','owner_user_id','SELECT') AS owner,has_column_privilege('sparra_voice_definer','public.sparra_call','treated_at','UPDATE') AS treat,has_table_privilege('sparra_voice_definer','public.user','SELECT') AS auth`)).rows[0]).toEqual({lock:true,owner:false,treat:false,auth:false})
- for(const signature of rpcSignatures)expect((await admin(`SELECT has_function_privilege('runtime',$1,'EXECUTE') AS allowed`,[signature])).rows[0].allowed).toBe(false)
+ for(const signature of catalogSignatures)expect((await admin(`SELECT has_function_privilege('runtime',$1,'EXECUTE') AS allowed`,[signature])).rows[0].allowed).toBe(false)
+ expect((await admin("SELECT count(*)::int n FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace,LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a WHERE n.nspname='voice' AND a.grantee=0 AND a.privilege_type='EXECUTE'")).rows[0].n).toBe(0)
+ for(const role of ['sparra_voice_a','sparra_voice_b']){
+  const allowed=(await admin("SELECT p.oid::regprocedure::text signature FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='voice' AND has_function_privilege($1,p.oid,'EXECUTE')",[role])).rows
+  expect(allowed.map(f=>f.signature).sort()).toEqual(rpcSignatures.map(signature=>signature.replace('timestamptz','timestamp with time zone')).sort())
+ }
  expect((await admin("SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE (n.nspname='voice_private' OR c.relname IN ('sparra_call','sparra_erasure','sparra_knowledge_revision')) AND c.relkind='r' AND (NOT c.relrowsecurity OR NOT c.relforcerowsecurity OR c.relowner<>(SELECT oid FROM pg_roles WHERE rolname='workspace_owner'))")).rows).toEqual([])
 })
 
