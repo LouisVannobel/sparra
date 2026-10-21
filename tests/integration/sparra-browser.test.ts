@@ -938,7 +938,7 @@ test.each(['enterprise','prepared-faq'] as const)('compiled Business %s declines
       await showActivitySection(page,'knowledge');await page.getByRole('button',{name:getSectorPreset('garage','fr').faqQuestions[0]!,exact:true}).click();await page.getByRole('textbox',{name:t.ownerAnswer,exact:true}).fill('Native prepared answer')
     }
     expect(await page.locator('html').getAttribute('lang')).toBe('fr')
-    expect(await page.getByRole('link',{name:'Français',exact:true}).getAttribute('aria-current')).toBe('true')
+    expect(await page.getByRole('link',{name:'Français',exact:true}).getAttribute('aria-current')).toBe('page')
     const frenchUrl=page.url();expect(new URL(frenchUrl).pathname).toBe('/app/entreprise')
     let declined=0
     page.once('dialog',async dialog=>{declined++;expect(dialog.type()).toBe('confirm');await dialog.dismiss()})
