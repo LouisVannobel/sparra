@@ -6,7 +6,7 @@
 
 **Architecture:** One native Google connector owned by Effect, with owner settings on Entreprise. Voice submits bounded PostgreSQL commands through its existing deployment binding; one small independent worker pump executes and reconciles them. Native Pipecat tools retain real caller-turn authority.
 
-**Tech Stack:** Existing pinned TanStack Start, Effect 4, Better Auth 1.7.4, Drizzle/PostgreSQL, Undici 7.30.1, Python 3.13 and Pipecat 1.12.0. Task 4a is the narrowly qualified security exception for the existing aiohttp/yarl transitive lock entries.
+**Tech Stack:** Existing pinned TanStack Start, Effect 4, Better Auth 1.7.4, Drizzle/PostgreSQL, Undici 7.30.1, Python 3.13 and Pipecat 1.12.0. Tasks 4a and 4b qualify narrowly scoped transitive security corrections; Task 4b explicitly records its temporary Pillow compatibility exception.
 
 **Spec:** `docs/superpowers/specs/2026-10-20-google-calendar.md`
 
@@ -94,6 +94,17 @@
 - [ ] After Task 4 source correction/re-review, refresh exactly aiohttp 3.14.5 and yarl 1.25.1, both officially published, non-yanked and available for Python 3.13 Windows/Linux. Preserve all other lock entries; report any unavoidable solver delta before broadening.
 - [ ] Run frozen lock/sync, actual existing affected native HTTP/WebSocket consumers, Ruff and mypy. Dependency refresh does not need an implementation-mirroring version test. Record the hosted security failure as RED, and require a new actual repository scan plus full source/image qualification at the new exact source before release.
 - [ ] Independent review of the bounded package delta/compatibility evidence. Do not change the dependency graph under the still-active Task 4 implementation, suppress the advisories or assume an old image scan covers the new graph.
+
+### Task 4b: Qualify the refreshed certifi/Pillow security findings
+
+**Reason:** After the reviewed Voice component merged, refreshed repository and immutable-image scans detected critical/high findings in certifi 2026.7.22 and Pillow 12.3.0. The new artifact was not promoted. Official Pipecat 1.12.0 and the latest published release both constrain Pillow below 13; no patched 12.3.x release is currently published. A targeted Oracle review recommends the smallest documented operational exception, preserving the official Pipecat wheel rather than maintaining a fork.
+
+**Files:** Voice `uv.lock`, a narrowly scoped `tool.uv.override-dependencies` entry in `pyproject.toml`, and a concise checked-in maintenance record. Qualify certifi 2026.10.19 and Pillow 13.0.0, preserving Python, Pipecat, every other package, models and phone budget. Prefer an override scoped to Pipecat 1.12.0 if the pinned uv supports it; otherwise inventory every incoming Pillow requirement before an exact global override. No metadata rewriting, advisory suppression or existing gate waiver.
+
+- [ ] Verify official non-yanked artifacts, exact lock freshness and frozen sync with the CI-pinned uv. Record the original Pipecat metadata and actual dependency-checker result; only its explicitly declared Pillow mismatch is within this exception.
+- [ ] Review the actual accepted caller/provider/tool frame paths and disabled video configuration; exercise the real application imports, Pillow native extension and existing audio/TLS lifecycle consumers. No general vision suite or extra paid call.
+- [ ] Record owner, exact tuple, scope, evidence and review/expiry on 2026-11-01. Remove the override after adopting a published upstream release admitting patched Pillow, or a suitable official patched Pillow within the bound, then resolve and requalify. Tuple or image/video scope changes require reconsideration. This is application compatibility under an exception, not upstream support.
+- [ ] Obtain independent scoped source review and exact-source hosted native/security/image qualification. Refresh App's truthful main-owned fixture only after the corrected Voice source is integrated into actual main. Previous green runs do not qualify the new dependency graph.
 
 ### Task 5: Qualification, Google setup and owned deployment
 
