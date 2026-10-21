@@ -207,3 +207,34 @@ test('a nonterminal revoke 400 never retires the grant or permits replacement',a
     expect(agent.getCallHistory()?.calls()).toHaveLength(1)
   }finally{await client.close();await agent.close()}
 })
+
+test.each(['cancelled-request','before-commit','after-commit','newer-generation','database-unavailable'] as const)('definitive revoke settles locally across %s without another remote revoke',async mode=>{
+  const f=await fixture();await connect(f)
+  const request=new AbortController()
+  let definitive=false,attempts=0
+  const operations=createCalendarOperations({...owner,withPersonalWorkspacePromise:async(options,principal,create,run)=>{
+    if(definitive){
+      attempts++
+      if(mode==='database-unavailable'||mode==='before-commit'&&attempts===1)throw new Error('Fixture local transaction failure')
+      if(mode==='newer-generation'&&attempts===1){
+        await stores.administrator.query("UPDATE sparra_calendar_connection SET generation=generation+1,status='connected',work_id=NULL WHERE workspace_id=$1",[f.space!.id])
+        throw new Error('Fixture local transaction ambiguity')
+      }
+    }
+    const value=await owner.withPersonalWorkspacePromise(options,principal,create,run)
+    if(definitive&&mode==='after-commit'&&attempts===1)throw new Error('Fixture lost local commit acknowledgement')
+    return value
+  }},calendarFixtureConfig,{...f.peer.provider,revokeToken:async token=>{
+    const result=await f.peer.provider.revokeToken(token);definitive=true
+    if(mode==='cancelled-request')request.abort()
+    return result
+  }})
+  if(mode==='newer-generation'||mode==='database-unavailable')await expect(operations.disconnect(f.principal,request.signal)).rejects.toThrow()
+  else await operations.disconnect(f.principal,request.signal)
+  expect(f.peer.state.revocations).toBe(1)
+  expect(attempts).toBeLessThanOrEqual(3)
+  const current=(await stores.administrator.query('SELECT generation,status,token_envelope,work_id FROM sparra_calendar_connection WHERE workspace_id=$1',[f.space!.id])).rows[0]
+  if(mode==='newer-generation')expect(current).toMatchObject({generation:3,status:'connected',work_id:null})
+  else if(mode==='database-unavailable')expect(current).toMatchObject({generation:2,status:'revoking'})
+  else expect(current).toMatchObject({generation:2,status:'disconnected',token_envelope:null,work_id:null})
+})

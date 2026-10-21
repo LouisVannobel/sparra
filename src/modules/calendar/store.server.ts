@@ -68,7 +68,7 @@ export function createCalendarStore(owner: AuthTransactions) {
   const work = (value: unknown) => (value === null ? null : Schema.decodeUnknownSync(workSchema)(value))
   const boolean = (value: unknown) => Schema.decodeUnknownSync(Schema.Boolean)(value)
   return {
-    async claim(signal: AbortSignal) {
+    async claim(signal?: AbortSignal) {
       return work(await invoke(sql`app_private.calendar_claim_v1()`, signal))
     },
     async read(q: Pick<CalendarWork, 'id' | 'fence'>) {

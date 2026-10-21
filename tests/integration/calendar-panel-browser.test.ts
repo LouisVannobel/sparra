@@ -45,3 +45,21 @@ test('keyboard reconnect cannot issue replacement consent while revocation remai
     expect(new URL(page.url()).hash).toBe('')
   }finally{await context.close()}
 })
+
+test('duplicate calendar summaries expose identity and keyboard selection retains the intended ID',async()=>{
+  const context=await browser.newContext(),page=await context.newPage();page.setDefaultTimeout(5000)
+  try{
+    await page.goto(origin+'/tests/helpers/calendar-panel.html?mode=duplicates')
+    const choice=page.getByRole('combobox',{name:'Booking calendar'});await choice.focus();await choice.press('Enter')
+    expect(await page.getByRole('option',{name:'Appointments (calendar-b@example.test)',exact:true}).count()).toBe(1)
+    await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter')
+    await expect.poll(()=>choice.textContent()).toContain('Appointments (calendar-b@example.test)')
+    await page.getByRole('button',{name:'Add a service',exact:true}).click()
+    await page.getByRole('textbox',{name:'Service 1 Required',exact:true}).fill('Vehicle drop-off')
+    await page.getByRole('button',{name:'Add a time range — Monday',exact:true}).click()
+    await page.getByLabel('Monday Start 1',{exact:true}).fill('09:00');await page.getByLabel('Monday End 1',{exact:true}).fill('12:00')
+    const save=page.getByRole('button',{name:'Save',exact:true});await save.focus();await page.keyboard.press('Enter')
+    await expect.poll(async()=>page.getByLabel('Fixture events').innerText()).toContain('calendar-b@example.test')
+    expect(JSON.parse(await page.getByLabel('Fixture events').innerText())).toMatchObject({calendarId:'calendar-b@example.test'})
+  }finally{await context.close()}
+})

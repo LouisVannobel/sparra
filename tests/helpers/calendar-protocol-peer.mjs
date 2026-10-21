@@ -66,7 +66,7 @@ export async function startCalendarProtocolPeer() {
         if (request.headers.authorization !== 'Bearer fixture-access') throw refuse()
         if (host === 'openidconnect.googleapis.com' && path === '/v1/userinfo' && request.method === 'GET') return reply(response, { sub: subject, email: 'calendar-owner@example.test', email_verified: true })
         if (host !== 'www.googleapis.com') throw refuse()
-        if (path === '/calendar/v3/users/me/calendarList?maxResults=250' && request.method === 'GET') return reply(response, { items: [{ id: 'fixture-calendar', summary: 'Agenda de qualification', timeZone: 'Europe/Paris', accessRole: 'owner' }] })
+        if (path === '/calendar/v3/users/me/calendarList?maxResults=250' && request.method === 'GET') return reply(response, { items: ['fixture-calendar', 'fixture-calendar-b'].map(id => ({ id, summary: 'Agenda de qualification', timeZone: 'Europe/Paris', accessRole: 'owner' })) })
         if (path === '/calendar/v3/freeBusy' && request.method === 'POST') {
           const value = JSON.parse(body)
           if (JSON.stringify(value.items) !== '[{"id":"fixture-calendar"}]' || Object.keys(value).sort().join() !== 'items,timeMax,timeMin') throw refuse()
@@ -97,6 +97,13 @@ export async function startCalendarProtocolPeer() {
     }
     syncBuiltinESMExports()
     return { close, evidence, allowPort() {}, requests: () => [...observed], events: () => [...events.values()], setMode(value) { if (!['normal', 'hold-headers', 'hold-body', 'lose-insert', 'hold-insert'].includes(value)) throw refuse(); mode = value },
+      changeEvent(id, change) {
+        const event = events.get(id)
+        if (!event || !['cancelled', 'moved'].includes(change)) throw refuse()
+        events.set(id, change === 'cancelled' ? { ...event, status: 'cancelled' } : { ...event,
+          start: { ...event.start, dateTime: new Date(Date.parse(event.start.dateTime) + 86400000).toISOString() },
+          end: { ...event.end, dateTime: new Date(Date.parse(event.end.dateTime) + 86400000).toISOString() } })
+      },
       register(authorize, selectedSubject) {
         const url = new URL(authorize), fields = url.searchParams
         if (url.origin !== 'https://accounts.google.com' || fields.get('client_id') !== 'fixture-calendar-client' || fields.get('code_challenge_method') !== 'S256' || !fields.get('nonce') || !fields.get('code_challenge') || attempts.size >= 8) throw refuse()

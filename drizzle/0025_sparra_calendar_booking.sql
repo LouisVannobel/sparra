@@ -253,6 +253,12 @@ BEGIN
       RAISE EXCEPTION 'Calendar offer unavailable' USING ERRCODE='PV202';
     END IF;
     SELECT * INTO source FROM public.sparra_calendar_command WHERE id=o.command_id;
+    IF o.expires_at<=clock_timestamp()
+      OR o.start<clock_timestamp()+make_interval(mins=>(n.policy->>'noticeMinutes')::int)
+      OR ROW(n.id,n.generation,n.policy_revision,n.google_subject,n.calendar_id) IS DISTINCT FROM
+    ROW(source.connection_id,source.generation,source.policy_revision,source.google_subject,source.calendar_id) THEN
+      RAISE EXCEPTION 'Calendar offer expired' USING ERRCODE='PV202';
+    END IF;
     SELECT * INTO q FROM public.sparra_calendar_command existing WHERE call_id=cid
       AND existing.kind='book_appointment'
       AND existing.state<>'waiting_evidence'
@@ -260,13 +266,16 @@ BEGIN
       AND window_start=o.start
       AND window_end=o."end" ORDER BY created_at LIMIT 1;
     IF FOUND THEN
+      -- New consent may reuse history only under current authority and a still-confirmed original hold.
+      -- Same-operation replay above remains immutable; never reopen an old possible send.
+      IF ROW(n.id,n.generation,n.policy_revision,n.google_subject,n.calendar_id) IS DISTINCT FROM
+        ROW(q.connection_id,q.generation,q.policy_revision,q.google_subject,q.calendar_id)
+        OR (q.state='confirmed' AND (q.observed_state IS DISTINCT FROM 'confirmed'
+          OR q.current_start IS DISTINCT FROM q.window_start
+          OR q.current_end IS DISTINCT FROM q.window_end+make_interval(mins=>(q.policy->>'bufferMinutes')::int))) THEN
+        RAISE EXCEPTION 'Calendar historical booking changed' USING ERRCODE='PV202';
+      END IF;
       RETURN voice.calendar_result_v1(cid,q.id);
-    END IF;
-    IF o.expires_at<=clock_timestamp()
-      OR o.start<clock_timestamp()+make_interval(mins=>(n.policy->>'noticeMinutes')::int)
-      OR ROW(n.id,n.generation,n.policy_revision,n.google_subject,n.calendar_id) IS DISTINCT FROM
-    ROW(source.connection_id,source.generation,source.policy_revision,source.google_subject,source.calendar_id) THEN
-      RAISE EXCEPTION 'Calendar offer expired' USING ERRCODE='PV202';
     END IF;
     recap=c.encrypted_turns->recap_id::text;
     answer=c.encrypted_turns->answer_id::text;
@@ -360,7 +369,7 @@ BEGIN
     AND workspace_id=q.workspace_id
     AND generation=q.generation
     AND google_subject=q.google_subject
-    AND calendar_id=q.calendar_id
+    AND (calendar_id=q.calendar_id OR (q.kind='book_appointment' AND q.possible_send_fence IS NOT NULL))
     AND status='connected';
   RETURN app_private.calendar_view_v1(q)||jsonb_build_object('tokenEnvelope',token,'blockers',coalesce((SELECT
   jsonb_agg(jsonb_build_object('id',b.id,'eventId',b.event_id,'calendarId',b.calendar_id,'googleSubject',

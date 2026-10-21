@@ -186,7 +186,7 @@ export function readNativeBlob(filePath, name, root, startedAt, version) {
     count += admitTestFile(table, blobValue(table, reference), name, files.length, root, startedAt, seen)
   }
   if (!count || (name === 'activity' && count !== 12) || (name === 'requests' && count !== 40)
-    || (name === 'billing' && count !== 91) || (name === 'calendar' && count !== 42)) throw new Error('Native coverage test cardinality mismatch')
+    || (name === 'billing' && count !== 91) || (name === 'calendar' && count !== 69)) throw new Error('Native coverage test cardinality mismatch')
   const coverage = blobValue(table, envelope[3])
   admitCoverageEntries(table, coverage, root)
   return { table, coverage, digest }
@@ -572,7 +572,12 @@ const calendarConsumers=[
       "reconnect retires both stored credentials when the refresh token is already revoked",
       "reconnect retires both stored credentials when the refresh token is already expired",
       "invalid refresh token followed by ambiguous access-token revocation keeps the replacement barrier",
-      "a nonterminal revoke 400 never retires the grant or permits replacement"
+      "a nonterminal revoke 400 never retires the grant or permits replacement",
+      "definitive revoke settles locally across cancelled-request without another remote revoke",
+      "definitive revoke settles locally across before-commit without another remote revoke",
+      "definitive revoke settles locally across after-commit without another remote revoke",
+      "definitive revoke settles locally across newer-generation without another remote revoke",
+      "definitive revoke settles locally across database-unavailable without another remote revoke"
     ]
   ],
   [
@@ -593,7 +598,25 @@ const calendarConsumers=[
       "native worker store commits before HTTP, confirms Inbox independently and erasure fences subsequent writes",
       "confirmed observations move or release the current hold while preserving original confirmation evidence",
       "erasure after possible submission keeps only unresolved proof and never restores Inbox content",
-      "a foreign bound Workspace and replacement login OID cannot impersonate an admitted call through GUCs"
+      "a foreign bound Workspace and replacement login OID cannot impersonate an admitted call through GUCs",
+      "natural-key confirmation refuses changed tentative while preserving operation history",
+      "natural-key confirmation refuses changed buffer while preserving operation history",
+      "natural-key confirmation refuses changed expired-offer while preserving operation history",
+      "natural-key confirmation refuses changed source-generation while preserving operation history",
+      "natural-key confirmation refuses changed source-destination while preserving operation history",
+      "natural-key confirmation refuses changed source-policy while preserving operation history",
+      "natural-key confirmation refuses changed booking-generation while preserving operation history",
+      "natural-key confirmation refuses changed booking-subject while preserving operation history",
+      "natural-key confirmation refuses changed booking-destination while preserving operation history",
+      "natural-key confirmation refuses changed booking-policy while preserving operation history",
+      "pinned recovery credentials enforce selection authority",
+      "pinned recovery credentials enforce unsent authority",
+      "pinned recovery credentials enforce generation authority",
+      "pinned recovery credentials enforce subject authority",
+      "pinned recovery credentials enforce revoking authority",
+      "pinned recovery credentials enforce disconnected authority",
+      "idle native claim shutdown joins released without hiding transaction failure",
+      "idle native claim shutdown joins statement-failure without hiding transaction failure"
     ]
   ],
   [
@@ -601,7 +624,8 @@ const calendarConsumers=[
     [
       "keyboard selects calendar, edits actual service and hours, and preserves draft after stale revision refusal",
       "keyboard reconnect waits for disconnect before issuing new consent",
-      "keyboard reconnect cannot issue replacement consent while revocation remains unresolved"
+      "keyboard reconnect cannot issue replacement consent while revocation remains unresolved",
+      "duplicate calendar summaries expose identity and keyboard selection retains the intended ID"
     ]
   ],
   [
@@ -611,7 +635,10 @@ const calendarConsumers=[
       "native phone-only Calendar confirmed preserves booking authority and the authenticated compiled Inbox",
       "native phone-only Calendar lost-response-restart preserves booking authority and the authenticated compiled Inbox",
       "native phone-only Calendar no-ack preserves booking authority and the authenticated compiled Inbox",
-      "native phone-only Calendar retry-after-no-ack preserves booking authority and the authenticated compiled Inbox"
+      "native phone-only Calendar retry-after-no-ack preserves booking authority and the authenticated compiled Inbox",
+      "native phone-only Calendar cancelled-repeat preserves booking authority and the authenticated compiled Inbox",
+      "native phone-only Calendar moved-repeat preserves booking authority and the authenticated compiled Inbox",
+      "native phone-only Calendar selection-recovery preserves booking authority and the authenticated compiled Inbox"
     ]
   ]
 ]
@@ -624,7 +651,7 @@ function calendarBlobFile(table,file,fileCount,root,seen) {
   return passedLeafNames(table,file,consumer[1],'Native Calendar blob has unexpected leaves')
 }
 export function assertCalendarReport(report,root) {
-  const counters={numTotalTests:42,numPassedTests:42,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
+  const counters={numTotalTests:69,numPassedTests:69,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
   if(report?.success!==true||Object.entries(counters).some(([key,value])=>report[key]!==value)
     ||!Array.isArray(report.testResults)||report.testResults.length!==4
     ||!calendarConsumers.every(([path,names])=>{
@@ -634,7 +661,7 @@ export function assertCalendarReport(report,root) {
         &&Array.isArray(file.assertionResults)&&file.assertionResults.length===names.length
         &&file.assertionResults.every((test,index)=>test?.status==='passed'&&test.fullName===names[index]
           &&Array.isArray(test.failureMessages)&&test.failureMessages.length===0)
-    })) throw new Error('Native Calendar requires its exact four consumers and 42 passing leaves')
+    })) throw new Error('Native Calendar requires its exact four consumers and 69 passing leaves')
 }
 export function assertCalendarQualification(path,root,startedAt) {
   const stat=lstatSync(path)

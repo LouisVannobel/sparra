@@ -10,7 +10,8 @@ function Fixture(){
   const [events,setEvents]=useState<string[]>([])
   const mode=new URLSearchParams(location.search).get('mode')
   const state:CalendarState={available:true,status:mode?.startsWith('reconnect')?'reconnect_required':'connected',accountEmail:'owner@example.test',selectedCalendar:null,calendars:[{id:'opaque-real-id',summary:'Observed calendar',timeZone:'Europe/Paris',accessRole:'writer'}],enabled:false,policy:null,revision:0}
-  return <Theme theme={neutralTheme} mode="light"><CalendarPanel locale="en" state={state}
+  const duplicateCalendars:CalendarState['calendars']=[{id:'calendar-a@example.test',summary:'Appointments',timeZone:'Europe/Paris',accessRole:'writer'},{id:'calendar-b@example.test',summary:'Appointments',timeZone:'Europe/Paris',accessRole:'owner'}]
+  return <Theme theme={neutralTheme} mode="light"><CalendarPanel locale="en" state={mode==='duplicates'?{...state,calendars:duplicateCalendars}:state}
     onConnect={async()=>{setEvents(value=>[...value,'connect']);return '#connected'}}
     onDisconnect={async()=>{setEvents(value=>[...value,'disconnect']);if(mode==='reconnect-blocked')throw new Response('Calendar unavailable',{status:409})}}
     onRead={async()=>state}

@@ -1601,7 +1601,7 @@ test('maintained_doctor_changed_scope_reports_actual_component_rule',()=>{
 test('native_calendar_report_requires_exact_consumers_and_every_passing_leaf',()=>{
   const gate=assertCalendarReport
   expect(typeof gate).toBe('function')
-  const report={success:true,numTotalTests:42,numPassedTests:42,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0,
+  const report={success:true,numTotalTests:69,numPassedTests:69,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0,
     testResults:calendarConsumerNames.map(([file,names])=>({name:join(repositoryRoot,'tests/integration',file).replaceAll('\\','/'),status:'passed',message:'',assertionResults:names.map(fullName=>({fullName,status:'passed',failureMessages:[]}))}))}
   expect(()=>gate(report,repositoryRoot)).not.toThrow()
   for(const kind of ['missing-file','duplicate-file','foreign-file','missing-leaf','duplicate-leaf','renamed-leaf','skipped','failed','afterAll','summary'] as const){
@@ -1624,7 +1624,7 @@ test('native_calendar_runner_is_mandatory_and_merges_its_coverage_after_retireme
   expect(result.stdout).toContain('[tests] calendar qualification\n')
   expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
   const coverage=JSON.parse(readFileSync(join(root,'coverage/coverage-final.json'),'utf8'))
-  expect(coverage[join(root,'src/calendar-covered.ts').replaceAll('\\','/')].f).toEqual({'0':42})
+  expect(coverage[join(root,'src/calendar-covered.ts').replaceAll('\\','/')].f).toEqual({'0':69})
 },30000)
 
 

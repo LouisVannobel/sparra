@@ -134,6 +134,22 @@ test('freeBusy precedes final fenced send transition and stable POST then verifi
   expect(f.calls).toEqual(['claim', 'freeBusy', 'prepare', 'POST', 'close'])
   expect(f.finishes).toMatchObject([{ state: 'confirmed', eventId: f.q.eventId }])
 })
+
+test.each([false,true])('shutdown during claim settles possible-send=%s before any provider work',async possible=>{
+  const f=fixture(possible),shutdown=new AbortController()
+  f.store.claim=async()=>{shutdown.abort();return f.q}
+  await runCalendarOnce(f.store,calendarFixtureConfig,shutdown.signal,f.provider)
+  expect(f.calls).toEqual([])
+  expect(f.finishes).toEqual([{state:possible?'unknown':'retry'}])
+})
+
+test('shutdown during claim still rejects an unresolved local settlement',async()=>{
+  const f=fixture(),shutdown=new AbortController()
+  f.store.claim=async()=>{shutdown.abort();return f.q}
+  f.store.finish=async()=>{throw new Error('Fixture settlement failure')}
+  await expect(runCalendarOnce(f.store,calendarFixtureConfig,shutdown.signal,f.provider)).rejects.toThrow('Calendar settlement unresolved')
+  expect(f.calls).toEqual(['read'])
+})
 test('possible-send crash recovers only by GET with the same target and never POST', async () => {
   const f = fixture(true)
   await runCalendarOnce(f.store, calendarFixtureConfig, new AbortController().signal, f.provider)

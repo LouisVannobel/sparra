@@ -37,7 +37,7 @@ test('compiled Calendar RPC exports are available to the authenticated native co
   }
 })
 
-test.each(['confirmed', 'lost-response-restart', 'no-ack', 'retry-after-no-ack'] as const)('native phone-only Calendar %s preserves booking authority and the authenticated compiled Inbox', async mode => {
+test.each(['confirmed', 'lost-response-restart', 'no-ack', 'retry-after-no-ack', 'cancelled-repeat', 'moved-repeat', 'selection-recovery'] as const)('native phone-only Calendar %s preserves booking authority and the authenticated compiled Inbox', async mode => {
   const stores = await startDisposableStores()
   let crypto: Awaited<ReturnType<typeof cryptoFixture>> | undefined
   let app: ReturnType<typeof startWeb> | undefined
@@ -123,7 +123,7 @@ test.each(['confirmed', 'lost-response-restart', 'no-ack', 'retry-after-no-ack']
     const recap = await voice.command('calendar-select')
     expect(recap).toMatchObject({ acknowledged: true, recap_persisted: true })
     expect(peer.events()).toHaveLength(0)
-    if (mode !== 'lost-response-restart') expect(await voice.command('calendar-confirm')).toMatchObject({ confirmed: true, no_confirmation_inference: true })
+    if (mode !== 'lost-response-restart' && mode !== 'selection-recovery') expect(await voice.command('calendar-confirm')).toMatchObject({ confirmed: true, no_confirmation_inference: true })
     else {
       peer.setMode('hold-insert')
       expect(await voice.command('calendar-confirm-start')).toMatchObject({ confirmation_started: true })
@@ -134,6 +134,12 @@ test.each(['confirmed', 'lost-response-restart', 'no-ack', 'retry-after-no-ack']
       await expect.poll(() => peer!.evidence()).toMatchObject({ activeClientSockets: 0, activeSockets: 0, activeRequests: 0 })
       expect((await stores.administrator.query('SELECT state FROM sparra_calendar_command WHERE id=$1', [original.id])).rows[0].state).toBe('unknown')
       peer.setMode('normal')
+      if (mode === 'selection-recovery') {
+        browser = await chromium.launch({ headless: true })
+        context = await browser.newContext({ storageState: ownerStorage, extraHTTPHeaders: { 'x-real-ip': '127.0.1.8' } })
+        expect((await rpc('saveCalendarPolicy', { expectedRevision: 2, calendarId: 'fixture-calendar-b', enabled: true, policy: { version: 1, timeZone: 'Europe/Paris', services: [{ id: 'oil-change', name: 'Vidange', durationMinutes: 35 }], weeklyHours: [0,1,2,3,4,5,6].map(day => ({ day, ranges: [{ start: '09:00', end: '12:00' }] })), bufferMinutes: 0, noticeMinutes: 0 } })).status()).toBe(200)
+        await browser.close(); browser = undefined
+      }
       voice = startConnectedVoice(voiceInput, producer); voiceStopped = false
       expect(await voice.ready).toMatchObject({ ready: true })
       expect(await voice.command('calendar-recovered')).toMatchObject({ recovered: true, no_inference: true, no_speech: true })
@@ -141,6 +147,20 @@ test.each(['confirmed', 'lost-response-restart', 'no-ack', 'retry-after-no-ack']
       await expect.poll(async () => (await stores.administrator.query('SELECT state FROM sparra_calendar_command WHERE id=$1', [original.id])).rows[0].state, { timeout: 70000, interval: 500 }).toBe('confirmed')
       expect((await stores.administrator.query("SELECT id,event_id FROM sparra_calendar_command WHERE kind='book_appointment'")).rows).toEqual([original])
       expect(peer.requests().some(value => value.method === 'GET' && value.path.endsWith('/' + original.event_id))).toBe(true)
+    }
+    if (mode === 'cancelled-repeat' || mode === 'moved-repeat') {
+      const original = (await stores.administrator.query("SELECT id,event_id,request,result,possible_send_fence,window_start,window_end FROM sparra_calendar_command WHERE kind='book_appointment'")).rows[0]
+      peer.changeEvent(original.event_id, mode === 'cancelled-repeat' ? 'cancelled' : 'moved')
+      expect(await voice.command('calendar-search')).toMatchObject({ offered: true })
+      const changed = (await stores.administrator.query('SELECT observed_state,current_start FROM sparra_calendar_command WHERE id=$1', [original.id])).rows[0]
+      expect(changed.observed_state).toBe(mode === 'cancelled-repeat' ? 'cancelled' : 'confirmed')
+      expect(changed.current_start?.toISOString()).not.toBe(original.window_start.toISOString())
+      const repeatedRecap = await voice.command('calendar-select')
+      expect(repeatedRecap).toMatchObject({ acknowledged: true, recap_persisted: true, selected_start: original.window_start.toISOString(), selected_end: original.window_end.toISOString() })
+      expect(repeatedRecap.recap_turn_id).not.toBe(recap.recap_turn_id)
+      expect(repeatedRecap.playback_mark).not.toBe(recap.playback_mark)
+      expect(await voice.command('calendar-confirm-unconfirmed')).toMatchObject({ unconfirmed: true, no_stale_speech: true, no_stale_result: true, no_confirmation_inference: true })
+      expect((await stores.administrator.query("SELECT id,event_id,request,result,possible_send_fence,window_start,window_end FROM sparra_calendar_command WHERE kind='book_appointment'")).rows).toEqual([original])
     }
     const events = peer.events(); expect(events).toHaveLength(1)
     expect(events[0]).toMatchObject({ summary: 'Vidange', description: origin + '/app/demandes/' + admitted.call_id })
@@ -162,7 +182,7 @@ test.each(['confirmed', 'lost-response-restart', 'no-ack', 'retry-after-no-ack']
     expect(await inbox.locator('body').innerText()).toContain('Vidange')
     expect(await voice.stop()).toEqual({ code: 0, signal: null }); voiceStopped = true
     await worker.dispose(); expect(worker.hasFailed()).toBe(false)
-    expect(transport.stops).toBe(mode === 'lost-response-restart' ? 2 : 1)
+    expect(transport.stops).toBe(mode === 'lost-response-restart' || mode === 'selection-recovery' ? 2 : 1)
     await expect.poll(() => peer!.evidence()).toMatchObject({ activeClientSockets: 0, activeSockets: 0, activeRequests: 0, disallowed: 0 })
     if (mode === 'confirmed') {
       // Actual emitted entry: Calendar starts even though absent Hatchet config

@@ -6,6 +6,7 @@ import { readMigrationFiles } from 'drizzle-orm/migrator'
 import { startDisposableStores } from '../fixtures/db/disposable-stores'
 import { calendarFixtureConfig, calendarFixturePolicy } from '../helpers/calendar-fixture'
 import { createTransactions } from '../../src/platform/db/transactions.server'
+import { PgTransactionError } from '../../src/platform/db/auth-pg-lease.server'
 import { acquireDatabase } from '../../src/platform/db/resources.server'
 import { readCalendarDatabaseConfig } from '../../src/platform/db/config.server'
 import { createCalendarStore } from '../../src/modules/calendar/store.server'
@@ -96,7 +97,7 @@ afterEach(async () => {
   if (stores) {
     await stores.administrator.query('DELETE FROM sparra_calendar_offer;DELETE FROM sparra_calendar_command')
     await stores.administrator.query(
-      "UPDATE sparra_calendar_connection SET generation=1,policy_revision=1,status='connected',enabled=true,work_id=NULL,work_expires_at=NULL,policy=$2 WHERE id=$1",
+      "UPDATE sparra_calendar_connection SET generation=1,policy_revision=1,status='connected',enabled=true,work_id=NULL,work_expires_at=NULL,calendar_id='fixture-calendar',google_subject='fixture-sub',token_envelope='synthetic-envelope',policy=$2 WHERE id=$1",
       [connection, calendarFixturePolicy()],
     )
   }
@@ -656,5 +657,74 @@ test('a foreign bound Workspace and replacement login OID cannot impersonate an 
     await expect(replaced.query('SELECT voice.calendar_catalog_v1($1)', [id])).rejects.toThrow()
   } finally {
     await replaced.end()
+  }
+})
+
+test.each(['tentative','buffer','expired-offer','source-generation','source-destination','source-policy','booking-generation','booking-subject','booking-destination','booking-policy'] as const)('natural-key confirmation refuses changed %s while preserving operation history',async changed=>{
+  const id=await call(),o=await offer(id),op=randomUUID(),cf=await confirmation(id)
+  const input={kind:'book_appointment',offerId:o.offerId,confirmation:cf}
+  await submit(id,op,input)
+  const q=await work('calendar_claim_v1')
+  expect(await work('calendar_prepare_create_v1',[op,q.fence])).toBe(true)
+  expect(await work('calendar_finish_v1',[op,q.fence,{state:'confirmed',eventId:q.eventId,operationId:op,start:q.windowStart,end:q.windowEnd}])).toBe(true)
+  // Backend branch coverage complements the actual native cancellation/move consumers.
+  if(changed==='tentative')await stores.administrator.query("UPDATE sparra_calendar_command SET observed_state='tentative' WHERE id=$1",[op])
+  if(changed==='buffer')await stores.administrator.query("UPDATE sparra_calendar_command SET current_end=current_end+interval '1 minute' WHERE id=$1",[op])
+  if(changed==='expired-offer')await stores.administrator.query("UPDATE sparra_calendar_offer SET expires_at=clock_timestamp()-interval '1 second' WHERE id=$1",[o.offerId])
+  if(changed==='source-generation'||changed==='source-destination'||changed==='source-policy'){
+    const changes={'source-generation':'generation=generation+1','source-destination':"calendar_id='other-calendar'",'source-policy':'policy_revision=policy_revision+1'}
+    await stores.administrator.query('UPDATE sparra_calendar_command SET '+changes[changed]+' WHERE id=(SELECT command_id FROM sparra_calendar_offer WHERE id=$1)',[o.offerId])
+  }
+  if(changed==='booking-generation'||changed==='booking-subject'||changed==='booking-destination'||changed==='booking-policy'){
+    const changes={'booking-generation':'generation=generation+1','booking-subject':"google_subject='other-subject'",'booking-destination':"calendar_id='other-calendar'",'booking-policy':'policy_revision=policy_revision+1'}
+    await stores.administrator.query('UPDATE sparra_calendar_command SET '+changes[changed]+' WHERE id=$1',[op])
+  }
+  const original=(await stores.administrator.query('SELECT * FROM sparra_calendar_command WHERE id=$1',[op])).rows[0]
+  await expect(submit(id,randomUUID(),input)).rejects.toMatchObject({code:'PV202'})
+  expect((await stores.administrator.query('SELECT * FROM sparra_calendar_command WHERE id=$1',[op])).rows[0]).toEqual(original)
+  expect(await submit(id,op,input)).toMatchObject({state:'confirmed',operationId:op})
+})
+
+test.each(['selection','unsent','generation','subject','revoking','disconnected'] as const)('pinned recovery credentials enforce %s authority',async changed=>{
+  const id=await call(),o=await offer(id),op=randomUUID()
+  await submit(id,op,{kind:'book_appointment',offerId:o.offerId,confirmation:await confirmation(id)})
+  const q=await work('calendar_claim_v1')
+  if(changed!=='unsent')expect(await work('calendar_prepare_create_v1',[op,q.fence])).toBe(true)
+  await stores.administrator.query("UPDATE sparra_calendar_connection SET calendar_id='calendar-b' WHERE id=$1",[connection])
+  if(changed==='generation')await stores.administrator.query('UPDATE sparra_calendar_connection SET generation=generation+1 WHERE id=$1',[connection])
+  if(changed==='subject')await stores.administrator.query("UPDATE sparra_calendar_connection SET google_subject='replacement-subject' WHERE id=$1",[connection])
+  if(changed==='revoking'||changed==='disconnected')await stores.administrator.query("UPDATE sparra_calendar_connection SET status=$2,enabled=false,token_envelope=CASE WHEN $2='disconnected' THEN NULL ELSE token_envelope END WHERE id=$1",[connection,changed])
+  const read=await work('calendar_read_v1',[op,q.fence])
+  expect(read.calendarId).toBe('fixture-calendar')
+  if(changed==='selection')expect(read.tokenEnvelope).not.toBeNull()
+  else expect(read.tokenEnvelope).toBeNull()
+  expect(await work('calendar_prepare_create_v1',[op,q.fence])).toBe(false)
+})
+
+test.each(['released','statement-failure'] as const)('idle native claim shutdown joins %s without hiding transaction failure',async mode=>{
+  const url=new URL(stores.directRuntimeUrl);url.username='calendar_worker';url.password='calendar-fixture-password'
+  const pool=new Pool({connectionString:url.toString(),max:1})
+  const store=createCalendarStore(createTransactions(pool,{maxStatementTimeoutMs:1000,maxCleanupTimeoutMs:1000}))
+  const shutdown=new AbortController()
+  await stores.administrator.query('BEGIN; LOCK TABLE sparra_calendar_command IN ACCESS EXCLUSIVE MODE')
+  try{
+    const pending=runCalendarOnce(store,calendarFixtureConfig,shutdown.signal).then(value=>({value}),error=>({error}))
+    await expect.poll(async()=>{
+      await stores.administrator.query('SELECT pg_stat_clear_snapshot()')
+      return (await stores.administrator.query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE usename='calendar_worker' AND wait_event_type='Lock') blocked")).rows[0].blocked
+    }).toBe(true)
+    shutdown.abort()
+    if(mode==='released')await stores.administrator.query('COMMIT')
+    const result=await pending
+    if('error' in result){
+      expect(result.error).toBeInstanceOf(PgTransactionError)
+      const error:PgTransactionError=result.error
+      console.log('CALENDAR_IDLE_CLAIM', {mode,aborted:shutdown.signal.aborted,phase:error.phase,outcome:error.outcome})
+    }
+    if(mode==='released')expect(result).toEqual({value:false})
+    else expect(result).toHaveProperty('error')
+  }finally{
+    await stores.administrator.query('ROLLBACK')
+    await pool.end()
   }
 })

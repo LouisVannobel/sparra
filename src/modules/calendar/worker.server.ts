@@ -154,16 +154,11 @@ export async function runCalendarOnce(
   suppliedProvider?: CalendarBookingProvider,
 ): Promise<boolean> {
   if (signal.aborted) return false
-  const claimed = await store.claim(signal)
+  // Join the bounded local claim on shutdown; cancelling it can turn an idle
+  // rollback into an ambiguous transaction error. No provider work starts here.
+  const claimed = await store.claim()
   if (!claimed) return false
   const command: CalendarWork = claimed
-  const provider =
-    suppliedProvider ??
-    createGoogleCalendarClient(
-      config,
-      signal,
-      Math.min(Date.now() + 30000, Date.parse(command.leaseUntil ?? '')),
-    )
   let possible = command.possibleSendFence !== null
   async function finish(result: CalendarFinish) {
     try {
@@ -175,6 +170,17 @@ export async function runCalendarOnce(
         throw new Error('Calendar settlement unresolved')
     }
   }
+  if (signal.aborted) {
+    await finish({ state: possible ? 'unknown' : 'retry' })
+    return true
+  }
+  const provider =
+    suppliedProvider ??
+    createGoogleCalendarClient(
+      config,
+      signal,
+      Math.min(Date.now() + 30000, Date.parse(command.leaseUntil ?? '')),
+    )
   try {
     if (!possible && (Date.now() >= Date.parse(command.firstSendDeadline) || !command.callId)) {
       await finish({ state: 'refused' })

@@ -19,7 +19,12 @@
       "reconnect retires both stored credentials when the refresh token is already revoked",
       "reconnect retires both stored credentials when the refresh token is already expired",
       "invalid refresh token followed by ambiguous access-token revocation keeps the replacement barrier",
-      "a nonterminal revoke 400 never retires the grant or permits replacement"
+      "a nonterminal revoke 400 never retires the grant or permits replacement",
+      "definitive revoke settles locally across cancelled-request without another remote revoke",
+      "definitive revoke settles locally across before-commit without another remote revoke",
+      "definitive revoke settles locally across after-commit without another remote revoke",
+      "definitive revoke settles locally across newer-generation without another remote revoke",
+      "definitive revoke settles locally across database-unavailable without another remote revoke"
     ]
   ],
   [
@@ -40,7 +45,25 @@
       "native worker store commits before HTTP, confirms Inbox independently and erasure fences subsequent writes",
       "confirmed observations move or release the current hold while preserving original confirmation evidence",
       "erasure after possible submission keeps only unresolved proof and never restores Inbox content",
-      "a foreign bound Workspace and replacement login OID cannot impersonate an admitted call through GUCs"
+      "a foreign bound Workspace and replacement login OID cannot impersonate an admitted call through GUCs",
+      "natural-key confirmation refuses changed tentative while preserving operation history",
+      "natural-key confirmation refuses changed buffer while preserving operation history",
+      "natural-key confirmation refuses changed expired-offer while preserving operation history",
+      "natural-key confirmation refuses changed source-generation while preserving operation history",
+      "natural-key confirmation refuses changed source-destination while preserving operation history",
+      "natural-key confirmation refuses changed source-policy while preserving operation history",
+      "natural-key confirmation refuses changed booking-generation while preserving operation history",
+      "natural-key confirmation refuses changed booking-subject while preserving operation history",
+      "natural-key confirmation refuses changed booking-destination while preserving operation history",
+      "natural-key confirmation refuses changed booking-policy while preserving operation history",
+      "pinned recovery credentials enforce selection authority",
+      "pinned recovery credentials enforce unsent authority",
+      "pinned recovery credentials enforce generation authority",
+      "pinned recovery credentials enforce subject authority",
+      "pinned recovery credentials enforce revoking authority",
+      "pinned recovery credentials enforce disconnected authority",
+      "idle native claim shutdown joins released without hiding transaction failure",
+      "idle native claim shutdown joins statement-failure without hiding transaction failure"
     ]
   ],
   [
@@ -48,7 +71,8 @@
     [
       "keyboard selects calendar, edits actual service and hours, and preserves draft after stale revision refusal",
       "keyboard reconnect waits for disconnect before issuing new consent",
-      "keyboard reconnect cannot issue replacement consent while revocation remains unresolved"
+      "keyboard reconnect cannot issue replacement consent while revocation remains unresolved",
+      "duplicate calendar summaries expose identity and keyboard selection retains the intended ID"
     ]
   ],
   [
@@ -58,7 +82,10 @@
       "native phone-only Calendar confirmed preserves booking authority and the authenticated compiled Inbox",
       "native phone-only Calendar lost-response-restart preserves booking authority and the authenticated compiled Inbox",
       "native phone-only Calendar no-ack preserves booking authority and the authenticated compiled Inbox",
-      "native phone-only Calendar retry-after-no-ack preserves booking authority and the authenticated compiled Inbox"
+      "native phone-only Calendar retry-after-no-ack preserves booking authority and the authenticated compiled Inbox",
+      "native phone-only Calendar cancelled-repeat preserves booking authority and the authenticated compiled Inbox",
+      "native phone-only Calendar moved-repeat preserves booking authority and the authenticated compiled Inbox",
+      "native phone-only Calendar selection-recovery preserves booking authority and the authenticated compiled Inbox"
     ]
   ]
 ]

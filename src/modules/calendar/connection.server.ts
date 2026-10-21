@@ -47,9 +47,9 @@ export function createCalendarOperations(owner:AuthTransactions, config:Calendar
     const pending=scope.run(provider,run).finally(async()=>{if(!suppliedProvider)await provider?.close()})
     active.add(pending);void pending.finally(()=>active.delete(pending)).catch(()=>{});return pending
   }
-  async function tx<A>(principal:AdmittedPrincipal, run:(lease:PersonalWorkspaceLease)=>Promise<A>,signal?:AbortSignal):Promise<A> {
+  async function tx<A>(principal:AdmittedPrincipal, run:(lease:PersonalWorkspaceLease)=>Promise<A>,signal?:AbortSignal,deadlineAtMs=Date.now()+10000):Promise<A> {
     if(!principal?.userId||!principal.sessionId)throw new CalendarOperationError('rejected')
-    return owner.withPersonalWorkspacePromise({deadlineAtMs:Date.now()+10000,statementTimeoutMs:1000,cleanupTimeoutMs:1000,correlationId:randomUUID(),signal},principal,false,async lease=>{
+    return owner.withPersonalWorkspacePromise({deadlineAtMs,statementTimeoutMs:1000,cleanupTimeoutMs:1000,correlationId:randomUUID(),signal},principal,false,async lease=>{
       if(!lease)throw new CalendarOperationError('missing_workspace')
       return run(lease)
     })
@@ -175,6 +175,25 @@ export function createCalendarOperations(owner:AuthTransactions, config:Calendar
       return dto(await update(lease,current,{policy:parsed.policy,policyRevision:current.policyRevision+1,calendarId:selected.id,calendarSummary:selected.summary,enabled:parsed.enabled}),calendars)
     },signal)
   }
+  async function settleRevocation(principal:AdmittedPrincipal,claimed:Row):Promise<void> {
+    // Remote retirement is already definitive. Join only local fenced cleanup, even if the browser left.
+    const deadlineAtMs=Date.now()+10000
+    for(let attempt=0;attempt<3;attempt++) {
+      try {
+        await tx(principal,async lease=>{
+          const current=await row(lease)
+          if(!current||current.id!==claimed.id||current.generation!==claimed.generation)throw new CalendarOperationError('conflict')
+          // Read back a settlement whose COMMIT acknowledgement may have been lost.
+          if(current.status==='disconnected'&&current.tokenEnvelope===null&&current.workId===null)return
+          if(current.status!=='revoking'||current.workId!==claimed.workId)throw new CalendarOperationError('conflict')
+          await update(lease,current,{status:'disconnected',tokenEnvelope:null,googleSubject:null,accountEmail:null,...noWork})
+        },undefined,deadlineAtMs)
+        return
+      } catch(error) {
+        if(error instanceof CalendarOperationError||attempt===2||Date.now()>=deadlineAtMs)throw error
+      }
+    }
+  }
   async function disconnect(principal:AdmittedPrincipal,signal?:AbortSignal):Promise<void> {
     const {config,provider}=configured()
     const claimed=await tx(principal,async lease=>{
@@ -191,7 +210,7 @@ export function createCalendarOperations(owner:AuthTransactions, config:Calendar
       const result=await provider.revokeToken(tokens.refreshToken)
       // An expired refresh token does not establish that its access token is unusable.
       if(result==='invalid_token')await provider.revokeToken(tokens.accessToken)
-      await tx(principal,async lease=>{const current=await row(lease);if(!current||current.generation!==claimed.generation||current.status!=='revoking'||current.workId!==claimed.workId)throw new CalendarOperationError('conflict');await update(lease,current,{status:'disconnected',tokenEnvelope:null,googleSubject:null,accountEmail:null,...noWork})},signal)
+      await settleRevocation(principal,claimed)
     } catch(error) {
       // Local abort/join cannot prove that Google did not receive a revoke.
       // Only a typed refusal before dispatch releases ownership for another attempt.
