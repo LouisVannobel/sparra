@@ -920,3 +920,33 @@ test.each(['fr','en'] as const)('guided sections in %s preserve draft and questi
     expect(await page.getByRole('checkbox',{name:t.recordingEnabled,exact:true}).isChecked()).toBe(false)
   }finally{await context.close()}
 },50000)
+
+// Bounded native Business wiring regression; uses this file's existing identity/store fixture.
+test.each(['enterprise','prepared-faq'] as const)('compiled Business %s declines language departure without losing work and accepts explicit abandonment',async kind=>{
+  const {context,page}=await signedIn('sparra-guided-navigation-'+kind)
+  try{
+    await page.goto(origin+'/app/entreprise?lang=en');await page.getByRole('button',{name:'Create my workspace'}).click();await waitForActivityNavigation(page)
+    const knowledge={openingHours:'',services:'Known service',prices:'',faq:'',instructions:''}
+    expect((await rpc(context,'saveActivity',{expectedRevision:0,businessName:'Native known',sector:'garage',knowledge,transferDestination:null,recordingEnabled:false,recordingPolicy:'off',recordingContactPhone:null})).status()).toBe(200)
+    await page.goto(origin+'/app/entreprise?lang=fr');await waitForActivityNavigation(page)
+    const t=activityMessages.fr
+    if(kind==='enterprise')await page.getByRole('textbox',{name:new RegExp('^'+t.businessName)}).fill('Native unsaved')
+    else{
+      await showActivitySection(page,'knowledge');await page.getByRole('button',{name:getSectorPreset('garage','fr').faqQuestions[0]!,exact:true}).click();await page.getByRole('textbox',{name:t.ownerAnswer,exact:true}).fill('Native prepared answer')
+    }
+    let declined=0
+    page.once('dialog',async dialog=>{declined++;expect(dialog.type()).toBe('confirm');await dialog.dismiss()})
+    await page.getByRole('link',{name:'English',exact:true}).click();await expect.poll(()=>declined).toBe(1)
+    expect(new URL(page.url()).searchParams.get('lang')).toBe('fr')
+    expect(await page.getByRole('textbox',{includeHidden:true,name:new RegExp('^'+t.businessName)}).inputValue()).toBe(kind==='enterprise'?'Native unsaved':'Native known')
+    if(kind==='prepared-faq')expect(await page.getByRole('textbox',{name:t.ownerAnswer,exact:true}).inputValue()).toBe('Native prepared answer')
+    let accepted=0;page.once('dialog',async dialog=>{accepted++;await dialog.accept()})
+    await page.getByRole('link',{name:'English',exact:true}).click();await page.waitForURL(origin+'/app/entreprise?lang=en');await waitForActivityNavigation(page)
+    expect(accepted).toBe(1);expect(await page.getByRole('textbox',{name:/^Business name/}).inputValue()).toBe('Native known')
+    if(kind==='prepared-faq'){
+      await showActivitySection(page,'knowledge');await page.getByRole('button',{name:getSectorPreset('garage','en').faqQuestions[0]!,exact:true}).click();expect(await page.getByRole('textbox',{name:activityMessages.en.ownerAnswer,exact:true}).inputValue()).toBe('')
+    }
+    const persisted=await stores.administrator.query('SELECT business_name,faq FROM sparra_knowledge_revision WHERE workspace_id=(SELECT id FROM workspace WHERE owner_user_id=(SELECT id FROM "user" WHERE email=$1)) ORDER BY revision DESC LIMIT 1',['sparra-guided-navigation-'+kind+'@example.test'])
+    expect(persisted.rows[0]).toMatchObject({business_name:'Native known',faq:''})
+  }finally{await context.close()}
+},30000)

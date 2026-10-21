@@ -14,7 +14,9 @@ import { getSectorPreset, sectorIds } from '../../modules/sparra/sectors'
 import { privateResult, PrivateUnavailable } from './app-shell'
 import { ActivityFaqHelper, ActivityIntakeHelper } from './activity-knowledge-helpers'
 
-type Props={initialSection?:ActivitySection;calendarSlot?:ReactNode;locale:Locale;state:ActivityState;onEnsure(signal:AbortSignal):Promise<WorkspaceDto|Response>;onSave(data:SaveActivityInput,signal:AbortSignal):Promise<ActivityConfigurationDto|Response>;onRead(signal:AbortSignal):Promise<ActivityState|Response>;onRefused():Promise<void>}
+export type ActivityNavigationState={dirty:boolean;pending:boolean;reconcile:boolean}
+
+type Props={onNavigationStateChange?:(state:ActivityNavigationState)=>void;externalNavigationPending?:boolean;initialSection?:ActivitySection;calendarSlot?:ReactNode;locale:Locale;state:ActivityState;onEnsure(signal:AbortSignal):Promise<WorkspaceDto|Response>;onSave(data:SaveActivityInput,signal:AbortSignal):Promise<ActivityConfigurationDto|Response>;onRead(signal:AbortSignal):Promise<ActivityState|Response>;onRefused():Promise<void>}
 type ActivityOperation='ensure'|'save'|'latest'
 type ActivityErrorReason='conflict'|'invalid'|'unavailable'|'recordingUnavailable'
 type ActivityFailure={kind:'refused'}|{kind:'uncertain'}|{kind:'error';reason:ActivityErrorReason}
@@ -68,10 +70,10 @@ export function activitySaveBlocked(editable:SaveActivityInput,configuration:Act
 }
 
 type ActivityFieldStatus={type:'error';message:string}|undefined
-function ActivityKnowledgeFields({locale,editable,disabled,onEdit,fieldRef,fieldStatus}:{locale:Locale;editable:SaveActivityInput;disabled:boolean;onEdit(next:SaveActivityInput):void;fieldRef(field:ActivityField,element:HTMLInputElement|HTMLTextAreaElement|null):void;fieldStatus(field:ActivityField,limit:number):ActivityFieldStatus}){
+function ActivityKnowledgeFields({locale,editable,disabled,onEdit,fieldRef,fieldStatus,onPreparedAnswersChange}:{onPreparedAnswersChange:(value:boolean)=>void;locale:Locale;editable:SaveActivityInput;disabled:boolean;onEdit(next:SaveActivityInput):void;fieldRef(field:ActivityField,element:HTMLInputElement|HTMLTextAreaElement|null):void;fieldStatus(field:ActivityField,limit:number):ActivityFieldStatus}){
   const t=activityMessages[locale],preset=getSectorPreset(editable.sector,locale),examples=editable.sector==='controle-technique'?t.inspectionExamples:editable.sector==='garage'?t.fieldExamples:undefined
   return <fieldset className="sparra-form-section"><legend>{t.answerInformation}</legend><p className="sparra-form-hint">{t.knowledgeHint}</p><div className="sparra-knowledge-fields">{sections.map(([field,limit],index)=><div key={field} className={index<2?'sparra-knowledge-primary':'sparra-knowledge-secondary'}><TextArea ref={element=>fieldRef(field,element)} label={t[field]} description={t.fieldHints[field]} placeholder={examples?.[field]} htmlName={field} value={editable.knowledge[field]} onChange={value=>onEdit({...editable,knowledge:{...editable.knowledge,[field]:value}})} rows={index<2?4:3} status={fieldStatus(field,limit)} statusVariant="detached" isDisabled={disabled} width="100%"/><p className="sparra-field-limit">{limit} {t.characterLimit}</p>
-    {field==='faq'&&<ActivityFaqHelper locale={locale} faq={editable.knowledge.faq} questions={preset.faqQuestions} disabled={disabled} onChange={faq=>onEdit({...editable,knowledge:{...editable.knowledge,faq}})}/>}
+    {field==='faq'&&<ActivityFaqHelper onPreparedAnswersChange={onPreparedAnswersChange} locale={locale} faq={editable.knowledge.faq} questions={preset.faqQuestions} disabled={disabled} onChange={faq=>onEdit({...editable,knowledge:{...editable.knowledge,faq}})}/>}
     {field==='instructions'&&<ActivityIntakeHelper locale={locale} instructions={editable.knowledge.instructions} questions={preset.intakeQuestions} disabled={disabled} onChange={instructions=>onEdit({...editable,knowledge:{...editable.knowledge,instructions}})}/>}
   </div>)}</div></fieldset>
 }
@@ -117,8 +119,8 @@ function ActivitySaveSummary({locale,issues,pending,reconcile,draftStatus}:{loca
   return <div className="sparra-save-summary">{Object.keys(issues).length>0&&<p role="alert">{t.localInvalid}</p>}{!pending&&!reconcile&&<p className="sparra-draft-status" role="status">{draftStatus}</p>}<p className="sparra-form-hint">{t.saveHint}</p></div>
 }
 
-function ActivityEditor({locale,editable,configuration,localAudioAvailable,audioBlocked,draftStatus,hydrated,pending,reconcile,onEdit,onSubmit,calendarSlot,children,initialSection}:{initialSection:ActivitySection;calendarSlot?:ReactNode;children:ReactNode;locale:Locale;editable:SaveActivityInput;configuration:ActivityConfigurationDto|null;localAudioAvailable:boolean;audioBlocked:boolean;draftStatus:string;hydrated:boolean;pending:boolean;reconcile:boolean;onEdit(next:SaveActivityInput):void;onSubmit():void}){
-  const t=activityMessages[locale],disabled=!hydrated||pending
+function ActivityEditor({locale,editable,configuration,localAudioAvailable,audioBlocked,draftStatus,hydrated,pending,reconcile,onEdit,onSubmit,calendarSlot,children,initialSection,externalNavigationPending,onPreparedAnswersChange}:{externalNavigationPending:boolean;onPreparedAnswersChange:(value:boolean)=>void;initialSection:ActivitySection;calendarSlot?:ReactNode;children:ReactNode;locale:Locale;editable:SaveActivityInput;configuration:ActivityConfigurationDto|null;localAudioAvailable:boolean;audioBlocked:boolean;draftStatus:string;hydrated:boolean;pending:boolean;reconcile:boolean;onEdit(next:SaveActivityInput):void;onSubmit():void}){
+  const t=activityMessages[locale],disabled=!hydrated||pending||externalNavigationPending
   const [activeSection,setActiveSection]=useState<ActivitySection>(initialSection)
   const saveBlocked=activitySaveBlocked(editable,configuration,audioBlocked,reconcile)
   const {issues,fieldRef,fieldStatus,submit}=useActivityValidation({locale,editable,disabled,saveBlocked,onSubmit,onInvalid:setActiveSection})
@@ -128,7 +130,7 @@ function ActivityEditor({locale,editable,configuration,localAudioAvailable,audio
     <TextInput ref={element=>fieldRef('businessName',element)} size="lg" label={t.businessName} description={t.businessNameHint} placeholder={editable.sector==='diagnostic-immobilier'?undefined:t.businessNamePlaceholder} value={editable.businessName} onChange={businessName=>onEdit({...editable,businessName})} htmlName="businessName" status={fieldStatus('businessName')} statusVariant="detached" isRequired isDisabled={disabled} width="100%"/>
     <Selector size="lg" label={t.sector} description={t.sectorHint} value={editable.sector} options={sectorIds.map(value=>({value,label:getSectorPreset(value,locale).label}))} onChange={value=>{const sector=sectorIds.find(sector=>sector===value);if(sector)onEdit({...editable,sector})}} isRequired isDisabled={disabled} width="100%"/>
     </div></fieldset></div>
-    <div id="activity-knowledge" data-activity-section="knowledge" hidden={activeSection!=='knowledge'}><ActivityKnowledgeFields locale={locale} editable={editable} disabled={disabled} onEdit={onEdit} fieldRef={fieldRef} fieldStatus={fieldStatus}/></div>
+    <div id="activity-knowledge" data-activity-section="knowledge" hidden={activeSection!=='knowledge'}><ActivityKnowledgeFields onPreparedAnswersChange={onPreparedAnswersChange} locale={locale} editable={editable} disabled={disabled} onEdit={onEdit} fieldRef={fieldRef} fieldStatus={fieldStatus}/></div>
     <div id="activity-handling" data-activity-section="handling" hidden={activeSection!=='handling'}><fieldset className="sparra-form-section"><legend>{t.callHandling}</legend><div className="sparra-call-settings">
     <TextInput ref={element=>fieldRef('transferDestination',element)} size="lg" label={t.transferDestination} description={`${t.transferHint} ${t.transferFormat}`} placeholder={t.transferPlaceholder} htmlName="transferDestination" value={editable.transferDestination??''} onChange={value=>onEdit({...editable,transferDestination:value||null})} status={fieldStatus('transferDestination')} statusVariant="detached" isDisabled={disabled} width="100%"/>
     <ActivityRecordingControl locale={locale} editable={editable} configuration={configuration} localAudioAvailable={localAudioAvailable} disabled={disabled} pending={pending} reconcile={reconcile} onEdit={onEdit}/>
@@ -145,7 +147,7 @@ function ActivityEditor({locale,editable,configuration,localAudioAvailable,audio
       {audioBlocked&&activeSection!=='handling'&&<Button type="button" label={t.reviewCallSettings} isDisabled={!hydrated} onClick={()=>setActiveSection('handling')}/>}
     </div>}
     <ActivitySaveSummary locale={locale} issues={issues} pending={pending} reconcile={reconcile} draftStatus={draftStatus}/>
-    <Button className="sparra-form-submit" variant="primary" label={t.save} type="submit" isDisabled={!hydrated||saveBlocked} isLoading={pending}/>
+    <Button className="sparra-form-submit" variant="primary" label={t.save} type="submit" isDisabled={disabled||saveBlocked} isLoading={pending}/>
   </form>
     {children}
     {calendarSlot&&<div className="sparra-guided-calendar" hidden={activeSection!=='handling'&&activeSection!=='recap'}><p className="sparra-form-hint">{t.calendarConnectionHint}</p>{calendarSlot}</div>}
@@ -174,12 +176,12 @@ function ActivityOutcomeFeedback({locale,uncertain,error,saved}:{locale:Locale;u
   return <>{uncertain&&<p role="alert">{t.outcomeUnknown}</p>}{error&&<p role="alert">{error}</p>}{saved&&<p role="status">{t.saved}</p>}</>
 }
 
-function ActivityWorkspaceContent({locale,workspace,configuration,localAudioAvailable,editable,hydrated,audioBlocked,pending,reconcile,onEdit,onEnsure,onSave,calendarSlot,children,initialSection}:{initialSection:ActivitySection;calendarSlot?:ReactNode;locale:Locale;workspace:WorkspaceDto|null;configuration:ActivityConfigurationDto|null;localAudioAvailable:boolean;editable:SaveActivityInput;hydrated:boolean;audioBlocked:boolean;pending:boolean;reconcile:boolean;onEdit(next:SaveActivityInput):void;onEnsure():void;onSave():void;children:ReactNode}){
+function ActivityWorkspaceContent({locale,workspace,configuration,localAudioAvailable,editable,hydrated,audioBlocked,pending,reconcile,onEdit,onEnsure,onSave,calendarSlot,children,initialSection,externalNavigationPending,onPreparedAnswersChange}:{externalNavigationPending:boolean;onPreparedAnswersChange:(value:boolean)=>void;initialSection:ActivitySection;calendarSlot?:ReactNode;locale:Locale;workspace:WorkspaceDto|null;configuration:ActivityConfigurationDto|null;localAudioAvailable:boolean;editable:SaveActivityInput;hydrated:boolean;audioBlocked:boolean;pending:boolean;reconcile:boolean;onEdit(next:SaveActivityInput):void;onEnsure():void;onSave():void;children:ReactNode}){
   const t=activityMessages[locale],a=appMessages[locale]
   const draftStatus=configuration?(activityMatchesConfiguration(editable,configuration)?t.upToDate:t.unsaved):t.noSavedConfiguration
   const feedback=<>{children}{configuration&&<p className="sparra-version-note">{a.version}: {configuration.revision}</p>}</>
-  if(workspace)return <ActivityEditor locale={locale} editable={editable} configuration={configuration} localAudioAvailable={localAudioAvailable} audioBlocked={audioBlocked} draftStatus={draftStatus} hydrated={hydrated} pending={pending} reconcile={reconcile} onEdit={onEdit} onSubmit={onSave} calendarSlot={calendarSlot} initialSection={initialSection}>{feedback}</ActivityEditor>
-  return <><p>{a.createHint}</p><Button label={a.create} isDisabled={!hydrated} isLoading={pending} onClick={onEnsure}/>{feedback}</>
+  if(workspace)return <ActivityEditor externalNavigationPending={externalNavigationPending} onPreparedAnswersChange={onPreparedAnswersChange} locale={locale} editable={editable} configuration={configuration} localAudioAvailable={localAudioAvailable} audioBlocked={audioBlocked} draftStatus={draftStatus} hydrated={hydrated} pending={pending} reconcile={reconcile} onEdit={onEdit} onSubmit={onSave} calendarSlot={calendarSlot} initialSection={initialSection}>{feedback}</ActivityEditor>
+  return <><p>{a.createHint}</p><Button label={a.create} isDisabled={!hydrated||externalNavigationPending} isLoading={pending} onClick={onEnsure}/>{feedback}</>
 }
 
 function useActivitySaveFeedback(locale:Locale,onRecordingUnavailable:()=>void){
@@ -193,16 +195,19 @@ function useActivitySaveFeedback(locale:Locale,onRecordingUnavailable:()=>void){
   return {saved,setSaved,conflict,setConflict,uncertain,setUncertain,latest,setLatest,error,setError,showError}
 }
 
-export function ActivityPanel({locale,state,onEnsure,onSave,onRead,onRefused,calendarSlot,initialSection='establishment'}:Props){
+export function ActivityPanel({locale,state,onEnsure,onSave,onRead,onRefused,calendarSlot,initialSection='establishment',onNavigationStateChange,externalNavigationPending=false}:Props){
   const a=appMessages[locale],hydrated=useHydrated()
   const [current,setCurrent]=useState(state),[editable,setEditable]=useState(()=>draft(state.configuration)),[pendingMode,setPendingMode]=useState<ActivityOperation|null>(null)
   const {saved,setSaved,conflict,setConflict,uncertain,setUncertain,latest,setLatest,error,setError,showError}=useActivitySaveFeedback(locale,()=>setCurrent(previous=>({...previous,localAudioAvailable:false})))
+  const [hasPreparedAnswers,setHasPreparedAnswers]=useState(false)
   const reconcile=conflict||uncertain
+  const dirty=hasPreparedAnswers||JSON.stringify(editable)!==JSON.stringify(draft(current.configuration))
+  useEffect(()=>{onNavigationStateChange?.({dirty,pending:pendingMode!==null,reconcile})},[dirty,pendingMode,reconcile,onNavigationStateChange])
   const audioBlocked=recordingSaveBlocked(editable,current.localAudioAvailable)
   const attempt=useRef(0),controller=useRef<AbortController|null>(null)
   const [refused,setRefused]=useState(false)
   useEffect(()=>()=>{attempt.current++;controller.current?.abort()},[])
-  function edit(next:SaveActivityInput){setEditable(next);setSaved(false)}
+  function edit(next:SaveActivityInput){if(externalNavigationPending)return;setEditable(next);setSaved(false)}
   function replaceDraft(read:ActivityState){edit(draft(read.configuration));setCurrent(read);setConflict(false);setUncertain(false);setError('');setLatest(null)}
   async function ensureWorkspace(signal:AbortSignal,live:()=>boolean){
     await privateResult(onEnsure(signal))
@@ -229,6 +234,7 @@ export function ActivityPanel({locale,state,onEnsure,onSave,onRead,onRefused,cal
     return saveDraft(signal,live)
   }
   async function persist(mode:ActivityOperation){
+    if(externalNavigationPending)return
     if(mode==='save'&&activitySaveBlocked(editable,current.configuration,audioBlocked))return
     controller.current?.abort();const owned=new AbortController(),id=++attempt.current;controller.current=owned
     const live=()=>!owned.signal.aborted&&attempt.current===id
@@ -244,10 +250,10 @@ export function ActivityPanel({locale,state,onEnsure,onSave,onRead,onRefused,cal
   }
   if(refused)return <PrivateUnavailable locale={locale} title={a.business}/>
   return <><div className="sparra-page-heading"><Heading level={1}>{a.business}</Heading><p>{activityMessages[locale].description}</p></div>
-    <ActivityWorkspaceContent locale={locale} workspace={current.workspace} configuration={current.configuration} localAudioAvailable={current.localAudioAvailable} editable={editable} hydrated={hydrated} audioBlocked={audioBlocked} pending={pendingMode!==null} reconcile={reconcile} onEdit={edit} onEnsure={()=>void persist('ensure')} onSave={()=>void persist('save')} calendarSlot={calendarSlot} initialSection={initialSection}>
+    <ActivityWorkspaceContent externalNavigationPending={externalNavigationPending} onPreparedAnswersChange={setHasPreparedAnswers} locale={locale} workspace={current.workspace} configuration={current.configuration} localAudioAvailable={current.localAudioAvailable} editable={editable} hydrated={hydrated} audioBlocked={audioBlocked} pending={pendingMode!==null} reconcile={reconcile} onEdit={edit} onEnsure={()=>void persist('ensure')} onSave={()=>void persist('save')} calendarSlot={calendarSlot} initialSection={initialSection}>
       <ActivityPendingFeedback locale={locale} mode={pendingMode} onCancel={cancel}/>
       <ActivityOutcomeFeedback locale={locale} uncertain={uncertain} error={error} saved={saved}/>
-      <ActivityReconciliation locale={locale} editable={editable} pending={pendingMode!==null} reconcile={reconcile} latest={latest} onCheckLatest={()=>void persist('latest')} onReplaceLatest={replaceDraft}/>
+      <ActivityReconciliation locale={locale} editable={editable} pending={pendingMode!==null||externalNavigationPending} reconcile={reconcile} latest={latest} onCheckLatest={()=>void persist('latest')} onReplaceLatest={replaceDraft}/>
     </ActivityWorkspaceContent>
   </>
 }
