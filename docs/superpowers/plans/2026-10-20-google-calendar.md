@@ -6,7 +6,7 @@
 
 **Architecture:** One native Google connector owned by Effect, with owner settings on Entreprise. Voice submits bounded PostgreSQL commands through its existing deployment binding; one small independent worker pump executes and reconciles them. Native Pipecat tools retain real caller-turn authority.
 
-**Tech Stack:** Existing pinned TanStack Start, Effect 4, Better Auth 1.7.4, Drizzle/PostgreSQL, Undici 7.30.1, Python 3.13 and Pipecat 1.12.0. Tasks 4a and 4b qualify narrowly scoped transitive security corrections; Task 4b explicitly records its temporary Pillow compatibility exception.
+**Tech Stack:** Existing pinned TanStack Start, Effect 4, Better Auth 1.7.4, Drizzle/PostgreSQL, Undici 7.30.1, Python 3.13 and Pipecat 1.12.0. Tasks 4a–4c qualify narrowly scoped security corrections; Task 4b explicitly records its temporary Pillow compatibility exception.
 
 **Spec:** `docs/superpowers/specs/2026-10-20-google-calendar.md`
 
@@ -105,6 +105,14 @@
 - [ ] Review the actual accepted caller/provider/tool frame paths and disabled video configuration; exercise the real application imports, Pillow native extension and existing audio/TLS lifecycle consumers. No general vision suite or extra paid call.
 - [ ] Record owner, exact tuple, scope, evidence and review/expiry on 2026-11-01. Remove the override after adopting a published upstream release admitting patched Pillow, or a suitable official patched Pillow within the bound, then resolve and requalify. Tuple or image/video scope changes require reconsideration. This is application compatibility under an exception, not upstream support.
 - [ ] Obtain independent scoped source review and exact-source hosted native/security/image qualification. Refresh App's truthful main-owned fixture only after the corrected Voice source is integrated into actual main. Previous green runs do not qualify the new dependency graph.
+
+### Task 4c: Close the final App publication gates
+
+The first final App run detected three HIGH findings in Vite 8.2.2 and follow-redirects 1.16.0. Qualify the nearest maintained security patches, Vite 8.2.4 and follow-redirects 1.16.1, preserving all other package versions, peer ranges, Node and pnpm. Use official artifact integrity and a normalized whole-lock comparison; no override or advisory suppression is needed.
+
+The same run independently exposed an entrypoint regression: a disabled Calendar resource caused a stopped acknowledgement after mail capabilities were rejected. Separate cleanup ownership from successful worker readiness, preserving every cleanup/failure/listener and independent Calendar contract. Keep the original native-image rejection assertion unchanged and observe focused RED/GREEN before the minimal correction.
+
+Run bounded installed native/RPC/HTTP consumers, typecheck, lint and build, then obtain independent scoped review. The image fixture's unchanged Linux-local-networking prerequisite must not be bypassed on Windows; its actual three assertions and the unchanged complete exact-source App gate remain mandatory on hosted Linux. Preserve earlier failed/cancelled runs and their distinct cleanup outcomes. No new feature, framework, provider call, budget change or broader Calendar redesign belongs to this lot.
 
 ### Task 5: Qualification, Google setup and owned deployment
 
