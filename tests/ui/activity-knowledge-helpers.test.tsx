@@ -25,8 +25,8 @@ test.each(['fr','en'] as const)('helpers in %s are passive until explicit choice
   try{
     const faq=renderToStaticMarkup(<ActivityFaqHelper locale={locale} faq="Existing FAQ" questions={['Owner question?']} disabled={false} onChange={change}/>)
     const intake=renderToStaticMarkup(<ActivityIntakeHelper locale={locale} instructions="Existing instructions" questions={['Caller question?']} disabled={false} onChange={change}/>)
-    expect(faq).toContain(locale==='fr'?'Vos réponses aux questions fréquentes':'Your answers to frequently asked questions')
-    expect(intake).toContain(locale==='fr'?'Informations à demander à l’appelant':'Information to ask the caller')
+    expect(faq).toContain('<h2>'+(locale==='fr'?'Vos réponses aux questions fréquentes':'Your answers to frequently asked questions')+'</h2>')
+    expect(intake).toContain('<h2>'+(locale==='fr'?'Informations à demander à l’appelant':'Information to ask the caller')+'</h2>')
     for(const html of [faq,intake]){expect(html).not.toContain('<form');for(const button of html.matchAll(/<button\b([^>]*)>/g))expect(button[1]).toContain('type="button"')}
     expect(change).not.toHaveBeenCalled();expect(fetch).not.toHaveBeenCalled()
   }finally{fetch.mockRestore()}

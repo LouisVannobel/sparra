@@ -22,7 +22,7 @@ export function ActivityFaqHelper({locale,faq,questions,disabled,onChange}:Helpe
   const [question,setQuestion]=useState<string|null>(null),[answers,setAnswers]=useState<Record<string,string>>({})
   const answer=question===null?'':answers[question]??''
   const next=question===null?null:appendFaqAnswer(faq,question,answer)
-  return <div className="sparra-knowledge-helper"><h3>{t.ownerAnswers}</h3><p className="sparra-form-hint">{t.faqQuestionsHint}</p>
+  return <div className="sparra-knowledge-helper"><h2>{t.ownerAnswers}</h2><p className="sparra-form-hint">{t.faqQuestionsHint}</p>
     <div className="sparra-helper-choices">{questions.map(value=><Button key={value} type="button" label={value} aria-pressed={question===value} isDisabled={disabled} onClick={()=>setQuestion(value)}/>)}</div>
     {question!==null&&<div className="sparra-helper-answer"><p>{question}</p>{!questions.includes(question)&&<p className="sparra-form-hint">{t.previousQuestion}</p>}
       <TextArea label={t.ownerAnswer} value={answer} onChange={value=>setAnswers(previous=>({...previous,[question]:value}))} rows={3} isDisabled={disabled} width="100%"/>
@@ -33,7 +33,7 @@ export function ActivityFaqHelper({locale,faq,questions,disabled,onChange}:Helpe
 }
 export function ActivityIntakeHelper({locale,instructions,questions,disabled,onChange}:HelperProps&{instructions:string}){
   const t=activityMessages[locale]
-  return <div className="sparra-knowledge-helper"><h3>{t.callerInformation}</h3><p className="sparra-form-hint">{t.intakeQuestionsHint}</p>
+  return <div className="sparra-knowledge-helper"><h2>{t.callerInformation}</h2><p className="sparra-form-hint">{t.intakeQuestionsHint}</p>
     <ul className="sparra-helper-intake">{questions.map(question=>{const next=appendIntakeQuestion(instructions,question);return <li key={question}><span>{question}</span><Button type="button" label={t.addCallerQuestion} aria-label={`${t.addCallerQuestion} : ${question}`} isDisabled={disabled||next===null} onClick={()=>{if(next!==null)onChange(next)}}/></li>})}</ul>
     {questions.some(question=>appendIntakeQuestion(instructions,question)===null)&&<p role="alert">{t.helperInstructionsFull}</p>}
   </div>

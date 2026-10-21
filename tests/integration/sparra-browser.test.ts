@@ -1,4 +1,4 @@
-import { showActivitySection } from '../helpers/activity-navigation'
+import { showActivitySection, waitForActivityNavigation } from '../helpers/activity-navigation'
 import { activityMessages } from '../../src/modules/sparra/messages'
 import { getSectorPreset } from '../../src/modules/sparra/sectors'
 import { afterAll, beforeAll, expect, test } from 'vitest'
@@ -443,6 +443,7 @@ test('setup clarity hides empty OFF contact, retains draft and saved values thro
     await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
     expect(await phone.count()).toBe(0)
     await page.reload();expect(await phone.count()).toBe(0)
+    await waitForActivityNavigation(page)
     expect((await new AxeBuilder({page}).analyze()).violations).toEqual([])
   }finally{await context.close()}
 },30000)
@@ -850,6 +851,7 @@ test('diagnostic owner selects sector and optional questions explicitly, saves a
     expect(await instructions.inputValue()).not.toContain('sale or a rental')
     expect(await page.getByRole('combobox',{includeHidden:true,name:/^Sector/}).textContent()).toContain('Property diagnostics')
     await showActivitySection(page,'knowledge')
+    await waitForActivityNavigation(page)
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
     expect((await new AxeBuilder({page}).analyze()).violations).toEqual([])
     await page.screenshot({path:'.output/test-evidence/sparra/diagnostic-business-en-320.png',fullPage:true})
@@ -867,7 +869,13 @@ test.each(['fr','en'] as const)('guided sections in %s preserve draft and questi
     await page.goto(origin+'/app/entreprise?lang='+locale)
     const nav=page.getByRole('navigation',{name:t.guidedNavigation,exact:true})
     const knowledgeButton=nav.getByRole('button',{name:t.guidedSections[1],exact:true})
-    await knowledgeButton.focus();await page.keyboard.press('Enter')
+    await waitForActivityNavigation(page)
+    await knowledgeButton.click({trial:true})
+    await knowledgeButton.focus();expect(await knowledgeButton.evaluate(button=>document.activeElement===button)).toBe(true)
+    await page.keyboard.press('Enter')
+    await page.locator('#activity-knowledge').waitFor({state:'visible'})
+    expect(await page.locator('#activity-knowledge').isVisible()).toBe(true)
+    expect(await knowledgeButton.getAttribute('aria-current')).toBe('step')
     const faq=page.getByRole('textbox',{includeHidden:true,name:t.faq,exact:true}),instructions=page.getByRole('textbox',{includeHidden:true,name:t.instructions,exact:true})
     const garageQuestion=getSectorPreset('garage',locale).faqQuestions[0]!
     await page.getByRole('button',{name:garageQuestion,exact:true}).click()
