@@ -6,7 +6,8 @@ import { createCalendarWorkerResources } from './platform/calendar-runtime.serve
 type OwnedWorker = { dispose(): Promise<void>; hasFailed(): boolean }
 const resources: OwnedWorker[] = []
 let stop!: () => void,
-  shutdownRequested = false
+  shutdownRequested = false,
+  workerReady = false
 const stopped = new Promise<void>((resolve) => {
   stop = resolve
 })
@@ -38,6 +39,7 @@ try {
   ])
   const failures: Promise<void>[] = []
   if (mail.status === 'fulfilled') {
+    workerReady = true
     failures.push(mail.value.failure)
     process.stdout.write('Application worker ready\n')
   } else if (!shutdownRequested) {
@@ -45,6 +47,7 @@ try {
     process.stderr.write('Application worker unavailable\n')
   }
   if (calendar.status === 'fulfilled' && calendar.value.enabled) {
+    workerReady = true
     failures.push(calendar.value.failure)
     process.stdout.write('Calendar worker ready\n')
   } else if (calendar.status === 'rejected' && !shutdownRequested) {
@@ -70,7 +73,7 @@ try {
     if (outcomes.some((outcome) => outcome.status === 'rejected')) {
       process.exitCode = 1
       process.stderr.write('Application worker cleanup unavailable\n')
-    } else if (resources.length) process.stdout.write('Application worker stopped\n')
+    } else if (workerReady) process.stdout.write('Application worker stopped\n')
   } finally {
     process.removeListener('SIGINT', shutdown)
     process.removeListener('SIGTERM', shutdown)
