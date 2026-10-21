@@ -96,7 +96,8 @@ test.each(['confirmed', 'lost-response-restart', 'no-ack', 'retry-after-no-ack',
     await showActivitySection(page,'handling')
     if(mode==='confirmed'){
       await page.getByRole('button',{name:'Connect Google',exact:true}).click()
-      await page.waitForURL(origin+'/app/entreprise?lang=fr&calendar=failed')
+      await page.waitForURL(url=>url.origin===origin&&url.pathname==='/app/entreprise'&&url.searchParams.get('calendar')==='failed'&&(!url.searchParams.has('lang')||url.searchParams.get('lang')==='fr'))
+      expect(await page.locator('html').getAttribute('lang')).toBe('fr')
       await page.getByRole('status').filter({hasText:'La connexion Google n’a pas été confirmée. Réessayez.'}).waitFor()
       expect(await page.locator('.sparra-guided-calendar').isVisible()).toBe(true)
       expect(await page.getByRole('button',{name:'Traitement et outils',exact:true}).getAttribute('aria-current')).toBe('step')
@@ -106,7 +107,8 @@ test.each(['confirmed', 'lost-response-restart', 'no-ack', 'retry-after-no-ack',
       await page.goto(origin+'/app/entreprise?lang=en');await showActivitySection(page,'handling')
     }
     await page.getByRole('button', { name: 'Connect Google', exact: true }).click()
-    await page.waitForURL(origin+'/app/entreprise?lang=en&calendar=returned')
+    await page.waitForURL(url=>url.origin===origin&&url.pathname==='/app/entreprise'&&url.searchParams.get('calendar')==='returned'&&url.searchParams.get('lang')==='en')
+    expect(await page.locator('html').getAttribute('lang')).toBe('en')
     await page.getByText('Connected account : calendar-owner@example.test', { exact: true }).waitFor()
     expect(await page.locator('.sparra-guided-calendar').isVisible()).toBe(true)
     expect(await page.getByRole('button',{name:'Handling and tools',exact:true}).getAttribute('aria-current')).toBe('step')
