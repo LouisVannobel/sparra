@@ -25,8 +25,8 @@ Production source at `e8269fc` is unchanged through the final test-only correcti
 | Calendar task review and additional uncertainty/visible-draft fix review | APPROVE |
 | Navigation task review and explicit native-consumer departures fix review | APPROVE |
 | Exact qualification manifests and mandatory Business browser wiring | 6 focused policy checks passed; exact 5 consumers/96 leaves declared |
-| Compiled native Business, auth-refusal and cancellation smoke | Pending coordinated disposable-store window |
-| Final whole-diff independent review through `9f7bce9` | Source/spec and quality APPROVE; native receipt pending |
+| Compiled native Business, auth-refusal and cancellation smoke | 4 passed, 19 deliberately unselected; exit 0 |
+| Final whole-diff independent review through `9f7bce9` | Source/spec, quality and final bounded native receipt APPROVE |
 
 The browser consumers use the actual panels and native TanStack Router with controlled callbacks, Chromium and `envDir:false`; they do not call Google. Pre-implementation RED and subsequent GREEN are recorded in the ignored task reports. The native consumer preserves all existing assertions and explicitly accepts its three deliberate draft-abandoning departures through one-shot dialog expectations.
 
@@ -41,11 +41,19 @@ Acceptance mapping:
 | Save conflict or unknown outcome | Matching and divergent reads keep reconciliation; explicit adoption is withheld until a successful read |
 | OAuth refusal and preparation | Pending/uncertain work prevents disconnect/begin; decline has zero effects; held preparation locks editing; rejected preparation restores the draft and guard |
 | Independent panel operations and auth refusal | Browser consumers retain independent saves; existing compiled native cancellation and auth-refusal cases remain intact |
-| Truthful Calendar feedback | FR/EN retained-email states, unsaved feedback and edits after a known save are covered by Calendar UI/browser consumers |
+| Truthful Calendar feedback | Retained-email states, unsaved feedback in FR/EN, and clearing success after edits are covered by Calendar UI/browser consumers |
 
 The final reviewer also investigated a precise post-assignment document-loading concern with a locally held target. The preparation lock was observed, but the old French editor/DOM was no longer usable through the browser driver once target navigation was held. No post-approval edit or loss was demonstrated. This is a bounded reproduction limit, not proof of real-provider navigation timing or a confirmed defect. The controlled browser/server and, for the stalled diagnostic, only its verified owned process tree/listener were retired. No speculative runtime change was made.
 
-Native attempt history is retained rather than folded into a green result. The first attempt passed auth refusal, encountered a network change before cancellation UI, and exposed an incorrect explicit-French-query assertion in the new tests; foreign GitHub MCP containers also changed inventory. The second attempt passed auth refusal and cancellation with complete retirement/unchanged inventory, then stopped at an added active-link assertion. French default canonicalization and installed Link's `aria-current="page"` are now asserted using their actual contracts, with exact captured-URL retention and all draft/database assertions preserved. Final replay remains pending at this receipt stage.
+Native attempt history is retained rather than folded into a green result. The first attempt passed auth refusal, encountered a network change before cancellation UI, and exposed an incorrect explicit-French-query assertion in the new tests; foreign GitHub MCP containers also changed inventory. The second attempt passed auth refusal and cancellation with complete retirement/unchanged inventory, then stopped at an added active-link assertion. French default canonicalization and installed Link's `aria-current="page"` are now asserted using their actual contracts, with exact captured-URL retention and all draft/database assertions preserved.
+
+The final replay at `c910faf` passed all four selected native cases in 26.73 seconds, exit 0. Run `4ce69ea6-b239-48a4-9fde-5d7734d8297a` confirms `consumerRetirementConfirmed=true`, `unrelatedUnchanged=true`, `inventoryDelta=[]`, no cleanup failure and identical inventory fingerprints. The compiled entry SHA-256 is `e0883e9f2f3ddaa244feef3097735b3a13fbd30abe9e77452ad74afa249d0a36`. Final normative typecheck/lint and explicit fixture lint also passed. No runtime source changed after its successful build. The resource window was returned immediately after closure and receipt validation.
+
+Reproduction of the bounded native selection:
+
+```sh
+pnpm exec vitest run --config vitest.integration.config.ts tests/integration/sparra-browser.test.ts --testNamePattern 'compiled Business|activity native mutation refusal|native loader and mutation cancellation' --maxWorkers=1
+```
 
 ## Coordination and limits
 
