@@ -937,10 +937,13 @@ test.each(['enterprise','prepared-faq'] as const)('compiled Business %s declines
     else{
       await showActivitySection(page,'knowledge');await page.getByRole('button',{name:getSectorPreset('garage','fr').faqQuestions[0]!,exact:true}).click();await page.getByRole('textbox',{name:t.ownerAnswer,exact:true}).fill('Native prepared answer')
     }
+    expect(await page.locator('html').getAttribute('lang')).toBe('fr')
+    expect(await page.getByRole('link',{name:'Français',exact:true}).getAttribute('aria-current')).toBe('true')
+    const frenchUrl=page.url();expect(new URL(frenchUrl).pathname).toBe('/app/entreprise')
     let declined=0
     page.once('dialog',async dialog=>{declined++;expect(dialog.type()).toBe('confirm');await dialog.dismiss()})
     await page.getByRole('link',{name:'English',exact:true}).click();await expect.poll(()=>declined).toBe(1)
-    expect(new URL(page.url()).searchParams.get('lang')).toBe('fr')
+    expect(page.url()).toBe(frenchUrl)
     expect(await page.getByRole('textbox',{includeHidden:true,name:new RegExp('^'+t.businessName)}).inputValue()).toBe(kind==='enterprise'?'Native unsaved':'Native known')
     if(kind==='prepared-faq')expect(await page.getByRole('textbox',{name:t.ownerAnswer,exact:true}).inputValue()).toBe('Native prepared answer')
     let accepted=0;page.once('dialog',async dialog=>{accepted++;await dialog.accept()})
