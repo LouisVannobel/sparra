@@ -21,7 +21,7 @@ export const Route = createFileRoute('/')({
       { name: 'twitter:title', content: title },
       { name: 'twitter:description', content: description },
     ],
-    links: [{ rel: 'canonical', href: canonicalUrl }, { rel: 'stylesheet', href: stylesheet }],
+    links: [{ rel: 'canonical', href: canonicalUrl }, { rel: 'stylesheet', href: stylesheet }, { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
   }),
   component: SparraLanding,
 })
