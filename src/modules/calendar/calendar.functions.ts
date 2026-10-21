@@ -3,11 +3,17 @@ import { getRequest, setResponseHeader } from '@tanstack/react-start/server'
 import { Schema } from 'effect'
 import { requestResources } from '../../platform/resources.server'
 import { parseSaveCalendarPolicy } from './policy'
-import { CalendarOperationError } from './connection.server'
 
 const calendarStatus={unavailable:503,missing_workspace:404,conflict:409,busy:409,rejected:400} as const
+function calendarDomainStatus(error:unknown):number|null {
+  // Nitro emits the runtime owner and Start middleware in separate bundles.
+  if(!(error instanceof Error)||error.name!=='CalendarOperationError'||!Object.hasOwn(error,'code')||!('code' in error)||typeof error.code!=='string'||error.message!==`Calendar ${error.code}`)return null
+  const status:unknown=Object.getOwnPropertyDescriptor(calendarStatus,error.code)?.value
+  return typeof status==='number'?status:null
+}
 function calendarErrorStatus(error:unknown):number {
-  if(error instanceof CalendarOperationError)return calendarStatus[error.code]
+  const domain=calendarDomainStatus(error)
+  if(domain!==null)return domain
   return error instanceof Error&&error.name==='InvalidCalendarPolicy'||Schema.isSchemaError(error)?400:503
 }
 const errors=createMiddleware({type:'function'}).server(async({next})=>{

@@ -8,6 +8,8 @@ import { pathToFileURL } from 'node:url'
 import { Schema } from 'effect'
 import { InvalidActivityInput } from '../../src/modules/sparra/activity.server'
 import { parseRequestInput } from '../../src/modules/sparra/requests.server'
+import { CalendarOperationError } from '../../src/modules/calendar/connection.server'
+import { parseSaveCalendarPolicy } from '../../src/modules/calendar/policy'
 
 type NativeMapper=Parameters<FunctionMiddleware<{}>['server']>[0]
 type RegisteredMiddleware=Parameters<typeof executeMiddleware>[0][number]
@@ -31,7 +33,8 @@ vi.mock('@tanstack/react-start/server',async importOriginal=>{
 })
 beforeAll(async()=>{
   await import('../../src/modules/sparra/sparra.functions')
-  expect(observed.mappers).toHaveLength(2)
+  await import('../../src/modules/calendar/calendar.functions')
+  expect(observed.mappers).toHaveLength(3)
   observed.capturing=false
   const require=createRequire(import.meta.url)
   const startPackage=require.resolve('@tanstack/react-start/package.json')
@@ -54,8 +57,8 @@ beforeAll(async()=>{
 })
 beforeEach(()=>observed.header.mockClear())
 
-function mapping(kind:'activity'|'request',failure?:unknown){
-  const value=observed.mappers[kind==='activity'?0:1]
+function mapping(kind:'activity'|'request'|'calendar',failure?:unknown){
+  const value=observed.mappers[kind==='activity'?0:kind==='request'?1:2]
   if(!value)throw new Error('Native error mapper was not registered')
   const terminal=createMiddleware({type:'function'}).server(async({next})=>{
     if(failure!==undefined)throw failure
@@ -69,6 +72,19 @@ function mapping(kind:'activity'|'request',failure?:unknown){
 function namedFailure(name:string){const value=new Error('private-unit-marker');value.name=name;return value}
 function schemaFailure(){try{Schema.decodeUnknownSync(Schema.String)(1)}catch(error){return error}throw new Error('Schema fixture unexpectedly passed')}
 function requestInputFailure(){try{parseRequestInput({})}catch(error){return error}throw new Error('Request fixture unexpectedly passed')}
+function calendarPolicyFailure(){try{parseSaveCalendarPolicy({})}catch(error){return error}throw new Error('Calendar policy fixture unexpectedly passed')}
+function emittedCalendarFailure(code:CalendarOperationError['code']){
+  // The built runtime and SSR bridge instantiate separate copies of this class.
+  const error=new Error('Calendar '+code)
+  error.name='CalendarOperationError'
+  return Object.assign(error,{code})
+}
+class InheritedCalendarCode extends Error {get code(){return 'conflict'}}
+function inheritedCalendarFailure(){
+  const error=new InheritedCalendarCode('Calendar conflict')
+  error.name='CalendarOperationError'
+  return error
+}
 
 test.each(['activity','request'] as const)('registered %s mapper returns next and preserves a thrown Response',async kind=>{
   expect((await mapping(kind)).context).toEqual({unitResult:true})
@@ -95,5 +111,34 @@ test.each([
   expect(rejection.status).toBe(status)
   expect(rejection.headers.get('x-sparra-activity-error')).toBe(message==='Local audio unavailable'?'recording-unavailable':null)
   expect(await rejection.text()).toBe(message)
+  expect(observed.header).toHaveBeenCalledExactlyOnceWith('cache-control','no-store')
+})
+
+test('registered Calendar middleware preserves a native Response and sets no-store',async()=>{
+  expect((await mapping('calendar')).context).toEqual({unitResult:true})
+  const refusal=new Response('owned-refusal',{status:401})
+  expect((await mapping('calendar',refusal)).error).toBe(refusal)
+  expect(observed.header.mock.calls).toEqual([['cache-control','no-store'],['cache-control','no-store']])
+})
+
+test.each([
+  [()=>new CalendarOperationError('rejected'),400],
+  [calendarPolicyFailure,400],
+  [schemaFailure,400],
+  [()=>new CalendarOperationError('missing_workspace'),404],
+  [()=>new CalendarOperationError('conflict'),409],
+  [()=>emittedCalendarFailure('conflict'),409],
+  [()=>new CalendarOperationError('busy'),409],
+  [()=>new CalendarOperationError('unavailable'),503],
+  [()=>new Error('private-provider-detail'),503],
+  [()=>({private:'private-provider-detail'}),503],
+  [()=>Object.assign(new Error('private-provider-detail'),{name:'CalendarOperationError',code:'foreign'}),503],
+  [inheritedCalendarFailure,503],
+] as const)('registered Calendar middleware safely maps case %#',async(failure,status)=>{
+  const rejection=(await mapping('calendar',failure())).error
+  expect(rejection).toBeInstanceOf(Response)
+  if(!(rejection instanceof Response))throw new Error('Calendar mapper did not return a native Response')
+  expect(rejection.status).toBe(status)
+  expect(await rejection.text()).toBe('Calendar unavailable')
   expect(observed.header).toHaveBeenCalledExactlyOnceWith('cache-control','no-store')
 })

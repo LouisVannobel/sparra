@@ -15,7 +15,7 @@ export async function startCalendarProtocolPeer() {
   const directory = await mkdtemp(join(tmpdir(), 'sparra-calendar-peer-'))
   const clients = new Set(), sockets = new Set(), pending = new Set(), attempts = new Map(), events = new Map(), observed = []
   const original = tls.connect
-  let server, closing, mode = 'normal', disallowed = 0, emergencyCleanup = false
+  let server, closing, mode = 'normal', refreshMode = 'existing', disallowed = 0, emergencyCleanup = false
   const refuse = () => { disallowed++; return new Error('Calendar peer refused an operation') }
   const evidence = () => ({ posts: observed.filter(value => value.method === 'POST').length, tls: observed.length, disallowed,
     activeClientSockets: clients.size, activeSockets: sockets.size, activeRequests: pending.size, emergencyCleanup })
@@ -53,12 +53,13 @@ export async function startCalendarProtocolPeer() {
       const fields=new URLSearchParams(body),attempt=attempts.get(fields.get('code'))
       attempts.delete(fields.get('code'))
       if(fields.get('client_id')!=='fixture-calendar-client'||fields.get('client_secret')!=='fixture-only')throw refuse()
+      const refresh=fields.get('grant_type')==='refresh_token'
       if(fields.get('grant_type')==='authorization_code') {
         if(!attempt||fields.get('redirect_uri')!==attempt.redirect||createHash('sha256').update(fields.get('code_verifier')??'').digest('base64url')!==attempt.challenge)throw refuse()
         subject=attempt.subject
       } else if(fields.get('grant_type')!=='refresh_token'||fields.get('refresh_token')!=='fixture-refresh')throw refuse()
       const unsigned=[JSON.stringify({alg:'RS256',kid:'calendar-peer'}),JSON.stringify({iss:'https://accounts.google.com',aud:'fixture-calendar-client',sub:subject,...(attempt?{nonce:attempt.nonce}:{}),exp:Math.floor(Date.now()/1000)+300})].map(value=>Buffer.from(value).toString('base64url')).join('.')
-      reply(response,{access_token:'fixture-access',refresh_token:'fixture-refresh',token_type:'Bearer',expires_in:3600,scope:scopes.join(' '),id_token:unsigned+'.'+sign('RSA-SHA256',Buffer.from(unsigned),signing.privateKey).toString('base64url')})
+      reply(response,{access_token:'fixture-access',...(refresh&&refreshMode==='retained'?{}:{refresh_token:refresh&&refreshMode==='rotated'?'fixture-refresh-rotated':'fixture-refresh'}),token_type:'Bearer',expires_in:3600,scope:scopes.join(' '),id_token:unsigned+'.'+sign('RSA-SHA256',Buffer.from(unsigned),signing.privateKey).toString('base64url')})
     }
     function handleUserInfo(request,response,host,path) {
       if(request.headers.authorization!=='Bearer fixture-access')throw refuse()
@@ -116,6 +117,7 @@ export async function startCalendarProtocolPeer() {
     }
     syncBuiltinESMExports()
     return { close, evidence, allowPort() {}, requests: () => [...observed], events: () => [...events.values()], setMode(value) { if (!['normal', 'hold-headers', 'hold-body', 'lose-insert', 'hold-insert'].includes(value)) throw refuse(); mode = value },
+      setRefreshMode(value) {if(!['retained','rotated'].includes(value))throw refuse();refreshMode=value},
       changeEvent(id, change) {
         const event = events.get(id)
         if (!event || !['cancelled', 'moved'].includes(change)) throw refuse()

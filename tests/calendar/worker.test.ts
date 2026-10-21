@@ -8,7 +8,8 @@ import {
 import type { CalendarStore, CalendarWork, CalendarFinish } from '../../src/modules/calendar/store.server'
 import { calendarFixtureConfig, calendarFixturePolicy } from '../helpers/calendar-fixture'
 import { decryptCalendarTokens, encryptCalendarTokens } from '../../src/modules/calendar/token-crypto.server'
-import { CalendarProviderError, GOOGLE_CALENDAR_SCOPES } from '../../src/modules/calendar/google.server'
+import { CalendarProviderError, GOOGLE_CALENDAR_SCOPES, createGoogleCalendarClient } from '../../src/modules/calendar/google.server'
+import { startCalendarProtocolPeer } from '../helpers/calendar-protocol-peer.mjs'
 function fixture(possible = false) {
   const id = randomUUID(),
     workspaceId = randomUUID(),
@@ -337,6 +338,35 @@ test.each([false,true])('expired worker token refresh uses verified subject and 
   expect(tokens.refreshToken).toBe(rotated?'new-refresh':'old-refresh')
   expect(f.calls).toEqual(['claim','read','refresh','identity','finishTokens','freeBusy','prepare','POST','close'])
   expect(f.finishes[0]?.state).toBe('confirmed')
+})
+test.each(['retained','rotated'] as const)('expired worker token uses owned Google TLS refresh with %s grant and one insert',async grant=>{
+  const peer=await startCalendarProtocolPeer()
+  let client:ReturnType<typeof createGoogleCalendarClient>|undefined
+  try {
+    peer.setRefreshMode(grant)
+    const f=fixture()
+    f.q={...f.q,calendarId:'fixture-calendar',googleSubject:'calendar-owner',
+      tokenEnvelope:encryptCalendarTokens(calendarFixtureConfig,{workspaceId:f.q.workspaceId,connectionId:f.q.connectionId},{
+        accessToken:'expired-access',refreshToken:'fixture-refresh',expiresAt:Date.now()-1,grantedScopes:['openid']})}
+    f.store.finishTokens=async (_q,_work,envelope,lost)=>{
+      expect(lost).toBe(false)
+      expect(envelope).not.toBeNull()
+      f.q={...f.q,tokenEnvelope:envelope}
+      return true
+    }
+    client=createGoogleCalendarClient(calendarFixtureConfig,new AbortController().signal,Date.now()+10000)
+    await runCalendarOnce(f.store,calendarFixtureConfig,new AbortController().signal,client)
+    expect(f.finishes[0]?.state).toBe('confirmed')
+    const tokens=decryptCalendarTokens(calendarFixtureConfig,{workspaceId:f.q.workspaceId,connectionId:f.q.connectionId},f.q.tokenEnvelope!)
+    expect(tokens.accessToken).toBe('fixture-access')
+    expect(tokens.refreshToken).toBe(grant==='rotated'?'fixture-refresh-rotated':'fixture-refresh')
+    const requests=peer.requests()
+    expect(requests.map(value=>value.path)).toEqual([
+      '/token','/v1/userinfo','/calendar/v3/freeBusy','/calendar/v3/calendars/fixture-calendar/events?sendUpdates=none'])
+    expect(new URLSearchParams(requests[0]!.body).get('grant_type')).toBe('refresh_token')
+    expect(requests.filter(value=>value.method==='POST'&&value.path.includes('/events?'))).toHaveLength(1)
+    await expect.poll(()=>peer.evidence()).toMatchObject({activeClientSockets:0,activeSockets:0,activeRequests:0,disallowed:0})
+  } finally {await client?.close();await peer.close()}
 })
 test.each(['missing-grant','foreign-subject','unverified-email'] as const)('worker refresh refuses %s before provider write',async cause=>{
   const f=fixture();expire(f)
