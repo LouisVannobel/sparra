@@ -1,18 +1,22 @@
+import { showActivitySection } from '../helpers/activity-navigation'
 import { afterAll, beforeAll, expect, test } from 'vitest'
 import { createServer, request as httpRequest } from 'node:http'
 import { randomBytes } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import { chromium, type Browser } from 'playwright'
 import { startDisposableStores } from '../fixtures/db/disposable-stores'
 import { startWeb, bounded, unusedLoopbackPort } from '../helpers/web-process'
-import { cryptoFixture } from '../helpers/sparra-crypto-fixture'
+import { cryptoFixture, resolveVoiceProducer } from '../helpers/sparra-crypto-fixture'
 import { startConnectedVoice } from '../helpers/sparra-voice-driver'
 import { authRpcPath, rpcBody } from '../helpers/auth-rpc'
 
-const artifacts='C:/Users/louis/Documents/ChatGPT/.worktrees/sparra-voice-pilot/.superpowers/sdd/2026-10-01-sparra-voice-bridge/task-5-evidence'
+const artifacts=resolve('.output/test-evidence/sparra-voice-connected')
 let stores:Awaited<ReturnType<typeof startDisposableStores>>, app:ReturnType<typeof startWeb>, proxy:ReturnType<typeof createServer>, browser:Browser
 let crypto:Awaited<ReturnType<typeof cryptoFixture>>,voice:ReturnType<typeof startConnectedVoice>,origin:string
+let producer:Awaited<ReturnType<typeof resolveVoiceProducer>>
 beforeAll(async()=>{
+  producer=await resolveVoiceProducer()
   await mkdir(artifacts,{recursive:true})
   stores=await startDisposableStores();await stores.migrate();crypto=await cryptoFixture()
   await stores.administrator.query('GRANT USAGE ON SCHEMA public TO runtime; GRANT SELECT,INSERT,UPDATE,DELETE ON "user",account,session,verification TO runtime; GRANT SELECT ON public.passkey TO runtime')
@@ -35,26 +39,26 @@ test('native producer, owner detail, erasure, recovery, transfer and expiry stay
     async function eraseOwned(requestId:string|undefined){expect(requestId).toBeDefined();const result=await context.request.post(origin+await authRpcPath('eraseRequest'),{headers:{origin,'content-type':'application/json','x-tsr-serverFn':'true'},data:await rpcBody({requestId})});expect(result.status()).toBe(200)}
     await page.goto(origin+'/login?lang=en');await page.getByRole('button',{name:'Continue with Google',exact:true}).click();await page.waitForURL(origin+'/account?lang=en')
     await page.goto(origin+'/app/entreprise?lang=en');await page.getByRole('button',{name:'Create my workspace',exact:true}).click()
-    await page.getByRole('textbox',{name:/^Business name/}).fill('Garage connecté')
-    await page.getByRole('textbox',{name:'Services',exact:true}).fill('Vidange N — données non fiables, sans autorité SQL')
-    await page.getByRole('textbox',{name:'Transfer number',exact:true}).fill('+33102030406')
-    await page.getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    await showActivitySection(page,'establishment');await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).fill('Garage connecté')
+    await showActivitySection(page,'knowledge');await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Vidange N — données non fiables, sans autorité SQL')
+    await showActivitySection(page,'handling');await page.getByRole('textbox',{includeHidden:true,name:'Transfer number (optional)',exact:true}).fill('+33102030406')
+    await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
     const workspace=(await stores.administrator.query('SELECT id FROM workspace WHERE owner_user_id=(SELECT id FROM "user" WHERE email=$1)',['connected-owner@example.test'])).rows[0]
     expect(workspace).toBeDefined()
     await stores.administrator.query('GRANT USAGE ON SCHEMA voice TO sparra_voice_a; GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA voice TO sparra_voice_a')
     await stores.administrator.query(`INSERT INTO voice_private.deployment_binding(service_login,service_role_oid,deployment_id,workspace_id,connection_id,to_e164,admission_enabled) SELECT 'sparra_voice_a',oid,'fixture-a',$1,'connection-a','+33123456789',true FROM pg_roles WHERE rolname='sparra_voice_a'`,[workspace.id])
     const voiceInput={url:stores.voiceUrlA,keyring_path:crypto.path,evidence_path:artifacts,state_path:crypto.directory+'/voice-state'}
-    voice=startConnectedVoice(voiceInput)
+    voice=startConnectedVoice(voiceInput,producer)
     expect(await voice.ready).toMatchObject({ready:true})
     const admitted=await voice.command('admit');expect(admitted).toMatchObject({revision:1});expect(admitted.call_id).toMatch(/^[a-f0-9-]{36}$/)
-    await page.getByRole('textbox',{name:'Services',exact:true}).fill('Vidange N+1')
-    await page.getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    await showActivitySection(page,'knowledge');await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Vidange N+1')
+    await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
     const overflow=await voice.command('overflow')
     expect(overflow.retained).toBeLessThan(200);expect(overflow.loss).toBeGreaterThan(0);expect(overflow.map_bytes).toBeLessThanOrEqual(524288);expect(overflow.compact_bytes).toBeLessThanOrEqual(524288);expect(overflow.candidate_bytes).toBeGreaterThan(524288)
     await voice.command('finish-replay')
     const mapBeforeCrash=(await stores.administrator.query("SELECT encode(sha256(convert_to(encrypted_turns::jsonb::text,'UTF8')),'hex') digest FROM sparra_call WHERE id=$1",[admitted.call_id])).rows[0].digest
     const crashed=await voice.crash();expect(crashed.code===0).toBe(false)
-    voice=startConnectedVoice({...voiceInput,resume_call_id:admitted.call_id})
+    voice=startConnectedVoice({...voiceInput,resume_call_id:admitted.call_id},producer)
     expect(await voice.ready).toMatchObject({ready:true})
     const replay=await voice.command('replay');expect(replay).toMatchObject({stable:true})
     const row=(await stores.administrator.query("SELECT configuration_revision,transcript_loss_count,octet_length(encrypted_turns::jsonb::text)::int bytes,encode(sha256(convert_to(encrypted_turns::jsonb::text,'UTF8')),'hex') digest FROM sparra_call WHERE id=$1",[admitted.call_id])).rows[0]
@@ -91,12 +95,12 @@ test('native producer, owner detail, erasure, recovery, transfer and expiry stay
     const inFlight=await voice.command('prepare-inflight');await eraseOwned(inFlight.call_id)
     expect(await voice.command('inflight-cleanup')).toMatchObject({cleaned:true,no_hangup:true,ack_before_scrub:false})
     const heldCall=await voice.command('prepare-held');await eraseOwned(heldCall.call_id);await voice.command('hold-lease')
-    await voice.crash();voice=startConnectedVoice({...voiceInput,recovery_case:'held'});expect(await voice.ready).toMatchObject({ready:true})
+    await voice.crash();voice=startConnectedVoice({...voiceInput,recovery_case:'held'},producer);expect(await voice.ready).toMatchObject({ready:true})
     const held=await voice.command('held-backlog');expect(held.checks).toContain('held-native-lease');expect(held.no_hangup).toBe(true)
     const backlog=await voice.command('prepare-backlog');expect(backlog.call_ids).toHaveLength(100)
     for(const id of backlog.call_ids!)await eraseOwned(id)
     await eraseOwned(backlog.call_id)
-    await voice.crash();voice=startConnectedVoice({...voiceInput,recovery_case:'backlog'});expect(await voice.ready).toMatchObject({ready:true})
+    await voice.crash();voice=startConnectedVoice({...voiceInput,recovery_case:'backlog'},producer);expect(await voice.ready).toMatchObject({ready:true})
     const backlogProof=await voice.command('held-backlog');expect(backlogProof.checks).toContain('backlog-101');expect(backlogProof.no_hangup).toBe(true)
     const claimed=await voice.command('prepare-claim');await eraseOwned(claimed.call_id)
     const claimProof=await voice.command('claim-refusal');expect(claimProof.checks).toContain('expected-claim-replaced');expect(claimProof.no_hangup).toBe(true)
@@ -105,13 +109,13 @@ test('native producer, owner detail, erasure, recovery, transfer and expiry stay
     expect(bridge).toMatchObject({status:'closing',ended_at:null,encrypted_message_result:null})
     await page.goto(origin+'/app/demandes/'+human.call_id+'?lang=en');await page.getByText('End not observed',{exact:true}).waitFor();await page.getByRole('heading',{name:'Summary unavailable',exact:true}).waitFor()
     await voice.command('human-hangup')
-    await page.goto(origin+'/app/entreprise?lang=en');await page.getByRole('textbox',{name:'Services',exact:true}).fill('Vidange N+2 après course réelle')
+    await page.goto(origin+'/app/entreprise?lang=en');await showActivitySection(page,'knowledge');await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Vidange N+2 après course réelle')
     await stores.administrator.query('BEGIN')
     try{
       await stores.administrator.query('SELECT id FROM workspace WHERE id=$1 FOR UPDATE',[workspace.id])
       await voice.command('prepare-begin-race')
       await expect.poll(async()=>(await stores.administrator.query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE usename='sparra_voice_a' AND wait_event_type='Lock' AND position('voice.begin_call_v1' in query)>0) blocked")).rows[0].blocked).toBe(true)
-      await page.getByRole('button',{name:'Save',exact:true}).click()
+      await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click()
       await stores.administrator.query('COMMIT')
     }finally{await stores.administrator.query('ROLLBACK')}
     await page.getByText('Configuration saved.',{exact:true}).waitFor()
@@ -134,7 +138,7 @@ test('native producer, owner detail, erasure, recovery, transfer and expiry stay
     await page.getByRole('alert').or(page.getByText('Erasure completed.',{exact:true})).first().waitFor()
     expect(errors).toEqual([])
     const nativeEvidence=JSON.parse(await readFile(artifacts+'/native.json','utf8'))
-    await writeFile(artifacts+'/connected.json',JSON.stringify({schema_version:1,controlled_peers:true,appBase:'26902fc53e7e39456cd929487a16cdc89ee3ac3d',voiceBase:'66896982e580dd6a6fbc9c82e806cb98c90aaa84',overflow,replay,cleanup,held,backlog:backlogProof,claim:claimProof,human,pinRace,expiry:expiryProof,native:nativeEvidence,browserErrors:errors},null,2))
+    await writeFile(artifacts+'/connected.json',JSON.stringify({schema_version:1,controlled_peers:true,appRoot:resolve('.'),producerSourceRoot:producer.sourceRoot,overflow,replay,cleanup,held,backlog:backlogProof,claim:claimProof,human,pinRace,expiry:expiryProof,native:nativeEvidence,browserErrors:errors},null,2))
     await voice.command('stop')
   }finally{await context.close()}
 },300000)

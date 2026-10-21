@@ -60,7 +60,8 @@ test('configured activity SSR preserves the observed revision, editor values and
     const labels=locale==='fr'?['Horaires','Prestations','Tarifs','Questions fréquentes','Consignes de réponse']:['Opening hours','Services','Prices','Frequently asked questions','Response instructions']
     for(const label of labels)expect(html).toContain(label)
     const controls=[...html.matchAll(/<(?:input|textarea|button)\b([^>]*)>/g)]
-    expect(controls).toHaveLength(10)
+    const originalControls=controls.filter(control=>!control[0].startsWith('<button')||/role="combobox"|type="submit"/.test(control[1]!))
+    expect(originalControls).toHaveLength(10)
     for(const control of controls)expect(control[1]).toContain('disabled=""')
     expect(html).not.toContain(locale==='fr'?'Configuration enregistrée.':'Configuration saved.')
     expect(html).not.toContain(locale==='fr'?'Créer mon espace':'Create my workspace')
