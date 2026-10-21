@@ -7,7 +7,10 @@ test('default-owned Google Agent joins idle TLS sockets and rejects later work',
   const peer = await startCalendarProtocolPeer()
   const client = createGoogleCalendarClient(calendarFixtureConfig, new AbortController().signal, Date.now() + 10000)
   try {
-    expect(await client.listCalendars('fixture-access')).toMatchObject([{ id: 'fixture-calendar' }])
+    expect(await client.listCalendars('fixture-access')).toEqual([
+      { id: 'fixture-calendar', summary: 'Agenda de qualification', timeZone: 'Europe/Paris', accessRole: 'owner' },
+      { id: 'fixture-calendar-b', summary: 'Agenda de qualification', timeZone: 'Europe/Paris', accessRole: 'owner' },
+    ])
     expect(peer.evidence().activeClientSockets).toBeGreaterThan(0)
     await client.close()
     await expect.poll(() => peer.evidence()).toMatchObject({ activeClientSockets: 0, activeSockets: 0, activeRequests: 0, disallowed: 0 })
