@@ -7,8 +7,8 @@ import {
 } from '../../src/modules/calendar/worker.server'
 import type { CalendarStore, CalendarWork, CalendarFinish } from '../../src/modules/calendar/store.server'
 import { calendarFixtureConfig, calendarFixturePolicy } from '../helpers/calendar-fixture'
-import { encryptCalendarTokens } from '../../src/modules/calendar/token-crypto.server'
-import { CalendarProviderError } from '../../src/modules/calendar/google.server'
+import { decryptCalendarTokens, encryptCalendarTokens } from '../../src/modules/calendar/token-crypto.server'
+import { CalendarProviderError, GOOGLE_CALENDAR_SCOPES } from '../../src/modules/calendar/google.server'
 function fixture(possible = false) {
   const id = randomUUID(),
     workspaceId = randomUUID(),
@@ -319,6 +319,50 @@ test('an existing refresh owner prevents a second token exchange or any provider
   await runCalendarOnce(f.store, calendarFixtureConfig, new AbortController().signal, f.provider)
   expect(f.finishes[0]?.state).toBe('retry')
   expect(f.calls).toEqual(['claim', 'close'])
+})
+
+function expire(f:ReturnType<typeof fixture>) {
+  f.q={...f.q,tokenEnvelope:encryptCalendarTokens(calendarFixtureConfig,{workspaceId:f.q.workspaceId,connectionId:f.q.connectionId},{accessToken:'expired',refreshToken:'old-refresh',expiresAt:Date.now()-1,grantedScopes:['openid']})}
+}
+const refreshedScopes=['openid','https://www.googleapis.com/auth/userinfo.email',...GOOGLE_CALENDAR_SCOPES]
+test.each([false,true])('expired worker token refresh uses verified subject and %s rotated refresh grant',async rotated=>{
+  const f=fixture();expire(f)
+  const refreshed={accessToken:'new-access',tokenType:'Bearer' as const,expiresIn:3600,grantedScopes:refreshedScopes,...(rotated?{refreshToken:'new-refresh'}:{})}
+  f.provider.refreshTokens=async token=>{expect(token).toBe('old-refresh');f.calls.push('refresh');return refreshed}
+  f.provider.userInfo=async token=>{expect(token).toBe('new-access');f.calls.push('identity');return {sub:'subject',email:'owner@example.test',emailVerified:true}}
+  f.provider.freeBusy=async token=>{expect(token).toBe('new-access');f.calls.push('freeBusy');return []}
+  f.store.finishTokens=async (_q,_work,envelope,lost)=>{expect(lost).toBe(false);expect(envelope).not.toBeNull();f.q={...f.q,tokenEnvelope:envelope};f.calls.push('finishTokens');return true}
+  await runCalendarOnce(f.store,calendarFixtureConfig,new AbortController().signal,f.provider)
+  const tokens=decryptCalendarTokens(calendarFixtureConfig,{workspaceId:f.q.workspaceId,connectionId:f.q.connectionId},f.q.tokenEnvelope!)
+  expect(tokens.refreshToken).toBe(rotated?'new-refresh':'old-refresh')
+  expect(f.calls).toEqual(['claim','read','refresh','identity','finishTokens','freeBusy','prepare','POST','close'])
+  expect(f.finishes[0]?.state).toBe('confirmed')
+})
+test.each(['missing-grant','foreign-subject','unverified-email'] as const)('worker refresh refuses %s before provider write',async cause=>{
+  const f=fixture();expire(f)
+  f.provider.refreshTokens=async()=>({accessToken:'new-access',tokenType:'Bearer',expiresIn:3600,grantedScopes:cause==='missing-grant'?['openid','email']:refreshedScopes})
+  f.provider.userInfo=async()=>({sub:cause==='foreign-subject'?'foreign':'subject',email:'owner@example.test',emailVerified:cause!=='unverified-email'})
+  f.store.finishTokens=async (_q,_work,envelope,lost)=>{expect(envelope).toBeNull();expect(lost).toBe(true);f.calls.push('finishTokens');return true}
+  await runCalendarOnce(f.store,calendarFixtureConfig,new AbortController().signal,f.provider)
+  expect(f.calls).not.toContain('POST')
+  expect(f.calls).toContain('finishTokens')
+  expect(f.finishes[0]?.state).toBe('retry')
+})
+test('worker accepts a refreshed token installed by the owner after its refresh claim',async()=>{
+  const f=fixture();expire(f)
+  f.store.read=async()=>{f.calls.push('read');f.q={...f.q,tokenEnvelope:encryptCalendarTokens(calendarFixtureConfig,{workspaceId:f.q.workspaceId,connectionId:f.q.connectionId},{accessToken:'owner-access',refreshToken:'owner-refresh',expiresAt:Date.now()+3600000,grantedScopes:refreshedScopes})};return f.q}
+  f.store.finishTokens=async (_q,_work,envelope,lost)=>{expect(envelope).toBeNull();expect(lost).toBe(false);f.calls.push('finishTokens');return true}
+  f.provider.freeBusy=async token=>{expect(token).toBe('owner-access');f.calls.push('freeBusy');return []}
+  await runCalendarOnce(f.store,calendarFixtureConfig,new AbortController().signal,f.provider)
+  expect(f.calls).toEqual(['claim','read','finishTokens','freeBusy','prepare','POST','close'])
+})
+test.each([false,true])('worker refresh lost settlement acknowledgement requires matching envelope=%s',async matches=>{
+  const f=fixture();expire(f)
+  f.provider.refreshTokens=async()=>({accessToken:'new-access',tokenType:'Bearer',expiresIn:3600,grantedScopes:refreshedScopes})
+  f.store.finishTokens=async (_q,_work,envelope)=>{if(envelope&&matches)f.q={...f.q,tokenEnvelope:envelope};throw new Error('Lost token finish acknowledgement')}
+  await runCalendarOnce(f.store,calendarFixtureConfig,new AbortController().signal,f.provider)
+  expect(f.calls.includes('POST')).toBe(matches)
+  expect(f.finishes[0]?.state).toBe(matches?'confirmed':'retry')
 })
 
 test.each(['unknown', 'cancelled', 'moved'] as const)(

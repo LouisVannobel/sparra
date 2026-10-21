@@ -16,7 +16,7 @@ export const calendarPolicySchema = Schema.Struct({
 export type CalendarPolicy = typeof calendarPolicySchema.Type
 const save = Schema.Struct({ expectedRevision: integer(0,2147483646), calendarId: text(1024), enabled: Schema.Boolean, policy: calendarPolicySchema })
 export type SaveCalendarPolicy = typeof save.Type
-export class InvalidCalendarPolicy extends Error {
+class InvalidCalendarPolicy extends Error {
   constructor() { super('Invalid Calendar policy'); this.name = 'InvalidCalendarPolicy' }
 }
 export function parseSaveCalendarPolicy(input: unknown): SaveCalendarPolicy {

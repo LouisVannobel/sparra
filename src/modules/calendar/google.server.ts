@@ -9,11 +9,18 @@ export const GOOGLE_CALENDAR_SCOPES = [
   'https://www.googleapis.com/auth/calendar.events',
 ] as const
 
+/** Google may return either spelling for the requested OIDC email scope. */
+export function hasRequiredCalendarGrants(scopes:readonly string[]):boolean {
+  return scopes.includes('openid')
+    && (scopes.includes('email')||scopes.includes('https://www.googleapis.com/auth/userinfo.email'))
+    && GOOGLE_CALENDAR_SCOPES.every(scope=>scopes.includes(scope))
+}
+
 export type CalendarProviderErrorCode = 'unavailable' | 'unauthorized' | 'rate_limited' | 'not_found' | 'conflict' | 'rejected' | 'unknown'
 export class CalendarProviderError extends Error {
   constructor(readonly code: CalendarProviderErrorCode) { super(`Calendar provider ${code}`); this.name = 'CalendarProviderError' }
 }
-export type GoogleRevocationResult = 'revoked' | 'invalid_token'
+type GoogleRevocationResult = 'revoked' | 'invalid_token'
 export class CalendarRevocationError extends CalendarProviderError {
   constructor(readonly outcome:'not_sent'|'unknown') { super(outcome==='not_sent'?'unavailable':'unknown'); this.name='CalendarRevocationError' }
 }
@@ -50,7 +57,7 @@ const tokenShape = Schema.Struct({
   scope: text(32768).check(Schema.isPattern(/^[\x21\x23-\x5B\x5D-\x7E]+(?: [\x21\x23-\x5B\x5D-\x7E]+)*$/)),
 })
 export type GoogleTokenResponse = { readonly accessToken: string; readonly tokenType: 'Bearer'; readonly refreshToken?: string; readonly idToken?: string; readonly expiresIn?: number; readonly grantedScopes: readonly string[] }
-export type GoogleEventInput = {
+type GoogleEventInput = {
   readonly id: string; readonly summary: string; readonly description?: string
   readonly start: { readonly dateTime: string; readonly timeZone?: string }
   readonly end: { readonly dateTime: string; readonly timeZone?: string }
@@ -71,7 +78,6 @@ const signingKeyShape = Schema.Struct({
     return exponent > 1 && exponent % 2 === 1
   })),
 })
-export type GoogleSigningKey = typeof signingKeyShape.Type
 const signingKeysShape = Schema.Struct({ keys: Schema.Array(signingKeyShape).check(Schema.isMinLength(1), Schema.isMaxLength(16), Schema.makeFilter(keys => new Set(keys.map(key => key.kid)).size === keys.length)) })
 const interval = Schema.Struct({ start: dateTime, end: dateTime })
 const freeBusyShape = Schema.Struct({ calendars: Schema.Record(text(1024), Schema.Struct({ busy: Schema.optionalKey(Schema.Array(interval).check(Schema.isMaxLength(10000))), errors: Schema.optionalKey(Schema.Array(Schema.Unknown).check(Schema.isMaxLength(100))) })) })
@@ -91,6 +97,43 @@ function httpError(status: number, write: boolean): CalendarProviderError {
   if (status === 429) return new CalendarProviderError('rate_limited')
   if (status >= 400 && status < 500) return new CalendarProviderError('rejected')
   return new CalendarProviderError(write ? 'unknown' : 'unavailable')
+}
+
+async function readBoundedBody(body:Dispatcher.ResponseData['body'],write:boolean):Promise<Buffer> {
+  const chunks:Buffer[]=[]
+  let bytes=0
+  for await (const chunk of body) {
+    if (!(chunk instanceof Uint8Array) && typeof chunk !== 'string') throw new CalendarProviderError(write?'unknown':'rejected')
+    const buffer=Buffer.from(chunk)
+    bytes+=buffer.length
+    if(bytes>MAX_BYTES)throw new CalendarProviderError(write?'unknown':'rejected')
+    chunks.push(buffer)
+  }
+  return Buffer.concat(chunks)
+}
+
+function decodeRevocation(status:number,body:Buffer):GoogleRevocationResult {
+  if(status===200)return 'revoked'
+  const value:unknown=JSON.parse(body.toString('utf8'))
+  Schema.decodeUnknownSync(Schema.Struct({error:Schema.Literal('invalid_token')}))(value)
+  return 'invalid_token'
+}
+
+function tokenFailure(value:unknown):CalendarProviderError {
+  const failure=Schema.decodeUnknownSync(Schema.Struct({error:text(128)}))(value)
+  return new CalendarProviderError(failure.error==='invalid_grant'?'unauthorized':'rejected')
+}
+function admissionForResponse(url:string,status:number,options:{write?:boolean;revoke?:boolean}):boolean {
+  const oauthFailure=(url===`${TOKEN}/token`||options.revoke===true)&&status===400
+  if(options.revoke&&status!==200&&status!==400)throw new CalendarRevocationError('unknown')
+  if(!oauthFailure&&(status<200||status>=300))throw httpError(status,options.write??false)
+  return oauthFailure
+}
+function decodeCalendarResponse<T>(body:Buffer,status:number,oauthFailure:boolean,revoke:boolean,decode:(value:unknown)=>T):T {
+  if(revoke)return decode(decodeRevocation(status,body))
+  const value:unknown=JSON.parse(body.toString('utf8'))
+  if(oauthFailure)throw tokenFailure(value)
+  return decode(value)
 }
 
 /** No retry/redirect interceptor is installed. An injected dispatcher remains caller-owned. */
@@ -129,29 +172,9 @@ export function createGoogleCalendarClient(config: CalendarConfig, signal: Abort
       })
     } catch { throw new CalendarProviderError(options.write ? 'unknown' : 'unavailable') }
     try {
-      const oauthFailure = (url === `${TOKEN}/token`||options.revoke) && response.statusCode === 400
-      if(options.revoke&&response.statusCode!==200&&response.statusCode!==400)throw new CalendarRevocationError('unknown')
-      if (!oauthFailure && (response.statusCode < 200 || response.statusCode >= 300)) throw httpError(response.statusCode, options.write ?? false)
-      const chunks: Buffer[] = []
-      let bytes = 0
-      for await (const chunk of response.body) {
-        if (!(chunk instanceof Uint8Array) && typeof chunk !== 'string') throw new CalendarProviderError(options.write ? 'unknown' : 'rejected')
-        const buffer = Buffer.from(chunk)
-        bytes += buffer.length
-        if (bytes > MAX_BYTES) throw new CalendarProviderError(options.write ? 'unknown' : 'rejected')
-        chunks.push(buffer)
-      }
-      if(options.revoke&&response.statusCode===200)return decode('revoked')
-      const value: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'))
-      if(options.revoke) {
-        Schema.decodeUnknownSync(Schema.Struct({error:Schema.Literal('invalid_token')}))(value)
-        return decode('invalid_token')
-      }
-      if (oauthFailure) {
-        const failure = Schema.decodeUnknownSync(Schema.Struct({ error: text(128) }))(value)
-        throw new CalendarProviderError(failure.error === 'invalid_grant' ? 'unauthorized' : 'rejected')
-      }
-      return decode(value)
+      const oauthFailure=admissionForResponse(url,response.statusCode,options)
+      const body=await readBoundedBody(response.body,options.write??false)
+      return decodeCalendarResponse(body,response.statusCode,oauthFailure,options.revoke??false,decode)
     } finally { if (!response.body.readableEnded) response.body.destroy() }
   }
 

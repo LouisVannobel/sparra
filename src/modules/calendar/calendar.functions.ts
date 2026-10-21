@@ -5,12 +5,16 @@ import { requestResources } from '../../platform/resources.server'
 import { parseSaveCalendarPolicy } from './policy'
 import { CalendarOperationError } from './connection.server'
 
+const calendarStatus={unavailable:503,missing_workspace:404,conflict:409,busy:409,rejected:400} as const
+function calendarErrorStatus(error:unknown):number {
+  if(error instanceof CalendarOperationError)return calendarStatus[error.code]
+  return error instanceof Error&&error.name==='InvalidCalendarPolicy'||Schema.isSchemaError(error)?400:503
+}
 const errors=createMiddleware({type:'function'}).server(async({next})=>{
   setResponseHeader('cache-control','no-store')
   try{return await next()}catch(error){
     if(error instanceof Response)throw error
-    const status=error instanceof CalendarOperationError?(error.code==='conflict'||error.code==='busy'?409:error.code==='missing_workspace'?404:error.code==='rejected'?400:503):error instanceof Error&&error.name==='InvalidCalendarPolicy'||Schema.isSchemaError(error)?400:503
-    throw new Response('Calendar unavailable',{status})
+    throw new Response('Calendar unavailable',{status:calendarErrorStatus(error)})
   }
 })
 async function admitted(){const request=getRequest(),resources=requestResources(request);if(!resources.auth)throw new Response('Unauthorized',{status:401});const principal=await resources.auth.requirePrincipal(request);if(!resources.calendar)throw new Response('Calendar unavailable',{status:503});return {request,principal,calendar:resources.calendar}}

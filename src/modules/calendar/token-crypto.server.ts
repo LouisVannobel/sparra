@@ -13,7 +13,7 @@ const tokenShape = Schema.Struct({
 export type CalendarTokens = typeof tokenShape.Type
 export type CalendarTokenBinding = { readonly workspaceId: string; readonly connectionId: string }
 
-export class CalendarTokenError extends Error {
+class CalendarTokenError extends Error {
   constructor() { super('Invalid Calendar token envelope'); this.name = 'CalendarTokenError' }
 }
 

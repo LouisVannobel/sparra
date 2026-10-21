@@ -7,6 +7,7 @@ import { appMessages, activityMessages, requestMessages } from '../../modules/sp
 import type { Locale } from '../auth/messages'
 import { observedDate, privateResult, PrivateUnavailable } from './app-shell'
 import { useRequestAttempt } from './use-request-attempt'
+import { bookingMessages } from './calendar-messages'
 
 export type RequestLoaded={detail:RequestDetailDto|null;receipt:EraseReceipt|null}
 type Props={locale:Locale;loaded:RequestLoaded;onTreat(signal:AbortSignal):Promise<{requestId:string;treatedAt:string}|Response>;onErase(signal:AbortSignal):Promise<EraseReceipt|Response>;onRefused():Promise<void>}
@@ -57,15 +58,19 @@ function RequestTranscript({locale,detail}:{locale:Locale;detail:RequestDetailDt
   return <section className="sparra-request-conversation"><Heading level={2}>{t.transcript}</Heading>{detail.transcriptAvailability==='unavailable'&&<p>{t.transcriptUnavailable}</p>}{detail.transcriptAvailability==='partial'&&<p>{t.transcriptPartial}: {detail.unavailableTurnCount} {t.unavailableTurns}.</p>}{detail.transcriptLossCount>0&&<p>{detail.transcriptLossCount} {t.lostTurns}.</p>}{detail.moreTurns&&<p>{t.moreTurns}</p>}<ol className="sparra-call-transcript">{detail.transcript.map(turn=><li key={turn.id}><p><strong>{turn.role==='user'?t.caller:t.assistant}</strong>{turn.interrupted?` — ${t.interrupted}`:''}</p><p>{turn.text}</p></li>)}</ol></section>
 }
 
+function RequestBooking({locale,booking}:{locale:Locale;booking:NonNullable<RequestDetailDto['bookings']>[number]}){
+  const labels=bookingMessages[locale]
+  return <>
+    <Heading level={2}>{booking.observedState==='cancelled'?labels.cancelled:booking.state==='confirmed'?labels.confirmed:labels.unconfirmed}</Heading>
+    <p>{booking.serviceName}</p><p><time dateTime={booking.start}>{new Intl.DateTimeFormat(locale,{dateStyle:'long',timeStyle:'short',timeZone:booking.timezone}).format(new Date(booking.start))}</time> · {booking.timezone}</p>
+    {booking.providerReference&&<p>{labels.reference} : {booking.providerReference}</p>}
+    {booking.originalStart&&booking.originalStart!==booking.start&&<p>{labels.original} : <time dateTime={booking.originalStart}>{new Intl.DateTimeFormat(locale,{dateStyle:'long',timeStyle:'short',timeZone:booking.timezone}).format(new Date(booking.originalStart))}</time></p>}
+    {booking.observedState==='cancelled'&&<p>{labels.observedCancellation}</p>}
+  </>
+}
 function RequestBookings({locale,detail}:{locale:Locale;detail:RequestDetailDto}){
   if(!detail.bookings?.length)return null
-  return <section aria-label={locale==='fr'?'Rendez-vous':'Appointments'}>{detail.bookings.map((booking,index)=><div key={booking.providerReference??index}>
-    <Heading level={2}>{booking.observedState==='cancelled'?(locale==='fr'?'Rendez-vous annulé':'Cancelled appointment'):booking.state==='confirmed'?(locale==='fr'?'Rendez-vous confirmé':'Confirmed appointment'):(locale==='fr'?'Rendez-vous à confirmer':'Appointment to confirm')}</Heading>
-    <p>{booking.serviceName}</p><p><time dateTime={booking.start}>{new Intl.DateTimeFormat(locale,{dateStyle:'long',timeStyle:'short',timeZone:booking.timezone}).format(new Date(booking.start))}</time> · {booking.timezone}</p>
-    {booking.providerReference&&<p>{locale==='fr'?'Référence Google':'Google reference'} : {booking.providerReference}</p>}
-    {booking.originalStart&&booking.originalStart!==booking.start&&<p>{locale==='fr'?'Date initialement réservée':'Originally booked for'} : <time dateTime={booking.originalStart}>{new Intl.DateTimeFormat(locale,{dateStyle:'long',timeStyle:'short',timeZone:booking.timezone}).format(new Date(booking.originalStart))}</time></p>}
-    {booking.observedState==='cancelled'&&<p>{locale==='fr'?'Annulation observée dans Google Agenda.':'Cancellation observed in Google Calendar.'}</p>}
-  </div>)}</section>
+  return <section aria-label={bookingMessages[locale].section}>{detail.bookings.map((booking,index)=><div key={booking.providerReference??index}><RequestBooking locale={locale} booking={booking}/></div>)}</section>
 }
 
 function RequestConfigurationSnapshot({locale,configuration}:{locale:Locale;configuration:RequestDetailDto['configuration']}){

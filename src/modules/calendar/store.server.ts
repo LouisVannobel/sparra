@@ -49,7 +49,7 @@ export type CalendarFinish =
   | { state: 'offered'; slots: readonly { start: string; end: string }[] }
   | { state: 'confirmed'; eventId: string; operationId: string; start: string; end: string }
   | { state: 'refused' | 'unknown' | 'retry' }
-export type CalendarObservation =
+type CalendarObservation =
   | { eventId: string; status: 'cancelled' }
   | { eventId: string; status: 'confirmed' | 'tentative'; start: string; end: string }
 export function createCalendarStore(owner: AuthTransactions) {

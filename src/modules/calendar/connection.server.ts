@@ -6,7 +6,7 @@ import { createAuthorizationURL, verifyProviderIdToken } from 'better-auth/oauth
 import { generateRandomString, symmetricEncrypt, symmetricDecrypt } from 'better-auth/crypto'
 import { google } from 'better-auth/social-providers'
 import type { CalendarConfig } from './config.server'
-import { createGoogleCalendarClient, GOOGLE_CALENDAR_SCOPES, CalendarProviderError, CalendarRevocationError, type GoogleCalendar } from './google.server'
+import { createGoogleCalendarClient, GOOGLE_CALENDAR_SCOPES, hasRequiredCalendarGrants, CalendarProviderError, CalendarRevocationError, type GoogleCalendar } from './google.server'
 import type { AuthTransactions } from '../../platform/db/transactions.server'
 import type { PersonalWorkspaceLease } from '../../platform/db/auth-pg-lease.server'
 import type { AdmittedPrincipal } from '../auth/session.server'
@@ -25,10 +25,6 @@ const noState = { stateHash:null,stateSession:null,stateSecret:null,stateExpires
 const noWork = { workId:null,workExpiresAt:null }
 const writable = (calendar:GoogleCalendar) => ['writer','writerWithoutPrivateAccess','owner'].includes(calendar.accessRole)
 const requiredScopes = ['openid','email',...GOOGLE_CALENDAR_SCOPES]
-// Google canonicalizes the requested OIDC email shorthand in token responses.
-const hasRequiredGrants = (scopes:readonly string[]) => scopes.includes('openid')
-  && (scopes.includes('email')||scopes.includes('https://www.googleapis.com/auth/userinfo.email'))
-  && GOOGLE_CALENDAR_SCOPES.every(scope=>scopes.includes(scope))
 const hash = (value:string) => createHash('sha256').update(value).digest('hex')
 const empty = (available:boolean):CalendarState => ({available,status:available?'disconnected':'unavailable',accountEmail:null,selectedCalendar:null,calendars:[],enabled:false,policy:null,revision:0})
 function dto(row:Row, calendars:readonly GoogleCalendar[]=[]):CalendarState {
@@ -75,22 +71,30 @@ export function createCalendarOperations(owner:AuthTransactions, config:Calendar
     },signal)
     return url.toString()
   }
+  async function claimConnectionIntent(principal:AdmittedPrincipal,state:string,signal?:AbortSignal):Promise<Row&{workId:string}> {
+    return tx(principal,async lease=>{
+      const current=await row(lease)
+      if(!current||current.status!=='connecting'||current.stateHash!==hash(state)||current.stateSession!==principal.sessionId||!current.stateExpiresAt||current.stateExpiresAt.getTime()<=Date.now()||!current.stateSecret)throw new CalendarOperationError('rejected')
+      const workId=randomUUID()
+      await update(lease,current,{...noState,workId,workExpiresAt:new Date(Date.now()+30000)})
+      // The updated row has no stateSecret; decryption needs the pre-update snapshot.
+      return {...current,workId}
+    },signal)
+  }
+  async function parseConnectionIntent(claimed:Row&{workId:string}):Promise<{verifier:string;nonce:string;locale:'fr'|'en'}> {
+    const secret:unknown=JSON.parse(await symmetricDecrypt({key:intentionKey(claimed),data:claimed.stateSecret!}))
+    if(!secret||typeof secret!=='object'||!('verifier'in secret)||typeof secret.verifier!=='string'||!('nonce'in secret)||typeof secret.nonce!=='string')throw new CalendarOperationError('rejected')
+    return {verifier:secret.verifier,nonce:secret.nonce,locale:'locale'in secret&&secret.locale==='en'?'en':'fr'}
+  }
   async function completeConnection(principal:AdmittedPrincipal,input:{state:string;code?:string;error?:string},signal?:AbortSignal):Promise<'fr'|'en'> {
     const {config,provider}=configured()
     if(typeof input.state!=='string'||input.state.length>256||!input.state||input.code!==undefined&&(typeof input.code!=='string'||!input.code||input.code.length>4096))throw new CalendarOperationError('rejected')
-    const claimed=await tx(principal,async lease=>{
-      const current=await row(lease)
-      if(!current||current.status!=='connecting'||current.stateHash!==hash(input.state)||current.stateSession!==principal.sessionId||!current.stateExpiresAt||current.stateExpiresAt.getTime()<=Date.now()||!current.stateSecret)throw new CalendarOperationError('rejected')
-      const workId=randomUUID()
-      await update(lease,current,{...noState,workId,workExpiresAt:new Date(Date.now()+30000)})
-      return {...current,workId}
-    },signal)
+    const claimed=await claimConnectionIntent(principal,input.state,signal)
     try {
       if(input.error||!input.code)throw new CalendarOperationError('rejected')
-      const secret:unknown=JSON.parse(await symmetricDecrypt({key:intentionKey(claimed),data:claimed.stateSecret!}))
-      if(!secret||typeof secret!=='object'||!('verifier'in secret)||typeof secret.verifier!=='string'||!('nonce'in secret)||typeof secret.nonce!=='string')throw new CalendarOperationError('rejected')
+      const secret=await parseConnectionIntent(claimed)
       const tokens=await provider.exchangeCode({code:input.code,codeVerifier:secret.verifier,redirectUri:config.origin+'/api/calendar/google/callback'})
-      if(!tokens.refreshToken||!tokens.idToken||!tokens.expiresIn||!hasRequiredGrants(tokens.grantedScopes))throw new CalendarOperationError('rejected')
+      if(!tokens.refreshToken||!tokens.idToken||!tokens.expiresIn||!hasRequiredCalendarGrants(tokens.grantedScopes))throw new CalendarOperationError('rejected')
       const identity=await verifyCalendarIdentity(config,provider,tokens.idToken,secret.nonce,tokens.accessToken)
       const envelope=encryptCalendarTokens(config,binding(claimed),{accessToken:tokens.accessToken,refreshToken:tokens.refreshToken,expiresAt:Date.now()+tokens.expiresIn*1000,grantedScopes:tokens.grantedScopes})
       await tx(principal,async lease=>{
@@ -98,7 +102,7 @@ export function createCalendarOperations(owner:AuthTransactions, config:Calendar
         if(!current||current.generation!==claimed.generation||current.status!=='connecting'||current.workId!==claimed.workId)throw new CalendarOperationError('conflict')
         await update(lease,current,{status:'connected',googleSubject:identity.sub,accountEmail:identity.email,tokenEnvelope:envelope,...noWork})
       },signal)
-      return 'locale' in secret&&secret.locale==='en'?'en':'fr'
+      return secret.locale
     } catch(error) {
       // Never revoke a late exchange: Google's project-wide revocation could destroy a newer grant.
       await tx(principal,async lease=>{const current=await row(lease);if(current?.generation===claimed.generation&&current.status==='connecting'&&current.workId===claimed.workId)await update(lease,current,{status:'disconnected',...noWork})}).catch(()=>{})
@@ -118,7 +122,7 @@ export function createCalendarOperations(owner:AuthTransactions, config:Calendar
     if(!claimed.refresh)return claimed
     try {
       const result=await provider.refreshTokens(claimed.tokens.refreshToken)
-      if(!result.expiresIn||!hasRequiredGrants(result.grantedScopes))throw new CalendarProviderError('unauthorized')
+      if(!result.expiresIn||!hasRequiredCalendarGrants(result.grantedScopes))throw new CalendarProviderError('unauthorized')
       const identity=await provider.userInfo(result.accessToken)
       if(identity.sub!==claimed.row.googleSubject||!identity.emailVerified)throw new CalendarProviderError('unauthorized')
       const tokens:CalendarTokens={accessToken:result.accessToken,refreshToken:result.refreshToken??claimed.tokens.refreshToken,expiresAt:Date.now()+result.expiresIn*1000,grantedScopes:result.grantedScopes}

@@ -1598,24 +1598,32 @@ test('maintained_doctor_changed_scope_reports_actual_component_rule',()=>{
 },40000)
 
 // Reporter canaries exercise admission only, not Calendar product behavior.
+function passingCalendarReport(){
+  return {success:true,numTotalTests:69,numPassedTests:69,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0,
+    testResults:calendarConsumerNames.map(([file,names])=>({name:join(repositoryRoot,'tests/integration',file).replaceAll('\\','/'),status:'passed',message:'',assertionResults:names.map(fullName=>({fullName,status:'passed',failureMessages:[]}))}))}
+}
+function refusedCalendarReport(report:ReturnType<typeof passingCalendarReport>,kind:string){
+  const wrong=structuredClone(report),file=wrong.testResults[0]!
+  switch(kind){
+    case 'missing-file':wrong.testResults.pop();break
+    case 'duplicate-file':wrong.testResults[1]=file;break
+    case 'foreign-file':file.name+='-foreign';break
+    case 'missing-leaf':file.assertionResults.pop();break
+    case 'duplicate-leaf':file.assertionResults[1]=file.assertionResults[0]!;break
+    case 'renamed-leaf':file.assertionResults[0]!.fullName='unreviewed';break
+    case 'skipped':case 'failed':file.assertionResults[0]!.status=kind;break
+    case 'afterAll':file.message='retirement failed';break
+    case 'summary':wrong.numPassedTests--;break
+  }
+  return wrong
+}
 test('native_calendar_report_requires_exact_consumers_and_every_passing_leaf',()=>{
   const gate=assertCalendarReport
   expect(typeof gate).toBe('function')
-  const report={success:true,numTotalTests:69,numPassedTests:69,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0,
-    testResults:calendarConsumerNames.map(([file,names])=>({name:join(repositoryRoot,'tests/integration',file).replaceAll('\\','/'),status:'passed',message:'',assertionResults:names.map(fullName=>({fullName,status:'passed',failureMessages:[]}))}))}
+  const report=passingCalendarReport()
   expect(()=>gate(report,repositoryRoot)).not.toThrow()
   for(const kind of ['missing-file','duplicate-file','foreign-file','missing-leaf','duplicate-leaf','renamed-leaf','skipped','failed','afterAll','summary'] as const){
-    const wrong=structuredClone(report),file=wrong.testResults[0]!
-    if(kind==='missing-file')wrong.testResults.pop()
-    if(kind==='duplicate-file')wrong.testResults[1]=file
-    if(kind==='foreign-file')file.name+='-foreign'
-    if(kind==='missing-leaf')file.assertionResults.pop()
-    if(kind==='duplicate-leaf')file.assertionResults[1]=file.assertionResults[0]!
-    if(kind==='renamed-leaf')file.assertionResults[0]!.fullName='unreviewed'
-    if(kind==='skipped'||kind==='failed')file.assertionResults[0]!.status=kind
-    if(kind==='afterAll')file.message='retirement failed'
-    if(kind==='summary')wrong.numPassedTests--
-    expect(()=>gate(wrong,repositoryRoot),kind).toThrow()
+    expect(()=>gate(refusedCalendarReport(report,kind),repositoryRoot),kind).toThrow()
   }
 })
 test('native_calendar_runner_is_mandatory_and_merges_its_coverage_after_retirement',()=>{

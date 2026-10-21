@@ -85,7 +85,10 @@ test.each(['confirmed', 'lost-response-restart', 'no-ack', 'retry-after-no-ack',
     await page.goto(origin + '/app/entreprise?lang=en')
     await page.getByRole('button', { name: 'Connect Google', exact: true }).click()
     await page.getByText('Connected account : calendar-owner@example.test', { exact: true }).waitFor()
-    expect((await rpc('saveCalendarPolicy', { expectedRevision: 0, calendarId: 'fixture-calendar', enabled: true, policy: { version: 1, timeZone: 'Europe/Paris', services: [{ id: 'oil-change', name: 'Vidange', durationMinutes: 30 }], weeklyHours: [0,1,2,3,4,5,6].map(day => ({ day, ranges: [{ start: '09:00', end: '12:00' }] })), bufferMinutes: 0, noticeMinutes: 0 } })).status()).toBe(200)
+    const firstPolicy={ expectedRevision: 0, calendarId: 'fixture-calendar', enabled: true, policy: { version: 1, timeZone: 'Europe/Paris', services: [{ id: 'oil-change', name: 'Vidange', durationMinutes: 30 }], weeklyHours: [0,1,2,3,4,5,6].map(day => ({ day, ranges: [{ start: '09:00', end: '12:00' }] })), bufferMinutes: 0, noticeMinutes: 0 } }
+    expect((await rpc('saveCalendarPolicy', firstPolicy)).status()).toBe(200)
+    expect((await rpc('saveCalendarPolicy', {...firstPolicy,policy:{...firstPolicy.policy,services:[]}})).status()).toBe(400)
+    expect((await rpc('saveCalendarPolicy', firstPolicy)).status()).toBe(409)
     await page.reload()
     const panel = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Google Calendar', exact: true }) })
     await panel.getByLabel('Duration (minutes) 1', { exact: true }).fill('35')
@@ -109,31 +112,39 @@ test.each(['confirmed', 'lost-response-restart', 'no-ack', 'retry-after-no-ack',
     expect(await voice.ready).toMatchObject({ ready: true })
     const admitted = await voice.command('audio-off-admit'); expect(admitted.call_id).toBeDefined()
     expect(await voice.command('calendar-search')).toMatchObject({ offered: true })
-    if (mode === 'no-ack' || mode === 'retry-after-no-ack') {
-      expect(await voice.command('calendar-without-ack')).toMatchObject({ no_booking: true })
+    const firstVoice=voice,firstWorker=worker,firstPeer=peer
+    async function checkUnacknowledgedRecap() {
+      if(mode!=='no-ack'&&mode!=='retry-after-no-ack')return false
+      expect(await firstVoice.command('calendar-without-ack')).toMatchObject({ no_booking: true })
       expect((await stores.administrator.query("SELECT count(*)::int n FROM sparra_calendar_command WHERE kind='book_appointment'")).rows[0].n).toBe(0)
-      expect(peer.events()).toHaveLength(0)
+      expect(firstPeer.events()).toHaveLength(0)
       if (mode === 'no-ack') {
-      expect(await voice.stop()).toEqual({ code: 0, signal: null }); voiceStopped = true
-      await worker.dispose(); expect(worker.hasFailed()).toBe(false)
-      expect(transport.stops).toBe(1)
-      return
+        expect(await firstVoice.stop()).toEqual({ code: 0, signal: null }); voiceStopped = true
+        await firstWorker.dispose(); expect(firstWorker.hasFailed()).toBe(false)
+        expect(transport.stops).toBe(1)
+        return true
       }
+      return false
     }
+    if(await checkUnacknowledgedRecap())return
     const recap = await voice.command('calendar-select')
     expect(recap).toMatchObject({ acknowledged: true, recap_persisted: true })
     expect(peer.events()).toHaveLength(0)
-    if (mode !== 'lost-response-restart' && mode !== 'selection-recovery') expect(await voice.command('calendar-confirm')).toMatchObject({ confirmed: true, no_confirmation_inference: true })
-    else {
-      peer.setMode('hold-insert')
-      expect(await voice.command('calendar-confirm-start')).toMatchObject({ confirmation_started: true })
-      await expect.poll(() => peer!.events().length, { timeout: 10000 }).toBe(1)
+    const bookingPeer=peer
+    async function confirmOrRecoverBooking() {
+      if(mode!=='lost-response-restart'&&mode!=='selection-recovery') {
+        expect(await voice!.command('calendar-confirm')).toMatchObject({ confirmed: true, no_confirmation_inference: true })
+        return
+      }
+      bookingPeer.setMode('hold-insert')
+      expect(await voice!.command('calendar-confirm-start')).toMatchObject({ confirmation_started: true })
+      await expect.poll(() => bookingPeer.events().length, { timeout: 10000 }).toBe(1)
       const original = (await stores.administrator.query("SELECT id,event_id FROM sparra_calendar_command WHERE kind='book_appointment'")).rows[0]
-      await voice.crash(); voiceStopped = true
-      await worker.dispose(); expect(worker.hasFailed()).toBe(false)
-      await expect.poll(() => peer!.evidence()).toMatchObject({ activeClientSockets: 0, activeSockets: 0, activeRequests: 0 })
+      await voice!.crash(); voiceStopped = true
+      await worker!.dispose(); expect(worker!.hasFailed()).toBe(false)
+      await expect.poll(() => bookingPeer.evidence()).toMatchObject({ activeClientSockets: 0, activeSockets: 0, activeRequests: 0 })
       expect((await stores.administrator.query('SELECT state FROM sparra_calendar_command WHERE id=$1', [original.id])).rows[0].state).toBe('unknown')
-      peer.setMode('normal')
+      bookingPeer.setMode('normal')
       if (mode === 'selection-recovery') {
         browser = await chromium.launch({ headless: true })
         context = await browser.newContext({ storageState: ownerStorage, extraHTTPHeaders: { 'x-real-ip': '127.0.1.8' } })
@@ -146,22 +157,25 @@ test.each(['confirmed', 'lost-response-restart', 'no-ack', 'retry-after-no-ack',
       worker = createCalendarWorkerResources(workerEnv); await worker.ready()
       await expect.poll(async () => (await stores.administrator.query('SELECT state FROM sparra_calendar_command WHERE id=$1', [original.id])).rows[0].state, { timeout: 70000, interval: 500 }).toBe('confirmed')
       expect((await stores.administrator.query("SELECT id,event_id FROM sparra_calendar_command WHERE kind='book_appointment'")).rows).toEqual([original])
-      expect(peer.requests().some(value => value.method === 'GET' && value.path.endsWith('/' + original.event_id))).toBe(true)
+      expect(bookingPeer.requests().some(value => value.method === 'GET' && value.path.endsWith('/' + original.event_id))).toBe(true)
     }
-    if (mode === 'cancelled-repeat' || mode === 'moved-repeat') {
+    await confirmOrRecoverBooking()
+    async function observeChangedBooking() {
+      if(mode!=='cancelled-repeat'&&mode!=='moved-repeat')return
       const original = (await stores.administrator.query("SELECT id,event_id,request,result,possible_send_fence,window_start,window_end FROM sparra_calendar_command WHERE kind='book_appointment'")).rows[0]
-      peer.changeEvent(original.event_id, mode === 'cancelled-repeat' ? 'cancelled' : 'moved')
-      expect(await voice.command('calendar-search')).toMatchObject({ offered: true })
+      bookingPeer.changeEvent(original.event_id, mode === 'cancelled-repeat' ? 'cancelled' : 'moved')
+      expect(await voice!.command('calendar-search')).toMatchObject({ offered: true })
       const changed = (await stores.administrator.query('SELECT observed_state,current_start FROM sparra_calendar_command WHERE id=$1', [original.id])).rows[0]
       expect(changed.observed_state).toBe(mode === 'cancelled-repeat' ? 'cancelled' : 'confirmed')
       expect(changed.current_start?.toISOString()).not.toBe(original.window_start.toISOString())
-      const repeatedRecap = await voice.command('calendar-select')
+      const repeatedRecap = await voice!.command('calendar-select')
       expect(repeatedRecap).toMatchObject({ acknowledged: true, recap_persisted: true, selected_start: original.window_start.toISOString(), selected_end: original.window_end.toISOString() })
       expect(repeatedRecap.recap_turn_id).not.toBe(recap.recap_turn_id)
       expect(repeatedRecap.playback_mark).not.toBe(recap.playback_mark)
-      expect(await voice.command('calendar-confirm-unconfirmed')).toMatchObject({ unconfirmed: true, no_stale_speech: true, no_stale_result: true, no_confirmation_inference: true })
+      expect(await voice!.command('calendar-confirm-unconfirmed')).toMatchObject({ unconfirmed: true, no_stale_speech: true, no_stale_result: true, no_confirmation_inference: true })
       expect((await stores.administrator.query("SELECT id,event_id,request,result,possible_send_fence,window_start,window_end FROM sparra_calendar_command WHERE kind='book_appointment'")).rows).toEqual([original])
     }
+    await observeChangedBooking()
     const events = peer.events(); expect(events).toHaveLength(1)
     expect(events[0]).toMatchObject({ summary: 'Vidange', description: origin + '/app/demandes/' + admitted.call_id })
     expect(peer.requests().filter(value => value.method === 'POST' && value.path.includes('/events?'))).toHaveLength(1)

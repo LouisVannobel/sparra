@@ -16,42 +16,32 @@ import { createRequestOperations } from '../../src/modules/sparra/requests.serve
 let stores: Awaited<ReturnType<typeof startDisposableStores>>, a: Client, b: Client, worker: Client
 const workspace = randomUUID(),
   connection = randomUUID()
+async function diagnoseBridgeMigration() {
+  await stores.administrator.query('BEGIN')
+  let tag=0,statement=0
+  try {
+    for(const migration of readMigrationFiles({migrationsFolder:'drizzle'})) {
+      tag++;statement=0
+      for(const sql of migration.sql){statement++;await stores.administrator.query(sql)}
+    }
+  } catch(error) {
+    throw new Error(`Migration ${tag} statement ${statement}: ${error instanceof Error?error.message:'failed'}`)
+  } finally {await stores.administrator.query('ROLLBACK')}
+}
+async function grantBridgeVoiceRoles() {
+  for (const role of ['sparra_voice_a', 'sparra_voice_b']) {
+    await stores.administrator.query(`GRANT USAGE ON SCHEMA voice TO ${role}`)
+    for (const name of ['calendar_catalog_v1(uuid)','calendar_submit_v1(uuid,uuid,jsonb)','calendar_result_v1(uuid,uuid)','ingest_operation_v1(jsonb)'])
+      if((await stores.administrator.query('SELECT to_regprocedure($1) p',['voice.'+name])).rows[0].p)
+        await stores.administrator.query(`GRANT EXECUTE ON FUNCTION voice.${name} TO ${role}`)
+  }
+}
 beforeAll(async () => {
   stores = await startDisposableStores()
   try {
     await stores.migrate()
-  } catch {
-    await stores.administrator.query('BEGIN')
-    let tag = 0,
-      statement = 0
-    try {
-      for (const migration of readMigrationFiles({ migrationsFolder: 'drizzle' })) {
-        tag++
-        statement = 0
-        for (const sql of migration.sql) {
-          statement++
-          await stores.administrator.query(sql)
-        }
-      }
-    } catch (error) {
-      throw new Error(
-        `Migration ${tag} statement ${statement}: ${error instanceof Error ? error.message : 'failed'}`,
-      )
-    } finally {
-      await stores.administrator.query('ROLLBACK')
-    }
-  }
-  for (const role of ['sparra_voice_a', 'sparra_voice_b']) {
-    await stores.administrator.query(`GRANT USAGE ON SCHEMA voice TO ${role}`)
-    for (const name of [
-      'calendar_catalog_v1(uuid)',
-      'calendar_submit_v1(uuid,uuid,jsonb)',
-      'calendar_result_v1(uuid,uuid)',
-      'ingest_operation_v1(jsonb)',
-    ])
-      if ((await stores.administrator.query('SELECT to_regprocedure($1) p', ['voice.' + name])).rows[0].p)
-        await stores.administrator.query(`GRANT EXECUTE ON FUNCTION voice.${name} TO ${role}`)
-  }
+  } catch {await diagnoseBridgeMigration()}
+  await grantBridgeVoiceRoles()
   await stores.administrator.query('INSERT INTO "user"(id,name,email) VALUES($1,\'Fixture\',$2)', [
     workspace,
     workspace + '@example.test',
