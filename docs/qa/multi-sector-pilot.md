@@ -4,7 +4,7 @@ Le troisième secteur est `diagnostic-immobilier`. Les snapshots conservent leur
 
 ## Sources et preuves
 
-- App candidat : branche locale `z/sparra-diagnostic-lot1-app`, base `ec40471e33095e30eae216e3353f8eaafc89b29b`. Commit source `b2b21451fe86f14b6491fdbf69486687b67e8d76` ; les résultats natifs sont consignés dans le rapport de tâche et la recette du contrôleur.
+- App candidat : branche locale `z/sparra-diagnostic-lot1-app`, base `ec40471e33095e30eae216e3353f8eaafc89b29b`. Commits source `b2b21451fe86f14b6491fdbf69486687b67e8d76` et harness `14cf97f9caa17f9fec8eeba67b6d87fd2bce44b4` ; les résultats natifs sont consignés dans le rapport de tâche et la recette du contrôleur.
 - Voice candidat : branche locale `z/sparra-diagnostic-lot1-voice`, base `88dc1db2a4f2a447b98f2abec56abb5800e1e05e`, commit `3453abb460a5d70dfc6027ba47146460c9ecda5f`, source explicite `C:/Users/louis/Documents/ChatGPT/.worktrees/sparra-diagnostic-lot1-voice/src`, Python figé `3.13.15` dans son `.venv`.
 - `resolveVoiceProducer(SPARRA_VOICE_TEST_ROOT)` fournit le descripteur local. La nouvelle preuve bridge exige cette variable explicite ; le driver vérifie l'import des vrais `models.py` et `pipeline.py` de cette source. Les anciennes recettes gardent leur provenance propre.
 - Fixture officielle conservée sans modification : Voice `990c2ad7b83da72b535772991b23602afc6a7567`, tree `54ada63dee46192371f76a1b1567e30c69908ad5`, archive SHA-256 `2f5ca2c313584d290512f36881cf1373c845af189a12fb0494ec03adf5736813`, `refs/heads/main`. Elle n'est pas une preuve de compatibilité diagnostic.
@@ -20,6 +20,21 @@ L'exporteur existant `scripts/export_runtime_contract.py` produit les six pré-i
 | qualification-candidate-profile-v1.schema.json | `1aafd2a47591405c0b13fe5900efc12a0c0918e756ffff4565de960ecc48bfce` |
 | qualification-override-v1.schema.json | `5ca4ced638abc489319105c4e3e7421412f89b6359fdc74941901af85ff89030` |
 | qualified-deployment-profile-v1.schema.json | `97e33500bd026042dedf0f6e52418ac85e40001568333fd24ab29c7f07a6e47a` |
+
+## Commande locale supportée et frontière des checks
+
+Depuis le worktree App, définir `SPARRA_VOICE_TEST_ROOT` sur le worktree Voice candidat ci-dessus, avec son `.venv` figé, et `SPARRA_VOICE_TEST_HOME` sur un home de test vide possédé et nettoyé par le harness existant. Puis exécuter séquentiellement :
+
+```text
+pnpm run build
+pnpm test:integration tests/integration/sparra-activity.test.ts
+pnpm test:integration tests/integration/sparra-voice-bridge.test.ts
+pnpm test:integration tests/integration/sparra-browser.test.ts -t "diagnostic owner"
+```
+
+`nativeVoice` résout le descripteur validé de la racine sélectionnée, y compris pour les anciens cas du bridge. L'ancien environnement hardcodé n'est plus utilisé si une racine explicite est fournie. Les vérifications de chemins, d'interpréteur et de pins restent actives.
+
+`pnpm test` utilise `scripts/test.mjs`, qui prépare sa source officielle existante et ne lance pas le bridge. Ses cohortes ne constituent donc pas la nouvelle preuve diagnostic. `pnpm test:integration` sans filtre inclut le bridge : il exige un producteur compatible explicitement sélectionné pour ce lot. Une source officielle 990c2ad échoue sur le nouveau secteur ; ce refus est visible et ne doit pas être masqué par un skip ou une fausse release. La qualification locale avec candidat précède la publication de la prochaine source officielle compatible.
 
 ## Ce que vérifient les scénarios
 
