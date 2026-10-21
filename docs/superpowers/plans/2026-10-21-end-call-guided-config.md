@@ -32,12 +32,12 @@
 
 **Interfaces:** Keep existing caller action, attempt/context binding, serializer/audio ACK and termination APIs unless a proven root cause requires a narrow internal adjustment. No broader farewell regex or timeout increase without evidence and authority-negative tests.
 
-- [ ] Reproduce exact failing parameter `test_native_end_call_waits_for_final_audio_ack_then_finishes_normally[J'ai dit au revoir.-False]` offline; identify first failed boundary and compare working variants.
-- [ ] Trace actual pinned source and record causal hypothesis before production changes. Add a minimal regression RED for the root cause.
-- [ ] Implement smallest supported fix; preserve old-context, wrong ACK, interruption, concurrency and exact caller-scope protections.
-- [ ] GREEN root regression and farewell cohort; run affected contract/pipeline/session tests, Ruff, mypy and frozen lock verification. Do not hide warnings/failures or change timing to get green.
-- [ ] Freeze scoped commit and report command/output evidence.
-- [ ] Root dispatches distinct clean-code, framework/best-practice and architecture reviewers as explicitly requested by user; one implementer handles consolidated fixes. Gate must be clear before Task 2 code.
+- [x] Reproduce exact failing parameter `test_native_end_call_waits_for_final_audio_ack_then_finishes_normally[J'ai dit au revoir.-False]` offline; identify first failed boundary and compare working variants.
+- [x] Trace actual pinned source and record causal hypothesis before production changes. Add a minimal regression RED for the root cause.
+- [x] Implement smallest supported fix; preserve old-context, wrong ACK, interruption, concurrency and exact caller-scope protections.
+- [x] GREEN root regression and farewell cohort; run affected contract/pipeline/session tests, Ruff, mypy and frozen lock verification. Do not hide warnings/failures or change timing to get green.
+- [x] Freeze scoped commit and report command/output evidence.
+- [x] Root dispatches distinct clean-code, framework/best-practice and architecture reviewers as explicitly requested by user; one implementer handles consolidated fixes. Gate must be clear before Task 2 code.
 
 ### Task 2: Implement approved Lot 2 guided editor
 
@@ -45,16 +45,20 @@
 
 **Interfaces:** Keep getActivity/saveActivity, onSave/onRead and Calendar handlers. ActivityFaqHelper({locale,faq,questions,disabled,onChange(nextFaq)}) and ActivityIntakeHelper({locale,instructions,questions,disabled,onChange(nextInstructions)}) mutate only existing draft. No duplicate draft/controller or generic onboarding framework.
 
-- [ ] RED helpers: no blank FAQ answer insertion, preserve free text, respect3000/2000 bounds, explicit intake choice only, no network action. Sector switch preserves text/settings.
-- [ ] Keep single activity owner/state/error classification. Present four navigable sections: establishment, knowledge, handling/tools, recap/test. Navigation does not save. Retain explicit enterprise save and independent Calendar card/save; summary reports actual separate outcomes.
-- [ ] Explain local draft versus saved revision versus unqualified phone line; no invented live/demo action. Helpers append to respective FAQ/instructions only upon explicit choice.
-- [ ] Preserve cancellation/conflict/uncertain-result reconciliation and protected read; focus/navigate to invalid field on submit. Ensure hidden/inactive sections do not cause lost text or inaccessible validation.
-- [ ] Extend existing native browser flow for preexisting garage: edit one field, navigate, save/reload, verify unchanged knowledge/transfer/audio; use existing App/Voice consumer for resulting snapshot/Inbox. Exercise enterprise success/Calendar failed-or-uncertain and inverse, preserving drafts and separate outcomes.
-- [ ] Verify FR/EN, keyboard, labels, announced errors and responsive320px screenshot through existing browser harness. Run focused source tests, normative typecheck, lint, build, native browser and necessary bridge qualification against explicit corrected Voice candidate.
-- [ ] Independent spec/quality and user-requested specialist review, fix consolidated findings, bounded commits, QA receipt with exact pair and limits. No automatic next lot or deployment.
+- [x] RED helpers: no blank FAQ answer insertion, preserve free text, respect3000/2000 bounds, explicit intake choice only, no network action. Sector switch preserves text/settings.
+- [x] Keep single activity owner/state/error classification. Present four navigable sections: establishment, knowledge, handling/tools, recap/test. Navigation does not save. Retain explicit enterprise save and independent Calendar card/save; summary reports actual separate outcomes.
+- [x] Explain local draft versus saved revision versus unqualified phone line; no invented live/demo action. Helpers append to respective FAQ/instructions only upon explicit choice.
+- [x] Preserve cancellation/conflict/uncertain-result reconciliation and protected read; focus/navigate to invalid field on submit. Ensure hidden/inactive sections do not cause lost text or inaccessible validation.
+- [x] Extend existing native browser flow for preexisting garage: edit one field, navigate, save/reload, verify unchanged knowledge/transfer/audio; use existing App/Voice consumer for resulting snapshot/Inbox. Exercise enterprise success/Calendar failed-or-uncertain and inverse, preserving drafts and separate outcomes.
+- [x] Verify FR/EN, keyboard, labels, announced errors and responsive320px screenshot through existing browser harness. Run focused source tests, normative typecheck, lint, build, native browser and necessary bridge qualification against explicit corrected Voice candidate.
+- [x] Independent spec/quality and user-requested specialist review, fix consolidated findings, bounded commits, QA receipt with exact pair and limits. No automatic next lot or deployment.
 
 ## Supported Commands
 
 Use `pnpm exec vitest run <focused files> --maxWorkers=1` for App source (pnpm test invokes unrelated full coverage machinery). Native uses `--config vitest.integration.config.ts`, explicit SPARRA_VOICE_TEST_ROOT and owned SPARRA_VOICE_TEST_HOME. Keep official published fixture provenance unchanged; it does not prove this local candidate.
 
 Voice uses its owned `.venv` Python3.13.15 / `uv run --offline pytest`, existing locks, `ruff check .`, `mypy src`. Baseline evidence from Lot 1 is preserved in C:/Users/louis/.codex/artifacts/sparra-strategy/2026-10-21/lot1-execution/.
+
+## Execution receipt
+
+Requested product scope completed locally. See `docs/qa/2026-10-21-guided-configuration.md` for exact source pair, passed scoped gates and the two separately unqualified historical consumers. This is not a global App-native/CI or deployed-readiness receipt. Complete plan records are preserved at `C:/Users/louis/.codex/artifacts/sparra-strategy/2026-10-21/end-call-guided-execution/sdd-app-record/`.
