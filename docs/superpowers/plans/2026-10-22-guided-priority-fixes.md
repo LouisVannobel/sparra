@@ -42,7 +42,7 @@
 
 ### Task 2: Guard enterprise, prepared FAQ and Calendar transitions
 
-**Files owned:** src/routes/app.entreprise.tsx; src/ui/sparra/activity-panel.tsx, activity-knowledge-helpers.tsx and messages; one small route-consumed navigation hook/component if needed; new focused UI/browser fixture/test files. Do not edit root Shell/auth or Task 1 files without a concrete integration reason recorded in the report.
+**Files owned:** src/routes/app.entreprise.tsx; src/ui/sparra/activity-panel.tsx, activity-knowledge-helpers.tsx and messages; one small route-consumed navigation hook/component if needed; new focused UI/browser fixture/test files. Append bounded native route regressions to tests/integration/sparra-browser.test.ts so the existing CI consumer also covers the actual Business wiring; do not change its established fixture or old assertions. Do not edit root Shell/auth or Task 1 files without a concrete integration reason recorded in the report.
 
 **Interfaces consumed:** Task 1's optional Calendar callbacks and `CalendarNavigationState`. ActivityPanel emits `{dirty,pending,reconcile}` through an optional stable callback and accepts an optional `externalNavigationPending` flag. FAQ helper reports whether ANY prepared response contains work, without exposing answers or auto-adding them. No second owner of persisted data.
 
@@ -52,6 +52,7 @@
 - [ ] Check onBeforeConnect BEFORE any disconnect/begin. Refuse OAuth during enterprise/Calendar pending or reconcile, with an explanation. Otherwise explicit confirmation covers work in either panel. During approved OAuth preparation disable enterprise edit/submit via connecting; ordinary Calendar read/save must not serialize enterprise saves.
 - [ ] Only the approved final OAuth navigation uses native `router.navigate({href, reloadDocument:true, ignoreBlocker:true})`; auth onRefused explicitly uses ignoreBlocker. No global bypass. Failed preparation retains drafts and normal guarding.
 - [ ] Browser tests cover prepared answer in an old sector, immediate edit→language, dirty state then successful save, Calendar read/replace, pending/uncertain OAuth refusal, held OAuth disabling new edits, rejected OAuth restoring editor, and explicit auth-refusal recovery. Callbacks are test-only; zero real provider effects.
+- [ ] Add native compiled Business regression(s) for declined/accepted language departure with enterprise/prepared FAQ work, using the existing test's native identity/store helpers. Parent runs these and the existing targeted auth-refusal case only after a coordinated disposable-store window; component-browser RED/GREEN can run first without Docker. Do not modernize old fixtures or replay unrelated cases.
 - [ ] Commit owned files and write report. Independent task review.
 
 ### Task 3: Combined qualification and final independent review
