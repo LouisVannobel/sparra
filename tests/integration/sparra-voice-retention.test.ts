@@ -36,6 +36,12 @@ test('bridge erasure and terminal retention use actual native owners and ACKs',a
   page.setDefaultTimeout(12000)
   await page.route('https://accounts.google.com/o/oauth2/v2/auth*',async route=>{const target=new URL(route.request().url()),code=await app.registerGoogle(target.href,'connected-owner');await route.fulfill({status:302,headers:{location:origin+'/api/auth/callback/google?code='+code+'&state='+target.searchParams.get('state')}})})
   try{
+    async function qualifiedBudget(){
+      const budget=await voice.command('qualified-budget')
+      expect(budget).toMatchObject({consumed_calls:5,total_calls:5})
+      expect(budget.policy_sha256).toMatch(/^[a-f0-9]{64}$/)
+      return budget
+    }
     async function eraseOwned(requestId:string|undefined){expect(requestId).toBeDefined();await page.goto(origin+'/app/demandes/'+requestId+'?lang=en');await page.getByRole('button',{name:'Erase this call',exact:true}).click();await page.getByRole('button',{name:'Confirm erasure',exact:true}).click();await page.getByText('Erasure queued. Other copies are awaiting deletion.',{exact:true}).waitFor()}
     await page.goto(origin+'/login?lang=en');await page.getByRole('button',{name:'Continue with Google',exact:true}).click();await page.waitForURL(origin+'/account?lang=en')
     await page.goto(origin+'/app/entreprise?lang=en');await page.getByRole('button',{name:'Create my workspace',exact:true}).click()
@@ -46,6 +52,8 @@ test('bridge erasure and terminal retention use actual native owners and ACKs',a
     const workspace=(await stores.administrator.query('SELECT id FROM workspace WHERE owner_user_id=(SELECT id FROM "user" WHERE email=$1)',['connected-owner@example.test'])).rows[0]
     await stores.administrator.query('GRANT USAGE ON SCHEMA voice TO sparra_voice_a; GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA voice TO sparra_voice_a')
     await stores.administrator.query(`INSERT INTO voice_private.deployment_binding(service_login,service_role_oid,deployment_id,workspace_id,connection_id,to_e164,admission_enabled) SELECT 'sparra_voice_a',oid,'fixture-a',$1,'connection-a','+33123456789',true FROM pg_roles WHERE rolname='sparra_voice_a'`,[workspace.id])
+    // This independent qualified pilot admits five real calls. Keep this owned
+    // state path across crash recovery so its identity and budget stay durable.
     const voiceInput={url:stores.voiceUrlA,keyring_path:crypto.path,evidence_path:artifacts,state_path:crypto.directory+'/voice-final-fix'}
     voice=startConnectedVoice(voiceInput,producer);expect(await voice.ready).toMatchObject({ready:true})
     const human=await voice.command('human-takeover');expect(human.no_hangup).toBe(true)
@@ -60,9 +68,12 @@ test('bridge erasure and terminal retention use actual native owners and ACKs',a
     expect(await voice.command('final-fix-intent-departure')).toMatchObject({stable:true,no_hangup:true})
     const race=await voice.command('final-fix-prepare-bridge-race');await eraseOwned(race.call_id)
     expect(await voice.command('final-fix-finish-bridge-race')).toMatchObject({cleaned:true,no_hangup:true})
+    const budgetBeforeRecovery=await qualifiedBudget()
     await voice.crash();voice=startConnectedVoice({...voiceInput,recovery_case:'final-fix'},producer);expect(await voice.ready).toMatchObject({ready:true})
+    expect(await qualifiedBudget()).toEqual(budgetBeforeRecovery)
     expect(await voice.command('final-fix-gc-after')).toMatchObject({cleaned:true,stable:true,no_hangup:true})
+    const budget=await qualifiedBudget()
     await voice.command('stop')
-    await writeFile(artifacts+'/connected-final-fix.json',JSON.stringify({schema_version:1,controlled_peers:true,human,race,native:JSON.parse(await readFile(artifacts+'/native.json','utf8'))},null,2))
+    await writeFile(artifacts+'/connected-final-fix.json',JSON.stringify({schema_version:1,pilot_group:'retention',controlled_peers:true,human,race,budgetBeforeRecovery,budget,native:JSON.parse(await readFile(artifacts+'/native.json','utf8'))},null,2))
   }finally{await context.close()}
 },180000)
