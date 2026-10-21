@@ -53,7 +53,7 @@ function buildFixture() {
   writeFileSync(join(item.root, '.env.production'), 'VITE_SPARRA_I3_FIXTURE_SENTINEL=owned-production-env-marker\n')
   symlinkSync(join(repositoryRoot, 'node_modules'), join(item.root, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
   const metadata: unknown = JSON.parse(readFileSync(join(repositoryRoot, 'node_modules/vite/package.json'), 'utf8'))
-  expect(metadata).toMatchObject({ name: 'vite', version: '8.2.2' })
+  expect(metadata).toMatchObject({ name: 'vite', version: '8.2.4' })
   const build = (output = item.build) => spawnSync(process.execPath, [join(repositoryRoot, 'node_modules/vite/bin/vite.js'), 'build', '--config', config, '--outDir', output], {
     cwd: item.root, encoding: 'utf8', windowsHide: true, timeout: 12000, maxBuffer: 1024 * 1024,
     env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, TEMP: process.env.TEMP, TMP: process.env.TMP,

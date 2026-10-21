@@ -7,6 +7,9 @@ import { configuration, type ActivityConfigurationDto } from './activity.server'
 import { decodeMessageContent, readKeyring, type MessageContent, type MessageResultV1 } from './message-crypto.server'
 import { sparraCall, sparraErasure, sparraKnowledgeRevision } from './schema.server'
 import { audioDto, type AudioDto } from './audio.server'
+import { calendarCommand } from '../calendar/schema.server'
+import type { CalendarBookingDto } from '../calendar/booking'
+import { calendarPolicySchema } from '../calendar/policy'
 
 const idSchema=Schema.String.check(Schema.isUUID()).pipe(Schema.decode({decode:SchemaGetter.transform(value=>value.toLowerCase()),encode:SchemaGetter.transform(value=>value)}))
 const canonicalInstant=Schema.String.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),Schema.makeFilter(value=>Number.isFinite(Date.parse(value)) && new Date(value).toISOString()===value))
@@ -19,7 +22,7 @@ export function parseRequestInput(input:unknown){try{return Schema.decodeUnknown
 export type ListRequestsInput=typeof listInput.Type
 export type EraseReceipt=Readonly<{requestId:string;state:'queued'|'completed'}>
 export type RequestSummaryDto=Readonly<{id:string;admittedAt:string;endedAt:string|null;status:typeof sparraCall.$inferSelect.status;configurationRevision:number|null;treatedAt:string|null;resultAvailability:'available'|'unavailable';resultQuality:'partial'|'complete'|null;category:MessageResultV1['category']|null;summary:string|null;conversationExcerpt:string|null;contact:MessageResultV1['contact']|null;nextAction:string|null}>
-export type RequestDetailDto=RequestSummaryDto & Readonly<{configuration:ActivityConfigurationDto|null;transcript:MessageContent['transcript'];transcriptAvailability:MessageContent['transcriptAvailability'];unavailableTurnCount:number;moreTurns:boolean;transcriptLossCount:number;erasureState:'queued'|'completed'|null;audio?:AudioDto}>
+export type RequestDetailDto=RequestSummaryDto & Readonly<{configuration:ActivityConfigurationDto|null;transcript:MessageContent['transcript'];transcriptAvailability:MessageContent['transcriptAvailability'];unavailableTurnCount:number;moreTurns:boolean;transcriptLossCount:number;erasureState:'queued'|'completed'|null;audio?:AudioDto;bookings?:readonly CalendarBookingDto[]}>
 export type ListRequestsPage=Readonly<{requests:RequestSummaryDto[];nextCursor:{admittedAt:string;id:string}|null}>
 function conversationExcerpt(content:MessageContent):string|null {
   const text=content.transcript.find(turn=>turn.role==='user'&&turn.text.trim())?.text.replace(/\s+/gu,' ').trim()
@@ -53,7 +56,12 @@ export function createRequestOperations(owner:AuthTransactions){
       if(!row)throw new RequestNotFound()
       const content=decodeMessageContent(row.id,row.encryptedTurns,row.encryptedMessageResult,hasContent(row)?await readKeyring():null,row.transcriptLossCount)
       const [pin]=row.configurationRevision===null?[]:await lease.db.select().from(sparraKnowledgeRevision).where(and(eq(sparraKnowledgeRevision.workspaceId,lease.workspaceId),eq(sparraKnowledgeRevision.revision,row.configurationRevision)))
-      return {...summary(row,content),configuration:pin?configuration(pin):null,transcript:content.transcript,transcriptAvailability:content.transcriptAvailability,unavailableTurnCount:content.unavailableTurnCount,moreTurns:content.moreTurns,transcriptLossCount:content.transcriptLossCount,erasureState:null,audio:audioDto(row)}
+      const bookingRows=await lease.db.select({state:calendarCommand.state,serviceName:calendarCommand.serviceName,start:calendarCommand.windowStart,end:calendarCommand.windowEnd,currentStart:calendarCommand.currentStart,currentEnd:calendarCommand.currentEnd,policy:calendarCommand.policy,eventId:calendarCommand.eventId,observedState:calendarCommand.observedState}).from(calendarCommand).where(and(eq(calendarCommand.workspaceId,lease.workspaceId),eq(calendarCommand.callId,id),eq(calendarCommand.kind,'book_appointment'))).orderBy(desc(calendarCommand.createdAt)).limit(20)
+      const bookings:CalendarBookingDto[]=bookingRows.map(booking=>{
+        const policy=Schema.decodeUnknownSync(calendarPolicySchema)(booking.policy)
+        return {state:Schema.decodeUnknownSync(Schema.Literals(['waiting_evidence','pending','running','confirmed','refused','unknown']))(booking.state),serviceName:booking.serviceName,start:(booking.currentStart??booking.start).toISOString(),end:booking.currentEnd?new Date(booking.currentEnd.getTime()-policy.bufferMinutes*60000).toISOString():booking.end.toISOString(),originalStart:booking.start.toISOString(),timezone:policy.timeZone,providerReference:booking.state==='confirmed'?booking.eventId:null,observedState:booking.observedState}
+      })
+      return {...summary(row,content),bookings,configuration:pin?configuration(pin):null,transcript:content.transcript,transcriptAvailability:content.transcriptAvailability,unavailableTurnCount:content.unavailableTurnCount,moreTurns:content.moreTurns,transcriptLossCount:content.transcriptLossCount,erasureState:null,audio:audioDto(row)}
     })
   }
   async function treat(principal:AdmittedPrincipal,requestId:string,signal?:AbortSignal){

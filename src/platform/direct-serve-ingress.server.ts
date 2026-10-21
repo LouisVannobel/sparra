@@ -31,7 +31,7 @@ function refusal(): Response {
 }
 const needlessPathEscape = /%(?:2[146-9A-E]|3[0-9ABD]|4[0-9A-F]|5[0-9ABDF]|6[1-9A-F]|7[0-9ACE])/i
 const alternateIp = /^(?:forwarded|client-ip|true-client-ip|cf-connecting-ip|tailscale-ingress-src|x-vercel-.*)$/i
-const callbackPaths = ['/api/auth/callback/google', '/api/auth/account/google/callback']
+const callbackPaths = ['/api/auth/callback/google', '/api/auth/account/google/callback', '/api/calendar/google/callback']
 
 function validateRawTarget(target: string | undefined, origin: string): URL | null {
   if (!target || !target.startsWith('/') || target.startsWith('//') || /[\\#\u0000-\u0020\u007f]/.test(target)

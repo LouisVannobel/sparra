@@ -1,7 +1,10 @@
 import { beforeEach, expect, test, vi } from 'vitest'
 
-const lifecycle = vi.hoisted(() => ({ failed: true, disposed: 0, rejectDispose: false }))
-vi.mock('../../src/platform/mail-runtime.server', () => ({ createMailWorkerResources: () => ({
+const lifecycle = vi.hoisted(() => ({ failed: true, disposed: 0, rejectDispose: false, rejectConstruction: false,
+  calendarEnabled: false, calendarDisposed: 0 }))
+vi.mock('../../src/platform/mail-runtime.server', () => ({ createMailWorkerResources: () => {
+  if (lifecycle.rejectConstruction) throw new Error('private-construction-sentinel')
+  return {
   async ready() {
     // Shutdown wins the race, but the native failure remains latched until join.
     process.emit('SIGTERM')
@@ -14,11 +17,52 @@ vi.mock('../../src/platform/mail-runtime.server', () => ({ createMailWorkerResou
     })
   },
   hasFailed: () => lifecycle.failed,
+} } }))
+vi.mock('../../src/platform/calendar-runtime.server', () => ({ createCalendarWorkerResources: () => ({
+  async ready() { return { enabled: lifecycle.calendarEnabled, failure: Promise.resolve() } },
+  async dispose() { lifecycle.calendarDisposed++ },
+  hasFailed: () => false,
 }) }))
 
 beforeEach(() => {
   vi.resetModules()
   lifecycle.failed = true; lifecycle.disposed = 0; lifecycle.rejectDispose = false
+  lifecycle.rejectConstruction = false; lifecycle.calendarEnabled = false; lifecycle.calendarDisposed = 0
+})
+
+test.each([false, true])('rejected mail acquisition retires Calendar without a false disabled acknowledgement (enabled=%s)', async calendarEnabled => {
+  const previous = process.exitCode
+  const before = { SIGINT: process.rawListeners('SIGINT'), SIGTERM: process.rawListeners('SIGTERM') }
+  let stdout = '', stderr = ''
+  const output = vi.spyOn(process.stdout, 'write').mockImplementation(chunk => { stdout += String(chunk); return true })
+  const error = vi.spyOn(process.stderr, 'write').mockImplementation(chunk => { stderr += String(chunk); return true })
+  lifecycle.rejectConstruction = true; lifecycle.calendarEnabled = calendarEnabled
+  try {
+    process.exitCode = undefined
+    await import('../../src/worker')
+    expect(process.exitCode).toBe(1)
+    expect(stderr).toBe('Application worker unavailable\n')
+    expect(stdout).toBe(calendarEnabled ? 'Calendar worker ready\nApplication worker stopped\n' : '')
+    expect(lifecycle.disposed).toBe(0)
+    expect(lifecycle.calendarDisposed).toBe(1)
+    expect(process.rawListeners('SIGINT')).toEqual(before.SIGINT)
+    expect(process.rawListeners('SIGTERM')).toEqual(before.SIGTERM)
+  } finally { process.exitCode = previous; output.mockRestore(); error.mockRestore() }
+})
+
+test('ordinary ready worker still acknowledges joined shutdown with disabled Calendar', async () => {
+  const previous = process.exitCode
+  let stdout = ''
+  const output = vi.spyOn(process.stdout, 'write').mockImplementation(chunk => { stdout += String(chunk); return true })
+  lifecycle.failed = false
+  try {
+    process.exitCode = undefined
+    await import('../../src/worker')
+    expect(process.exitCode).toBeUndefined()
+    expect(stdout).toBe('Application worker ready\nApplication worker stopped\n')
+    expect(lifecycle.disposed).toBeGreaterThan(0)
+    expect(lifecycle.calendarDisposed).toBeGreaterThan(0)
+  } finally { process.exitCode = previous; output.mockRestore() }
 })
 
 test('entrypoint does not accept exit zero for ordinary native failure racing requested shutdown', async () => {

@@ -9,7 +9,7 @@ export function assertMailRetryBuildConfig(root: string, output: string | undefi
 export function readMailRetryBuildIdentity(buildDirectory: string, startedAt: number): string
 export function assertRunTree(path: string): void
 export function sourceIdentity(root: string): string
-export function readNativeBlob(filePath: string, name: 'ordinary' | 'activity' | 'requests' | 'billing', root: string, startedAt: number, version: string): NativeCoverageBlob
+export function readNativeBlob(filePath: string, name: 'ordinary' | 'activity' | 'requests' | 'billing' | 'calendar', root: string, startedAt: number, version: string): NativeCoverageBlob
 export function admitCommonGeometry(ordinary: NativeCoverageBlob, activity: NativeCoverageBlob): void
 
 export function assertRequestsReport(report: unknown, root: string): void
@@ -21,3 +21,6 @@ export function assertMailRetryQualification(path: string, root: string, started
 /** Admits billing's nine exact consumers and 91 passing leaves. */
 export function assertBillingReport(report: unknown, root: string): void
 export function assertBillingQualification(path: string, root: string, startedAt: number): void
+
+export function assertCalendarReport(report: unknown, root: string): void
+export function assertCalendarQualification(path: string, root: string, startedAt: number): void

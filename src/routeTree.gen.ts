@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AccountRouteImport } from './routes/account'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as BillingRouteImport } from './routes/billing'
+import { Route as ConfidentialiteRouteImport } from './routes/confidentialite'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as WorkspaceRouteImport } from './routes/workspace'
 import { Route as AppIndexRouteImport } from './routes/app.index'
@@ -25,6 +26,7 @@ import { Route as AuthMagicConfirmRouteImport } from './routes/auth.magic.confir
 import { Route as AuthMagicConsumeRouteImport } from './routes/auth.magic.consume'
 import { Route as AuthMagicEnrollRouteImport } from './routes/auth.magic.enroll'
 import { Route as ApiAuthCallbackGoogleRouteImport } from './routes/api.auth.callback.google'
+import { Route as ApiCalendarGoogleCallbackRouteImport } from './routes/api.calendar.google.callback'
 import { Route as ApiSparraAudioRequestIdRouteImport } from './routes/api.sparra.audio.$requestId'
 import { Route as ApiAuthAccountGoogleCallbackRouteImport } from './routes/api.auth.account.google.callback'
 import { Route as ApiAuthFirstPasskeyGoogleCallbackRouteImport } from './routes/api.auth.first-passkey.google.callback'
@@ -47,6 +49,11 @@ const AppRoute = AppRouteImport.update({
 const BillingRoute = BillingRouteImport.update({
   id: '/billing',
   path: '/billing',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ConfidentialiteRoute = ConfidentialiteRouteImport.update({
+  id: '/confidentialite',
+  path: '/confidentialite',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -109,6 +116,12 @@ const ApiAuthCallbackGoogleRoute = ApiAuthCallbackGoogleRouteImport.update({
   path: '/api/auth/callback/google',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCalendarGoogleCallbackRoute =
+  ApiCalendarGoogleCallbackRouteImport.update({
+    id: '/api/calendar/google/callback',
+    path: '/api/calendar/google/callback',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiSparraAudioRequestIdRoute = ApiSparraAudioRequestIdRouteImport.update({
   id: '/api/sparra/audio/$requestId',
   path: '/api/sparra/audio/$requestId',
@@ -132,6 +145,7 @@ export interface FileRoutesByFullPath {
   '/account': typeof AccountRoute
   '/app': typeof AppRouteWithChildren
   '/billing': typeof BillingRoute
+  '/confidentialite': typeof ConfidentialiteRoute
   '/login': typeof LoginRoute
   '/workspace': typeof WorkspaceRoute
   '/app/entreprise': typeof AppEntrepriseRoute
@@ -144,6 +158,7 @@ export interface FileRoutesByFullPath {
   '/auth/magic/consume': typeof AuthMagicConsumeRoute
   '/auth/magic/enroll': typeof AuthMagicEnrollRoute
   '/api/auth/callback/google': typeof ApiAuthCallbackGoogleRoute
+  '/api/calendar/google/callback': typeof ApiCalendarGoogleCallbackRoute
   '/api/sparra/audio/$requestId': typeof ApiSparraAudioRequestIdRoute
   '/api/auth/account/google/callback': typeof ApiAuthAccountGoogleCallbackRoute
   '/api/auth/first-passkey/google/callback': typeof ApiAuthFirstPasskeyGoogleCallbackRoute
@@ -152,6 +167,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
   '/billing': typeof BillingRoute
+  '/confidentialite': typeof ConfidentialiteRoute
   '/login': typeof LoginRoute
   '/workspace': typeof WorkspaceRoute
   '/app/entreprise': typeof AppEntrepriseRoute
@@ -164,6 +180,7 @@ export interface FileRoutesByTo {
   '/auth/magic/consume': typeof AuthMagicConsumeRoute
   '/auth/magic/enroll': typeof AuthMagicEnrollRoute
   '/api/auth/callback/google': typeof ApiAuthCallbackGoogleRoute
+  '/api/calendar/google/callback': typeof ApiCalendarGoogleCallbackRoute
   '/api/sparra/audio/$requestId': typeof ApiSparraAudioRequestIdRoute
   '/api/auth/account/google/callback': typeof ApiAuthAccountGoogleCallbackRoute
   '/api/auth/first-passkey/google/callback': typeof ApiAuthFirstPasskeyGoogleCallbackRoute
@@ -174,6 +191,7 @@ export interface FileRoutesById {
   '/account': typeof AccountRoute
   '/app': typeof AppRouteWithChildren
   '/billing': typeof BillingRoute
+  '/confidentialite': typeof ConfidentialiteRoute
   '/login': typeof LoginRoute
   '/workspace': typeof WorkspaceRoute
   '/app/entreprise': typeof AppEntrepriseRoute
@@ -186,6 +204,7 @@ export interface FileRoutesById {
   '/auth/magic/consume': typeof AuthMagicConsumeRoute
   '/auth/magic/enroll': typeof AuthMagicEnrollRoute
   '/api/auth/callback/google': typeof ApiAuthCallbackGoogleRoute
+  '/api/calendar/google/callback': typeof ApiCalendarGoogleCallbackRoute
   '/api/sparra/audio/$requestId': typeof ApiSparraAudioRequestIdRoute
   '/api/auth/account/google/callback': typeof ApiAuthAccountGoogleCallbackRoute
   '/api/auth/first-passkey/google/callback': typeof ApiAuthFirstPasskeyGoogleCallbackRoute
@@ -197,6 +216,7 @@ export interface FileRouteTypes {
     | '/account'
     | '/app'
     | '/billing'
+    | '/confidentialite'
     | '/login'
     | '/workspace'
     | '/app/entreprise'
@@ -209,6 +229,7 @@ export interface FileRouteTypes {
     | '/auth/magic/consume'
     | '/auth/magic/enroll'
     | '/api/auth/callback/google'
+    | '/api/calendar/google/callback'
     | '/api/sparra/audio/$requestId'
     | '/api/auth/account/google/callback'
     | '/api/auth/first-passkey/google/callback'
@@ -217,6 +238,7 @@ export interface FileRouteTypes {
     | '/'
     | '/account'
     | '/billing'
+    | '/confidentialite'
     | '/login'
     | '/workspace'
     | '/app/entreprise'
@@ -229,6 +251,7 @@ export interface FileRouteTypes {
     | '/auth/magic/consume'
     | '/auth/magic/enroll'
     | '/api/auth/callback/google'
+    | '/api/calendar/google/callback'
     | '/api/sparra/audio/$requestId'
     | '/api/auth/account/google/callback'
     | '/api/auth/first-passkey/google/callback'
@@ -238,6 +261,7 @@ export interface FileRouteTypes {
     | '/account'
     | '/app'
     | '/billing'
+    | '/confidentialite'
     | '/login'
     | '/workspace'
     | '/app/entreprise'
@@ -250,6 +274,7 @@ export interface FileRouteTypes {
     | '/auth/magic/consume'
     | '/auth/magic/enroll'
     | '/api/auth/callback/google'
+    | '/api/calendar/google/callback'
     | '/api/sparra/audio/$requestId'
     | '/api/auth/account/google/callback'
     | '/api/auth/first-passkey/google/callback'
@@ -260,6 +285,7 @@ export interface RootRouteChildren {
   AccountRoute: typeof AccountRoute
   AppRoute: typeof AppRouteWithChildren
   BillingRoute: typeof BillingRoute
+  ConfidentialiteRoute: typeof ConfidentialiteRoute
   LoginRoute: typeof LoginRoute
   WorkspaceRoute: typeof WorkspaceRoute
   HealthLiveRoute: typeof HealthLiveRoute
@@ -269,6 +295,7 @@ export interface RootRouteChildren {
   AuthMagicConsumeRoute: typeof AuthMagicConsumeRoute
   AuthMagicEnrollRoute: typeof AuthMagicEnrollRoute
   ApiAuthCallbackGoogleRoute: typeof ApiAuthCallbackGoogleRoute
+  ApiCalendarGoogleCallbackRoute: typeof ApiCalendarGoogleCallbackRoute
   ApiSparraAudioRequestIdRoute: typeof ApiSparraAudioRequestIdRoute
   ApiAuthAccountGoogleCallbackRoute: typeof ApiAuthAccountGoogleCallbackRoute
   ApiAuthFirstPasskeyGoogleCallbackRoute: typeof ApiAuthFirstPasskeyGoogleCallbackRoute
@@ -302,6 +329,13 @@ declare module '@tanstack/react-router' {
       path: '/billing'
       fullPath: '/billing'
       preLoaderRoute: typeof BillingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/confidentialite': {
+      id: '/confidentialite'
+      path: '/confidentialite'
+      fullPath: '/confidentialite'
+      preLoaderRoute: typeof ConfidentialiteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -388,6 +422,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthCallbackGoogleRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/calendar/google/callback': {
+      id: '/api/calendar/google/callback'
+      path: '/api/calendar/google/callback'
+      fullPath: '/api/calendar/google/callback'
+      preLoaderRoute: typeof ApiCalendarGoogleCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/sparra/audio/$requestId': {
       id: '/api/sparra/audio/$requestId'
       path: '/api/sparra/audio/$requestId'
@@ -431,6 +472,7 @@ const rootRouteChildren: RootRouteChildren = {
   AccountRoute: AccountRoute,
   AppRoute: AppRouteWithChildren,
   BillingRoute: BillingRoute,
+  ConfidentialiteRoute: ConfidentialiteRoute,
   LoginRoute: LoginRoute,
   WorkspaceRoute: WorkspaceRoute,
   HealthLiveRoute: HealthLiveRoute,
@@ -440,6 +482,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthMagicConsumeRoute: AuthMagicConsumeRoute,
   AuthMagicEnrollRoute: AuthMagicEnrollRoute,
   ApiAuthCallbackGoogleRoute: ApiAuthCallbackGoogleRoute,
+  ApiCalendarGoogleCallbackRoute: ApiCalendarGoogleCallbackRoute,
   ApiSparraAudioRequestIdRoute: ApiSparraAudioRequestIdRoute,
   ApiAuthAccountGoogleCallbackRoute: ApiAuthAccountGoogleCallbackRoute,
   ApiAuthFirstPasskeyGoogleCallbackRoute:

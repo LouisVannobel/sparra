@@ -62,14 +62,22 @@ beforeAll(async()=>{
     const catalogAfter=await unchangedCatalog()
     const isAddedAudioPolicy=(policy:{schemaname:string;tablename:string;policyname:string})=>policy.schemaname==='public'&&policy.tablename==='workspace'&&['workspace_audio_reader_cleanup_select','workspace_audio_reader_cleanup_update','workspace_local_audio_read'].includes(policy.policyname)
     const isAddedBillingPolicy=(policy:{schemaname:string;tablename:string;policyname:string})=>policy.schemaname==='public'&&((policy.tablename==='user'&&policy.policyname==='billing_user_reconcile')||(policy.tablename==='workspace'&&policy.policyname==='billing_workspace_reconcile'))
+    const isAddedCalendarPolicy=(policy:{schemaname:string;tablename:string;policyname:string})=>policy.schemaname==='public'&&policy.tablename==='workspace'&&policy.policyname==='calendar_workspace_worker'
     expect(catalogBefore[0].policies.filter(isAddedAudioPolicy)).toEqual([])
     expect(catalogBefore[0].policies.filter(isAddedBillingPolicy)).toEqual([])
+    expect(catalogBefore[0].policies.filter(isAddedCalendarPolicy)).toEqual([])
     expect((await stores.administrator.query("SELECT rolname,rolcanlogin,rolinherit,rolsuper,rolbypassrls,rolcreatedb,rolcreaterole,rolreplication FROM pg_roles WHERE rolname='billing_definer'")).rows).toEqual([
       {rolname:'billing_definer',rolcanlogin:false,rolinherit:false,rolsuper:false,rolbypassrls:false,rolcreatedb:false,rolcreaterole:false,rolreplication:false},
     ])
+    expect((await stores.administrator.query("SELECT rolname,rolcanlogin,rolinherit,rolsuper,rolbypassrls,rolcreatedb,rolcreaterole,rolreplication FROM pg_roles WHERE rolname='calendar_definer'")).rows).toEqual([
+      {rolname:'calendar_definer',rolcanlogin:false,rolinherit:false,rolsuper:false,rolbypassrls:false,rolcreatedb:false,rolcreaterole:false,rolreplication:false},
+    ])
     // Compare every pre-existing policy and membership unchanged; admit only
-    // these five exact forward additions, including their native predicates.
-    expect(catalogAfter.map(row=>({...row,policies:row.policies.filter((policy:{schemaname:string;tablename:string;policyname:string})=>!isAddedAudioPolicy(policy)&&!isAddedBillingPolicy(policy))}))).toEqual(catalogBefore)
+    // these six exact forward additions, including their native predicates.
+    expect(catalogAfter.map(row=>({...row,policies:row.policies.filter((policy:{schemaname:string;tablename:string;policyname:string})=>!isAddedAudioPolicy(policy)&&!isAddedBillingPolicy(policy)&&!isAddedCalendarPolicy(policy))}))).toEqual(catalogBefore)
+    expect(catalogAfter[0].policies.filter(isAddedCalendarPolicy)).toEqual([
+      {schemaname:'public',tablename:'workspace',policyname:'calendar_workspace_worker',permissive:'PERMISSIVE',roles:['calendar_definer'],cmd:'ALL',qual:'true',with_check:'true'},
+    ])
     expect(catalogAfter[0].policies.filter(isAddedBillingPolicy)).toEqual([
       {schemaname:'public',tablename:'user',policyname:'billing_user_reconcile',permissive:'PERMISSIVE',roles:['billing_definer'],cmd:'ALL',qual:'true',with_check:'true'},
       {schemaname:'public',tablename:'workspace',policyname:'billing_workspace_reconcile',permissive:'PERMISSIVE',roles:['billing_definer'],cmd:'ALL',qual:'true',with_check:'true'},
@@ -267,6 +275,7 @@ test('built native RPC enforces strict input, auth, missing and foreign Origin, 
   for(const name of names){
     const path=await authRpcPath(name),method=name==='markRequestTreated'||name==='eraseRequest'?'POST':'GET',data=name==='listRequests'?{}:{requestId:id}
     const invoke=async(value:unknown,headers:Record<string,string>)=>{const body=await rpcBody(value);return loopbackFetch(origin+path+(method==='GET'?'?payload='+encodeURIComponent(body):''),{method,headers:{'content-type':'application/json','x-tsr-serverFn':'true',...headers},body:method==='POST'?body:undefined})}
+    // SAFETY: Both literal header sets contain only string-valued cookie/origin fields.
     for(const headers of [{cookie},{cookie,origin:'https://foreign.example'}] as Record<string,string>[]){const denied=await invoke(data,headers);expect(denied.status).toBe(403);expect(denied.headers.get('cache-control')).toBe('no-store')}
     expect((await invoke(data,{origin})).status).toBe(401)
     expect((await invoke({...data,workspaceId:workspace!.id},{cookie,origin})).status).toBe(400)

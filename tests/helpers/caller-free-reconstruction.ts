@@ -1,5 +1,7 @@
 // Synthetic, non-serving qualification only. No runtime graph imports this file.
 import { createHash } from 'node:crypto'
+import { fileURLToPath } from 'node:url'
+import { readMigrationFiles } from 'drizzle-orm/migrator'
 import { Schema } from 'effect'
 import type { Client } from 'pg'
 import { normalizeAuthEmail } from '../../src/modules/auth/auth-email-normalization.server'
@@ -27,7 +29,7 @@ const workspace = Schema.Struct({ id: uuid, kind: Schema.Literal('personal'), li
 const revision = Schema.Struct({ workspace_id: uuid, revision: integer.check(Schema.isGreaterThanOrEqualTo(1)), business_name: text(80).check(Schema.isMinLength(1)),
   sector: Schema.Literals(['garage','controle-technique']), opening_hours: text(1000,true), services: text(2000,true), prices: text(1500,true), faq: text(3000,true), instructions: text(2000,true),
   transfer_destination: phone, recording_enabled: Schema.Boolean, recording_policy: Schema.Literals(['off','local_30d']), recording_contact_phone: phone, saved_at: instant })
-export const reconstructionMigrationCount = 24
+export const reconstructionMigrationCount = readMigrationFiles({ migrationsFolder: fileURLToPath(new URL('../../drizzle', import.meta.url)) }).length
 const rows = <S extends Schema.Top>(schema: S) => Schema.Array(schema).check(Schema.isMaxLength(256))
 const source = Schema.Struct({ app_commit: Schema.String.check(Schema.isPattern(/^[0-9a-f]{40}$/)), app_tree: Schema.String.check(Schema.isPattern(/^[0-9a-f]{40}$/)),
   web_digest: hex, migrator_digest: hex, migration_source_hash: hex, postgres_version: Schema.Literal('160015'),

@@ -4,9 +4,9 @@ import { fileURLToPath } from 'node:url'
 import { isAbsolute, join, resolve } from 'node:path'
 import { realpath, stat } from 'node:fs/promises'
 
-const commit='56e6bf1132a9cf1ded453034618fc9b1a1c37da3'
-const tree='b17e5eb8a361a8ad7218e7b064128041e1e671e8'
-const archiveHash='d78844837d696547a4b26a80000870168e898fcb5a908a90c5cd5dce609c5b61'
+const commit='990c2ad7b83da72b535772991b23602afc6a7567'
+const tree='54ada63dee46192371f76a1b1567e30c69908ad5'
+const archiveHash='2f5ca2c313584d290512f36881cf1373c845af189a12fb0494ec03adf5736813'
 const inputRoots=['.python-version','pyproject.toml','uv.lock','README.md','src','scripts','agents','deployment-profiles','tests/integration/sparra_connected_scenario.py']
 const invalid=()=>new Error('Invalid native Voice source fixture')
 
@@ -21,12 +21,12 @@ function assertFixtureProvenance(manifest){
 }
 
 function assertFixtureArchive(archive,manifest){
-  if(!Buffer.isBuffer(archive)||archive.length!==356615||createHash('sha256').update(archive).digest('hex')!==archiveHash
-    ||manifest.archive_sha256!==archiveHash||manifest.archive_size!==archive.length||manifest.decoded_source_bytes!==1723488)throw invalid()
+  if(!Buffer.isBuffer(archive)||archive.length!==402976||createHash('sha256').update(archive).digest('hex')!==archiveHash
+    ||manifest.archive_sha256!==archiveHash||manifest.archive_size!==archive.length||manifest.decoded_source_bytes!==1931238)throw invalid()
 }
 
 function assertFixtureMembers(manifest){
-  if(!Array.isArray(manifest.members)||manifest.members.length!==52)throw invalid()
+  if(!Array.isArray(manifest.members)||manifest.members.length!==58)throw invalid()
   if(manifest.members.some(row=>!row||typeof row.path!=='string'||typeof row.sha256!=='string'||!/^([0-9a-f]{64})$/.test(row.sha256)||typeof row.git_blob!=='string'||!/^([0-9a-f]{40})$/.test(row.git_blob)||!Number.isSafeInteger(row.size)||row.size<0||row.size>1048576))throw invalid()
 }
 
@@ -68,10 +68,10 @@ function admitDecodedMember(row,expected){
 function admitVerifierResult(result,manifest){
   let decoded
   try{decoded=JSON.parse(result)}catch{throw invalid()}
-  if(decoded.commit!==commit||decoded.tree!==tree||!Array.isArray(decoded.members)||decoded.members.length!==52)throw invalid()
+  if(decoded.commit!==commit||decoded.tree!==tree||!Array.isArray(decoded.members)||decoded.members.length!==58)throw invalid()
   const expected=new Map(manifest.members.map(row=>[row.path,row]))
   const members=new Map(decoded.members.map(row=>admitDecodedMember(row,expected)))
-  if(members.size!==52)throw invalid()
+  if(members.size!==58)throw invalid()
   return {commit,tree,members}
 }
 

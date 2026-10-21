@@ -41,3 +41,7 @@ export function readMigrationConfig(env: Environment) {
     cleanupTimeoutMs: integer(env, 'DB_CLEANUP_TIMEOUT_MS', 1000),
   })
 }
+
+export function readCalendarDatabaseConfig(env:Environment){
+ return readDatabaseConfig({...env,DATABASE_URL:env.SPARRA_CALENDAR_DATABASE_URL,DB_POOL_MAX:'1'})
+}

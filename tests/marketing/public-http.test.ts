@@ -84,6 +84,20 @@ test('private and missing routes keep their protected headers', async () => {
   }
 })
 
+test('public privacy page explains Calendar use and independent event retention without sign-in', async () => {
+  const base = await launch()
+  const response = await fetch(base + '/confidentialite', { redirect: 'manual', signal: AbortSignal.timeout(3000) })
+  expect(response.status).toBe(200)
+  const html = await response.text()
+  expect(html).toContain('mailto:contact@sparra.fr')
+  expect(html).toContain('Limited Use')
+  expect(html).toContain('30 jours')
+  expect(html).toContain('ne supprime pas les événements')
+  expect(html).toContain('traitements IA externes')
+  const landing = await fetch(base + '/', { signal: AbortSignal.timeout(3000) })
+  expect(await landing.text()).toContain('href="/confidentialite"')
+})
+
 test('public SSR exposes the canonical text social metadata', async () => {
   const base = await launch()
   const response = await fetch(base, { signal: AbortSignal.timeout(3000) })

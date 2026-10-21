@@ -84,6 +84,7 @@ export const sparraCall = pgTable('sparra_call', {
   check('sparra_call_retention',sql`isfinite(${table.admittedAt}) and isfinite(${table.retentionUntil}) and ${table.retentionUntil} = ${table.admittedAt} + interval '2592000 seconds'`),
   check('sparra_call_loss',sql`${table.transcriptLossCount} >= 0`),
   pgPolicy('sparra_call_voice',{to:'sparra_voice_definer',for:'all',using:sql`workspace_id = voice_private.bound_workspace() and deployment_id = voice_private.bound_deployment()`,withCheck:sql`workspace_id = voice_private.bound_workspace() and deployment_id = voice_private.bound_deployment()`}),
+  pgPolicy('calendar_call_worker',{to:'calendar_definer',for:'select',using:sql`true`}),
   check('sparra_call_status',sql`${table.status} in ('pending','active','closing','closed','failed')`),
   check('sparra_call_disclosure',sql`${table.disclosureState} in ('pending','completed','failed')`),
   check('sparra_call_turns',sql`jsonb_typeof(${table.encryptedTurns}) = 'object' and octet_length(${table.encryptedTurns}::text) <= 524288`),
