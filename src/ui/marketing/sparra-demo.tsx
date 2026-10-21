@@ -101,6 +101,7 @@ export function SparraDemo(): React.JSX.Element {
         <div className="sparra-player-actions">
           <Button className="sparra-contact" label={playing ? 'Pause' : 'Écouter l’exemple'} onClick={toggle} variant="primary" isDisabled={!interactive} />
           <Button label="Recommencer" onClick={restart} variant="secondary" isDisabled={!interactive} />
+          <a className="sparra-receipt-link" href="#sparra-receipt">Voir la fiche reçue</a>
         </div>
         <div className="sparra-progress">
           <progress aria-label="Progression de l’exemple" value={seconds} max={scenario.durationSeconds} />
@@ -114,7 +115,7 @@ export function SparraDemo(): React.JSX.Element {
           </li>)}
         </ol>
       </div>
-      <aside className="sparra-receipt" aria-labelledby="sparra-receipt-title">
+      <aside id="sparra-receipt" className="sparra-receipt" aria-labelledby="sparra-receipt-title" tabIndex={-1}>
         <h3 id="sparra-receipt-title">Ce que vous recevez</h3>
         <p className="sparra-example-label">Fiche illustrative — aucune demande réelle envoyée.</p>
         <p className="sparra-status"><Icon icon="clock" size="sm" aria-hidden="true" focusable="false" /> {scenario.receipt.status}</p>
