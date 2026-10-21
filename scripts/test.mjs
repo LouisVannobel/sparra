@@ -149,7 +149,8 @@ try {
   const calendarReport = join(runDirectory, 'calendar-qualification.json')
   await runPhase('calendar qualification', [vitestCli, 'run', '--config', 'vitest.integration.config.ts',
     'tests/integration/calendar-owner.test.ts', 'tests/integration/calendar-bridge.test.ts',
-    'tests/integration/calendar-panel-browser.test.ts', 'tests/integration/calendar-consumer.test.ts',
+    'tests/integration/calendar-panel-browser.test.ts', 'tests/integration/business-navigation-browser.test.ts',
+    'tests/integration/calendar-consumer.test.ts',
     '--maxWorkers=1', '--coverage', '--reporter=default', '--reporter=json', '--reporter=blob', '--outputFile.json=' + calendarReport,
     '--outputFile.blob='+join(blobs,'calendar.json'),'--coverage.reportsDirectory='+join(runDirectory,'calendar')], 600000)
   assertCalendarQualification(calendarReport,root,startedAt)

@@ -72,7 +72,39 @@
       "keyboard selects calendar, edits actual service and hours, and preserves draft after stale revision refusal",
       "keyboard reconnect waits for disconnect before issuing new consent",
       "keyboard reconnect cannot issue replacement consent while revocation remains unresolved",
-      "duplicate calendar summaries expose identity and keyboard selection retains the intended ID"
+      "duplicate calendar summaries expose identity and keyboard selection retains the intended ID",
+      "draft-read preserves every edited field and expected revision until explicit replacement",
+      "draft-conflict preserves every edited field and expected revision until explicit replacement",
+      "draft-ambiguous preserves every edited field and expected revision until explicit replacement",
+      "saved feedback clears after policy, activation and calendar edits",
+      "connect guard refusal has no action and async navigation publishes connecting only while pending",
+      "an uncertain save requires a successful observation before latest adoption; a failed read creates no uncertainty",
+      "French refresh preserves prepared inputs until explicit adoption",
+      "an identical read after ambiguous save preserves uncertainty until explicit adoption",
+      "en visibly identifies dirty Calendar edits and returns to pristine when restored",
+      "fr visibly identifies dirty Calendar edits and returns to pristine when restored"
+    ]
+  ],
+  [
+    "business-navigation-browser.test.ts",
+    [
+      "immediate edit then language decline retains draft; accepted departure explicitly abandons it",
+      "all prepared FAQ answers survive sections, old sector and saved enterprise state",
+      "pristine enterprise form leaves without a prompt",
+      "restored enterprise form leaves without a prompt",
+      "saved enterprise form leaves without a prompt",
+      "empty enterprise form leaves without a prompt",
+      "Calendar-only edits survive read until explicit replacement and protect language departure",
+      "activity-pending refuses OAuth before disconnect or consent",
+      "uncertain refuses OAuth before disconnect or consent",
+      "calendar-read-held refuses OAuth before disconnect or consent",
+      "connect-held locks enterprise edits only during approved OAuth preparation",
+      "connect-reject locks enterprise edits only during approved OAuth preparation",
+      "OAuth decline makes zero effects; ordinary login is guarded and explicit auth refusal recovers",
+      "document departure uses native beforeunload and declining retains work",
+      "Calendar uncertainty refuses OAuth; ordinary Calendar read and save keep enterprise independently editable",
+      "whitespace FAQ work and added answers remain protected, while guided sections never request abandonment",
+      "pending OAuth retains beforeunload guard and SPA departure remains guarded after rejection"
     ]
   ],
   [
