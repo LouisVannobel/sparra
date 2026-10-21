@@ -24,7 +24,7 @@ function Fixture(){
     onNavigate={mode==='guard'?async()=>{setEvents(value=>[...value,'navigate']);await new Promise<void>(resolve=>{navigationRelease.current=resolve})}:undefined}
     onConnect={async()=>{setEvents(value=>[...value,'connect']);return '#connected'}}
     onDisconnect={async()=>{setEvents(value=>[...value,'disconnect']);if(mode==='reconnect-blocked')throw new Response('Calendar unavailable',{status:409})}}
-    onRead={async()=>{if(mode?.endsWith('read-failed'))throw new Response('read unavailable',{status:503});if(editable)setEvents(value=>[...value,'read']);return editable?latest:state}}
+    onRead={async()=>{if(mode?.endsWith('read-failed'))throw new Response('read unavailable',{status:503});if(editable)setEvents(value=>[...value,'read']);return mode==='draft-ambiguous-identical'?known:editable?latest:state}}
     onSave={async data=>{setEvents(value=>[...value,JSON.stringify(data)]);if(mode==='draft-success')return {...known,...data,selectedCalendar:known.selectedCalendar,revision:4};if(mode?.startsWith('draft-ambiguous'))throw new Error('unconfirmed');throw new Response('fixture conflict',{status:409})}}/>
     {mode==='guard'&&<><button onClick={()=>setGuard(true)}>Allow connect</button><button onClick={()=>navigationRelease.current?.()}>Finish navigation</button></>}
     <output aria-label="Navigation state">{JSON.stringify(navigation)}</output>

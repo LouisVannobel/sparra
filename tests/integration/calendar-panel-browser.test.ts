@@ -179,3 +179,56 @@ test('French refresh preserves prepared inputs until explicit adoption',async()=
     expect(await page.getByLabel('Fixture events').textContent()).toBe('read')
   }finally{await context.close()}
 })
+
+
+test('an identical read after ambiguous save preserves uncertainty until explicit adoption',async()=>{
+  const context=await browser.newContext(),page=await context.newPage();page.setDefaultTimeout(5000)
+  try{
+    await page.goto(origin+'/tests/helpers/calendar-panel.html?mode=draft-ambiguous-identical')
+    await page.getByRole('textbox',{name:'Service 1 Required',exact:true}).fill('Uncertain draft')
+    const save=page.getByRole('button',{name:'Save',exact:true}),read=page.getByRole('button',{name:'Refresh',exact:true})
+    await save.click();await page.getByText('Operation not confirmed. Refresh to check its outcome.').waitFor()
+    await read.click();await page.getByRole('button',{name:'Use latest settings',exact:true}).waitFor()
+    expect(JSON.parse(await page.getByLabel('Navigation state').innerText())).toEqual({dirty:true,pending:false,reconcile:true,connecting:false})
+    expect(await page.getByRole('textbox',{name:'Service 1 Required',exact:true}).inputValue()).toBe('Uncertain draft')
+    await save.click();await page.getByText('Operation not confirmed. Refresh to check its outcome.').waitFor()
+    const writes=(await page.getByLabel('Fixture events').textContent()??'').split('\n').filter(line=>line.startsWith('{')).map(line=>JSON.parse(line))
+    expect(writes).toHaveLength(2)
+    expect(writes[1]).toMatchObject({expectedRevision:3,policy:{services:[{name:'Uncertain draft'}]}})
+    await read.click();await page.getByRole('button',{name:'Use latest settings',exact:true}).click()
+    expect(JSON.parse(await page.getByLabel('Navigation state').innerText())).toEqual({dirty:false,pending:false,reconcile:false,connecting:false})
+    expect(await page.getByRole('textbox',{name:'Service 1 Required',exact:true}).inputValue()).toBe('Known service')
+    expect((await page.getByLabel('Fixture events').textContent()??'').split('\n').filter(line=>line.startsWith('{'))).toHaveLength(2)
+  }finally{await context.close()}
+})
+
+test.each(['en','fr'] as const)('%s visibly identifies dirty Calendar edits and returns to pristine when restored',async locale=>{
+  const context=await browser.newContext(),page=await context.newPage();page.setDefaultTimeout(5000)
+  try{
+    await page.goto(origin+'/tests/helpers/calendar-panel.html?mode=draft-success&locale='+locale)
+    const unsaved=page.getByText(locale==='fr'?'Modifications non enregistrées.':'Unsaved changes.',{exact:true})
+    const service=page.getByRole('textbox',{name:locale==='fr'?'Prestation 1 Required':'Service 1 Required',exact:true})
+    const enabled=page.getByRole('checkbox',{name:locale==='fr'?'Activer les réservations':'Enable bookings'})
+    const choice=page.getByRole('combobox',{name:locale==='fr'?'Agenda de réservation':'Booking calendar'})
+    const select=async(name:string)=>{await choice.click();await page.getByRole('option',{name,exact:true}).click()}
+    expect(await unsaved.count()).toBe(0)
+    for(const [edit,restore] of [
+      [async()=>service.fill('Changed service'),async()=>service.fill('Known service')],
+      [async()=>enabled.check(),async()=>enabled.uncheck()],
+      [async()=>select('Other calendar'),async()=>select('Observed calendar')],
+    ]){
+      await edit!();await unsaved.waitFor();expect(JSON.parse(await page.getByLabel('Navigation state').innerText()).dirty).toBe(true)
+      await restore!();expect(await unsaved.count()).toBe(0);expect(JSON.parse(await page.getByLabel('Navigation state').innerText()).dirty).toBe(false)
+    }
+    expect(await page.getByLabel('Fixture events').textContent()).toBe('')
+    await service.fill('Saved service');await unsaved.waitFor()
+    await page.getByRole('button',{name:locale==='fr'?'Enregistrer':'Save',exact:true}).click()
+    await page.getByText(locale==='fr'?'Réglages enregistrés.':'Settings saved.',{exact:true}).waitFor()
+    expect(await unsaved.count()).toBe(0)
+    expect(JSON.parse(await page.getByLabel('Navigation state').innerText()).dirty).toBe(false)
+    await service.fill('Discarded service');await unsaved.waitFor()
+    await page.getByRole('button',{name:locale==='fr'?'Utiliser les derniers réglages':'Use latest settings',exact:true}).click()
+    expect(await unsaved.count()).toBe(0)
+    expect(JSON.parse(await page.getByLabel('Navigation state').innerText()).dirty).toBe(false)
+  }finally{await context.close()}
+})

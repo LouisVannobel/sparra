@@ -150,10 +150,11 @@ export async function runCalendarAction(action:CalendarAction, context:CalendarA
     if(live())context.setPending(false)
   }
 }
-function CalendarPanelView({locale,current,draft,labels:t,disabled,feedback,editPolicy,changeDraft,onAction,headingRef,focusOnEntry,reconcile,canReplace,onReplace}:{reconcile:boolean;canReplace:boolean;onReplace():void;locale:Locale;current:CalendarState;draft:SaveCalendarPolicy;labels:CalendarLabels;disabled:boolean;feedback:string|null;headingRef:{current:HTMLHeadingElement|null};focusOnEntry:boolean;editPolicy(patch:Partial<SaveCalendarPolicy['policy']>):void;changeDraft(patch:Partial<SaveCalendarPolicy>):void;onAction(action:CalendarAction):void}) {
+function CalendarPanelView({locale,current,draft,labels:t,disabled,feedback,editPolicy,changeDraft,onAction,headingRef,focusOnEntry,dirty,reconcile,canReplace,onReplace}:{dirty:boolean;reconcile:boolean;canReplace:boolean;onReplace():void;locale:Locale;current:CalendarState;draft:SaveCalendarPolicy;labels:CalendarLabels;disabled:boolean;feedback:string|null;headingRef:{current:HTMLHeadingElement|null};focusOnEntry:boolean;editPolicy(patch:Partial<SaveCalendarPolicy['policy']>):void;changeDraft(patch:Partial<SaveCalendarPolicy>):void;onAction(action:CalendarAction):void}) {
   return <section className="sparra-form-section" aria-labelledby="calendar-heading"><Heading ref={headingRef} level={2} id="calendar-heading" tabIndex={focusOnEntry?-1:undefined} aria-describedby={feedback?'calendar-feedback':undefined}>{t.title}</Heading>
     {!current.available&&<p>{t.unavailable}</p>}
     <CalendarContent current={current} draft={draft} labels={t} disabled={disabled} editPolicy={editPolicy} changeDraft={changeDraft} onAction={onAction}/>
+    {dirty&&<p role="status">{t.draftDirty}</p>}
     {reconcile&&<p role="status">{t.reconcile}</p>}
     {canReplace&&<Button label={t.replace} isDisabled={disabled} onClick={onReplace}/>}
     <p><a href="/confidentialite">{locale==='fr'?'Confidentialité et utilisation de Google Agenda':'Privacy and Google Calendar data use'}</a></p>
@@ -174,11 +175,11 @@ export function CalendarPanel({locale,state,callbackFailed,focusOnEntry=false,on
   function accept(next:CalendarState,adopt=false){
     setCurrent(next);setCanAdopt(true)
     if(adopt){const nextDraft=calendarDraft(next);setDraft(nextDraft);setKnown(nextDraft);setReconcile(false)}
-    else setReconcile(JSON.stringify(calendarDraft(next))!==JSON.stringify(known))
+    else setReconcile(previous=>previous||JSON.stringify(calendarDraft(next))!==JSON.stringify(known))
   }
   function replace(){const next=calendarDraft(current);setDraft(next);setKnown(next);setReconcile(false);setFeedback(null)}
   function run(action:CalendarAction) {return runCalendarAction(action,{locale,current,draft,hydrated,busy,operation,onConnect,onSave,onDisconnect,onRead,onBeforeConnect,accept,setReconcile:value=>{setReconcile(value);if(value)setCanAdopt(false)},setPending:value=>setPendingAction(value?action:null),setFeedback,navigate:onNavigate??(url=>window.location.assign(url))})}
   const editPolicy=(patch:Partial<SaveCalendarPolicy['policy']>)=>{setFeedback(null);setDraft({...draft,policy:{...draft.policy,...patch}})}
   const changeDraft=(patch:Partial<SaveCalendarPolicy>)=>{setFeedback(null);setDraft({...draft,...patch})}
-  return <CalendarPanelView locale={locale} current={current} draft={draft} labels={t} disabled={disabled} feedback={feedback} editPolicy={editPolicy} changeDraft={changeDraft} onAction={action=>void run(action)} headingRef={headingRef} focusOnEntry={focusOnEntry} reconcile={reconcile} canReplace={canAdopt&&(dirty||reconcile)} onReplace={replace}/>
+  return <CalendarPanelView locale={locale} current={current} draft={draft} labels={t} disabled={disabled} feedback={feedback} editPolicy={editPolicy} changeDraft={changeDraft} onAction={action=>void run(action)} headingRef={headingRef} focusOnEntry={focusOnEntry} dirty={dirty} reconcile={reconcile} canReplace={canAdopt&&(dirty||reconcile)} onReplace={replace}/>
 }
