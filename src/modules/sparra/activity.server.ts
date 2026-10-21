@@ -6,6 +6,7 @@ import type { AdmittedPrincipal } from '../auth/session.server'
 import type { WorkspaceDto } from '../workspaces/personal.server'
 import { workspace } from '../workspaces/schema.server'
 import { sparraKnowledgeRevision } from './schema.server'
+import { sectorIds, type SectorId } from './sectors'
 
 const scalar = Schema.String.check(Schema.isPattern(/^[^\ud800-\udfff]*$/u))
 const name = scalar.check(Schema.isPattern(/^[^\u0000-\u001f\u007f-\u009f\u2028\u2029]*$/)).pipe(
@@ -16,7 +17,7 @@ const section = (limit: number) => scalar.check(Schema.isPattern(/^[^\u0000-\u00
 ).check(Schema.isMaxLength(limit))
 const saveInput = Schema.Struct({
   expectedRevision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(2147483646)),
-  businessName: name, sector: Schema.Literals(['garage','controle-technique']),
+  businessName: name, sector: Schema.Literals(sectorIds),
   knowledge: Schema.Struct({ openingHours: section(1000), services: section(2000), prices: section(1500), faq: section(3000), instructions: section(2000) }),
   transferDestination: Schema.optional(Schema.NullOr(Schema.String.check(Schema.isPattern(/^\+[1-9][0-9]{1,14}$/)))),
   recordingEnabled: Schema.optionalKey(Schema.Boolean),
@@ -33,7 +34,7 @@ class ActivityRecordingUnavailable extends Error {
   constructor() { super('Local audio unavailable'); this.name = 'ActivityRecordingUnavailable' }
 }
 export type SaveActivityInput = Readonly<{
-  expectedRevision: number; businessName: string; sector: 'garage' | 'controle-technique'
+  expectedRevision: number; businessName: string; sector: SectorId
   knowledge: Readonly<{ openingHours: string; services: string; prices: string; faq: string; instructions: string }>
   transferDestination?: string | null
   recordingEnabled?: boolean

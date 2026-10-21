@@ -56,3 +56,11 @@ test.each(['select','insert'])('native %s policy requires the matching active Wo
   expect(emitted).toContain('sparra_knowledge_revision"."workspace_id"')
   expect(emitted).toContain("current_setting('app.tenant_id',true)")
 })
+
+// A third sector must use the same parser and bounds as the established profiles.
+test.each(['garage','controle-technique','diagnostic-immobilier'])('sector %s preserves validation and normalization', sector => {
+  const value={...input(),sector,businessName:' Diagnostic Martin '}
+  expect(parseSaveActivityInput(value)).toMatchObject({sector,businessName:'Diagnostic Martin'})
+  expect(() => parseSaveActivityInput({...value,knowledge:{...value.knowledge,instructions:'x'.repeat(2001)}})).toThrow(InvalidActivityInput)
+  expect(() => parseSaveActivityInput({...value,sector:'diagnostics-inconnu'})).toThrow(InvalidActivityInput)
+})

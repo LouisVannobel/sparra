@@ -75,8 +75,29 @@ async def main():
     await sink.open()
     try:
         action = request["action"]
-        if action in {"begin", "begin_unknown_commit"}:
+        if action in {"begin", "begin_context", "begin_unknown_commit"}:
             value = await sink.begin_call(request["deployment"], UUID(request["call_id"]), RoutingV1.model_validate(request["routing"]))
+            if action == "begin_context":
+                from types import SimpleNamespace
+                from pipecat.processors.frame_processor import FrameProcessor
+                from projetv0_voice import models, pipeline
+                assert Path(models.__file__).resolve() == selected_source / "projetv0_voice/models.py"
+                assert Path(pipeline.__file__).resolve() == selected_source / "projetv0_voice/pipeline.py"
+                async def handler(params):
+                    pass
+                pipe = pipeline.build_pipeline(
+                    transport=SimpleNamespace(input=FrameProcessor, output=FrameProcessor),
+                    services=SimpleNamespace(stt=FrameProcessor(), llm=FrameProcessor(), tts=FrameProcessor()),
+                    controller=SimpleNamespace(is_active=lambda: False),
+                    turn_recorder=SimpleNamespace(record_user=lambda *args: None, record_assistant=lambda *args: None),
+                    first_failure=pipeline.FirstFailure(), begin_snapshot=value, transfer_handler=handler,
+                )
+                context = pipe.processors[5]._context
+                return {"snapshot": value.model_dump(mode="json"), "messages": context.get_messages(),
+                        "tools": [{"name": tool.name, "properties": tool.properties, "required": tool.required}
+                                  for tool in context.tools.standard_tools],
+                        "source_files": {"models": str(Path(models.__file__).resolve()),
+                                         "pipeline": str(Path(pipeline.__file__).resolve())}}
             return value.model_dump(mode="json")
         if action == "ingest":
             await sink.ingest(VoiceOperationV1.model_validate(request["operation"]))

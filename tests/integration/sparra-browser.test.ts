@@ -814,3 +814,25 @@ test('compiled native result DTO shows category and caller/provider/missing call
     }
   }finally{await context.close()}
 },40000)
+
+test('diagnostic owner selects sector and optional questions explicitly, saves and reloads the same draft',async()=>{
+  const {context,page}=await signedIn('sparra-diagnostic-owner')
+  try{
+    await page.goto(origin+'/app/entreprise?lang=en');await page.getByRole('button',{name:'Create my workspace'}).click()
+    await page.getByRole('textbox',{name:/^Business name/}).fill('Diagnostic Martin')
+    await page.getByRole('combobox',{name:/^Sector/}).click()
+    await page.getByRole('option',{name:'Property diagnostics',exact:true}).click()
+    await page.getByText('What type of property is concerned?',{exact:true}).waitFor()
+    const instructions=page.getByRole('textbox',{name:'Response instructions',exact:true})
+    expect(await instructions.inputValue()).toBe('')
+    expect(await page.getByRole('textbox',{name:'Frequently asked questions',exact:true}).inputValue()).toBe('')
+    await instructions.fill('What type of property is concerned?')
+    await page.getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    await page.reload();expect(await instructions.inputValue()).toBe('What type of property is concerned?')
+    expect(await instructions.inputValue()).not.toContain('sale or a rental')
+    expect(await page.getByRole('combobox',{name:/^Sector/}).textContent()).toContain('Property diagnostics')
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+    expect((await new AxeBuilder({page}).analyze()).violations).toEqual([])
+    await page.screenshot({path:'.output/test-evidence/sparra/diagnostic-business-en-320.png',fullPage:true})
+  }finally{await context.close()}
+},30000)

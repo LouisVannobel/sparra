@@ -1,6 +1,7 @@
 import { sql, type SQLWrapper } from 'drizzle-orm'
 import { bigint, boolean, check, customType, foreignKey, index, integer, jsonb, pgPolicy, pgTable, primaryKey, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
 import { workspace } from '../workspaces/schema.server'
+import { sectorIds } from './sectors'
 import type { NativeEncryptedTurn, EncryptedMessageResult } from './message-crypto.server'
 
 // PostgreSQL stores Unicode scalars; add supplementary scalars once to match
@@ -10,7 +11,7 @@ export const sparraKnowledgeRevision = pgTable('sparra_knowledge_revision', {
   workspaceId: uuid('workspace_id').notNull().references(() => workspace.id, { onDelete: 'restrict' }),
   revision: integer('revision').notNull(),
   businessName: text('business_name').notNull(),
-  sector: text('sector', { enum: ['garage', 'controle-technique'] }).notNull(),
+  sector: text('sector', { enum: sectorIds }).notNull(),
   openingHours: text('opening_hours').notNull(), services: text('services').notNull(), prices: text('prices').notNull(), faq: text('faq').notNull(), instructions: text('instructions').notNull(),
   transferDestination: text('transfer_destination'),
   recordingEnabled: boolean('recording_enabled').notNull().default(false),
@@ -22,7 +23,7 @@ export const sparraKnowledgeRevision = pgTable('sparra_knowledge_revision', {
   check('sparra_revision_positive', sql`${table.revision} > 0`),
   check('sparra_revision_nonzero_workspace', sql`${table.workspaceId} <> '00000000-0000-0000-0000-000000000000'::uuid`),
   check('sparra_revision_business_name', sql`${utf16Length(table.businessName)} between 1 and 80 and ${table.businessName} = btrim(${table.businessName}) and ${table.businessName} !~ U&'[\\0001-\\001F\\007F-\\009F\\2028\\2029]'`),
-  check('sparra_revision_sector', sql`${table.sector} in ('garage','controle-technique')`),
+  check('sparra_revision_sector', sql`${table.sector} in ('garage','controle-technique','diagnostic-immobilier')`),
   ...([['opening_hours',table.openingHours,1000],['services',table.services,2000],['prices',table.prices,1500],['faq',table.faq,3000],['instructions',table.instructions,2000]] as const).map(([name,column,limit]) => check('sparra_revision_'+name, sql`${utf16Length(column)} <= ${sql.raw(String(limit))} and ${column} !~ U&'[\\0001-\\0008\\000B\\000C\\000E-\\001F\\007F-\\009F]'`)),
   check('sparra_revision_transfer', sql`${table.transferDestination} is null or ${table.transferDestination} ~ '^\\+[1-9][0-9]{1,14}$'`),
   check('sparra_revision_recording_policy', sql`${table.recordingPolicy} in ('off','local_30d')`),
