@@ -52,6 +52,6 @@ export function SparraLanding(): React.JSX.Element {
         <div><Button className="sparra-contact" href="mailto:contact@sparra.fr" label="Échanger sur votre besoin" variant="primary" size="lg" /><p>Ouvre un e-mail à contact@sparra.fr.</p></div>
       </section>
     </main>
-    <footer className="sparra-footer sparra-width"><a className="sparra-wordmark" href="/">sparra<span aria-hidden="true">.</span></a><p>Assistant téléphonique IA pour les professionnels locaux.</p><a href="/app?lang=fr">Mon espace</a><a href="mailto:contact@sparra.fr">contact@sparra.fr</a></footer>
+    <footer className="sparra-footer sparra-width"><a className="sparra-wordmark" href="/">sparra<span aria-hidden="true">.</span></a><p>Assistant téléphonique IA pour les professionnels locaux.</p><a href="/app?lang=fr">Mon espace</a><a href="/confidentialite">Confidentialité</a><a href="mailto:contact@sparra.fr">contact@sparra.fr</a></footer>
   </div>
 }

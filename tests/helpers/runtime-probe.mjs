@@ -6,6 +6,12 @@ import { pathToFileURL } from 'node:url'
 
 let googlePeer
 // Install before importing any emitted application module.
+if (process.env.FIXTURE_CALENDAR_PROTOCOL === 'yes') {
+  if (process.env.FIXTURE_GOOGLE_PROTOCOL === 'yes') throw new Error('Separate Google fixture ownership required')
+  const { startCalendarProtocolPeer } = await import('./calendar-protocol-peer.mjs')
+  googlePeer = await startCalendarProtocolPeer()
+  process.send?.({ type: 'google-ready' })
+}
 if (process.env.FIXTURE_GOOGLE_PROTOCOL === 'yes') {
   const { startGoogleProtocolPeer } = await import('./google-protocol-peer.mjs')
   googlePeer = await startGoogleProtocolPeer({ ports: [process.env.DATABASE_URL, process.env.REDIS_URL].map(value => Number(new URL(value).port)), wrongHost: process.env.FIXTURE_GOOGLE_WRONG_HOST === 'yes' })

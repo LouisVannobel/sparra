@@ -1,0 +1,64 @@
+[
+  [
+    "calendar-owner.test.ts",
+    [
+      "refuses absent/revoked admission or missing Workspace without fabricating saved rules",
+      "separate consent uses canonical callback, PKCE, required scopes and one-shot session-bound state",
+      "scope denial and absent refresh token cannot create a durable connection",
+      "save verifies real writable destination and policy revision; no settings inferred from knowledge",
+      "a subject cannot be active in two Workspaces and RLS excludes foreign connection writes",
+      "disconnect fences delayed OAuth settlement and never revokes later credentials",
+      "revocation barrier disables immediately and rejects reconnect until settled, across owner instances",
+      "refresh is serialized and stale refresh cannot restore disconnected credentials",
+      "refresh rejects a different subject and disables booking on lost writable calendar access",
+      "superseded or expired intentions never exchange and consent denial consumes the intention",
+      "proven pre-dispatch refusal retains subject exclusivity and allows a later safe attempt",
+      "provider outages preserve safe account controls and revoked grants explicitly require reconnect",
+      "Google canonical userinfo.email grant is accepted for initial consent and renewal",
+      "accepted revoke with lost response keeps its claim across local close and cannot be resent or replaced",
+      "reconnect retires both stored credentials when the refresh token is already revoked",
+      "reconnect retires both stored credentials when the refresh token is already expired",
+      "invalid refresh token followed by ambiguous access-token revocation keeps the replacement barrier",
+      "a nonterminal revoke 400 never retires the grant or permits replacement"
+    ]
+  ],
+  [
+    "calendar-bridge.test.ts",
+    [
+      "Calendar exact function catalog is installed and execute-only worker has no memberships/table access",
+      "binding/OID authority, erasure and private projections precede replay",
+      "revised policy and authority/PII injection fail closed",
+      "replication lag cannot admit a write; actual persisted roles/order and playback acknowledgement are required",
+      "overlapping distinct starts cannot both reserve; unknown keeps the interval after lease/offer expiry",
+      "revision, disconnect and deadline are rechecked at final send transition",
+      "an unexpired offer starting in -1 minutes cannot bypass current notice at admission",
+      "an unexpired offer starting in 30 minutes cannot bypass current notice at admission",
+      "final send refuses an admitted slot now starting in -1 minutes without marking possible send",
+      "final send refuses an admitted slot now starting in 30 minutes without marking possible send",
+      "one existing workId/generation owner controls refresh and stale settlement cannot restore disconnect",
+      "expired opaque offers and foreign call replay are refused",
+      "native worker store commits before HTTP, confirms Inbox independently and erasure fences subsequent writes",
+      "confirmed observations move or release the current hold while preserving original confirmation evidence",
+      "erasure after possible submission keeps only unresolved proof and never restores Inbox content",
+      "a foreign bound Workspace and replacement login OID cannot impersonate an admitted call through GUCs"
+    ]
+  ],
+  [
+    "calendar-panel-browser.test.ts",
+    [
+      "keyboard selects calendar, edits actual service and hours, and preserves draft after stale revision refusal",
+      "keyboard reconnect waits for disconnect before issuing new consent",
+      "keyboard reconnect cannot issue replacement consent while revocation remains unresolved"
+    ]
+  ],
+  [
+    "calendar-consumer.test.ts",
+    [
+      "compiled Calendar RPC exports are available to the authenticated native consumer",
+      "native phone-only Calendar confirmed preserves booking authority and the authenticated compiled Inbox",
+      "native phone-only Calendar lost-response-restart preserves booking authority and the authenticated compiled Inbox",
+      "native phone-only Calendar no-ack preserves booking authority and the authenticated compiled Inbox",
+      "native phone-only Calendar retry-after-no-ack preserves booking authority and the authenticated compiled Inbox"
+    ]
+  ]
+]

@@ -77,6 +77,7 @@ export function CalendarPanel({locale,state,callbackFailed,onConnect,onSave,onDi
         <Button type="submit" label={t.save} isDisabled={disabled||!current.available||!draft.calendarId||!draft.policy.services.length||!draft.policy.weeklyHours.length}/>
       </form>}
     </>}
+    <p><a href="/confidentialite">{locale==='fr'?'Confidentialité et utilisation de Google Agenda':'Privacy and Google Calendar data use'}</a></p>
     {feedback&&<p role="status" aria-live="polite">{feedback}</p>}
   </section>
 }

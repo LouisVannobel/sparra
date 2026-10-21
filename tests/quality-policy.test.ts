@@ -9,7 +9,12 @@ import type { FileChangeSummary } from 'typescript/unstable/proto'
 import { createScanner, getLeadingCommentRanges, getTokenAtPosition, getTrailingCommentRanges, isArrowFunction, isBlock, isCallExpression, isExpressionStatement, isFunctionDeclaration, isIdentifier, isImportDeclaration, isNamedImports, isStringLiteral, LanguageVariant, SyntaxKind } from 'typescript/unstable/ast'
 import type { CallExpression, Node, SourceFile } from 'typescript/unstable/ast'
 import { afterAll, beforeAll, expect, test } from 'vitest'
-import { admitCommonGeometry, assertBillingQualification, assertBillingReport, assertDirectory, assertRunTree, assertRecordingReceiptQualification, assertRecordingReceiptReport, assertRequestsQualification, assertRequestsReport, readNativeBlob, sourceIdentity } from '../scripts/native-coverage-inputs.mjs'
+import { admitCommonGeometry, assertCalendarReport, assertCalendarQualification, assertBillingQualification, assertBillingReport, assertDirectory, assertRunTree, assertRecordingReceiptQualification, assertRecordingReceiptReport, assertRequestsQualification, assertRequestsReport, readNativeBlob, sourceIdentity } from '../scripts/native-coverage-inputs.mjs'
+import calendarNames from './fixtures/calendar-consumer-names.json' with { type: 'json' }
+const calendarConsumerNames: [string, string[]][] = calendarNames.map(([file,names]) => {
+  if(typeof file!=='string'||!Array.isArray(names)||names.some(name=>typeof name!=='string'))throw new Error('Invalid Calendar reporter canary')
+  return [file,names]
+})
 
 const repositoryRoot = process.cwd()
 const fixtureRoot = mkdtempSync(join(repositoryRoot, 'src', '.anti-slop-canary-'))
@@ -376,6 +381,10 @@ ${names.map(name=>'test('+JSON.stringify(name)+',()=>expect(coveredAudioBranch(t
   for(const [file,names] of billingConsumerNames)writeFileSync(join(root,'tests/integration',file),
     "import {expect,test} from 'vitest';import {coveredBillingBranch} from '../../src/billing-covered';\n"
     +names.map(name=>'test('+JSON.stringify(name)+',()=>expect(coveredBillingBranch(true)).toBe(17));\n').join(''))
+  writeFileSync(join(root,'src/calendar-covered.ts'),'export function calendarBranch(value: boolean): number {\n  if (value) return 23\n  return 29\n}\n')
+  for(const [file,names] of calendarConsumerNames)writeFileSync(join(root,'tests/integration',file),
+    "import {expect,test} from 'vitest';import {calendarBranch} from '../../src/calendar-covered';\n"
+    +names.map(name=>'test('+JSON.stringify(name)+',()=>expect(calendarBranch(true)).toBe(23));\n').join(''))
   writeFileSync(join(root,'tests/ordinary.test.ts'),"import {expect,test} from 'vitest';import {selectBranch} from '../src/covered';test('ordinary true branch',()=>expect(selectBranch(true)).toBe(7));\n")
   writeFileSync(join(root,'tests/integration/sparra-activity.test.ts'),"import {afterAll,expect,test} from 'vitest';import {selectBranch} from '../../src/covered';import {appendFileSync,readFileSync,readdirSync,rmSync,symlinkSync,writeFileSync} from 'node:fs';import {join} from 'node:path';test.each(Array.from({length:12},(_,index)=>index))('activity false branch %i',()=>expect(selectBranch(false)).toBe(9));afterAll(()=>{"+activityAfterAll+'});\n')
   return root
@@ -972,8 +981,8 @@ test('actual_coverage_runner_publishes_only_native_complete_map_after_retirement
   expect(readdirSync(join(root,'coverage'))).toEqual(['coverage-final.json'])
   expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
   expect(existsSync(join(root,'coverage/canary-voice-owner'))).toBe(false)
-  expect(result.stdout.split('\n').filter(line=>/^\[tests\] (voice-crypto qualification|recording receipt qualification|mail retry qualification|requests qualification|billing qualification|private audio playback qualification|audio reader store qualification|audio reader retirement qualification|merge)$/.test(line.trim())).map(line=>line.trim())).toEqual([
-    '[tests] voice-crypto qualification','[tests] recording receipt qualification','[tests] mail retry qualification','[tests] requests qualification','[tests] billing qualification','[tests] merge',
+  expect(result.stdout.split('\n').filter(line=>/^\[tests\] (voice-crypto qualification|recording receipt qualification|mail retry qualification|requests qualification|billing qualification|calendar qualification|private audio playback qualification|audio reader store qualification|audio reader retirement qualification|merge)$/.test(line.trim())).map(line=>line.trim())).toEqual([
+    '[tests] voice-crypto qualification','[tests] recording receipt qualification','[tests] mail retry qualification','[tests] requests qualification','[tests] billing qualification','[tests] calendar qualification','[tests] merge',
   ])
   const audioConsumers: {file:string;screenshots:string}[]=readFileSync(join(root,'canary-audio-consumers.jsonl'),'utf8').trimEnd().split('\n').map(line=>JSON.parse(line))
   expect(audioConsumers.map(row=>row.file).sort()).toEqual(requestConsumerNames.slice(1).map(([file])=>file).sort())
@@ -982,7 +991,7 @@ test('actual_coverage_runner_publishes_only_native_complete_map_after_retirement
   const coverage=JSON.parse(readFileSync(join(root,'coverage/coverage-final.json'),'utf8'))
   expect(coverage.stale).toBeUndefined()
   // Fifteen Requests and one ordinary case take true; twelve Activity cases take false.
-  // These literal totals independently check that all four phases were merged once.
+  // These literal totals independently check that all five phases were merged once.
   expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].f).toEqual({'0':28})
   expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].s).toEqual({'0':28,'1':16,'2':12})
   expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].b).toEqual({'0':[16,12]})
@@ -1587,3 +1596,71 @@ test('maintained_doctor_changed_scope_reports_actual_component_rule',()=>{
   expect(result.stdout+result.stderr).toMatch(/App\.tsx/)
   expect(result.stdout+result.stderr).toContain('react-doctor/no-mirror-prop-effect')
 },40000)
+
+// Reporter canaries exercise admission only, not Calendar product behavior.
+test('native_calendar_report_requires_exact_consumers_and_every_passing_leaf',()=>{
+  const gate=assertCalendarReport
+  expect(typeof gate).toBe('function')
+  const report={success:true,numTotalTests:42,numPassedTests:42,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0,
+    testResults:calendarConsumerNames.map(([file,names])=>({name:join(repositoryRoot,'tests/integration',file).replaceAll('\\','/'),status:'passed',message:'',assertionResults:names.map(fullName=>({fullName,status:'passed',failureMessages:[]}))}))}
+  expect(()=>gate(report,repositoryRoot)).not.toThrow()
+  for(const kind of ['missing-file','duplicate-file','foreign-file','missing-leaf','duplicate-leaf','renamed-leaf','skipped','failed','afterAll','summary'] as const){
+    const wrong=structuredClone(report),file=wrong.testResults[0]!
+    if(kind==='missing-file')wrong.testResults.pop()
+    if(kind==='duplicate-file')wrong.testResults[1]=file
+    if(kind==='foreign-file')file.name+='-foreign'
+    if(kind==='missing-leaf')file.assertionResults.pop()
+    if(kind==='duplicate-leaf')file.assertionResults[1]=file.assertionResults[0]!
+    if(kind==='renamed-leaf')file.assertionResults[0]!.fullName='unreviewed'
+    if(kind==='skipped'||kind==='failed')file.assertionResults[0]!.status=kind
+    if(kind==='afterAll')file.message='retirement failed'
+    if(kind==='summary')wrong.numPassedTests--
+    expect(()=>gate(wrong,repositoryRoot),kind).toThrow()
+  }
+})
+test('native_calendar_runner_is_mandatory_and_merges_its_coverage_after_retirement',()=>{
+  const root=nativeCoverageFixture(),result=runCoverageConsumer(root)
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
+  expect(result.stdout).toContain('[tests] calendar qualification\n')
+  expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
+  const coverage=JSON.parse(readFileSync(join(root,'coverage/coverage-final.json'),'utf8'))
+  expect(coverage[join(root,'src/calendar-covered.ts').replaceAll('\\','/')].f).toEqual({'0':42})
+},30000)
+
+
+test('native_calendar_blob_rejects_stale_missing_duplicate_foreign_and_incomplete_evidence',()=>{
+  const root=nativeCoverageFixture(),startedAt=Date.now(),blob=join(root,'coverage/calendar.json'),report=join(root,'coverage/calendar-report.json')
+  const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...calendarConsumerNames.map(([file])=>'tests/integration/'+file),'--maxWorkers=1','--coverage','--reporter=json','--reporter=blob','--outputFile.json='+report,'--outputFile.blob='+blob,'--coverage.reportsDirectory='+join(root,'coverage/calendar')])
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
+  expect(()=>readNativeBlob(blob,'calendar',root,startedAt,'4.1.11')).not.toThrow()
+  expect(()=>assertCalendarQualification(report,root,startedAt)).not.toThrow()
+  expect(()=>assertCalendarQualification(report,root,Date.now()+60000)).toThrow()
+  expect(()=>readNativeBlob(blob,'calendar',root,Date.now()+60000,'4.1.11')).toThrow()
+  const original=JSON.parse(readFileSync(blob,'utf8')),refused=join(root,'coverage/calendar-refused.json')
+  for(const kind of ['missing-file','duplicate-file','foreign-file','missing-leaf','duplicate-leaf','skipped','failed'] as const){
+    const table=structuredClone(original),files=table[Number(table[0][1])],file=table[Number(files[0])],tasks=table[Number(file.tasks)]
+    if(kind==='missing-file')files.pop()
+    if(kind==='duplicate-file')files[1]=files[0]
+    if(kind==='foreign-file')table[Number(file.filepath)]+='-foreign'
+    if(kind==='missing-leaf')tasks.pop()
+    if(kind==='duplicate-leaf')tasks[1]=tasks[0]
+    if(kind==='skipped'||kind==='failed')table[Number(table[Number(table[Number(tasks[0])].result)].state)]=kind
+    writeFileSync(refused,JSON.stringify(table))
+    expect(()=>readNativeBlob(refused,'calendar',root,startedAt,'4.1.11'),kind).toThrow()
+  }
+},25000)
+
+test.each(['missing','retirement'] as const)('native_calendar_runner_refuses_%s_without_publishing',kind=>{
+  const root=nativeCoverageFixture(),file=join(root,'tests/integration/calendar-consumer.test.ts')
+  if(kind==='missing')rmSync(file)
+  else writeFileSync(file,readFileSync(file,'utf8')+"\nimport {afterAll} from 'vitest';afterAll(()=>{throw new Error('Calendar owned retirement failed')});\n")
+  const result=runCoverageConsumer(root)
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
+  expect(result.stdout).toContain('[tests] calendar qualification\n')
+  expect(result.stdout).not.toContain('[tests] merge')
+  expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
+  if(kind==='retirement'){
+    expect(existsSync(join(root,'canary-voice-retired.txt'))).toBe(false)
+    expect(existsSync(join(root,'coverage/canary-voice-owner'))).toBe(true)
+  }
+},30000)

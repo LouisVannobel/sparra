@@ -30,12 +30,12 @@ export function nativeVoice<A extends keyof FixtureRequests>(request:{action:A}&
 }
 
 /** Test-only persistent transport; Python owns the native graph and validates facts. */
-export function startConnectedVoice(input:{url:string;keyring_path:string;evidence_path:string;state_path:string;resume_call_id?:string;recovery_case?:string;audio_candidate?:true;workspace_id?:string;audio_transfer_fixture?:true},producer?:Readonly<{pythonExecutable:string;sourceRoot:string}>) {
+export function startConnectedVoice(input:{url:string;keyring_path:string;evidence_path:string;state_path:string;resume_call_id?:string;recovery_case?:string;audio_candidate?:true;workspace_id?:string;audio_transfer_fixture?:true;calendar_consumer?:true},producer?:Readonly<{pythonExecutable:string;sourceRoot:string}>) {
   const phaseEpoch=performance.now()
   const audioCommands=new Set(['audio-admit','audio-finish','audio-complete','audio-hold-ack','audio-erasure-held','audio-release-ack','audio-off-admit','audio-off-replay','audio-next-candidate','audio-decline-admit','audio-decline-check','audio-opposition-prime','audio-opposition-revoke','audio-opposition-late','audio-transfer-boundary','audio-transfer-reader-live','stop'])
   const child=spawn(producer?.pythonExecutable??voice+'/.venv/Scripts/python.exe',[...(producer?['-I']:[]),'-B',resolve('tests/helpers/sparra-voice-driver.py')],{windowsHide:true,cwd:producer?dirname(producer.sourceRoot):undefined,env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,TEMP:process.env.TEMP,TMP:process.env.TMP,PYTHONPATH:voice+'/src',PYTHONDONTWRITEBYTECODE:'1',...(producer?{HOME:process.env.SPARRA_VOICE_TEST_HOME,APPDATA:process.env.SPARRA_VOICE_TEST_HOME}:{})}})
   type QueuedTurnWitness=Readonly<{call_id:string;operation_id:string;operation_sha256:string;ciphertext_sha256:string;finalizer_operation_sha256:string;removed_before_ack:boolean}>
-  type Reply={ready?:boolean;stopped?:boolean;call_id?:string;call_ids?:string[];revision?:number;loss?:number;retained?:number;map_bytes?:number;compact_bytes?:number;candidate_bytes?:number;stable?:boolean;cleaned?:boolean;recording_ack?:boolean;no_hangup?:boolean;ack_before_scrub?:boolean;queue_witness?:QueuedTurnWitness;checks?:string[];recording_id?:string|null;retention_until?:string;total_samples?:number;pcm_sha256?:string;writer_cleaned?:boolean;ack_held?:boolean;cleanup_commit_held?:boolean;cleanup_command?:'erase'|'audio_erase_complete';recording_policy?:'off'|'local_30d';audio_available?:boolean;original_pin?:boolean;capture_owned?:boolean;capture_joined?:boolean;audio_chunks?:number;phone_live?:boolean;choice_off?:boolean;late_dtmf_handled?:boolean;late_pcm_processed?:number;candidate?:boolean;previous_run_id?:string;run_id?:string;previous_consumed?:boolean;current_consumed?:boolean;previous_run_preserved?:boolean;previous_closed?:boolean;error?:string;where?:string}
+  type Reply={recap_turn_id?:string;playback_mark?:string;ready?:boolean;stopped?:boolean;call_id?:string;call_ids?:string[];revision?:number;loss?:number;retained?:number;map_bytes?:number;compact_bytes?:number;candidate_bytes?:number;stable?:boolean;cleaned?:boolean;recording_ack?:boolean;no_hangup?:boolean;ack_before_scrub?:boolean;queue_witness?:QueuedTurnWitness;checks?:string[];recording_id?:string|null;retention_until?:string;total_samples?:number;pcm_sha256?:string;writer_cleaned?:boolean;ack_held?:boolean;cleanup_commit_held?:boolean;cleanup_command?:'erase'|'audio_erase_complete';recording_policy?:'off'|'local_30d';audio_available?:boolean;original_pin?:boolean;capture_owned?:boolean;capture_joined?:boolean;audio_chunks?:number;phone_live?:boolean;choice_off?:boolean;late_dtmf_handled?:boolean;late_pcm_processed?:number;candidate?:boolean;previous_run_id?:string;run_id?:string;previous_consumed?:boolean;current_consumed?:boolean;previous_run_preserved?:boolean;previous_closed?:boolean;error?:string;where?:string}
   const replies:Reply[]=[]
   const phases=new Set(['driver-input','driver-models','scenario-imported','candidate-setup','settings-valid','profile-valid',
     'keyring-valid','graph-build','graph-built','lifespan-start','network-start','scenario-ready','writer_startup_failed',
@@ -150,19 +150,19 @@ export function startConnectedVoice(input:{url:string;keyring_path:string;eviden
   child.stderr.resume() // Native dependency notices are not provider payload artifacts.
   child.on('error',()=>fail('Connected Voice startup failed'))
   child.on('close',()=>fail('Connected Voice closed'))
-  function read():Promise<Reply>{
+  function read(timeoutMs?:number):Promise<Reply>{
     const buffered=replies.shift();if(buffered)return Promise.resolve(buffered)
     if(closed)return Promise.reject(new Error('Connected Voice closed'))
     return new Promise((resolve,reject)=>{
       const waiter={resolve:(value:Reply)=>{clearTimeout(timer);resolve(value)},reject:(error:Error)=>{clearTimeout(timer);reject(error)}}
-      const timer=setTimeout(()=>{const at=waiters.indexOf(waiter);if(at>=0)waiters.splice(at,1);child.kill();reject(new Error('Connected Voice phase deadline'))},input.audio_candidate?10000:90000)
+      const timer=setTimeout(()=>{const at=waiters.indexOf(waiter);if(at>=0)waiters.splice(at,1);child.kill();reject(new Error('Connected Voice phase deadline'))},timeoutMs??(input.audio_candidate?10000:90000))
       waiters.push(waiter)
     })
   }
-  async function checked(){const reply=await read();if(ackInvariantRefusal)throw ackInvariantRefusal;if(reply.error)throw new Error('Connected Voice '+reply.error+' at '+reply.where);return reply}
+  async function checked(timeoutMs?:number){const reply=await read(timeoutMs);if(ackInvariantRefusal)throw ackInvariantRefusal;if(reply.error)throw new Error('Connected Voice '+reply.error+' at '+reply.where);return reply}
   child.stdin.write(JSON.stringify({action:'connected',...input,...(producer?{source_root:producer.sourceRoot}:{})})+'\n')
   async function exited(){await new Promise<void>(resolve=>{if(child.exitCode!==null||child.signalCode!==null)resolve();else child.once('close',()=>resolve())});return {code:child.exitCode,signal:child.signalCode}}
-  return {ready:checked(),nativeCloseCompleted:()=>nativeCloseCompleted,async command(action:string){if(input.audio_candidate&&audioCommands.has(action))console.log('PAIRED_VOICE_COMMAND '+action+' sent elapsed_ms='+Math.round(performance.now()-phaseEpoch));child.stdin.write(JSON.stringify({action})+'\n');const reply=await checked();if(input.audio_candidate&&audioCommands.has(action))console.log('PAIRED_VOICE_COMMAND '+action+' delivered elapsed_ms='+Math.round(performance.now()-phaseEpoch));return reply},async stop(fixtureCloseFailure=false){
+  return {ready:checked(input.calendar_consumer?30000:undefined),nativeCloseCompleted:()=>nativeCloseCompleted,async command(action:string){if(input.audio_candidate&&audioCommands.has(action))console.log('PAIRED_VOICE_COMMAND '+action+' sent elapsed_ms='+Math.round(performance.now()-phaseEpoch));child.stdin.write(JSON.stringify({action})+'\n');const reply=await checked(input.calendar_consumer&&action.startsWith('calendar-')?20000:undefined);if(input.audio_candidate&&audioCommands.has(action))console.log('PAIRED_VOICE_COMMAND '+action+' delivered elapsed_ms='+Math.round(performance.now()-phaseEpoch));return reply},async stop(fixtureCloseFailure=false){
     child.stdin.write(JSON.stringify({action:'stop',...(fixtureCloseFailure?{fixture_close_failure:true}:{})})+'\n')
     let failure:unknown
     try{const reply=await checked();if(!reply.stopped)throw new Error('Connected Voice stop missing')}

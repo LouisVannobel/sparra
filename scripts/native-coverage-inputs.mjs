@@ -172,11 +172,12 @@ function admitTestFile(table, file, name, fileCount, root, startedAt, seen) {
   }
   if (name === 'requests') return requestsBlobFile(table,file,fileCount,root,seen)
   if (name === 'billing') return billingBlobFile(table,file,fileCount,root,seen)
+  if (name === 'calendar') return calendarBlobFile(table,file,fileCount,root,seen)
   return passedTests(table, file)
 }
 
 export function readNativeBlob(filePath, name, root, startedAt, version) {
-  if(!['ordinary','activity','requests','billing'].includes(name))throw new Error('Unknown native coverage consumer')
+  if(!['ordinary','activity','requests','billing','calendar'].includes(name))throw new Error('Unknown native coverage consumer')
   const {table, envelope, digest} = readBlob(filePath, startedAt, version)
   const files = admitEnvelope(table, envelope)
   let count = 0
@@ -185,7 +186,7 @@ export function readNativeBlob(filePath, name, root, startedAt, version) {
     count += admitTestFile(table, blobValue(table, reference), name, files.length, root, startedAt, seen)
   }
   if (!count || (name === 'activity' && count !== 12) || (name === 'requests' && count !== 40)
-    || (name === 'billing' && count !== 91)) throw new Error('Native coverage test cardinality mismatch')
+    || (name === 'billing' && count !== 91) || (name === 'calendar' && count !== 42)) throw new Error('Native coverage test cardinality mismatch')
   const coverage = blobValue(table, envelope[3])
   admitCoverageEntries(table, coverage, root)
   return { table, coverage, digest }
@@ -548,4 +549,95 @@ export function assertBillingQualification(path,root,startedAt) {
   const stat=lstatSync(path)
   if(!stat.isFile()||stat.isSymbolicLink()||stat.mtimeMs<startedAt||stat.size===0||stat.size>268435456)throw new Error('Native Billing report is invalid')
   assertBillingReport(JSON.parse(readFileSync(path,'utf8')),root)
+}
+
+const calendarConsumers=[
+  [
+    "tests/integration/calendar-owner.test.ts",
+    [
+      "refuses absent/revoked admission or missing Workspace without fabricating saved rules",
+      "separate consent uses canonical callback, PKCE, required scopes and one-shot session-bound state",
+      "scope denial and absent refresh token cannot create a durable connection",
+      "save verifies real writable destination and policy revision; no settings inferred from knowledge",
+      "a subject cannot be active in two Workspaces and RLS excludes foreign connection writes",
+      "disconnect fences delayed OAuth settlement and never revokes later credentials",
+      "revocation barrier disables immediately and rejects reconnect until settled, across owner instances",
+      "refresh is serialized and stale refresh cannot restore disconnected credentials",
+      "refresh rejects a different subject and disables booking on lost writable calendar access",
+      "superseded or expired intentions never exchange and consent denial consumes the intention",
+      "proven pre-dispatch refusal retains subject exclusivity and allows a later safe attempt",
+      "provider outages preserve safe account controls and revoked grants explicitly require reconnect",
+      "Google canonical userinfo.email grant is accepted for initial consent and renewal",
+      "accepted revoke with lost response keeps its claim across local close and cannot be resent or replaced",
+      "reconnect retires both stored credentials when the refresh token is already revoked",
+      "reconnect retires both stored credentials when the refresh token is already expired",
+      "invalid refresh token followed by ambiguous access-token revocation keeps the replacement barrier",
+      "a nonterminal revoke 400 never retires the grant or permits replacement"
+    ]
+  ],
+  [
+    "tests/integration/calendar-bridge.test.ts",
+    [
+      "Calendar exact function catalog is installed and execute-only worker has no memberships/table access",
+      "binding/OID authority, erasure and private projections precede replay",
+      "revised policy and authority/PII injection fail closed",
+      "replication lag cannot admit a write; actual persisted roles/order and playback acknowledgement are required",
+      "overlapping distinct starts cannot both reserve; unknown keeps the interval after lease/offer expiry",
+      "revision, disconnect and deadline are rechecked at final send transition",
+      "an unexpired offer starting in -1 minutes cannot bypass current notice at admission",
+      "an unexpired offer starting in 30 minutes cannot bypass current notice at admission",
+      "final send refuses an admitted slot now starting in -1 minutes without marking possible send",
+      "final send refuses an admitted slot now starting in 30 minutes without marking possible send",
+      "one existing workId/generation owner controls refresh and stale settlement cannot restore disconnect",
+      "expired opaque offers and foreign call replay are refused",
+      "native worker store commits before HTTP, confirms Inbox independently and erasure fences subsequent writes",
+      "confirmed observations move or release the current hold while preserving original confirmation evidence",
+      "erasure after possible submission keeps only unresolved proof and never restores Inbox content",
+      "a foreign bound Workspace and replacement login OID cannot impersonate an admitted call through GUCs"
+    ]
+  ],
+  [
+    "tests/integration/calendar-panel-browser.test.ts",
+    [
+      "keyboard selects calendar, edits actual service and hours, and preserves draft after stale revision refusal",
+      "keyboard reconnect waits for disconnect before issuing new consent",
+      "keyboard reconnect cannot issue replacement consent while revocation remains unresolved"
+    ]
+  ],
+  [
+    "tests/integration/calendar-consumer.test.ts",
+    [
+      "compiled Calendar RPC exports are available to the authenticated native consumer",
+      "native phone-only Calendar confirmed preserves booking authority and the authenticated compiled Inbox",
+      "native phone-only Calendar lost-response-restart preserves booking authority and the authenticated compiled Inbox",
+      "native phone-only Calendar no-ack preserves booking authority and the authenticated compiled Inbox",
+      "native phone-only Calendar retry-after-no-ack preserves booking authority and the authenticated compiled Inbox"
+    ]
+  ]
+]
+
+function calendarBlobFile(table,file,fileCount,root,seen) {
+  const filepath=resolve(blobValue(table,file.filepath))
+  const consumer=calendarConsumers.find(([path])=>filepath===join(root,path))
+  if(fileCount!==4||!consumer||seen.has(filepath))throw new Error('Native Calendar blob has an unexpected consumer')
+  seen.add(filepath)
+  return passedLeafNames(table,file,consumer[1],'Native Calendar blob has unexpected leaves')
+}
+export function assertCalendarReport(report,root) {
+  const counters={numTotalTests:42,numPassedTests:42,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
+  if(report?.success!==true||Object.entries(counters).some(([key,value])=>report[key]!==value)
+    ||!Array.isArray(report.testResults)||report.testResults.length!==4
+    ||!calendarConsumers.every(([path,names])=>{
+      const matches=report.testResults.filter(file=>file?.name===join(root,path).replaceAll('\\','/'))
+      const file=matches[0]
+      return matches.length===1&&file.status==='passed'&&file.message===''
+        &&Array.isArray(file.assertionResults)&&file.assertionResults.length===names.length
+        &&file.assertionResults.every((test,index)=>test?.status==='passed'&&test.fullName===names[index]
+          &&Array.isArray(test.failureMessages)&&test.failureMessages.length===0)
+    })) throw new Error('Native Calendar requires its exact four consumers and 42 passing leaves')
+}
+export function assertCalendarQualification(path,root,startedAt) {
+  const stat=lstatSync(path)
+  if(!stat.isFile()||stat.isSymbolicLink()||stat.mtimeMs<startedAt||stat.size===0||stat.size>268435456)throw new Error('Native Calendar report is invalid')
+  assertCalendarReport(JSON.parse(readFileSync(path,'utf8')),root)
 }

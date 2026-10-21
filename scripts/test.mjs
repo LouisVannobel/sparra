@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { closeSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { admitCommonGeometry, assertBillingQualification, assertDirectory, assertRunTree, assertRecordingReceiptQualification, assertRequestsQualification, assertMailRetryQualification, readMailRetryBuildIdentity, readNativeBlob, sourceIdentity } from './native-coverage-inputs.mjs'
+import { admitCommonGeometry, assertCalendarQualification, assertBillingQualification, assertDirectory, assertRunTree, assertRecordingReceiptQualification, assertRequestsQualification, assertMailRetryQualification, readMailRetryBuildIdentity, readNativeBlob, sourceIdentity } from './native-coverage-inputs.mjs'
 import { prepareVoiceSource } from './prepare-voice-source.mjs'
 import { runNativePhase } from './native-test-phase.mjs'
 
@@ -62,16 +62,17 @@ function admitBlob(name) {
 
 function admitBlobs() {
   assertFrozenIdentity()
-  if (readdirSync(join(runDirectory, 'blobs')).sort().join('|') !== 'activity.json|billing.json|ordinary.json|requests.json') {
-    throw new Error('Native coverage requires exactly four current blobs')
+  if (readdirSync(join(runDirectory, 'blobs')).sort().join('|') !== 'activity.json|billing.json|calendar.json|ordinary.json|requests.json') {
+    throw new Error('Native coverage requires exactly five current blobs')
   }
-  const ordinary=admitBlob('ordinary'),activity=admitBlob('activity'),requests=admitBlob('requests'),billing=admitBlob('billing')
+  const ordinary=admitBlob('ordinary'),activity=admitBlob('activity'),requests=admitBlob('requests'),billing=admitBlob('billing'),calendar=admitBlob('calendar')
   admitCommonGeometry(ordinary,activity)
   admitCommonGeometry(ordinary,requests)
   admitCommonGeometry(ordinary,billing)
   admitCommonGeometry(activity,requests)
   admitCommonGeometry(activity,billing)
   admitCommonGeometry(requests,billing)
+  for(const previous of [ordinary,activity,requests,billing])admitCommonGeometry(previous,calendar)
 }
 
 function retireRun() {
@@ -96,7 +97,7 @@ try {
     || metadata.devDependencies['@vitest/coverage-istanbul'] !== providerVersion || version !== providerVersion) throw new Error('Native coverage runtime pins mismatch')
   if (!lstatSync(join(root, '.output/server/index.mjs')).isFile()) throw new Error('Native coverage requires the frozen web build')
   mkdirSync(runDirectory, { mode: 0o700 }); runOwner = assertDirectory(runDirectory)
-  for (const directory of ['blobs', 'ordinary', 'activity', 'requests', 'billing', 'final', 'playback-screenshots', 'mail-retry-build', 'mail-retry-evidence']) mkdirSync(join(runDirectory, directory), { mode: 0o700 })
+  for (const directory of ['blobs', 'ordinary', 'activity', 'requests', 'billing', 'calendar', 'final', 'playback-screenshots', 'mail-retry-build', 'mail-retry-evidence']) mkdirSync(join(runDirectory, directory), { mode: 0o700 })
   frozenIdentity = sourceIdentity(root)
   await runPhase('prerequisites', [join(root, 'scripts/test-prerequisites.mjs')], 300000)
   await runPhase('mail retry build', [join(root, 'node_modules/vite/bin/vite.js'), 'build', '--config', 'tests/helpers/vite.mail-retry.config.ts', '--outDir', mailRetryBuild], 120000)
@@ -145,6 +146,14 @@ try {
     '--outputFile.blob='+join(blobs,'billing.json'),'--coverage.reportsDirectory='+join(runDirectory,'billing')], 600000)
   assertBillingQualification(billingReport,root,startedAt)
   admitBlob('billing')
+  const calendarReport = join(runDirectory, 'calendar-qualification.json')
+  await runPhase('calendar qualification', [vitestCli, 'run', '--config', 'vitest.integration.config.ts',
+    'tests/integration/calendar-owner.test.ts', 'tests/integration/calendar-bridge.test.ts',
+    'tests/integration/calendar-panel-browser.test.ts', 'tests/integration/calendar-consumer.test.ts',
+    '--maxWorkers=1', '--coverage', '--reporter=default', '--reporter=json', '--reporter=blob', '--outputFile.json=' + calendarReport,
+    '--outputFile.blob='+join(blobs,'calendar.json'),'--coverage.reportsDirectory='+join(runDirectory,'calendar')], 600000)
+  assertCalendarQualification(calendarReport,root,startedAt)
+  admitBlob('calendar')
   admitBlobs()
   await runPhase('merge', [vitestCli, '--config', 'vitest.config.ts', '--coverage', '--mergeReports=' + blobs, '--reporter=default',
     '--coverage.reportsDirectory=' + join(runDirectory, 'final')], 120000)
