@@ -38,7 +38,8 @@ const terminal = { outbox_empty: true, terminal_present: true, terminal_bounded:
 const admission = { same_call_id: true, generation_present: true, same_admitted_created: true, retention_30d: true }
 const transferFacts = { admission_closed: true, event_joined: true, receipt_joined: true,
   tail_committed: true, submitted_committed: true, finish_transfer_committed: true, original_retention: true }
-const transfer = { before_intent: transferFacts, sdk_entry: { ...transferFacts, intent_committed: true, fixed_target: true } }
+const sdkEntryFacts = { ...transferFacts, intent_committed: true, fixed_target: true }
+const transfer = { before_intent: transferFacts, sdk_entry: { ...sdkEntryFacts, finite_target_limit: true } }
 const serverJoin = { connections: 1, tasks: 1, owner_present: true, owner_closed: false,
   owner_task_done: false, owner_phase: 'finishing',
   stacks: [{ done: false, frames: [{ file: 'native-code', function: 'native-code', line: 0 }] }],
@@ -75,6 +76,11 @@ test.each([
   ['transfer extra slot', { transfer_boundary: { ...transfer, unknown: true } }],
   ['transfer missing fact', { transfer_boundary: { ...transfer, before_intent: {} } }],
   ['transfer nonboolean fact', { transfer_boundary: { ...transfer, sdk_entry: { ...transfer.sdk_entry, fixed_target: 'private-marker' } } }],
+  ['transfer missing finite target proof', { transfer_boundary: { ...transfer, sdk_entry: sdkEntryFacts } }],
+  ['transfer false finite target proof', { transfer_boundary: { ...transfer, sdk_entry: { ...transfer.sdk_entry, finite_target_limit: false } } }],
+  ['transfer nonboolean finite target proof', { transfer_boundary: { ...transfer, sdk_entry: { ...transfer.sdk_entry, finite_target_limit: 'private-marker' } } }],
+  ['transfer unknown SDK fact', { transfer_boundary: { ...transfer, sdk_entry: { ...transfer.sdk_entry, unknown: true } } }],
+  ['transfer extra before-intent fact', { transfer_boundary: { ...transfer, before_intent: { ...transferFacts, finite_target_limit: true } } }],
   ['server unknown owner phase', { server_join_guard: { ...serverJoin, owner_phase: 'private-marker' } }],
   ['server counter over bound', { server_join_guard: { ...serverJoin, connections: 65536 } }],
   ['server counter negative', { server_join_guard: { ...serverJoin, tasks: -1 } }],

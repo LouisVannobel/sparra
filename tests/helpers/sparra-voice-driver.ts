@@ -68,8 +68,9 @@ export function startConnectedVoice(input:{url:string;keyring_path:string;eviden
     if(!input.audio_candidate||!input.audio_transfer_fixture||!boundary||typeof boundary!=='object'||!('before_intent' in boundary)||!('sdk_entry' in boundary)||Object.keys(boundary).length!==2)throw new Error('Invalid transfer boundary')
     const names=['admission_closed','event_joined','receipt_joined','tail_committed','submitted_committed','finish_transfer_committed','original_retention']
     for(const at of ['before_intent','sdk_entry'] as const){
-      const facts=boundary[at],keys=at==='sdk_entry'?[...names,'intent_committed','fixed_target']:names
+      const facts=boundary[at],keys=at==='sdk_entry'?[...names,'intent_committed','fixed_target','finite_target_limit']:names
       if(!facts||typeof facts!=='object'||Object.keys(facts).length!==keys.length||keys.some(name=>!(name in facts))||Object.values(facts).some(fact=>typeof fact!=='boolean'))throw new Error('Invalid transfer boundary')
+      if(at==='sdk_entry'&&(!('finite_target_limit' in facts)||facts.finite_target_limit!==true))throw new Error('Invalid transfer boundary')
     }
     console.log('PAIRED_TRANSFER_BOUNDARY '+JSON.stringify(boundary))
   }
