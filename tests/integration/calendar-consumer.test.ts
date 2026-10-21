@@ -63,9 +63,16 @@ test.each(['confirmed', 'lost-response-restart', 'no-ack', 'retry-after-no-ack',
     let context = await browser.newContext({ extraHTTPHeaders: { 'x-real-ip': '127.0.1.8' } }), page = await context.newPage()
     page.setDefaultTimeout(10000)
     await context.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort())
+    let denyCalendarConsent=mode==='confirmed'
     await page.route('https://accounts.google.com/o/oauth2/v2/auth*', async route => {
-      const url = new URL(route.request().url()), code = await app!.registerGoogle(url.href, 'calendar-consumer-owner')
-      const callback = url.searchParams.get('client_id') === 'fixture-calendar-client' ? '/api/calendar/google/callback' : '/api/auth/callback/google'
+      const url = new URL(route.request().url()),calendarConsent=url.searchParams.get('client_id') === 'fixture-calendar-client'
+      if(calendarConsent&&denyCalendarConsent){
+        denyCalendarConsent=false
+        await route.fulfill({status:302,headers:{location:origin+'/api/calendar/google/callback?error=access_denied&state='+url.searchParams.get('state')}})
+        return
+      }
+      const code = await app!.registerGoogle(url.href, 'calendar-consumer-owner')
+      const callback = calendarConsent ? '/api/calendar/google/callback' : '/api/auth/callback/google'
       await route.fulfill({ status: 302, headers: { location: origin + callback + '?code=' + code + '&state=' + url.searchParams.get('state') } })
     })
     await page.goto(origin + '/login?lang=en')
@@ -87,10 +94,23 @@ test.each(['confirmed', 'lost-response-restart', 'no-ack', 'retry-after-no-ack',
     expect((await context.request.post(origin + await authRpcPath('disconnectCalendar'), { headers: { origin: 'https://foreign.example.test', 'content-type': 'application/json', 'x-tsr-serverFn': 'true' }, data: await rpcBody({}) })).status()).toBe(403)
     await page.goto(origin + '/app/entreprise?lang=en')
     await showActivitySection(page,'handling')
+    if(mode==='confirmed'){
+      await page.getByRole('button',{name:'Connect Google',exact:true}).click()
+      await page.waitForURL(origin+'/app/entreprise?lang=fr&calendar=failed')
+      await page.getByRole('status').filter({hasText:'La connexion Google n’a pas été confirmée. Réessayez.'}).waitFor()
+      expect(await page.locator('.sparra-guided-calendar').isVisible()).toBe(true)
+      expect(await page.getByRole('button',{name:'Traitement et outils',exact:true}).getAttribute('aria-current')).toBe('step')
+      await expect.poll(()=>page.locator('#calendar-heading').evaluate(element=>document.activeElement===element)).toBe(true)
+      // Start the second consent from normal EN entry. No section action is
+      // permitted after either callback: the return itself must reveal results.
+      await page.goto(origin+'/app/entreprise?lang=en');await showActivitySection(page,'handling')
+    }
     await page.getByRole('button', { name: 'Connect Google', exact: true }).click()
-    await page.waitForURL(origin+'/app/entreprise?lang=en')
-    await showActivitySection(page,'handling')
+    await page.waitForURL(origin+'/app/entreprise?lang=en&calendar=returned')
     await page.getByText('Connected account : calendar-owner@example.test', { exact: true }).waitFor()
+    expect(await page.locator('.sparra-guided-calendar').isVisible()).toBe(true)
+    expect(await page.getByRole('button',{name:'Handling and tools',exact:true}).getAttribute('aria-current')).toBe('step')
+    await expect.poll(()=>page.locator('#calendar-heading').evaluate(element=>document.activeElement===element)).toBe(true)
     const firstPolicy={ expectedRevision: 0, calendarId: 'fixture-calendar', enabled: true, policy: { version: 1, timeZone: 'Europe/Paris', services: [{ id: 'oil-change', name: 'Vidange', durationMinutes: 30 }], weeklyHours: [0,1,2,3,4,5,6].map(day => ({ day, ranges: [{ start: '09:00', end: '12:00' }] })), bufferMinutes: 0, noticeMinutes: 0 } }
     expect((await rpc('saveCalendarPolicy', firstPolicy)).status()).toBe(200)
     expect((await rpc('saveCalendarPolicy', {...firstPolicy,policy:{...firstPolicy.policy,services:[]}})).status()).toBe(400)

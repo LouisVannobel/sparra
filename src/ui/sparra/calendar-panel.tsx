@@ -11,7 +11,7 @@ import type { Locale } from '../auth/messages'
 import { privateResult } from './app-shell'
 import { calendarMessages } from './calendar-messages'
 
-type Props={locale:Locale;state:CalendarState;callbackFailed?:boolean;onConnect(signal:AbortSignal):Promise<string|Response>;onSave(data:SaveCalendarPolicy,signal:AbortSignal):Promise<CalendarState|Response>;onDisconnect(signal:AbortSignal):Promise<void|Response>;onRead(signal:AbortSignal):Promise<CalendarState|Response>}
+type Props={locale:Locale;state:CalendarState;callbackFailed?:boolean;focusOnEntry?:boolean;onConnect(signal:AbortSignal):Promise<string|Response>;onSave(data:SaveCalendarPolicy,signal:AbortSignal):Promise<CalendarState|Response>;onDisconnect(signal:AbortSignal):Promise<void|Response>;onRead(signal:AbortSignal):Promise<CalendarState|Response>}
 function calendarDraft(state:CalendarState):SaveCalendarPolicy {
   return {expectedRevision:state.revision,calendarId:state.selectedCalendar?.id??'',enabled:state.enabled,policy:state.policy??{version:1,timeZone:'Europe/Paris',services:[],weeklyHours:[],bufferMinutes:0,noticeMinutes:0}}
 }
@@ -145,22 +145,24 @@ export async function runCalendarAction(action:CalendarAction, context:CalendarA
     if(live())context.setPending(false)
   }
 }
-function CalendarPanelView({locale,current,draft,labels:t,disabled,feedback,editPolicy,changeDraft,onAction}:{locale:Locale;current:CalendarState;draft:SaveCalendarPolicy;labels:CalendarLabels;disabled:boolean;feedback:string|null;editPolicy(patch:Partial<SaveCalendarPolicy['policy']>):void;changeDraft(patch:Partial<SaveCalendarPolicy>):void;onAction(action:CalendarAction):void}) {
-  return <section className="sparra-form-section" aria-labelledby="calendar-heading"><Heading level={2} id="calendar-heading">{t.title}</Heading>
+function CalendarPanelView({locale,current,draft,labels:t,disabled,feedback,editPolicy,changeDraft,onAction,headingRef,focusOnEntry}:{locale:Locale;current:CalendarState;draft:SaveCalendarPolicy;labels:CalendarLabels;disabled:boolean;feedback:string|null;headingRef:{current:HTMLHeadingElement|null};focusOnEntry:boolean;editPolicy(patch:Partial<SaveCalendarPolicy['policy']>):void;changeDraft(patch:Partial<SaveCalendarPolicy>):void;onAction(action:CalendarAction):void}) {
+  return <section className="sparra-form-section" aria-labelledby="calendar-heading"><Heading ref={headingRef} level={2} id="calendar-heading" tabIndex={focusOnEntry?-1:undefined} aria-describedby={feedback?'calendar-feedback':undefined}>{t.title}</Heading>
     {!current.available&&<p>{t.unavailable}</p>}
     <CalendarContent current={current} draft={draft} labels={t} disabled={disabled} editPolicy={editPolicy} changeDraft={changeDraft} onAction={onAction}/>
     <p><a href="/confidentialite">{locale==='fr'?'Confidentialité et utilisation de Google Agenda':'Privacy and Google Calendar data use'}</a></p>
-    {feedback&&<p role="status" aria-live="polite">{feedback}</p>}
+    {feedback&&<p id="calendar-feedback" role="status" aria-live="polite">{feedback}</p>}
   </section>
 }
-export function CalendarPanel({locale,state,callbackFailed,onConnect,onSave,onDisconnect,onRead}:Props) {
+export function CalendarPanel({locale,state,callbackFailed,focusOnEntry=false,onConnect,onSave,onDisconnect,onRead}:Props) {
   const t=calendarMessages[locale],hydrated=useHydrated(),[current,setCurrent]=useState(state),[draft,setDraft]=useState(()=>calendarDraft(state)),[pending,setPending]=useState(false),[feedback,setFeedback]=useState<string|null>(callbackFailed?t.callbackFailed:null)
   const operation=useRef<AbortController|null>(null),busy=useRef(false)
+  const headingRef=useRef<HTMLHeadingElement|null>(null)
+  useEffect(()=>{if(hydrated&&focusOnEntry)headingRef.current?.focus()},[hydrated,focusOnEntry])
   useEffect(()=>()=>operation.current?.abort(),[])
   const disabled=!hydrated||pending
   function accept(next:CalendarState){setCurrent(next);setDraft(calendarDraft(next))}
   function run(action:CalendarAction) {return runCalendarAction(action,{locale,current,draft,hydrated,busy,operation,onConnect,onSave,onDisconnect,onRead,accept,setPending,setFeedback,navigate:url=>window.location.assign(url)})}
   const editPolicy=(patch:Partial<SaveCalendarPolicy['policy']>)=>{setFeedback(null);setDraft({...draft,policy:{...draft.policy,...patch}})}
   const changeDraft=(patch:Partial<SaveCalendarPolicy>)=>setDraft({...draft,...patch})
-  return <CalendarPanelView locale={locale} current={current} draft={draft} labels={t} disabled={disabled} feedback={feedback} editPolicy={editPolicy} changeDraft={changeDraft} onAction={action=>void run(action)}/>
+  return <CalendarPanelView locale={locale} current={current} draft={draft} labels={t} disabled={disabled} feedback={feedback} editPolicy={editPolicy} changeDraft={changeDraft} onAction={action=>void run(action)} headingRef={headingRef} focusOnEntry={focusOnEntry}/>
 }

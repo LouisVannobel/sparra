@@ -13,7 +13,13 @@ test('successful callback keeps locale, errors are opaque and destination cannot
   const calendar={callbackUrl:'https://sparra.example/api/calendar/google/callback',async completeConnection(){return 'en' as const}}
   const auth={requirePrincipal:async()=>principal}
   const response=await calendarCallbackResponse(new Request(calendar.callbackUrl+'?state=first&code=code&returnTo=https://attacker.invalid'),{auth,calendar})
-  expect(response.status).toBe(303);expect(response.headers.get('location')).toBe('/app/entreprise?lang=en')
+  expect(response.status).toBe(303);expect(response.headers.get('location')).toBe('/app/entreprise?lang=en&calendar=returned')
   const failure=await calendarCallbackResponse(new Request(calendar.callbackUrl+'?state=first&code=code'),{auth,calendar:{...calendar,async completeConnection(){throw new Error('raw-secret-provider-error')}}})
   expect(failure.headers.get('location')).toBe('/app/entreprise?lang=fr&calendar=failed');expect(await failure.text()).not.toContain('raw-secret')
+})
+test.each(['fr','en'] as const)('successful %s callback carries only a return presentation marker',async locale=>{
+  const calendar={callbackUrl:'https://sparra.example/api/calendar/google/callback',async completeConnection(){return locale}}
+  const response=await calendarCallbackResponse(new Request(calendar.callbackUrl+'?state=first&code=code'),{auth:{requirePrincipal:async()=>principal},calendar})
+  expect(response.headers.get('location')).toBe('/app/entreprise?lang='+locale+'&calendar=returned')
+  expect(response.headers.get('cache-control')).toBe('no-store')
 })
