@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
+import { readMigrationFiles } from 'drizzle-orm/migrator'
 import { startDisposableStores } from '../fixtures/db/disposable-stores'
 
 test('forward billing migration preserves populated consumer0022 auth, Inbox and audio rows and migration receipts', async () => {
@@ -14,6 +15,8 @@ test('forward billing migration preserves populated consumer0022 auth, Inbox and
     const journal = JSON.parse(await readFile('drizzle/meta/_journal.json', 'utf8'))
     expect(journal.entries[22].tag).toBe('0022_sparra_optional_recording_contact')
     expect(journal.entries[23].tag).toBe('0023_sparra_billing_core')
+    const expectedJournal = readMigrationFiles({ migrationsFolder: resolve('drizzle') })
+      .map(migration => ({ hash: migration.hash, created_at: String(migration.folderMillis) }))
     prefix = await mkdtemp(join(tmpdir(), 'sparra-billing-prefix-'))
     await cp(resolve('drizzle'), prefix, { recursive: true })
     await writeFile(join(prefix, 'meta/_journal.json'), JSON.stringify({ ...journal, entries: journal.entries.slice(0, 23) }))
@@ -27,7 +30,7 @@ test('forward billing migration preserves populated consumer0022 auth, Inbox and
     await stores.administrator.query("INSERT INTO sparra_audio_chunk(workspace_id,call_id,recording_id,deployment_id,sequence,configuration_revision,retention_until,sample_count,sample_rate,channels,sample_format,crypto_version,key_version,nonce,ciphertext,charged_bytes) VALUES($1,$2,$3,'billing-migration',0,1,now()+interval '30 days',1,8000,2,'s16le',1,1,decode(repeat('00',12),'hex'),decode(repeat('00',20),'hex'),32)", [workspaceId, callId, recordingId])
     const tables = (await stores.administrator.query<{ tablename: string }>("SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename")).rows.map(row => row.tablename)
     const snapshot = async () => {
-      const rows: Record<string, unknown> = {}
+      const rows: Record<string, { value: unknown }[]> = {}
       for (const table of tables) {
         if (!/^[a-z_]+$/.test(table)) throw new Error('Unexpected consumer relation')
         rows[table] = (await stores.administrator.query(`SELECT to_jsonb(t) AS value FROM public."${table}" t ORDER BY to_jsonb(t)::text`)).rows
@@ -38,11 +41,15 @@ test('forward billing migration preserves populated consumer0022 auth, Inbox and
     const receipts = (await stores.administrator.query('SELECT id,hash,created_at::text FROM drizzle.__drizzle_migrations ORDER BY id')).rows
     await stores.migrate()
     expect(await snapshot()).toEqual(before)
-    expect((await stores.administrator.query('SELECT id,hash,created_at::text FROM drizzle.__drizzle_migrations ORDER BY id')).rows.slice(0, 23)).toEqual(receipts)
+    const installedJournal = (await stores.administrator.query('SELECT id,hash,created_at::text FROM drizzle.__drizzle_migrations ORDER BY id')).rows
+    expect(installedJournal).toHaveLength(expectedJournal.length)
+    expect(installedJournal.map(row => ({ hash: row.hash, created_at: row.created_at }))).toEqual(expectedJournal)
+    expect(installedJournal.slice(0, 23)).toEqual(receipts)
     expect((await stores.administrator.query("SELECT count(*)::int AS n FROM public.billing_operation")).rows[0].n).toBe(0)
     await stores.migrate()
     expect(await snapshot()).toEqual(before)
-    expect((await stores.administrator.query('SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations')).rows[0].n).toBe(24)
+    expect((await stores.administrator.query('SELECT id,hash,created_at::text FROM drizzle.__drizzle_migrations ORDER BY id')).rows).toEqual(installedJournal)
+    expect((await stores.administrator.query("SELECT count(*)::int AS n FROM public.billing_operation")).rows[0].n).toBe(0)
   } finally {
     try { await stores.cleanup() } finally {
       if (prefix) {
