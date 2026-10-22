@@ -109,3 +109,50 @@ test('busy or unhydrated connect never invokes the guard, and aborted navigation
   operation.current?.abort();reject(new Error('late navigation failure'));await pending
   expect(events).toEqual(['guard','pending:true','navigate']);expect(busy.current).toBe(false)
 })
+
+test.each([
+  {status:400,message:'Check the services, durations and booking hours.'},
+  {status:409,message:'Settings changed or an operation is in progress. Refresh before retrying.'},
+  {status:503,message:'Operation not confirmed. Refresh to check its outcome.'},
+  {status:null,message:'Operation not confirmed. Refresh to check its outcome.'},
+])('save and read failure $status publish public feedback and only uncertain saves reconcile',async({status,message})=>{
+  for(const kind of ['save','read'] as const){
+    const busy={current:false},operation:OperationRef={current:null},events:(string|null)[]=[]
+    const fail=async():Promise<never>=>{throw status===null?new Error('secret-provider-details'):new Response('secret-provider-details',{status})}
+    const action={locale:'en' as const,current:disconnected,draft:{expectedRevision:0,calendarId:'',enabled:false,policy:{version:1 as const,timeZone:'Europe/Paris',services:[],weeklyHours:[],bufferMinutes:0,noticeMinutes:0}},hydrated:true,busy,operation,
+      onConnect:unavailable,onDisconnect:unavailable,onSave:fail,onRead:fail,accept:()=>events.push('state'),
+      setReconcile:(value:boolean)=>events.push(`reconcile:${value}`),setPending:(value:boolean)=>events.push(`pending:${value}`),setFeedback:(value:string|null)=>events.push(value),navigate:()=>{events.push('navigate')}}
+    await runCalendarAction(kind,action)
+    expect(events).toEqual(['pending:true',null,...(kind==='save'&&status!==400?['reconcile:true']:[]),message,'pending:false'])
+    expect(busy.current).toBe(false);expect(operation.current).toBe(null)
+  }
+})
+
+test.each(['read','save'] as const)('aborting a delayed rejected %s excludes late feedback and reconciliation',async kind=>{
+  const busy={current:false},operation:OperationRef={current:null},events:(string|null)[]=[]
+  let reject!:(error:Response)=>void
+  const held=new Promise<CalendarState>((_resolve,rejectPromise)=>{reject=rejectPromise})
+  const action={locale:'en' as const,current:disconnected,draft:{expectedRevision:0,calendarId:'',enabled:false,policy:{version:1 as const,timeZone:'Europe/Paris',services:[],weeklyHours:[],bufferMinutes:0,noticeMinutes:0}},hydrated:true,busy,operation,
+    onConnect:unavailable,onDisconnect:unavailable,onSave:async()=>held,onRead:async()=>held,accept:()=>events.push('state'),
+    setReconcile:(value:boolean)=>events.push(`reconcile:${value}`),setPending:(value:boolean)=>events.push(`pending:${value}`),setFeedback:(value:string|null)=>events.push(value),navigate:()=>{events.push('navigate')}}
+  const pending=runCalendarAction(kind,action)
+  operation.current?.abort();reject(new Response('secret-late-failure',{status:409}));await pending
+  expect(events).toEqual(['pending:true',null])
+  expect(busy.current).toBe(false);expect(operation.current).toBe(null)
+})
+
+test('an aborted action settling after controller replacement preserves its replacement',async()=>{
+  const busy={current:false},operation:OperationRef={current:null},events:(string|null)[]=[]
+  let reject!:(error:Error)=>void
+  const held=new Promise<CalendarState>((_resolve,rejectPromise)=>{reject=rejectPromise})
+  const action={locale:'en' as const,current:disconnected,draft:{expectedRevision:0,calendarId:'',enabled:false,policy:{version:1 as const,timeZone:'Europe/Paris',services:[],weeklyHours:[],bufferMinutes:0,noticeMinutes:0}},hydrated:true,busy,operation,
+    onConnect:unavailable,onDisconnect:unavailable,onSave:async()=>held,onRead:unavailable,accept:()=>events.push('state'),
+    setReconcile:(value:boolean)=>events.push(`reconcile:${value}`),setPending:(value:boolean)=>events.push(`pending:${value}`),setFeedback:(value:string|null)=>events.push(value),navigate:()=>{events.push('navigate')}}
+  const pending=runCalendarAction('save',action)
+  operation.current?.abort()
+  const replacement=new AbortController()
+  operation.current=replacement
+  reject(new Error('superseded save failure'));await pending
+  expect(operation.current).toBe(replacement);expect(busy.current).toBe(false)
+  expect(events).toEqual(['pending:true',null])
+})

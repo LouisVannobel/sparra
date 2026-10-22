@@ -125,6 +125,11 @@ async function performCalendarAction(action:CalendarAction,context:CalendarActio
   const next=await privateResult(context.onRead(signal))
   if(!signal.aborted)context.accept(next)
 }
+function publishCalendarActionFailure(action:CalendarAction,context:CalendarActionContext,error:unknown):void {
+  const t=calendarMessages[context.locale],kind=calendarFailure(error)
+  if(action==='save'&&kind!=='invalid')context.setReconcile?.(true)
+  context.setFeedback(kind==='conflict'?t.conflict:kind==='invalid'?t.invalid:t.failure)
+}
 /** The same refs own exclusion and cancellation for all concrete panel actions. */
 export async function runCalendarAction(action:CalendarAction, context:CalendarActionContext):Promise<void> {
   const {busy,operation}=context
@@ -139,11 +144,7 @@ export async function runCalendarAction(action:CalendarAction, context:CalendarA
   try {
     await performCalendarAction(action,context,controller.signal)
   } catch(error) {
-    if(live()) {
-      const t=calendarMessages[context.locale],kind=calendarFailure(error)
-      if(action==='save'&&kind!=='invalid')context.setReconcile?.(true)
-      context.setFeedback(kind==='conflict'?t.conflict:kind==='invalid'?t.invalid:t.failure)
-    }
+    if(live())publishCalendarActionFailure(action,context,error)
   } finally {
     busy.current=false
     if(operation.current===controller)operation.current=null
