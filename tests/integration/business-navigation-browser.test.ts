@@ -82,12 +82,31 @@ test('OAuth decline makes zero effects; ordinary login is guarded and explicit a
     let prompts=0;page.once('dialog',async dialog=>{prompts++;await dialog.dismiss()});await page.getByRole('link',{name:'Ordinary login'}).click();expect(prompts).toBe(1);expect(new URL(page.url()).pathname).toContain('business-navigation')
     page.on('dialog',async dialog=>{prompts++;await dialog.dismiss()});await page.locator('.sparra-business-form').getByRole('button',{name:'Enregistrer',exact:true}).click();await page.getByRole('heading',{name:'Login recovery'}).waitFor();expect(prompts).toBe(1)
   }finally{await context.close()}
+  const calendar=await open();try{
+    await section(calendar.page,2)
+    const service=calendar.page.getByRole('textbox',{name:'Prestation 1 Required',exact:true})
+    let prompts=0;calendar.page.once('dialog',async dialog=>{prompts++;expect(dialog.type()).toBe('confirm');await dialog.dismiss()})
+    await service.fill('Calendar OAuth draft')
+    await calendar.page.getByRole('button',{name:'Reconnecter Google',exact:true}).click()
+    expect(prompts).toBe(1)
+    expect(await calendar.page.getByLabel('Fixture events').textContent()).toBe('')
+    expect(await service.inputValue()).toBe('Calendar OAuth draft')
+    expect(new URL(calendar.page.url()).pathname).toContain('business-navigation')
+  }finally{await calendar.context.close()}
 })
 test('document departure uses native beforeunload and declining retains work',async()=>{
-  const {context,page}=await open();try{
-    const name=page.getByRole('textbox',{name:/^Nom de l’établissement/});await name.fill('Document draft')
-    let prompts=0;page.once('dialog',async dialog=>{prompts++;expect(dialog.type()).toBe('beforeunload');await dialog.dismiss()});await page.getByRole('link',{name:'Document',exact:true}).click();expect(prompts).toBe(1);expect(await name.inputValue()).toBe('Document draft')
-  }finally{await context.close()}
+  for(const source of ['enterprise','calendar']){
+    const {context,page}=await open();try{
+      if(source==='calendar')await section(page,2)
+      const field=page.getByRole('textbox',source==='calendar'?{name:'Prestation 1 Required',exact:true}:{name:/^Nom de l’établissement/})
+      let prompts=0;page.once('dialog',async dialog=>{prompts++;expect(dialog.type()).toBe('beforeunload');await dialog.dismiss()})
+      await field.fill('Document draft')
+      await page.getByRole('link',{name:'Document',exact:true}).click()
+      expect(prompts).toBe(1);expect(await field.inputValue()).toBe('Document draft')
+      expect(new URL(page.url()).pathname).toContain('business-navigation')
+      expect(await page.getByLabel('Fixture events').textContent()).toBe('')
+    }finally{await context.close()}
+  }
 })
 
 test('Calendar uncertainty refuses OAuth; ordinary Calendar read and save keep enterprise independently editable',async()=>{
