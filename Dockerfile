@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
-FROM node:24.14.0-bookworm-slim@sha256:4bd6219054c8bebcd26a66bfd8ca0bd6e1024b4b97474c59bb7ee3bbcbef4fe8 AS builder
+FROM node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS builder
 WORKDIR /app
-RUN test "$(node --version)" = v24.14.0 && corepack enable && corepack prepare pnpm@10.32.1 --activate && test "$(pnpm --version)" = 10.32.1
+RUN test "$(node --version)" = v24.22.1 && corepack enable && corepack prepare pnpm@10.32.1 --activate && test "$(pnpm --version)" = 10.32.1
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches ./patches
 RUN pnpm install --frozen-lockfile
@@ -23,7 +23,7 @@ RUN --network=none sha256sum pnpm-lock.yaml > /tmp/lock.sha256 && pnpm prune --p
       /app/node_modules/.pnpm/esbuild@0.25.12/node_modules/esbuild/bin/esbuild \
     && sha256sum -c /tmp/lock.sha256
 
-FROM node:24.14.0-bookworm-slim@sha256:4bd6219054c8bebcd26a66bfd8ca0bd6e1024b4b97474c59bb7ee3bbcbef4fe8 AS runtime-base
+FROM node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS runtime-base
 RUN apt-get update \
     && apt-get install -y --no-install-recommends --only-upgrade \
       libcap2=1:2.66-4+deb12u3+b1 \
@@ -31,7 +31,7 @@ RUN apt-get update \
       libpcre2-8-0=10.42-1+deb12u2 \
       perl-base=5.36.0-7+deb12u4 \
     && rm -rf /var/lib/apt/lists/*
-RUN rm -rf /usr/local/lib/node_modules /opt/yarn* /root/.cache /root/.npm && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/pnpm /usr/local/bin/pnpx /usr/local/bin/yarn /usr/local/bin/yarnpkg && test "$(node --version)" = v24.14.0
+RUN rm -rf /usr/local/lib/node_modules /opt/yarn* /root/.cache /root/.npm && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/pnpm /usr/local/bin/pnpx /usr/local/bin/yarn /usr/local/bin/yarnpkg && test "$(node --version)" = v24.22.1
 WORKDIR /app
 
 FROM runtime-base AS migrator

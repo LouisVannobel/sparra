@@ -5,7 +5,7 @@ Use this one-shot command only for an actual personal Workspace, an agreed month
 EUR amount and its existing monthly Stripe Price. No actual client, amount or Price
 has been supplied or assigned by this change.
 
-Run the qualified source checkout with Node24.14.0 and its existing frozen
+Run the qualified source checkout with Node24.22.1 and its existing frozen
 pnpm10.32.1 dependency installation. The command uses the existing protected
 operator environment: `MIGRATION_DATABASE_URL`, `STRIPE_API_KEY`,
 `STRIPE_ACCOUNT_ID`, `STRIPE_ENVIRONMENT` (`sandbox` or `live`). Credentials never
