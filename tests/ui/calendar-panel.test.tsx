@@ -23,6 +23,49 @@ test('temporary API unavailability preserves the actual connected account and di
   expect(html).toContain('Google Calendar is currently unavailable.');expect(html).toContain('observed@example.test');expect(html).toContain('Disconnect Google')
 })
 
+test.each([
+  {status:'disconnected',account:null,summary:'No account connected.',notice:null,actions:['Connect Google','Refresh'],form:false},
+  {status:'connected',account:'owner@example.test',summary:'Connected account : owner@example.test',notice:null,actions:['Reconnect Google','Disconnect Google','Refresh'],form:true},
+  {status:'reconnect_required',account:'owner@example.test',summary:'Known account : owner@example.test',notice:'Reconnect Google to restore access.',actions:['Reconnect Google','Disconnect Google','Refresh'],form:false},
+  {status:'connecting',account:'owner@example.test',summary:'Known account : owner@example.test',notice:'Waiting for Google consent.',actions:['Connect Google','Disconnect Google','Refresh'],form:false},
+  {status:'revoking',account:'owner@example.test',summary:'Known account : owner@example.test',notice:'Disconnection pending verification. Retry or contact support.',actions:['Disconnect Google','Refresh'],form:false},
+  {status:'unavailable',account:null,summary:'Google Calendar is currently unavailable.',notice:null,actions:[],form:false},
+] as const)('$status exposes only the appropriate connection actions and editable form',({status,account,summary,notice,actions,form})=>{
+  const html=renderToStaticMarkup(<CalendarPanel locale="en" state={{...disconnected,status,available:status!=='unavailable',accountEmail:account}} onConnect={unavailable} onSave={unavailable} onDisconnect={unavailable} onRead={unavailable}/>)
+  expect(html).toContain(summary)
+  if(notice)expect(html).toContain(`<p role="status">${notice}</p>`)
+  const connectionButtons=(html.match(/<button\b[^>]*>[\s\S]*?<\/button>/g)??[])
+    .map(button=>button.replace(/<[^>]*>/g,''))
+    .filter(label=>['Connect Google','Reconnect Google','Disconnect Google','Refresh'].includes(label))
+  expect(connectionButtons).toEqual(actions)
+  expect(html.includes('<form')).toBe(form)
+  expect(html).not.toContain('Unsaved changes.')
+  expect(html).not.toContain('Your draft is retained.')
+  expect(html).not.toContain('Use latest settings')
+})
+
+test.each(['fr','en'] as const)('persisted %s policy renders real service and hours with every action disabled before hydration',locale=>{
+  const state:CalendarState={...disconnected,status:'connected',accountEmail:'owner@example.test',selectedCalendar:{id:'observed',summary:'Owner appointments'},calendars:[{id:'observed',summary:'Owner appointments',timeZone:'Europe/Brussels',accessRole:'writer'}],enabled:true,revision:7,
+    policy:{version:1,timeZone:'Europe/Brussels',services:[{id:'persisted-service',name:'Owner inspection',durationMinutes:45}],weeklyHours:[{day:1,ranges:[{start:'08:30',end:'12:15'}]}],bufferMinutes:15,noticeMinutes:120}}
+  const html=renderToStaticMarkup(<CalendarPanel locale={locale} state={state} onConnect={unavailable} onSave={unavailable} onDisconnect={unavailable} onRead={unavailable}/>)
+  for(const value of ['Owner appointments','Owner inspection','Europe/Brussels','value="45"','value="08:30"','value="12:15"','value="15"','value="120"'])expect(html).toContain(value)
+  expect(html).toContain(locale==='fr'?'Réservations activées':'Bookings enabled')
+  expect(html).toContain('checked=""')
+  expect(html).not.toContain(locale==='fr'?'Définissez vos prestations':'Define your services')
+  const buttonTags=html.match(/<button\b[^>]*>/g)??[]
+  expect(buttonTags.length).toBeGreaterThan(3)
+  for(const button of buttonTags)expect(button).toContain('disabled=""')
+  for(const input of html.match(/<input\b[^>]*type="(?:number|time)"[^>]*>/g)??[])expect(input).toContain('disabled=""')
+})
+
+test.each(['fr','en'] as const)('failed %s consent return describes the focusable heading without claiming saved settings',locale=>{
+  const html=renderToStaticMarkup(<CalendarPanel locale={locale} state={disconnected} callbackFailed focusOnEntry onConnect={unavailable} onSave={unavailable} onDisconnect={unavailable} onRead={unavailable}/>)
+  expect(html).toMatch(/<h2(?=[^>]*id="calendar-heading")(?=[^>]*tabindex="-1")(?=[^>]*aria-describedby="calendar-feedback")[^>]*>/)
+  expect(html).toContain('<p id="calendar-feedback" role="status" aria-live="polite">')
+  expect(html).toContain(locale==='fr'?'La connexion Google n’a pas été confirmée. Réessayez.':'Google connection was not confirmed. Please retry.')
+  expect(html).not.toContain(locale==='fr'?'Réglages enregistrés.':'Settings saved.')
+})
+
 test('aborting a reconnect during disconnect prevents dependent consent and late feedback', async()=>{
   const busy={current:false}, operation:OperationRef={current:null}
   const events:string[]=[], feedback:string[]=[]

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useHydrated } from '@tanstack/react-router'
 import { Button } from '@astryxdesign/core/Button'
 import { Heading } from '@astryxdesign/core/Heading'
@@ -46,20 +46,22 @@ function WeeklyHoursEditor({policy,labels:t,disabled,update}:CalendarEditorProps
   </fieldset>
 }
 type CalendarLabels=(typeof calendarMessages)[Locale]
-function CalendarConnectionView({current,labels:t,disabled,onAction}:{current:CalendarState;labels:CalendarLabels;disabled:boolean;onAction(action:CalendarAction):void}) {
-  const connected=current.status==='connected'
-  return <>
-    <p>{current.accountEmail?`${connected?t.connected:t.retainedAccount} : ${current.accountEmail}`:t.disconnected}</p>
-    {current.status==='reconnect_required'&&<p role="status">{t.reconnectRequired}</p>}
-    {current.status==='connecting'&&<p role="status">{t.connecting}</p>}
-    {current.status==='revoking'&&<p role="status">{t.revoking}</p>}
-    <p>{current.enabled?t.active:t.disabled}</p>
-    <p className="sparra-form-hint">{t.access} {t.privacy}</p>
-    <div className="sparra-calendar-actions">
-      {current.status!=='revoking'&&<Button label={connected||current.status==='reconnect_required'?t.reconnect:t.connect} isDisabled={disabled} onClick={()=>onAction('connect')}/>}
-      {current.status!=='disconnected'&&<Button label={t.disconnect} isDisabled={disabled} onClick={()=>onAction('disconnect')}/>}
+function CalendarConnectionActions({status,labels:t,disabled,onAction}:{status:CalendarState['status'];labels:CalendarLabels;disabled:boolean;onAction(action:CalendarAction):void}) {
+  return <div className="sparra-calendar-actions">
+      {status!=='revoking'&&<Button label={status==='connected'||status==='reconnect_required'?t.reconnect:t.connect} isDisabled={disabled} onClick={()=>onAction('connect')}/>}
+      {status!=='disconnected'&&<Button label={t.disconnect} isDisabled={disabled} onClick={()=>onAction('disconnect')}/>}
       <Button label={t.read} isDisabled={disabled} onClick={()=>onAction('read')}/>
     </div>
+}
+function CalendarConnectionView({current,labels:t,disabled,onAction}:{current:CalendarState;labels:CalendarLabels;disabled:boolean;onAction(action:CalendarAction):void}) {
+  const notices={disconnected:null,connected:null,reconnect_required:t.reconnectRequired,connecting:t.connecting,revoking:t.revoking,unavailable:null} satisfies Record<CalendarState['status'],string|null>
+  const notice=notices[current.status]
+  return <>
+    <p>{current.accountEmail?`${current.status==='connected'?t.connected:t.retainedAccount} : ${current.accountEmail}`:t.disconnected}</p>
+    {notice&&<p role="status">{notice}</p>}
+    <p>{current.enabled?t.active:t.disabled}</p>
+    <p className="sparra-form-hint">{t.access} {t.privacy}</p>
+    <CalendarConnectionActions status={current.status} labels={t} disabled={disabled} onAction={onAction}/>
   </>
 }
 function calendarOptions(calendars:CalendarState['calendars']) {
@@ -86,13 +88,6 @@ function CalendarSettingsForm({current,draft,labels:t,disabled,editPolicy,change
     <div className="sparra-calendar-row"><NumericField label={t.buffer} value={draft.policy.bufferMinutes} min={0} max={120} disabled={disabled} onChange={bufferMinutes=>editPolicy({bufferMinutes})}/><NumericField label={t.notice} value={draft.policy.noticeMinutes} min={0} max={10080} disabled={disabled} onChange={noticeMinutes=>editPolicy({noticeMinutes})}/></div>
     <CalendarActivation current={current} draft={draft} labels={t} disabled={disabled} changeDraft={changeDraft}/>
   </form>
-}
-function CalendarContent({current,draft,labels,disabled,editPolicy,changeDraft,onAction}:{current:CalendarState;draft:SaveCalendarPolicy;labels:CalendarLabels;disabled:boolean;editPolicy(patch:Partial<SaveCalendarPolicy['policy']>):void;changeDraft(patch:Partial<SaveCalendarPolicy>):void;onAction(action:CalendarAction):void}) {
-  if(current.status==='unavailable')return null
-  return <>
-    <CalendarConnectionView current={current} labels={labels} disabled={disabled} onAction={onAction}/>
-    {current.status==='connected'&&<CalendarSettingsForm current={current} draft={draft} labels={labels} disabled={disabled} editPolicy={editPolicy} changeDraft={changeDraft} onSave={()=>onAction('save')}/>}
-  </>
 }
 type CalendarAction='connect'|'disconnect'|'save'|'read'
 type CalendarActionContext=Pick<Props,'onConnect'|'onDisconnect'|'onSave'|'onRead'|'onBeforeConnect'> & {
@@ -151,13 +146,16 @@ export async function runCalendarAction(action:CalendarAction, context:CalendarA
     if(live())context.setPending(false)
   }
 }
-function CalendarPanelView({locale,current,draft,labels:t,disabled,feedback,editPolicy,changeDraft,onAction,headingRef,focusOnEntry,dirty,reconcile,canReplace,onReplace}:{dirty:boolean;reconcile:boolean;canReplace:boolean;onReplace():void;locale:Locale;current:CalendarState;draft:SaveCalendarPolicy;labels:CalendarLabels;disabled:boolean;feedback:string|null;headingRef:{current:HTMLHeadingElement|null};focusOnEntry:boolean;editPolicy(patch:Partial<SaveCalendarPolicy['policy']>):void;changeDraft(patch:Partial<SaveCalendarPolicy>):void;onAction(action:CalendarAction):void}) {
-  return <section className="sparra-form-section" aria-labelledby="calendar-heading"><Heading ref={headingRef} level={2} id="calendar-heading" tabIndex={focusOnEntry?-1:undefined} aria-describedby={feedback?'calendar-feedback':undefined}>{t.title}</Heading>
-    {!current.available&&<p>{t.unavailable}</p>}
-    <CalendarContent current={current} draft={draft} labels={t} disabled={disabled} editPolicy={editPolicy} changeDraft={changeDraft} onAction={onAction}/>
+function CalendarDraftStatus({dirty,reconcile,canAdopt,disabled,labels:t,onReplace}:{dirty:boolean;reconcile:boolean;canAdopt:boolean;disabled:boolean;labels:CalendarLabels;onReplace():void}) {
+  return <>
     {dirty&&<p role="status">{t.draftDirty}</p>}
     {reconcile&&<p role="status">{t.reconcile}</p>}
-    {canReplace&&<Button label={t.replace} isDisabled={disabled} onClick={onReplace}/>}
+    {canAdopt&&(dirty||reconcile)&&<Button label={t.replace} isDisabled={disabled} onClick={onReplace}/>}
+  </>
+}
+function CalendarPanelView({locale,labels:t,feedback,headingRef,focusOnEntry,children}:{locale:Locale;labels:CalendarLabels;feedback:string|null;headingRef:{current:HTMLHeadingElement|null};focusOnEntry:boolean;children:ReactNode}) {
+  return <section className="sparra-form-section" aria-labelledby="calendar-heading"><Heading ref={headingRef} level={2} id="calendar-heading" tabIndex={focusOnEntry?-1:undefined} aria-describedby={feedback?'calendar-feedback':undefined}>{t.title}</Heading>
+    {children}
     <p><a href="/confidentialite">{locale==='fr'?'Confidentialité et utilisation de Google Agenda':'Privacy and Google Calendar data use'}</a></p>
     {feedback&&<p id="calendar-feedback" role="status" aria-live="polite">{feedback}</p>}
   </section>
@@ -175,12 +173,19 @@ export function CalendarPanel({locale,state,callbackFailed,focusOnEntry=false,on
   const disabled=!hydrated||pending
   function accept(next:CalendarState,adopt=false){
     setCurrent(next);setCanAdopt(true)
-    if(adopt){const nextDraft=calendarDraft(next);setDraft(nextDraft);setKnown(nextDraft);setReconcile(false)}
-    else setReconcile(previous=>previous||JSON.stringify(calendarDraft(next))!==JSON.stringify(known))
+    if(!adopt){setReconcile(previous=>previous||JSON.stringify(calendarDraft(next))!==JSON.stringify(known));return}
+    const nextDraft=calendarDraft(next);setDraft(nextDraft);setKnown(nextDraft);setReconcile(false)
   }
   function replace(){const next=calendarDraft(current);setDraft(next);setKnown(next);setReconcile(false);setFeedback(null)}
   function run(action:CalendarAction) {return runCalendarAction(action,{locale,current,draft,hydrated,busy,operation,onConnect,onSave,onDisconnect,onRead,onBeforeConnect,accept,setReconcile:value=>{setReconcile(value);if(value)setCanAdopt(false)},setPending:value=>setPendingAction(value?action:null),setFeedback,navigate:onNavigate??(url=>window.location.assign(url))})}
   const editPolicy=(patch:Partial<SaveCalendarPolicy['policy']>)=>{setFeedback(null);setDraft({...draft,policy:{...draft.policy,...patch}})}
   const changeDraft=(patch:Partial<SaveCalendarPolicy>)=>{setFeedback(null);setDraft({...draft,...patch})}
-  return <CalendarPanelView locale={locale} current={current} draft={draft} labels={t} disabled={disabled} feedback={feedback} editPolicy={editPolicy} changeDraft={changeDraft} onAction={action=>void run(action)} headingRef={headingRef} focusOnEntry={focusOnEntry} dirty={dirty} reconcile={reconcile} canReplace={canAdopt&&(dirty||reconcile)} onReplace={replace}/>
+  return <CalendarPanelView locale={locale} labels={t} feedback={feedback} headingRef={headingRef} focusOnEntry={focusOnEntry}>
+    {!current.available&&<p>{t.unavailable}</p>}
+    {current.status!=='unavailable'&&<>
+      <CalendarConnectionView current={current} labels={t} disabled={disabled} onAction={run}/>
+      {current.status==='connected'&&<CalendarSettingsForm current={current} draft={draft} labels={t} disabled={disabled} editPolicy={editPolicy} changeDraft={changeDraft} onSave={()=>run('save')}/>}
+    </>}
+    <CalendarDraftStatus dirty={dirty} reconcile={reconcile} canAdopt={canAdopt} disabled={disabled} labels={t} onReplace={replace}/>
+  </CalendarPanelView>
 }

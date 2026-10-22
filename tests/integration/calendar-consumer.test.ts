@@ -8,7 +8,7 @@ import { rpcBody } from '../helpers/auth-rpc'
 import { randomBytes } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import { chromium } from 'playwright'
+import { chromium, type APIResponse, type Locator, type Page } from 'playwright'
 import { startDisposableStores } from '../fixtures/db/disposable-stores'
 import { startWeb, bounded, unusedLoopbackPort } from '../helpers/web-process'
 import { cryptoFixture, resolveVoiceProducer } from '../helpers/sparra-crypto-fixture'
@@ -16,6 +16,8 @@ import { startConnectedVoice } from '../helpers/sparra-voice-driver'
 import { startCalendarProtocolPeer } from '../helpers/calendar-protocol-peer.mjs'
 import { createCalendarWorkerResources } from '../../src/platform/calendar-runtime.server'
 import { showActivitySection } from '../helpers/activity-navigation'
+import type { SaveCalendarPolicy } from '../../src/modules/calendar/policy'
+import type { SaveActivityInput } from '../../src/modules/sparra/activity.server'
 
 type TransportObservation = { peer: Awaited<ReturnType<typeof startCalendarProtocolPeer>> | undefined; stops: number }
 const transport = vi.hoisted((): TransportObservation => ({ peer: undefined, stops: 0 }))
@@ -31,6 +33,69 @@ vi.mock('../../src/platform/db/resources.server', async importOriginal => {
     },
   }))) }
 })
+
+type ConfirmedCalendarFixture = {
+  page: Page; panel: Locator
+  rpc(name: Parameters<typeof authRpcPath>[0], data: unknown): Promise<APIResponse>
+  stores: Awaited<ReturnType<typeof startDisposableStores>>; workspace: string
+  existingActivity: Omit<SaveActivityInput, 'expectedRevision'>; firstPolicy: SaveCalendarPolicy
+}
+async function verifyEnterpriseCalendarIndependence({page,panel,rpc,stores,workspace,existingActivity,firstPolicy}:ConfirmedCalendarFixture):Promise<SaveActivityInput['knowledge']> {
+  const originalKnowledge=existingActivity.knowledge
+  const editedKnowledge={...originalKnowledge,services:'Owner edited garage service'}
+  const activityPath=await authRpcPath('saveActivity'),calendarPath=await authRpcPath('saveCalendarPolicy')
+  let activityPosts=0,calendarPosts=0
+  page.on('request',request=>{if(request.method()!=='POST')return;const path=new URL(request.url()).pathname;if(path===activityPath)activityPosts++;if(path===calendarPath)calendarPosts++})
+  // First edit one field on an existing garage. An unrelated Calendar draft
+  // must survive enterprise save and section navigation.
+  await panel.getByLabel('Duration (minutes) 1',{exact:true}).fill('40')
+  await showActivitySection(page,'knowledge')
+  await page.getByRole('textbox',{name:'Services',exact:true}).fill(editedKnowledge.services)
+  await showActivitySection(page,'handling');expect(await panel.getByLabel('Duration (minutes) 1',{exact:true}).inputValue()).toBe('40')
+  await showActivitySection(page,'recap')
+  const enterpriseSave=page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true})
+  await enterpriseSave.focus();await page.keyboard.press('Enter');await page.getByText('Configuration saved.',{exact:true}).waitFor()
+  expect(await panel.getByLabel('Duration (minutes) 1',{exact:true}).inputValue()).toBe('40')
+  // A real concurrent native Calendar revision produces a protected 409.
+  expect((await rpc('saveCalendarPolicy',{...firstPolicy,expectedRevision:1})).status()).toBe(200)
+  await panel.getByRole('button',{name:'Save',exact:true}).click()
+  await panel.getByText('Settings changed or an operation is in progress. Refresh before retrying.',{exact:true}).waitFor()
+  expect(await page.getByText('Configuration saved.',{exact:true}).count()).toBe(1)
+  expect(await panel.getByLabel('Duration (minutes) 1',{exact:true}).inputValue()).toBe('40')
+  expect(activityPosts).toBe(1);expect(calendarPosts).toBe(1)
+  await page.reload();await showActivitySection(page,'knowledge')
+  for(const [label,value] of [['Opening hours',editedKnowledge.openingHours],['Services',editedKnowledge.services],['Prices',editedKnowledge.prices],['Frequently asked questions',editedKnowledge.faq],['Response instructions',editedKnowledge.instructions]]){
+    expect(await page.getByRole('textbox',{name:label,exact:true}).inputValue()).toBe(value)
+  }
+  await showActivitySection(page,'handling')
+  expect(await page.getByRole('textbox',{name:'Transfer number (optional)',exact:true}).inputValue()).toBe(existingActivity.transferDestination)
+  expect(await page.getByRole('textbox',{name:'Recording contact phone (optional)',exact:true}).inputValue()).toBe(existingActivity.recordingContactPhone)
+  expect(await page.getByRole('checkbox',{name:'Keep audio from future calls for 30 days',exact:true}).isChecked()).toBe(false)
+  // Inverse combination: native Activity conflict keeps its draft while
+  // Calendar succeeds independently. No combined save or automatic retry.
+  await showActivitySection(page,'knowledge')
+  await page.getByRole('textbox',{name:'Frequently asked questions',exact:true}).fill('Retained unsaved owner FAQ')
+  expect((await rpc('saveActivity',{...existingActivity,knowledge:editedKnowledge,expectedRevision:2})).status()).toBe(200)
+  await showActivitySection(page,'recap');await enterpriseSave.click()
+  const conflict=page.getByRole('alert').filter({hasText:'The configuration changed.'});await conflict.waitFor()
+  await panel.getByLabel('Duration (minutes) 1',{exact:true}).fill('35')
+  await panel.getByRole('button',{name:'Save',exact:true}).click();await panel.getByText('Settings saved.',{exact:true}).waitFor()
+  expect(await conflict.count()).toBe(1)
+  expect(await page.getByRole('textbox',{includeHidden:true,name:'Frequently asked questions',exact:true}).inputValue()).toBe('Retained unsaved owner FAQ')
+  expect(await page.getByText('Saved version: 2',{exact:true}).count()).toBe(1)
+  expect(await enterpriseSave.isDisabled()).toBe(true)
+  expect(activityPosts).toBe(2);expect(calendarPosts).toBe(2)
+  await page.getByRole('button',{name:'Check latest version',exact:true}).click()
+  await page.getByText('Latest saved version: 3',{exact:true}).waitFor()
+  expect(await page.getByRole('textbox',{includeHidden:true,name:'Frequently asked questions',exact:true}).inputValue()).toBe('Retained unsaved owner FAQ')
+  expect(activityPosts).toBe(2);expect(calendarPosts).toBe(2)
+  await page.getByRole('button',{name:'Replace draft with latest version',exact:true}).click()
+  expect(await panel.getByLabel('Duration (minutes) 1',{exact:true}).inputValue()).toBe('35')
+  expect(await panel.getByText('Settings saved.',{exact:true}).count()).toBe(1)
+  const saved=(await stores.administrator.query('SELECT revision,business_name,sector,opening_hours,services,prices,faq,instructions,transfer_destination,recording_enabled,recording_policy,recording_contact_phone FROM sparra_knowledge_revision WHERE workspace_id=$1 ORDER BY revision DESC LIMIT 1',[workspace])).rows[0]
+  expect(saved).toEqual({revision:3,business_name:existingActivity.businessName,sector:'garage',opening_hours:originalKnowledge.openingHours,services:editedKnowledge.services,prices:originalKnowledge.prices,faq:originalKnowledge.faq,instructions:originalKnowledge.instructions,transfer_destination:existingActivity.transferDestination,recording_enabled:false,recording_policy:'off',recording_contact_phone:existingActivity.recordingContactPhone})
+  return editedKnowledge
+}
 
 test('compiled Calendar RPC exports are available to the authenticated native consumer', async () => {
   for (const name of ['getCalendar', 'beginCalendarConnection', 'saveCalendarPolicy', 'disconnectCalendar'] as const) {
@@ -81,7 +146,7 @@ test.each(['confirmed', 'lost-response-restart', 'no-ack', 'retry-after-no-ack',
     const rpc = async (name: Parameters<typeof authRpcPath>[0], data: unknown) => context.request.post(origin + await authRpcPath(name), { headers: { origin, 'content-type': 'application/json', 'x-tsr-serverFn': 'true' }, data: await rpcBody(data) })
     expect((await rpc('ensurePersonalWorkspace', {})).status()).toBe(200)
     const originalKnowledge=mode==='confirmed'?{openingHours:'Weekdays 09:00–17:00',services:'Garage service',prices:'Quote after inspection',faq:'Bring the vehicle papers',instructions:'Collect the request; the team confirms it'}:{openingHours:'',services:'',prices:'',faq:'',instructions:''}
-    const existingActivity={businessName:'Native capture fixture',sector:'garage',knowledge:originalKnowledge,transferDestination:mode==='confirmed'?'+33102030406':null,recordingEnabled:false,recordingPolicy:'off',recordingContactPhone:mode==='confirmed'?'+33102030405':null}
+    const existingActivity:Omit<SaveActivityInput, 'expectedRevision'>={businessName:'Native capture fixture',sector:'garage',knowledge:originalKnowledge,transferDestination:mode==='confirmed'?'+33102030406':null,recordingEnabled:false,recordingPolicy:'off',recordingContactPhone:mode==='confirmed'?'+33102030405':null}
     expect((await rpc('saveActivity', { ...existingActivity,expectedRevision:0 })).status()).toBe(200)
     const workspace = (await stores.administrator.query('SELECT id FROM workspace')).rows[0].id
     await app.cleanup(); expect(app.child.exitCode).toBe(0)
@@ -113,66 +178,16 @@ test.each(['confirmed', 'lost-response-restart', 'no-ack', 'retry-after-no-ack',
     expect(await page.locator('.sparra-guided-calendar').isVisible()).toBe(true)
     expect(await page.getByRole('button',{name:'Handling and tools',exact:true}).getAttribute('aria-current')).toBe('step')
     await expect.poll(()=>page.locator('#calendar-heading').evaluate(element=>document.activeElement===element)).toBe(true)
-    const firstPolicy={ expectedRevision: 0, calendarId: 'fixture-calendar', enabled: true, policy: { version: 1, timeZone: 'Europe/Paris', services: [{ id: 'oil-change', name: 'Vidange', durationMinutes: 30 }], weeklyHours: [0,1,2,3,4,5,6].map(day => ({ day, ranges: [{ start: '09:00', end: '12:00' }] })), bufferMinutes: 0, noticeMinutes: 0 } }
+    const firstPolicy:SaveCalendarPolicy={ expectedRevision: 0, calendarId: 'fixture-calendar', enabled: true, policy: { version: 1, timeZone: 'Europe/Paris', services: [{ id: 'oil-change', name: 'Vidange', durationMinutes: 30 }], weeklyHours: [0,1,2,3,4,5,6].map(day => ({ day, ranges: [{ start: '09:00', end: '12:00' }] })), bufferMinutes: 0, noticeMinutes: 0 } }
     expect((await rpc('saveCalendarPolicy', firstPolicy)).status()).toBe(200)
     expect((await rpc('saveCalendarPolicy', {...firstPolicy,policy:{...firstPolicy.policy,services:[]}})).status()).toBe(400)
     expect((await rpc('saveCalendarPolicy', firstPolicy)).status()).toBe(409)
     await page.reload()
     await showActivitySection(page,'handling')
     const panel = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Google Calendar', exact: true }) })
-    const editedKnowledge={...originalKnowledge,services:'Owner edited garage service'}
+    let editedKnowledge=originalKnowledge
     if(mode==='confirmed'){
-      const activityPath=await authRpcPath('saveActivity'),calendarPath=await authRpcPath('saveCalendarPolicy')
-      let activityPosts=0,calendarPosts=0
-      page.on('request',request=>{if(request.method()!=='POST')return;const path=new URL(request.url()).pathname;if(path===activityPath)activityPosts++;if(path===calendarPath)calendarPosts++})
-      // First edit one field on an existing garage. An unrelated Calendar draft
-      // must survive enterprise save and section navigation.
-      await panel.getByLabel('Duration (minutes) 1',{exact:true}).fill('40')
-      await showActivitySection(page,'knowledge')
-      await page.getByRole('textbox',{name:'Services',exact:true}).fill(editedKnowledge.services)
-      await showActivitySection(page,'handling');expect(await panel.getByLabel('Duration (minutes) 1',{exact:true}).inputValue()).toBe('40')
-      await showActivitySection(page,'recap')
-      const enterpriseSave=page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true})
-      await enterpriseSave.focus();await page.keyboard.press('Enter');await page.getByText('Configuration saved.',{exact:true}).waitFor()
-      expect(await panel.getByLabel('Duration (minutes) 1',{exact:true}).inputValue()).toBe('40')
-      // A real concurrent native Calendar revision produces a protected 409.
-      expect((await rpc('saveCalendarPolicy',{...firstPolicy,expectedRevision:1})).status()).toBe(200)
-      await panel.getByRole('button',{name:'Save',exact:true}).click()
-      await panel.getByText('Settings changed or an operation is in progress. Refresh before retrying.',{exact:true}).waitFor()
-      expect(await page.getByText('Configuration saved.',{exact:true}).count()).toBe(1)
-      expect(await panel.getByLabel('Duration (minutes) 1',{exact:true}).inputValue()).toBe('40')
-      expect(activityPosts).toBe(1);expect(calendarPosts).toBe(1)
-      await page.reload();await showActivitySection(page,'knowledge')
-      for(const [label,value] of [['Opening hours',editedKnowledge.openingHours],['Services',editedKnowledge.services],['Prices',editedKnowledge.prices],['Frequently asked questions',editedKnowledge.faq],['Response instructions',editedKnowledge.instructions]]){
-        expect(await page.getByRole('textbox',{name:label,exact:true}).inputValue()).toBe(value)
-      }
-      await showActivitySection(page,'handling')
-      expect(await page.getByRole('textbox',{name:'Transfer number (optional)',exact:true}).inputValue()).toBe(existingActivity.transferDestination)
-      expect(await page.getByRole('textbox',{name:'Recording contact phone (optional)',exact:true}).inputValue()).toBe(existingActivity.recordingContactPhone)
-      expect(await page.getByRole('checkbox',{name:'Keep audio from future calls for 30 days',exact:true}).isChecked()).toBe(false)
-      // Inverse combination: native Activity conflict keeps its draft while
-      // Calendar succeeds independently. No combined save or automatic retry.
-      await showActivitySection(page,'knowledge')
-      await page.getByRole('textbox',{name:'Frequently asked questions',exact:true}).fill('Retained unsaved owner FAQ')
-      expect((await rpc('saveActivity',{...existingActivity,knowledge:editedKnowledge,expectedRevision:2})).status()).toBe(200)
-      await showActivitySection(page,'recap');await enterpriseSave.click()
-      const conflict=page.getByRole('alert').filter({hasText:'The configuration changed.'});await conflict.waitFor()
-      await panel.getByLabel('Duration (minutes) 1',{exact:true}).fill('35')
-      await panel.getByRole('button',{name:'Save',exact:true}).click();await panel.getByText('Settings saved.',{exact:true}).waitFor()
-      expect(await conflict.count()).toBe(1)
-      expect(await page.getByRole('textbox',{includeHidden:true,name:'Frequently asked questions',exact:true}).inputValue()).toBe('Retained unsaved owner FAQ')
-      expect(await page.getByText('Saved version: 2',{exact:true}).count()).toBe(1)
-      expect(await enterpriseSave.isDisabled()).toBe(true)
-      expect(activityPosts).toBe(2);expect(calendarPosts).toBe(2)
-      await page.getByRole('button',{name:'Check latest version',exact:true}).click()
-      await page.getByText('Latest saved version: 3',{exact:true}).waitFor()
-      expect(await page.getByRole('textbox',{includeHidden:true,name:'Frequently asked questions',exact:true}).inputValue()).toBe('Retained unsaved owner FAQ')
-      expect(activityPosts).toBe(2);expect(calendarPosts).toBe(2)
-      await page.getByRole('button',{name:'Replace draft with latest version',exact:true}).click()
-      expect(await panel.getByLabel('Duration (minutes) 1',{exact:true}).inputValue()).toBe('35')
-      expect(await panel.getByText('Settings saved.',{exact:true}).count()).toBe(1)
-      const saved=(await stores.administrator.query('SELECT revision,business_name,sector,opening_hours,services,prices,faq,instructions,transfer_destination,recording_enabled,recording_policy,recording_contact_phone FROM sparra_knowledge_revision WHERE workspace_id=$1 ORDER BY revision DESC LIMIT 1',[workspace])).rows[0]
-      expect(saved).toEqual({revision:3,business_name:existingActivity.businessName,sector:'garage',opening_hours:originalKnowledge.openingHours,services:editedKnowledge.services,prices:originalKnowledge.prices,faq:originalKnowledge.faq,instructions:originalKnowledge.instructions,transfer_destination:existingActivity.transferDestination,recording_enabled:false,recording_policy:'off',recording_contact_phone:existingActivity.recordingContactPhone})
+      editedKnowledge=await verifyEnterpriseCalendarIndependence({page,panel,rpc,stores,workspace,existingActivity,firstPolicy})
     }else{
       await panel.getByLabel('Duration (minutes) 1', { exact: true }).fill('35')
       await panel.getByRole('button', { name: 'Save', exact: true }).focus(); await page.keyboard.press('Enter')
