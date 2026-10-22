@@ -121,23 +121,35 @@ async function verifyCalendarConsentReturn(page:Page,origin:string,mode:string):
   await expect.poll(()=>page.locator('#calendar-heading').evaluate(element=>document.activeElement===element)).toBe(true)
 }
 
-async function verifyEmittedCalendarWorkerEntry(workerEnv:Parameters<typeof createCalendarWorkerResources>[0]):Promise<void> {
-  // Actual emitted entry: Calendar starts even though absent Hatchet config
-  // remains a separately visible failure. No mock replaces either lifecycle.
-  const child = spawn(process.execPath, ['--import', pathToFileURL(resolve('tests/helpers/mail-process.mjs')).href, resolve('.output/worker/index.mjs')], {
-    windowsHide: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc'], env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, TEMP: process.env.TEMP, TMP: process.env.TMP, NODE_ENV: 'test', ...workerEnv },
-  })
-  let output = ''
-  child.stdout!.on('data', chunk => { output += String(chunk) }); child.stderr!.on('data', chunk => { output += String(chunk) })
-  const exited = new Promise<number | null>((done, reject) => { child.once('error', reject); child.once('close', done) })
-  try {
-    await expect.poll(() => output.includes('Calendar worker ready'), { timeout: 15000 }).toBe(true)
-    expect(output).toContain('Application worker unavailable')
-    child.send('shutdown'); expect(await bounded(exited, 15000)).toBe(1)
-    expect(output).toContain('Application worker stopped')
-  } finally {
-    if (child.exitCode === null && child.signalCode === null) { child.send('shutdown'); await bounded(exited, 15000).catch(() => { child.kill('SIGKILL') }) }
-    await bounded(exited, 6000)
+async function verifyCalendarConfigurationSnapshot(mode:string,stores:Awaited<ReturnType<typeof startDisposableStores>>,admitted:Awaited<ReturnType<ReturnType<typeof startConnectedVoice>['command']>>,inbox:Page,editedKnowledge:SaveActivityInput['knowledge']):Promise<void> {
+  if(mode==='confirmed'){
+    expect((await stores.administrator.query('SELECT configuration_revision FROM sparra_call WHERE id=$1',[admitted.call_id])).rows[0].configuration_revision).toBe(3)
+    const snapshot=inbox.locator('[data-configuration-snapshot]')
+    for(const value of Object.values(editedKnowledge))expect(await snapshot.textContent()).toContain(value)
+    expect(await snapshot.textContent()).toContain('Saved version 3')
+    expect(await snapshot.textContent()).not.toContain('Retained unsaved owner FAQ')
+  }
+}
+
+async function verifyEmittedCalendarWorkerEntry(workerEnv:Parameters<typeof createCalendarWorkerResources>[0],mode:string):Promise<void> {
+  if (mode === 'confirmed') {
+    // Actual emitted entry: Calendar starts even though absent Hatchet config
+    // remains a separately visible failure. No mock replaces either lifecycle.
+    const child = spawn(process.execPath, ['--import', pathToFileURL(resolve('tests/helpers/mail-process.mjs')).href, resolve('.output/worker/index.mjs')], {
+      windowsHide: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc'], env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, TEMP: process.env.TEMP, TMP: process.env.TMP, NODE_ENV: 'test', ...workerEnv },
+    })
+    let output = ''
+    child.stdout!.on('data', chunk => { output += String(chunk) }); child.stderr!.on('data', chunk => { output += String(chunk) })
+    const exited = new Promise<number | null>((done, reject) => { child.once('error', reject); child.once('close', done) })
+    try {
+      await expect.poll(() => output.includes('Calendar worker ready'), { timeout: 15000 }).toBe(true)
+      expect(output).toContain('Application worker unavailable')
+      child.send('shutdown'); expect(await bounded(exited, 15000)).toBe(1)
+      expect(output).toContain('Application worker stopped')
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) { child.send('shutdown'); await bounded(exited, 15000).catch(() => { child.kill('SIGKILL') }) }
+      await bounded(exited, 6000)
+    }
   }
 }
 
@@ -319,20 +331,12 @@ test.each(['confirmed', 'lost-response-restart', 'no-ack', 'retry-after-no-ack',
     await inbox.goto(origin + '/app/demandes/' + admitted.call_id + '?lang=en')
     await inbox.getByText('Google reference : ' + events[0]!.id, { exact: true }).waitFor()
     expect(await inbox.locator('body').innerText()).toContain('Vidange')
-    if(mode==='confirmed'){
-      expect((await stores.administrator.query('SELECT configuration_revision FROM sparra_call WHERE id=$1',[admitted.call_id])).rows[0].configuration_revision).toBe(3)
-      const snapshot=inbox.locator('[data-configuration-snapshot]')
-      for(const value of Object.values(editedKnowledge))expect(await snapshot.textContent()).toContain(value)
-      expect(await snapshot.textContent()).toContain('Saved version 3')
-      expect(await snapshot.textContent()).not.toContain('Retained unsaved owner FAQ')
-    }
+    await verifyCalendarConfigurationSnapshot(mode,stores,admitted,inbox,editedKnowledge)
     expect(await voice.stop()).toEqual({ code: 0, signal: null }); voiceStopped = true
     await worker.dispose(); expect(worker.hasFailed()).toBe(false)
     expect(transport.stops).toBe(mode === 'lost-response-restart' || mode === 'selection-recovery' ? 2 : 1)
     await expect.poll(() => peer!.evidence()).toMatchObject({ activeClientSockets: 0, activeSockets: 0, activeRequests: 0, disallowed: 0 })
-    if (mode === 'confirmed') {
-      await verifyEmittedCalendarWorkerEntry(workerEnv)
-    }
+    await verifyEmittedCalendarWorkerEntry(workerEnv,mode)
   } catch (error) {
     functionalFailure = error
     console.log('CALENDAR_NATIVE_FAILURE', { workerFailed: worker?.hasFailed(), peer: peer?.evidence(), requests: peer?.requests().map(({method,path})=>({method,path})), commands: (await stores.administrator.query('SELECT kind,state FROM sparra_calendar_command')).rows })

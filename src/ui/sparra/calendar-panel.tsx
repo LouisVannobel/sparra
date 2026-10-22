@@ -160,8 +160,13 @@ function CalendarPanelView({locale,labels:t,feedback,headingRef,focusOnEntry,chi
     {feedback&&<p id="calendar-feedback" role="status" aria-live="polite">{feedback}</p>}
   </section>
 }
+function useCalendarActionFeedback(t:CalendarLabels,callbackFailed:Props['callbackFailed']) {
+  const [pendingAction,setPendingAction]=useState<CalendarAction|null>(null),[reconcile,setReconcile]=useState(false),[canAdopt,setCanAdopt]=useState(true),[feedback,setFeedback]=useState<string|null>(callbackFailed?t.callbackFailed:null)
+  return {pendingAction,setPendingAction,reconcile,setReconcile,canAdopt,setCanAdopt,feedback,setFeedback}
+}
 function useCalendarPanelLifecycle({locale,state,callbackFailed,focusOnEntry,onConnect,onSave,onDisconnect,onRead,onNavigationStateChange,onBeforeConnect,onNavigate}:Pick<Props,'locale'|'state'|'callbackFailed'|'onConnect'|'onSave'|'onDisconnect'|'onRead'|'onNavigationStateChange'|'onBeforeConnect'|'onNavigate'>&{focusOnEntry:boolean}) {
-  const t=calendarMessages[locale],hydrated=useHydrated(),[current,setCurrent]=useState(state),[draft,setDraft]=useState(()=>calendarDraft(state)),[known,setKnown]=useState(()=>calendarDraft(state)),[pendingAction,setPendingAction]=useState<CalendarAction|null>(null),[reconcile,setReconcile]=useState(false),[canAdopt,setCanAdopt]=useState(true),[feedback,setFeedback]=useState<string|null>(callbackFailed?t.callbackFailed:null)
+  const t=calendarMessages[locale],hydrated=useHydrated(),[current,setCurrent]=useState(state),[draft,setDraft]=useState(()=>calendarDraft(state)),[known,setKnown]=useState(()=>calendarDraft(state))
+  const {pendingAction,setPendingAction,reconcile,setReconcile,canAdopt,setCanAdopt,feedback,setFeedback}=useCalendarActionFeedback(t,callbackFailed)
   const operation=useRef<AbortController|null>(null),busy=useRef(false)
   const headingRef=useRef<HTMLHeadingElement|null>(null)
   const navigationCallback=useRef(onNavigationStateChange)
