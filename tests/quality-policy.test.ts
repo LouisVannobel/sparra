@@ -1392,6 +1392,7 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
   // Fixed candidates from TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003; hashes are literal review anchors.
   // SSR C heading and six new summary cases independently reviewed on 2026-10-11.
   // Excerpt cases and nullable DTO fixtures re-reviewed on 2026-10-17.
+  // Whole-file context re-anchored after the guided-control assertion review on 2026-10-22.
   // Only A changes callback text; B/C/D retain their approved callback hashes.
   const targets=[
     ['detail and inbox preserve the translated native category and observed number source in both locales',
@@ -1546,7 +1547,7 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
         expect(source.text.slice(marker.end,marker.end+newlineLength),'Reviewed SSR marker line expired').toMatch(/^\r?\n$/)
         reconstructed=reconstructed.slice(0,marker.start)+reconstructed.slice(marker.end+newlineLength)
       }
-      expect(digest(reconstructed),'Reviewed SSR whole file expired').toBe('a767ee6b60ff91b54c36ff34ba4ae5c5aad3d2b05aa4abeda1a12cd1ffa2e866')
+      expect(digest(reconstructed),'Reviewed SSR whole file expired').toBe('2fad03b61d7ed6c4fb2a06e36729acb7cb14a7baa7926620924b790ab971b219')
     }
     expect(()=>reviewedCallbacks(sources)).not.toThrow()
     const original=sources.get(ssrFile)!,title=targets[0][0]
