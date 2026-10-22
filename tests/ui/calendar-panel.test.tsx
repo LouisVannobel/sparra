@@ -49,7 +49,7 @@ test('aborting a delayed read or save never publishes a late state',async()=>{
     const action={locale:'en' as const,current:disconnected,draft:{expectedRevision:0,calendarId:'',enabled:false,policy:{version:1 as const,timeZone:'Europe/Paris',services:[],weeklyHours:[],bufferMinutes:0,noticeMinutes:0}},hydrated:true,busy,operation,
       onConnect:unavailable,onDisconnect:unavailable,onSave:async()=>held,onRead:async()=>held,
       accept:()=>published.push('state'),setPending:(value:boolean)=>published.push(`pending:${value}`),
-      setFeedback:(value:string|null)=>{if(value)published.push(value)},navigate:()=>published.push('navigate')}
+      setFeedback:(value:string|null)=>{if(value)published.push(value)},navigate:()=>{published.push('navigate')}}
     const pending=runCalendarAction(kind,action)
     operation.current?.abort();release(disconnected);await pending
     expect(published).toEqual(['pending:true'])
@@ -61,7 +61,7 @@ test('disconnect reads only after revocation and a rejected action releases its 
   const draft={expectedRevision:0,calendarId:'',enabled:false,policy:{version:1 as const,timeZone:'Europe/Paris',services:[],weeklyHours:[],bufferMinutes:0,noticeMinutes:0}}
   const action={locale:'en' as const,current:disconnected,draft,hydrated:true,busy,operation,
     onConnect:unavailable,onSave:unavailable,onDisconnect:async()=>{events.push('disconnect')},onRead:async()=>{events.push('read');return disconnected},
-    accept:()=>events.push('accept'),setPending:(value:boolean)=>events.push(`pending:${value}`),setFeedback:(value:string|null)=>{if(value)events.push(value)},navigate:()=>events.push('navigate')}
+    accept:()=>events.push('accept'),setPending:(value:boolean)=>events.push(`pending:${value}`),setFeedback:(value:string|null)=>{if(value)events.push(value)},navigate:()=>{events.push('navigate')}}
   await runCalendarAction('disconnect',action)
   expect(events).toEqual(['pending:true','disconnect','read','accept','pending:false'])
   events.length=0
@@ -70,4 +70,42 @@ test('disconnect reads only after revocation and a rejected action releases its 
   expect(events).toEqual(['pending:true','Settings changed or an operation is in progress. Refresh before retrying.','pending:false'])
   expect(events.join(' ')).not.toContain('secret-provider-details')
   expect(busy.current).toBe(false)
+})
+
+
+test.each(['reconnect_required','revoking','connecting'] as const)('%s with retained email is never presented as connected',status=>{
+  const html=renderToStaticMarkup(<CalendarPanel locale="en" state={{...disconnected,status,accountEmail:'retained@example.test'}} onConnect={unavailable} onSave={unavailable} onDisconnect={unavailable} onRead={unavailable}/>)
+  expect(html).not.toContain('Connected account : retained@example.test')
+  expect(html).toContain('retained@example.test')
+})
+
+test('connect guard precedes every side effect and accepted navigation stays pending until awaited',async()=>{
+  const busy={current:false},operation:OperationRef={current:null},events:string[]=[]
+  let allow=false,release!:()=>void
+  const navigation=new Promise<void>(resolve=>{release=resolve})
+  const action={locale:'en' as const,current:{...disconnected,status:'connected' as const},draft:{expectedRevision:0,calendarId:'',enabled:false,policy:{version:1 as const,timeZone:'Europe/Paris',services:[],weeklyHours:[],bufferMinutes:0,noticeMinutes:0}},hydrated:true,busy,operation,
+    onBeforeConnect:()=>{events.push('guard');return allow},onConnect:async()=>{events.push('begin');return '/consent'},onDisconnect:async()=>{events.push('disconnect')},onSave:unavailable,onRead:unavailable,accept:()=>{},setPending:(value:boolean)=>events.push(`pending:${value}`),setFeedback:()=>{},navigate:async()=>{events.push('navigate');await navigation}}
+  await runCalendarAction('connect',action)
+  expect(events).toEqual(['guard']);expect(busy.current).toBe(false);expect(operation.current).toBe(null)
+  allow=true;events.length=0
+  const pending=runCalendarAction('connect',action)
+  await expect.poll(()=>events).toEqual(['guard','pending:true','disconnect','begin','navigate'])
+  expect(busy.current).toBe(true)
+  release();await pending
+  expect(events).toEqual(['guard','pending:true','disconnect','begin','navigate','pending:false'])
+})
+
+
+test('busy or unhydrated connect never invokes the guard, and aborted navigation rejects without late feedback',async()=>{
+  const events:string[]=[],busy={current:false},operation:OperationRef={current:null}
+  let reject!:(error:Error)=>void
+  const held=new Promise<void>((_resolve,rejectPromise)=>{reject=rejectPromise})
+  const action={locale:'en' as const,current:disconnected,draft:{expectedRevision:0,calendarId:'',enabled:false,policy:{version:1 as const,timeZone:'Europe/Paris',services:[],weeklyHours:[],bufferMinutes:0,noticeMinutes:0}},hydrated:false,busy,operation,
+    onBeforeConnect:()=>{events.push('guard');return true},onConnect:async()=>'/consent',onDisconnect:unavailable,onSave:unavailable,onRead:unavailable,accept:()=>{},setPending:(value:boolean)=>events.push(`pending:${value}`),setFeedback:(value:string|null)=>{if(value)events.push(value)},navigate:async()=>{events.push('navigate');await held}}
+  await runCalendarAction('connect',action);action.hydrated=true;busy.current=true;await runCalendarAction('connect',action)
+  expect(events).toEqual([])
+  busy.current=false;const pending=runCalendarAction('connect',action)
+  await expect.poll(()=>events).toEqual(['guard','pending:true','navigate'])
+  operation.current?.abort();reject(new Error('late navigation failure'));await pending
+  expect(events).toEqual(['guard','pending:true','navigate']);expect(busy.current).toBe(false)
 })

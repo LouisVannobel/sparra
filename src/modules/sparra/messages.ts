@@ -1,5 +1,7 @@
 export const activityMessages = {
   fr: {
+    discardNavigation:'Quitter cette page abandonnera vos modifications locales et vos réponses préparées. Une opération déjà envoyée peut encore aboutir. Voulez-vous quitter cette page ?',
+    connectionNeedsResolution:'Avant de connecter Google, attendez la fin des opérations puis vérifiez et résolvez tout résultat incertain dans l’entreprise et l’agenda.',
     reviewCallSettings:'Vérifier les réglages des appels',
     calendarConnectionHint:'Enregistrez les modifications de l’entreprise avant de connecter Google : la connexion vous fera quitter cette page.',
     title: 'Mon activité', description: 'Donnez à Sparra les informations utiles pour accueillir vos appelants.', establishment: 'Votre établissement', answerInformation: 'Informations pour répondre', callHandling: 'Gestion des appels', requiredHint: 'Le nom et le secteur sont obligatoires.',
@@ -17,6 +19,8 @@ export const activityMessages = {
     save: 'Enregistrer', saveHint: 'Les informations enregistrées s’appliquent aux prochains appels pris en charge. Enregistrer n’active pas votre ligne téléphonique.', unsaved: 'Modifications non enregistrées.', upToDate: 'Aucune modification en attente.', ensuring: 'Création de votre espace…', checking: 'Vérification des informations enregistrées…', saving: 'Enregistrement…', stopWaiting: 'Arrêter d’attendre', saveWaitHint: 'L’enregistrement peut encore aboutir si vous arrêtez d’attendre.', saved: 'Configuration enregistrée.', outcomeUnknown: 'Le résultat de l’enregistrement est inconnu. Vérifiez la dernière version avant d’enregistrer à nouveau.', noSavedConfiguration: 'Aucune configuration enregistrée.', latestMatches: 'Votre saisie correspond aux informations enregistrées.', latestDiffers: 'Les informations enregistrées sont différentes de votre saisie.', replaceWarning: 'Remplacer le brouillon abandonnera vos modifications locales.', conflict: 'La configuration a changé. Vérifiez la dernière version avant de remplacer votre brouillon.', invalid: 'Certaines informations n’ont pas pu être enregistrées. Vérifiez les champs puis réessayez.', unavailable: 'Informations indisponibles. Réessayez ou rechargez la page.',
   },
   en: {
+    discardNavigation:'Leaving this page will discard your local changes and prepared answers. An operation already sent may still complete. Do you want to leave this page?',
+    connectionNeedsResolution:'Before connecting Google, wait for operations to finish, then check and resolve any uncertain outcome in your business and calendar settings.',
     reviewCallSettings:'Review call settings',
     calendarConnectionHint:'Save your business changes before connecting Google: connecting takes you away from this page.',
     title: 'My business', description: 'Give Sparra the information it needs to welcome your callers.', establishment: 'Your business', answerInformation: 'Information for answering', callHandling: 'Call handling', requiredHint: 'Business name and sector are required.',

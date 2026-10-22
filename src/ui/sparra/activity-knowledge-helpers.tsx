@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@astryxdesign/core/Button'
 import { TextArea } from '@astryxdesign/core/TextArea'
 import { activityMessages } from '../../modules/sparra/messages'
@@ -16,10 +16,12 @@ export function appendIntakeQuestion(instructions:string,question:string):string
 }
 
 type HelperProps={locale:Locale;questions:readonly string[];disabled:boolean;onChange(next:string):void}
-export function ActivityFaqHelper({locale,faq,questions,disabled,onChange}:HelperProps&{faq:string}){
+export function ActivityFaqHelper({locale,faq,questions,disabled,onChange,onPreparedAnswersChange}:HelperProps&{faq:string;onPreparedAnswersChange?:(value:boolean)=>void}){
   const t=activityMessages[locale]
   // Answers retain their question identity, including when the owner changes sector.
   const [question,setQuestion]=useState<string|null>(null),[answers,setAnswers]=useState<Record<string,string>>({})
+  const hasPreparedAnswers=Object.values(answers).some(value=>value.length>0)
+  useEffect(()=>{onPreparedAnswersChange?.(hasPreparedAnswers)},[hasPreparedAnswers,onPreparedAnswersChange])
   const answer=question===null?'':answers[question]??''
   const next=question===null?null:appendFaqAnswer(faq,question,answer)
   return <div className="sparra-knowledge-helper"><h2>{t.ownerAnswers}</h2><p className="sparra-form-hint">{t.faqQuestionsHint}</p>

@@ -2,6 +2,7 @@ import { createFileRoute, redirect, useRouter } from '@tanstack/react-router'
 import { useServerFn } from '@tanstack/react-start'
 import { getActivity, saveActivity } from '../modules/sparra/sparra.functions'
 import { ensurePersonalWorkspace } from '../modules/workspaces/workspace.functions'
+import { useBusinessNavigation } from '../ui/sparra/use-business-navigation'
 import { ActivityPanel } from '../ui/sparra/activity-panel'
 import { privateResult, PrivateUnavailable } from '../ui/sparra/app-shell'
 import { appMessages } from '../modules/sparra/messages'
@@ -24,6 +25,7 @@ export const Route=createFileRoute('/app/entreprise')({
   errorComponent:function BusinessUnavailable(){const {lang}=Route.useSearch();return <PrivateUnavailable locale={lang} title={appMessages[lang].business}/>},
 })
 function Business(){const {lang,calendar:callback}=Route.useSearch(),{activity:state,calendar}=Route.useLoaderData(),router=useRouter(),ensure=useServerFn(ensurePersonalWorkspace),save=useServerFn(saveActivity),read=useServerFn(getActivity),begin=useServerFn(beginCalendarConnection),savePolicy=useServerFn(saveCalendarPolicy),disconnect=useServerFn(disconnectCalendar),readCalendar=useServerFn(getCalendar)
-  return <ActivityPanel key={`${state.workspace?.id??'absent'}:${state.configuration?.revision??0}:${lang}`} locale={lang} state={state} initialSection={callback?'handling':'establishment'} onEnsure={async signal=>{const result=await ensure({signal});if(!result)throw new Error('Workspace unavailable');return result}} onSave={(data,signal)=>save({data,signal})} onRead={signal=>read({data:{},signal})} onRefused={async()=>{await router.navigate({to:'/login',search:{lang,error:undefined}})}} calendarSlot={
-    <CalendarPanel key={`${lang}:${calendar.status}:${calendar.revision}`} locale={lang} state={calendar} callbackFailed={callback==='failed'} focusOnEntry={callback!==undefined} onConnect={signal=>begin({data:{locale:lang},signal})} onSave={(data,signal)=>savePolicy({data,signal})} onDisconnect={signal=>disconnect({data:{},signal})} onRead={signal=>readCalendar({data:{},signal})}/>}/>
+  const navigation=useBusinessNavigation(lang)
+  return <><ActivityPanel onNavigationStateChange={navigation.onActivityNavigationStateChange} externalNavigationPending={navigation.externalNavigationPending} key={`${state.workspace?.id??'absent'}:${state.configuration?.revision??0}:${lang}`} locale={lang} state={state} initialSection={callback?'handling':'establishment'} onEnsure={async signal=>{const result=await ensure({signal});if(!result)throw new Error('Workspace unavailable');return result}} onSave={(data,signal)=>save({data,signal})} onRead={signal=>read({data:{},signal})} onRefused={async()=>{await router.navigate({to:'/login',search:{lang,error:undefined},ignoreBlocker:true})}} calendarSlot={
+    <CalendarPanel onNavigationStateChange={navigation.onCalendarNavigationStateChange} onBeforeConnect={navigation.onBeforeConnect} onNavigate={href=>router.navigate({href,reloadDocument:true,ignoreBlocker:true})} key={`${lang}:${calendar.status}:${calendar.revision}`} locale={lang} state={calendar} callbackFailed={callback==='failed'} focusOnEntry={callback!==undefined} onConnect={signal=>begin({data:{locale:lang},signal})} onSave={(data,signal)=>savePolicy({data,signal})} onDisconnect={signal=>disconnect({data:{},signal})} onRead={signal=>readCalendar({data:{},signal})}/>}/>{navigation.connectionRefusal&&<p role="alert">{navigation.connectionRefusal}</p>}</>
 }

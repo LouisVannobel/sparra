@@ -110,7 +110,8 @@ test('compiled private inbox creates only by POST, saves knowledge across restar
     // Historical provider settings are seeded through the native owner RPC;
     // the local policy remains OFF until explicit owner configuration.
     expect((await rpc(context,'saveActivity',{expectedRevision:0,businessName:'Garage persisted',sector:'garage',knowledge:{openingHours:'',services:'Vidange sur rendez-vous',prices:'',faq:'',instructions:''},transferDestination:null,recordingEnabled:true})).status()).toBe(200)
-    await page.reload();expect(await recording.isChecked()).toBe(false);expect(await recording.isDisabled()).toBe(true)
+    const historicalSeedReload=page.waitForEvent('dialog')
+    await Promise.all([page.reload(),historicalSeedReload.then(async dialog=>{expect(dialog.type()).toBe('beforeunload');await dialog.accept()})]);expect(await recording.isChecked()).toBe(false);expect(await recording.isDisabled()).toBe(true)
     await page.getByRole('alert').filter({hasText:'An old audio setting is saved.'}).waitFor()
     await page.getByRole('button',{name:'Review call settings',exact:true}).click()
     expect(await page.locator('#activity-handling').isVisible()).toBe(true)
@@ -142,7 +143,8 @@ test('compiled private inbox creates only by POST, saves knowledge across restar
     await page.getByRole('status').filter({hasText:'The saved information is different from your draft.'}).waitFor()
     expect(await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).inputValue()).toBe('Draft retained');await tab.close()
     await app.shutdown();expect(await bounded(app.exit)).toBe(0);await app.cleanup();app=startWeb(appEnv);upstreamPort=(await bounded(app.ready)).port
-    await page.reload();expect(await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).inputValue()).toBe('Latest services');expect(await recording.isChecked()).toBe(false)
+    const retainedConflictReload=page.waitForEvent('dialog')
+    await Promise.all([page.reload(),retainedConflictReload.then(async dialog=>{expect(dialog.type()).toBe('beforeunload');await dialog.accept()})]);expect(await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).inputValue()).toBe('Latest services');expect(await recording.isChecked()).toBe(false)
     await page.getByRole('link',{name:'Call inbox',exact:true}).click();await page.getByText('No calls yet.',{exact:true}).waitFor()
     const workspace=(await stores.administrator.query('SELECT id FROM workspace WHERE owner_user_id=(SELECT user_id FROM session LIMIT 1)')).rows[0]
     const native=await nativeVoiceTurn(crypto)
@@ -336,7 +338,8 @@ test('native loader and mutation cancellation witness blocked Workspace and reco
     await page.getByRole('alert').filter({hasText:'The save outcome is unknown.'}).waitFor()
     expect(await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).inputValue()).toBe('Must not commit')
     expect(await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).isDisabled()).toBe(true)
-    await page.getByRole('link',{name:'Account',exact:true}).click()
+    const cancelledSaveDeparture=page.waitForEvent('dialog')
+    await Promise.all([page.getByRole('link',{name:'Account',exact:true}).click(),cancelledSaveDeparture.then(async dialog=>{expect(dialog.type()).toBe('confirm');await dialog.accept()})])
     await blocker.query('ROLLBACK');await page.getByRole('heading',{name:'Your account',exact:true}).waitFor()
     expect((await stores.administrator.query('SELECT max(revision)::int revision FROM sparra_knowledge_revision WHERE workspace_id=$1',[workspace.id])).rows[0].revision).toBe(before)
     expect((await rpc(context,'saveActivity',{expectedRevision:before,businessName:'Cancellation fixture',sector:'garage',knowledge:{openingHours:'',services:'',prices:'',faq:'',instructions:''},transferDestination:null,recordingEnabled:true})).status()).toBe(200)
@@ -920,3 +923,36 @@ test.each(['fr','en'] as const)('guided sections in %s preserve draft and questi
     expect(await page.getByRole('checkbox',{name:t.recordingEnabled,exact:true}).isChecked()).toBe(false)
   }finally{await context.close()}
 },50000)
+
+// Bounded native Business wiring regression; uses this file's existing identity/store fixture.
+test.each(['enterprise','prepared-faq'] as const)('compiled Business %s declines language departure without losing work and accepts explicit abandonment',async kind=>{
+  const {context,page}=await signedIn('sparra-guided-navigation-'+kind)
+  try{
+    await page.goto(origin+'/app/entreprise?lang=en');await page.getByRole('button',{name:'Create my workspace'}).click();await waitForActivityNavigation(page)
+    const knowledge={openingHours:'',services:'Known service',prices:'',faq:'',instructions:''}
+    expect((await rpc(context,'saveActivity',{expectedRevision:0,businessName:'Native known',sector:'garage',knowledge,transferDestination:null,recordingEnabled:false,recordingPolicy:'off',recordingContactPhone:null})).status()).toBe(200)
+    await page.goto(origin+'/app/entreprise?lang=fr');await waitForActivityNavigation(page)
+    const t=activityMessages.fr
+    if(kind==='enterprise')await page.getByRole('textbox',{name:new RegExp('^'+t.businessName)}).fill('Native unsaved')
+    else{
+      await showActivitySection(page,'knowledge');await page.getByRole('button',{name:getSectorPreset('garage','fr').faqQuestions[0]!,exact:true}).click();await page.getByRole('textbox',{name:t.ownerAnswer,exact:true}).fill('Native prepared answer')
+    }
+    expect(await page.locator('html').getAttribute('lang')).toBe('fr')
+    expect(await page.getByRole('link',{name:'Français',exact:true}).getAttribute('aria-current')).toBe('page')
+    const frenchUrl=page.url();expect(new URL(frenchUrl).pathname).toBe('/app/entreprise')
+    let declined=0
+    page.once('dialog',async dialog=>{declined++;expect(dialog.type()).toBe('confirm');await dialog.dismiss()})
+    await page.getByRole('link',{name:'English',exact:true}).click();await expect.poll(()=>declined).toBe(1)
+    expect(page.url()).toBe(frenchUrl)
+    expect(await page.getByRole('textbox',{includeHidden:true,name:new RegExp('^'+t.businessName)}).inputValue()).toBe(kind==='enterprise'?'Native unsaved':'Native known')
+    if(kind==='prepared-faq')expect(await page.getByRole('textbox',{name:t.ownerAnswer,exact:true}).inputValue()).toBe('Native prepared answer')
+    let accepted=0;page.once('dialog',async dialog=>{accepted++;await dialog.accept()})
+    await page.getByRole('link',{name:'English',exact:true}).click();await page.waitForURL(origin+'/app/entreprise?lang=en');await waitForActivityNavigation(page)
+    expect(accepted).toBe(1);expect(await page.getByRole('textbox',{name:/^Business name/}).inputValue()).toBe('Native known')
+    if(kind==='prepared-faq'){
+      await showActivitySection(page,'knowledge');await page.getByRole('button',{name:getSectorPreset('garage','en').faqQuestions[0]!,exact:true}).click();expect(await page.getByRole('textbox',{name:activityMessages.en.ownerAnswer,exact:true}).inputValue()).toBe('')
+    }
+    const persisted=await stores.administrator.query('SELECT business_name,faq FROM sparra_knowledge_revision WHERE workspace_id=(SELECT id FROM workspace WHERE owner_user_id=(SELECT id FROM "user" WHERE email=$1)) ORDER BY revision DESC LIMIT 1',['sparra-guided-navigation-'+kind+'@example.test'])
+    expect(persisted.rows[0]).toMatchObject({business_name:'Native known',faq:''})
+  }finally{await context.close()}
+},30000)
