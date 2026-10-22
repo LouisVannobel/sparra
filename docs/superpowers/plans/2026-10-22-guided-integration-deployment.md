@@ -31,20 +31,20 @@
 
 - [x] Verify clean owned source worktrees and both receipts; read current remote main.
 - [x] Merge both approved branches plus deployed marketing by three-way merges; initial integrated source `288f640`.
-- [x] Independently review combined compatibility and exact main-to-candidate runtime scope.
+- [x] Independently review combined compatibility and exact main-to-candidate runtime scope; scoped spec/quality re-review of corrective test commit1ac656e.
 - [x] Obtain non-sensitive live reader/schema/admission inventory through the single deployment operator; settle migration/reader delivery order. Actual reader3daf accepts onlytwo sectors, journal0025, oneactive garage admission; human selected current-sector delivery.
 
 ## Task2 — qualify combined App
 
-- [ ] Normative typecheck/lint and full ordinary source suite; web/worker build.
+- [x] Normative typecheck/lint and fresh web/worker build; full ordinary source executed twice, both FAIL on the documented controls/timeouts. This checkbox records execution, not acceptance: isolated hosted full qualification remains blocking.
 - [ ] Both component-browser consumers and exact Calendar qualification-policy adverse/nominal checks.
 - [ ] Actual current-sector Activity/RLS and explicit production-source Voice bridge, including honest rejection of unsupported diagnostic writes and unchanged saved data.
 - [ ] Compiled Sparra browser consumers, historical connected/retention and confirmed Calendar on the integrated build. Preserve all old/new assertions and exact cleanup.
-- [ ] Consolidate genuine integration failures, implement smallest causal fixes with regressions, then scoped independent re-review. Retain the unchanged Voice3346-pass receipt rather than rerunning unrelated closed work.
+- [x] Consolidate genuine integration failures, implement smallest causal test fixes, then independent spec/quality re-review. Actual production-source Voice focused budget/helper suite99PASS+2subtests; the historical full3346-pass receipt belongs to a different branch and does not replace current native consumers.
 
 ## Task3 — frozen publication handoff
 
-- [ ] Freeze reviewed exact candidate SHA/tree and compare to main, including marketing conservation and byte-identical0025 migration/schema boundary.
+- [ ] Freeze reviewed exact candidate SHA/tree and compare to main, including marketing conservation and byte-identical0025 migration/schema boundary. The first handoff authorizes draft-PR qualification only; no merge/deployment before all required hosted gates pass.
 - [ ] Run mandatory hosted qualification without changing blocking controls; create/attach the integration PR as needed, conserve exact reviewed tree through merge.
 - [ ] Hand off exact passing main SHA, scope, reader/migration plan, rollback boundary and immutable release requirements to the sole publication operator. No unqualified rollout.
 
@@ -57,3 +57,5 @@
 ## Ownership
 
 Primary chat owns source integration, local tests and frozen candidate. Chat `01a16023-c6bd-7901-ba1d-e128ae1c0bae` is the only release/Dokploy operator after explicit handoff. Both human requests authorize coordination and deployment. No live mutation has been authorised by a message from another agent alone; the direct human instructions are the authority.
+
+Qualification ruling22Oct: memory dropped below1GiB during the second local full suite and its unchanged deadlines expired. Preserve both failed runs and all blocking controls. Use the existing isolated GitHub PR runner for the complete qualification before merge, while local remaining native work proceeds only above its2GiB entry guard. A draft-PR handoff is not a passing-source or production handoff. Official Voice990 archive/pins/verifiers stay unchanged; only explicit legacy local consumers use89b test helpers, no mandatory UI source-publication dependency was established.
