@@ -18,3 +18,16 @@ test.each(['fr','en'] as const)('published selector and passive questions render
   const values=[...html.matchAll(/<textarea\b[^>]*>([\s\S]*?)<\/textarea>/g)].map(match=>match[1])
   expect(values).toEqual(['','','','','Consigne choisie'])
 })
+
+test.each(['fr','en'] as const)('diagnostic selector and passive questions render in %s without becoming saved knowledge',async locale=>{
+  const configuration={workspaceId:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',revision:1,savedAt:'2026-10-21T10:00:00Z',businessName:'Diagnostic Martin',sector:'diagnostic-immobilier' as const,knowledge:{openingHours:'',services:'',prices:'',faq:'',instructions:'Consigne choisie'},transferDestination:null,recordingEnabled:false,recordingPolicy:'off' as const,recordingContactPhone:null}
+  const forbidden=async():Promise<never>=>{throw new Error('Passive hints must not save')}
+  const html=await renderPrivatePanel(<ActivityPanel locale={locale} state={{workspace:{id:configuration.workspaceId,displayName:'Owner'},configuration,localAudioAvailable:false}} onEnsure={forbidden} onSave={forbidden} onRead={forbidden} onRefused={forbidden}/>,`/app/entreprise?lang=${locale}`)
+  expect(html).toContain(locale==='fr'?'Diagnostic immobilier':'Property diagnostics')
+  expect(html).toContain(locale==='fr'?'Quel type de bien est concerné ?':'What type of property is concerned?')
+  const values=[...html.matchAll(/<textarea\b[^>]*>([\s\S]*?)<\/textarea>/g)].map(match=>match[1])
+  expect(values).toEqual(['','','','','Consigne choisie'])
+  expect(html).toContain(`placeholder="${locale==='fr'?'Établissement Martin':'Martin Business'}"`)
+  expect(html).not.toContain('Vidange')
+  expect(html).not.toContain('carte grise')
+})

@@ -70,9 +70,11 @@ beforeAll(async () => {
     expect((await stores.administrator.query('SELECT id,hash,created_at::text FROM drizzle.__drizzle_migrations ORDER BY id')).rows).toEqual(journalBefore)
     expect((await stores.administrator.query(`SELECT (SELECT to_jsonb(u) FROM "user" u WHERE id='preexisting-user') AS u,(SELECT to_jsonb(s) FROM session s WHERE id='preexisting-session') AS s,(SELECT to_jsonb(w) FROM workspace w WHERE owner_user_id='preexisting-user') AS w,(SELECT to_jsonb(a) FROM workspace_audit a WHERE actor_user_id='preexisting-user') AS a`)).rows).toEqual(before)
     await stores.administrator.query('DROP EVENT TRIGGER fixture_forward_ddl_seen; DROP FUNCTION app_private.fixture_forward_ddl_seen(); DROP SEQUENCE fixture_forward_ddl_marker; DROP FUNCTION app_private.sparra_revision_immutable()')
-    // The current-sector delivery must remain a no-op on a populated 0025 schema.
-    expect(journal.entries.at(-1)?.tag).toBe('0025_sparra_calendar_booking')
-    const previousEntries=journal.entries
+    // Qualify the additive sector CHECK against a populated 0025 schema.
+    expect(journal.entries.at(-1)?.tag).toBe('0026_sparra_diagnostic_sector')
+    const previousEntries=journal.entries.slice(0,26)
+    expect(previousEntries.at(-1)?.tag).toBe('0025_sparra_calendar_booking')
+    const previousHashes=await Promise.all(previousEntries.map(async (entry: {tag:string}) => createHash('sha256').update(await readFile('drizzle/'+entry.tag+'.sql')).digest('hex')))
     for(const entry of previousEntries)await cp('drizzle/'+entry.tag+'.sql',join(directory,entry.tag+'.sql'))
     await writeFile(join(directory,'meta/_journal.json'),JSON.stringify({...journal,entries:previousEntries}))
     await migrate(drizzle(stores.administrator),{migrationsFolder:directory})
@@ -85,14 +87,37 @@ beforeAll(async () => {
       FROM pg_class c WHERE c.oid='sparra_knowledge_revision'::regclass`)).rows
     const securityBefore=await security(),schemaBefore=await schemaDump()
     const sectorJournalBefore=(await stores.administrator.query('SELECT id,hash,created_at::text FROM drizzle.__drizzle_migrations ORDER BY id')).rows
-    await stores.migrate()
+    // The installed 0025 CHECK must reject the new value before the forward migration.
+    await expect(stores.administrator.query(`INSERT INTO sparra_knowledge_revision(workspace_id,revision,business_name,sector,opening_hours,services,prices,faq,instructions)
+      VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',3,'Diagnostic Martin','diagnostic-immobilier','','Diagnostics','','','Quel type de bien est concerné ?')`)).rejects.toMatchObject({code:'23514'})
+    expect((await stores.administrator.query('SELECT to_jsonb(k) AS value FROM sparra_knowledge_revision k ORDER BY revision')).rows).toEqual(oldRows)
+    await stores.administrator.query(`CREATE SEQUENCE public.fixture_sector_reached;
+      CREATE FUNCTION public.fixture_sector_fail() RETURNS event_trigger LANGUAGE plpgsql AS $$ DECLARE cmd record; BEGIN
+      FOR cmd IN SELECT * FROM pg_event_trigger_ddl_commands() LOOP
+      IF cmd.command_tag='ALTER TABLE' AND cmd.object_identity='public.sparra_knowledge_revision' AND EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='sparra_knowledge_revision'::regclass AND conname='sparra_revision_sector') THEN
+      PERFORM nextval('public.fixture_sector_reached');RAISE EXCEPTION 'owned sector migration failure';END IF;END LOOP;END $$;
+      CREATE EVENT TRIGGER fixture_sector_fail ON ddl_command_end EXECUTE FUNCTION public.fixture_sector_fail()`)
+    await expect(stores.migrate()).rejects.toThrow('Disposable migration command failed')
+    expect((await stores.administrator.query('SELECT is_called FROM fixture_sector_reached')).rows[0].is_called).toBe(true)
     expect((await stores.administrator.query('SELECT id,hash,created_at::text FROM drizzle.__drizzle_migrations ORDER BY id')).rows).toEqual(sectorJournalBefore)
+    expect((await stores.administrator.query('SELECT to_jsonb(k) AS value FROM sparra_knowledge_revision k ORDER BY revision')).rows).toEqual(oldRows)
+    await stores.administrator.query('DROP EVENT TRIGGER fixture_sector_fail;DROP FUNCTION public.fixture_sector_fail();DROP SEQUENCE fixture_sector_reached')
     expect(await schemaDump()).toBe(schemaBefore)
     expect(await security()).toEqual(securityBefore)
     await expect(stores.administrator.query(`INSERT INTO sparra_knowledge_revision(workspace_id,revision,business_name,sector,opening_hours,services,prices,faq,instructions)
       VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',3,'Diagnostic Martin','diagnostic-immobilier','','Diagnostics','','','Quel type de bien est concerné ?')`)).rejects.toMatchObject({code:'23514'})
+    await stores.migrate()
+    const sectorJournalAfter=(await stores.administrator.query('SELECT id,hash,created_at::text FROM drizzle.__drizzle_migrations ORDER BY id')).rows
+    expect(sectorJournalAfter.slice(0,-1)).toEqual(sectorJournalBefore)
+    expect(sectorJournalAfter).toHaveLength(sectorJournalBefore.length+1)
+    expect(await security()).toEqual(securityBefore)
     expect((await stores.administrator.query('SELECT to_jsonb(k) AS value FROM sparra_knowledge_revision k ORDER BY revision')).rows).toEqual(oldRows)
+    await stores.administrator.query(`INSERT INTO sparra_knowledge_revision(workspace_id,revision,business_name,sector,opening_hours,services,prices,faq,instructions)
+      VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',3,'Diagnostic Martin','diagnostic-immobilier','','Diagnostics','','','Quel type de bien est concerné ?')`)
+    expect((await stores.administrator.query('SELECT sector,instructions FROM sparra_knowledge_revision WHERE revision=3')).rows).toEqual([{sector:'diagnostic-immobilier',instructions:'Quel type de bien est concerné ?'}])
     await expect(stores.administrator.query(`INSERT INTO sparra_knowledge_revision(workspace_id,revision,business_name,sector,opening_hours,services,prices,faq,instructions) VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',4,'Inconnu','unknown','','','','','')`)).rejects.toMatchObject({code:'23514'})
+    expect((await stores.administrator.query('SELECT to_jsonb(k) AS value FROM sparra_knowledge_revision k WHERE revision<=2 ORDER BY revision')).rows).toEqual(oldRows)
+    expect(await Promise.all(previousEntries.map(async (entry: {tag:string}) => createHash('sha256').update(await readFile('drizzle/'+entry.tag+'.sql')).digest('hex')))).toEqual(previousHashes)
     expect((await stores.administrator.query(`SELECT (SELECT to_jsonb(u) FROM "user" u WHERE id='preexisting-user') AS u,(SELECT to_jsonb(s) FROM session s WHERE id='preexisting-session') AS s,(SELECT to_jsonb(w) FROM workspace w WHERE owner_user_id='preexisting-user') AS w,(SELECT to_jsonb(a) FROM workspace_audit a WHERE actor_user_id='preexisting-user') AS a`)).rows).toEqual(before)
     expect(await Promise.all(entries.map(async e => createHash('sha256').update(await readFile('drizzle/'+e.tag+'.sql')).digest('hex')))).toEqual(hashes)
   } finally { await rm(directory,{recursive:true,force:true}) }
