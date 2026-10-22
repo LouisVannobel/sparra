@@ -104,7 +104,7 @@ Queued200 purges ciphertext/nonce/tag while preserving an admissible verifier. M
 
 ## Build and process configuration
 
-Use the repository's pinned Node `24.14.0`/pnpm `10.32.1`, one lockfile and
+Use the repository's pinned Node `24.22.1`/pnpm `10.32.1`, one lockfile and
 `pnpm install --frozen-lockfile`. `pnpm build` builds web and
 `.output/worker/index.mjs`; `pnpm start:worker` starts the configured application worker, with
 no web HTTP listener. Keep production `node_modules` alongside the output: SDK

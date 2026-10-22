@@ -1,0 +1,59 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "docker:pinDigests",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "dependencyDashboard": true,
+  "minimumReleaseAge": "7 days",
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+  "rangeStrategy": "pin",
+  "schedule": [
+    "after 07:00 and before 10:00 on monday"
+  ],
+  "labels": [
+    "dependencies"
+  ],
+  "packageRules": [
+    {
+      "description": "No dependency update bypasses human review during the experimental phase",
+      "matchManagers": [
+        "npm",
+        "dockerfile",
+        "github-actions"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "Keep breaking updates isolated",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "labels": [
+        "dependencies",
+        "breaking-change"
+      ],
+      "groupName": null
+    },
+    {
+      "description": "Group non-breaking GitHub Actions updates",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest"
+      ],
+      "groupName": "github-actions"
+    }
+  ],
+  "enabledManagers": [
+    "npm",
+    "dockerfile",
+    "github-actions"
+  ],
+  "automerge": false
+}
