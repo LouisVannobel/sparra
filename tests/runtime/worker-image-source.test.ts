@@ -7,7 +7,7 @@ import { basename, dirname, join, resolve } from 'node:path'
 import { workerSourceManifest } from '../../scripts/worker-source-manifest.mjs'
 
 const roots: string[] = []
-const pins = { name: 'synthetic-worker-source', engines: { node: '24.14.0', pnpm: '10.32.1' }, packageManager: 'pnpm@10.32.1' }
+const pins = { name: 'synthetic-worker-source', engines: { node: '24.22.1', pnpm: '10.32.1' }, packageManager: 'pnpm@10.32.1' }
 const files = {
   'package.json': JSON.stringify(pins),
   'vite.worker.config.ts': 'synthetic external worker build\n',
@@ -42,7 +42,7 @@ test('worker manifest binds the declared pins, lock, Dockerfile and canonical fu
     'src/platform/a.ts', 'src/worker.ts', 'vite.worker.config.ts',
   ] as const) inventory.update(path).update('\0').update(files[path]).update('\0')
   expect(await workerSourceManifest(root)).toEqual({
-    schema_version: 1, node_version: '24.14.0', pnpm_version: '10.32.1',
+    schema_version: 1, node_version: '24.22.1', pnpm_version: '10.32.1',
     lock_sha256: sha256('synthetic frozen graph\n'), dockerfile_sha256: sha256('synthetic image stages\n'),
     source_sha256: inventory.digest('hex'),
   })

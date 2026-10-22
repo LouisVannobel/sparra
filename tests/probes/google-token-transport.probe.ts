@@ -16,8 +16,8 @@ type Cell = { deadlineAtMs: number; signal: AbortSignal; revoked: boolean; attem
 const scope = new AsyncLocalStorage<Cell>()
 
 test('Gate 1: native registry, then stop at first failed pre-connect cleanup requirement', async (t) => {
-  assert.equal(process.version, 'v24.14.0')
-  assert.equal(process.versions.undici, '7.21.0')
+  assert.equal(process.version, 'v24.22.1')
+  assert.equal(process.versions.undici, '7.30.1')
   const previous = getGlobalDispatcher()
   const originalFetch = globalThis.fetch
   const clients = new Set<Socket>()

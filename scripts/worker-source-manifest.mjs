@@ -6,7 +6,7 @@ export async function workerSourceManifest(root = process.cwd()) {
   const read = path => readFile(join(root, path))
   const sha256 = async path => createHash('sha256').update(await read(path)).digest('hex')
   const manifest = JSON.parse((await read('package.json')).toString('utf8'))
-  if (manifest.engines?.node !== '24.14.0' || manifest.engines?.pnpm !== '10.32.1' || manifest.packageManager !== 'pnpm@10.32.1') {
+  if (manifest.engines?.node !== '24.22.1' || manifest.engines?.pnpm !== '10.32.1' || manifest.packageManager !== 'pnpm@10.32.1') {
     throw new Error('Worker source pins mismatch')
   }
   async function sources(directory) {
@@ -23,7 +23,7 @@ export async function workerSourceManifest(root = process.cwd()) {
     'patches/@hatchet-dev__typescript-sdk@1.28.2.patch', 'patches/nice-grpc@2.1.17.patch', ...await sources('src')].sort()
   const source = createHash('sha256')
   for (const path of paths) source.update(path).update('\0').update(await read(path)).update('\0')
-  return { schema_version: 1, node_version: '24.14.0', pnpm_version: '10.32.1',
+  return { schema_version: 1, node_version: '24.22.1', pnpm_version: '10.32.1',
     lock_sha256: await sha256('pnpm-lock.yaml'), dockerfile_sha256: await sha256('Dockerfile'), source_sha256: source.digest('hex') }
 }
 if (process.argv[2] === '--write') await writeFile('worker-source-manifest.json', JSON.stringify(await workerSourceManifest()) + '\n')

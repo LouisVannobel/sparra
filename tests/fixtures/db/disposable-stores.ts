@@ -20,7 +20,7 @@ const images = {
   pg: 'postgres@sha256:c1b3783309b6499c795eed7c20135a1a4d25cae1b575c3d52c6f536129a1b109',
   pool: 'edoburu/pgbouncer@sha256:7d7a27d9e90985cab5cf42256f5c13a3120baa4b055b69df37beb272b89b2340',
   redis: 'redis@sha256:ccd6aa8d45ff3f033d6fa15b8cc1a50579f65c89f38cf9bb607a954c4f2128ed',
-  node: 'node@sha256:4bd6219054c8bebcd26a66bfd8ca0bd6e1024b4b97474c59bb7ee3bbcbef4fe8',
+  node: 'node@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205',
 }
 const hatchetImage = 'ghcr.io/hatchet-dev/hatchet/hatchet-lite@sha256:098f549448de860e95f79f93583dc353be3143a6bb2f6eba446b3d443e39e838'
 const essentials = () => fixtureDockerEnvironment()

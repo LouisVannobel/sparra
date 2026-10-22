@@ -138,7 +138,7 @@ test('linux_owned_store_lifecycle', async () => {
       checkedBeforeMigration: true, gateChildrenClosedAtReturn: true, ...snapshot,
       tentativeObserved: fault.tentativeObserved, missingIPv6Observed: fault.missingIPv6Observed,
       naturalRaceReproduced: fault.tentativeObserved || fault.missingIPv6Observed,
-      versions: { nodeMatchesPin: process.versions.node === '24.14.0', kernelObserved: /^[0-9]+\.[0-9]+\.[0-9]+/.test(release()) },
+      versions: { nodeMatchesPin: process.versions.node === '24.22.1', kernelObserved: /^[0-9]+\.[0-9]+\.[0-9]+/.test(release()) },
     }
     await stores.migrate()
     expect((await stores.administrator.query('SHOW server_version_num')).rows[0].server_version_num).toBe('160015')

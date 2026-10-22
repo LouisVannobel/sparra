@@ -81,7 +81,7 @@ export function sourceIdentity(root) {
   return digest.digest('hex')
 }
 
-// Vitest 4.1.11 writes a native flatted reference table. Only admission fields
+// Vitest 4.1.12 writes a native flatted reference table. Only admission fields
 // are read here; coverage positions and counters remain exclusively native.
 function blobValue(table, reference) {
   if (typeof reference !== 'string') return reference

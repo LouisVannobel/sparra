@@ -26,7 +26,7 @@ async function migrationSourceSnapshot(input:Pick<OciFixtureInput,'badManifest'>
   async function scan(path:string){for(const entry of await readdir(path,{withFileTypes:true})){if(entry.isDirectory())await scan(path+'/'+entry.name);else paths.push(path+'/'+entry.name)}}
   await scan('drizzle');const source=createHash('sha256'),files=new Map<string,Buffer>()
   for(const path of paths.sort()){const bytes=await readFile(path);source.update(path).update('\0').update(bytes).update('\0');files.set('app/'+path,bytes)}
-  const manifest={schema_version:1,node:'24.14.0',pnpm:'10.32.1',lock_sha256:digest(await readFile('pnpm-lock.yaml')),dockerfile_sha256:digest(await readFile('Dockerfile')),migration_source_sha256:source.digest('hex')}
+  const manifest={schema_version:1,node:'24.22.1',pnpm:'10.32.1',lock_sha256:digest(await readFile('pnpm-lock.yaml')),dockerfile_sha256:digest(await readFile('Dockerfile')),migration_source_sha256:source.digest('hex')}
   files.set('app/migration-source-manifest.json',Buffer.from(JSON.stringify({...manifest,...(input.badManifest?{migration_source_sha256:'c'.repeat(64)}:{})})))
   files.set('app/pnpm-lock.yaml',await readFile('pnpm-lock.yaml'));files.set('app/package.json',await readFile('package.json'))
   return {files,manifest}
@@ -66,7 +66,7 @@ function carrierLayers(layers:readonly Buffer[],input:CarrierLayerInput) {
   return {layerIds,encoded,encodedIds}
 }
 function carrierConfig(layerIds:readonly string[],input:Pick<OciFixtureInput,'badPlatform'>,worker?:WorkerOciFixtureInput) {
-  const config=Buffer.from(JSON.stringify({architecture:input.badPlatform||worker?.mutation==='wrong-platform'?'arm64':'amd64',os:'linux',rootfs:{type:'layers',diff_ids:layerIds.map(value=>'sha256:'+value)},config:{User:worker?.mutation==='wrong-user'?'0:0':'10001:10001',WorkingDir:worker?.mutation==='wrong-workdir'?'/elsewhere':'/app',Entrypoint:worker?['node',worker.mutation==='wrong-entrypoint'?'.output/server/index.mjs':'.output/worker/index.mjs']:['node','scripts/start-migrate.mjs'],Env:['NODE_VERSION=24.14.0']}})),configId=digest(config)
+  const config=Buffer.from(JSON.stringify({architecture:input.badPlatform||worker?.mutation==='wrong-platform'?'arm64':'amd64',os:'linux',rootfs:{type:'layers',diff_ids:layerIds.map(value=>'sha256:'+value)},config:{User:worker?.mutation==='wrong-user'?'0:0':'10001:10001',WorkingDir:worker?.mutation==='wrong-workdir'?'/elsewhere':'/app',Entrypoint:worker?['node',worker.mutation==='wrong-entrypoint'?'.output/server/index.mjs':'.output/worker/index.mjs']:['node','scripts/start-migrate.mjs'],Env:['NODE_VERSION=24.22.1']}})),configId=digest(config)
   return {config,configId}
 }
 function carrierManifest(encoded:readonly Buffer[],encodedIds:readonly string[],config:Buffer,configId:string,input:CarrierLayerInput,worker?:WorkerOciFixtureInput) {

@@ -28,5 +28,5 @@ export async function migrationSourceFiles() {
   return result
 }
 export const fileHash = async path => createHash('sha256').update(await readFile(path)).digest('hex')
-if (process.argv[2] === '--write') await writeFile('migration-source-manifest.json', JSON.stringify({ schema_version: 1, node: '24.14.0', pnpm: '10.32.1',
+if (process.argv[2] === '--write') await writeFile('migration-source-manifest.json', JSON.stringify({ schema_version: 1, node: '24.22.1', pnpm: '10.32.1',
   lock_sha256: await fileHash('pnpm-lock.yaml'), dockerfile_sha256: await fileHash('Dockerfile'), migration_source_sha256: await migrationSourceHash() }) + '\n')
