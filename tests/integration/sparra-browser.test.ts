@@ -695,6 +695,21 @@ test('saved feedback clears after every editable business information field chan
   }finally{await context.close()}
 },40000)
 
+async function joinSaveDeliveryObservers(
+  routeOutcome:Promise<PromiseSettledResult<void>[]>|undefined,
+  deliveryOutcome:Promise<PromiseSettledResult<Request>[]>|undefined,
+  failures:unknown[],
+){
+  if(routeOutcome){
+    try{
+      const [result]=await bounded(routeOutcome)
+      if(result.status==='rejected'&&!failures.includes(result.reason))failures.push(result.reason)
+    }catch(error){failures.push(error)}
+  }
+  // Closing the context retires a pending event observer after an earlier failure.
+  if(deliveryOutcome)await deliveryOutcome
+}
+
 test('native committed save delivery failure retains draft and requires reconciliation while validation and read failures stay distinct',async()=>{
   const {context,page}=await signedIn('sparra-save-delivery'),savePath=await authRpcPath('saveActivity'),readPath=await authRpcPath('getActivity')
   let release=()=>{}
@@ -775,14 +790,7 @@ test('native committed save delivery failure retains draft and requires reconcil
   }catch(error){failures.push(error)}finally{
     release()
     try{await context.close()}catch(error){failures.push(nativeFailure('context-cleanup',error))}
-    if(routeOutcome){
-      try{
-        const [result]=await bounded(routeOutcome)
-        if(result.status==='rejected'&&!failures.includes(result.reason))failures.push(result.reason)
-      }catch(error){failures.push(error)}
-    }
-    // Closing the context retires a pending event observer after an earlier failure.
-    if(deliveryOutcome)await deliveryOutcome
+    await joinSaveDeliveryObservers(routeOutcome,deliveryOutcome,failures)
   }
   if(failures.length===1)throw failures[0]
   if(failures.length)throw new AggregateError(failures,'Native save delivery test and cleanup failed')

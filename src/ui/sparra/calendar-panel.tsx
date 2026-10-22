@@ -160,7 +160,7 @@ function CalendarPanelView({locale,labels:t,feedback,headingRef,focusOnEntry,chi
     {feedback&&<p id="calendar-feedback" role="status" aria-live="polite">{feedback}</p>}
   </section>
 }
-export function CalendarPanel({locale,state,callbackFailed,focusOnEntry=false,onConnect,onSave,onDisconnect,onRead,onNavigationStateChange,onBeforeConnect,onNavigate}:Props) {
+function useCalendarPanelLifecycle({locale,state,callbackFailed,focusOnEntry,onConnect,onSave,onDisconnect,onRead,onNavigationStateChange,onBeforeConnect,onNavigate}:Pick<Props,'locale'|'state'|'callbackFailed'|'onConnect'|'onSave'|'onDisconnect'|'onRead'|'onNavigationStateChange'|'onBeforeConnect'|'onNavigate'>&{focusOnEntry:boolean}) {
   const t=calendarMessages[locale],hydrated=useHydrated(),[current,setCurrent]=useState(state),[draft,setDraft]=useState(()=>calendarDraft(state)),[known,setKnown]=useState(()=>calendarDraft(state)),[pendingAction,setPendingAction]=useState<CalendarAction|null>(null),[reconcile,setReconcile]=useState(false),[canAdopt,setCanAdopt]=useState(true),[feedback,setFeedback]=useState<string|null>(callbackFailed?t.callbackFailed:null)
   const operation=useRef<AbortController|null>(null),busy=useRef(false)
   const headingRef=useRef<HTMLHeadingElement|null>(null)
@@ -180,6 +180,10 @@ export function CalendarPanel({locale,state,callbackFailed,focusOnEntry=false,on
   function run(action:CalendarAction) {return runCalendarAction(action,{locale,current,draft,hydrated,busy,operation,onConnect,onSave,onDisconnect,onRead,onBeforeConnect,accept,setReconcile:value=>{setReconcile(value);if(value)setCanAdopt(false)},setPending:value=>setPendingAction(value?action:null),setFeedback,navigate:onNavigate??(url=>window.location.assign(url))})}
   const editPolicy=(patch:Partial<SaveCalendarPolicy['policy']>)=>{setFeedback(null);setDraft({...draft,policy:{...draft.policy,...patch}})}
   const changeDraft=(patch:Partial<SaveCalendarPolicy>)=>{setFeedback(null);setDraft({...draft,...patch})}
+  return {t,current,draft,reconcile,canAdopt,feedback,headingRef,dirty,disabled,replace,run,editPolicy,changeDraft}
+}
+export function CalendarPanel({locale,state,callbackFailed,focusOnEntry=false,onConnect,onSave,onDisconnect,onRead,onNavigationStateChange,onBeforeConnect,onNavigate}:Props) {
+  const {t,current,draft,reconcile,canAdopt,feedback,headingRef,dirty,disabled,replace,run,editPolicy,changeDraft}=useCalendarPanelLifecycle({locale,state,callbackFailed,focusOnEntry,onConnect,onSave,onDisconnect,onRead,onNavigationStateChange,onBeforeConnect,onNavigate})
   return <CalendarPanelView locale={locale} labels={t} feedback={feedback} headingRef={headingRef} focusOnEntry={focusOnEntry}>
     {!current.available&&<p>{t.unavailable}</p>}
     {current.status!=='unavailable'&&<>

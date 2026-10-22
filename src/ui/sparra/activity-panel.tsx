@@ -216,8 +216,8 @@ function useActivitySaveFeedback(locale:Locale,onRecordingUnavailable:()=>void){
   return {saved,setSaved,conflict,setConflict,uncertain,setUncertain,latest,setLatest,error,setError,showError}
 }
 
-export function ActivityPanel({locale,state,onEnsure,onSave,onRead,onRefused,calendarSlot,initialSection='establishment',onNavigationStateChange,externalNavigationPending=false}:Props){
-  const a=appMessages[locale],hydrated=useHydrated()
+function useActivityEditorLifecycle({locale,state,onEnsure,onSave,onRead,onRefused,onNavigationStateChange,externalNavigationPending}:Pick<Props,'locale'|'state'|'onEnsure'|'onSave'|'onRead'|'onRefused'|'onNavigationStateChange'>&{externalNavigationPending:boolean}){
+  const hydrated=useHydrated()
   const [current,setCurrent]=useState(state),[editable,setEditable]=useState(()=>draft(state.configuration)),[pendingMode,setPendingMode]=useState<ActivityOperation|null>(null)
   const {saved,setSaved,conflict,setConflict,uncertain,setUncertain,latest,setLatest,error,setError,showError}=useActivitySaveFeedback(locale,()=>setCurrent(previous=>({...previous,localAudioAvailable:false})))
   const [hasPreparedAnswers,setHasPreparedAnswers]=useState(false)
@@ -269,6 +269,12 @@ export function ActivityPanel({locale,state,onEnsure,onSave,onRead,onRefused,cal
     if(pendingMode==='save'){setUncertain(true);setLatest(null)}
     setPendingMode(null)
   }
+  return {hydrated,current,editable,pendingMode,saved,uncertain,latest,error,reconcile,refused,setHasPreparedAnswers,edit,replaceDraft,persist,cancel}
+}
+
+export function ActivityPanel({locale,state,onEnsure,onSave,onRead,onRefused,calendarSlot,initialSection='establishment',onNavigationStateChange,externalNavigationPending=false}:Props){
+  const a=appMessages[locale]
+  const {hydrated,current,editable,pendingMode,saved,uncertain,latest,error,reconcile,refused,setHasPreparedAnswers,edit,replaceDraft,persist,cancel}=useActivityEditorLifecycle({locale,state,onEnsure,onSave,onRead,onRefused,onNavigationStateChange,externalNavigationPending})
   if(refused)return <PrivateUnavailable locale={locale} title={a.business}/>
   return <><div className="sparra-page-heading"><Heading level={1}>{a.business}</Heading><p>{activityMessages[locale].description}</p></div>
     <ActivityWorkspaceContent externalNavigationPending={externalNavigationPending} onPreparedAnswersChange={setHasPreparedAnswers} locale={locale} workspace={current.workspace} configuration={current.configuration} localAudioAvailable={current.localAudioAvailable} editable={editable} hydrated={hydrated} pending={pendingMode!==null} reconcile={reconcile} onEdit={edit} onEnsure={()=>void persist('ensure')} onSave={()=>void persist('save')} calendarSlot={calendarSlot} initialSection={initialSection}>

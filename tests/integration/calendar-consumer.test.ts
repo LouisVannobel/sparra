@@ -97,6 +97,50 @@ async function verifyEnterpriseCalendarIndependence({page,panel,rpc,stores,works
   return editedKnowledge
 }
 
+async function verifyCalendarConsentReturn(page:Page,origin:string,mode:string):Promise<void> {
+  await page.goto(origin + '/app/entreprise?lang=en')
+  await showActivitySection(page,'handling')
+  if(mode==='confirmed'){
+    await page.getByRole('button',{name:'Connect Google',exact:true}).click()
+    await page.waitForURL(url=>url.origin===origin&&url.pathname==='/app/entreprise'&&url.searchParams.get('calendar')==='failed'&&(!url.searchParams.has('lang')||url.searchParams.get('lang')==='fr'))
+    expect(await page.locator('html').getAttribute('lang')).toBe('fr')
+    await page.getByRole('status').filter({hasText:'La connexion Google n’a pas été confirmée. Réessayez.'}).waitFor()
+    expect(await page.locator('.sparra-guided-calendar').isVisible()).toBe(true)
+    expect(await page.getByRole('button',{name:'Traitement et outils',exact:true}).getAttribute('aria-current')).toBe('step')
+    await expect.poll(()=>page.locator('#calendar-heading').evaluate(element=>document.activeElement===element)).toBe(true)
+    // Start the second consent from normal EN entry. No section action is
+    // permitted after either callback: the return itself must reveal results.
+    await page.goto(origin+'/app/entreprise?lang=en');await showActivitySection(page,'handling')
+  }
+  await page.getByRole('button', { name: 'Connect Google', exact: true }).click()
+  await page.waitForURL(url=>url.origin===origin&&url.pathname==='/app/entreprise'&&url.searchParams.get('calendar')==='returned'&&url.searchParams.get('lang')==='en')
+  expect(await page.locator('html').getAttribute('lang')).toBe('en')
+  await page.getByText('Connected account : calendar-owner@example.test', { exact: true }).waitFor()
+  expect(await page.locator('.sparra-guided-calendar').isVisible()).toBe(true)
+  expect(await page.getByRole('button',{name:'Handling and tools',exact:true}).getAttribute('aria-current')).toBe('step')
+  await expect.poll(()=>page.locator('#calendar-heading').evaluate(element=>document.activeElement===element)).toBe(true)
+}
+
+async function verifyEmittedCalendarWorkerEntry(workerEnv:Parameters<typeof createCalendarWorkerResources>[0]):Promise<void> {
+  // Actual emitted entry: Calendar starts even though absent Hatchet config
+  // remains a separately visible failure. No mock replaces either lifecycle.
+  const child = spawn(process.execPath, ['--import', pathToFileURL(resolve('tests/helpers/mail-process.mjs')).href, resolve('.output/worker/index.mjs')], {
+    windowsHide: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc'], env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, TEMP: process.env.TEMP, TMP: process.env.TMP, NODE_ENV: 'test', ...workerEnv },
+  })
+  let output = ''
+  child.stdout!.on('data', chunk => { output += String(chunk) }); child.stderr!.on('data', chunk => { output += String(chunk) })
+  const exited = new Promise<number | null>((done, reject) => { child.once('error', reject); child.once('close', done) })
+  try {
+    await expect.poll(() => output.includes('Calendar worker ready'), { timeout: 15000 }).toBe(true)
+    expect(output).toContain('Application worker unavailable')
+    child.send('shutdown'); expect(await bounded(exited, 15000)).toBe(1)
+    expect(output).toContain('Application worker stopped')
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) { child.send('shutdown'); await bounded(exited, 15000).catch(() => { child.kill('SIGKILL') }) }
+    await bounded(exited, 6000)
+  }
+}
+
 test('compiled Calendar RPC exports are available to the authenticated native consumer', async () => {
   for (const name of ['getCalendar', 'beginCalendarConnection', 'saveCalendarPolicy', 'disconnectCalendar'] as const) {
     expect(await authRpcPath(name)).toMatch(/^\/_serverFn\/[a-f0-9]{64}$/)
@@ -157,27 +201,7 @@ test.each(['confirmed', 'lost-response-restart', 'no-ack', 'retry-after-no-ack',
     const read = await context.request.get(origin + await authRpcPath('getCalendar') + '?payload=' + encodeURIComponent(await rpcBody({})), { headers: { origin, 'sec-fetch-site': 'same-origin', 'x-tsr-serverFn': 'true' } })
     expect(read.status()).toBe(200); expect(read.headers()['cache-control']).toBe('no-store')
     expect((await context.request.post(origin + await authRpcPath('disconnectCalendar'), { headers: { origin: 'https://foreign.example.test', 'content-type': 'application/json', 'x-tsr-serverFn': 'true' }, data: await rpcBody({}) })).status()).toBe(403)
-    await page.goto(origin + '/app/entreprise?lang=en')
-    await showActivitySection(page,'handling')
-    if(mode==='confirmed'){
-      await page.getByRole('button',{name:'Connect Google',exact:true}).click()
-      await page.waitForURL(url=>url.origin===origin&&url.pathname==='/app/entreprise'&&url.searchParams.get('calendar')==='failed'&&(!url.searchParams.has('lang')||url.searchParams.get('lang')==='fr'))
-      expect(await page.locator('html').getAttribute('lang')).toBe('fr')
-      await page.getByRole('status').filter({hasText:'La connexion Google n’a pas été confirmée. Réessayez.'}).waitFor()
-      expect(await page.locator('.sparra-guided-calendar').isVisible()).toBe(true)
-      expect(await page.getByRole('button',{name:'Traitement et outils',exact:true}).getAttribute('aria-current')).toBe('step')
-      await expect.poll(()=>page.locator('#calendar-heading').evaluate(element=>document.activeElement===element)).toBe(true)
-      // Start the second consent from normal EN entry. No section action is
-      // permitted after either callback: the return itself must reveal results.
-      await page.goto(origin+'/app/entreprise?lang=en');await showActivitySection(page,'handling')
-    }
-    await page.getByRole('button', { name: 'Connect Google', exact: true }).click()
-    await page.waitForURL(url=>url.origin===origin&&url.pathname==='/app/entreprise'&&url.searchParams.get('calendar')==='returned'&&url.searchParams.get('lang')==='en')
-    expect(await page.locator('html').getAttribute('lang')).toBe('en')
-    await page.getByText('Connected account : calendar-owner@example.test', { exact: true }).waitFor()
-    expect(await page.locator('.sparra-guided-calendar').isVisible()).toBe(true)
-    expect(await page.getByRole('button',{name:'Handling and tools',exact:true}).getAttribute('aria-current')).toBe('step')
-    await expect.poll(()=>page.locator('#calendar-heading').evaluate(element=>document.activeElement===element)).toBe(true)
+    await verifyCalendarConsentReturn(page,origin,mode)
     const firstPolicy:SaveCalendarPolicy={ expectedRevision: 0, calendarId: 'fixture-calendar', enabled: true, policy: { version: 1, timeZone: 'Europe/Paris', services: [{ id: 'oil-change', name: 'Vidange', durationMinutes: 30 }], weeklyHours: [0,1,2,3,4,5,6].map(day => ({ day, ranges: [{ start: '09:00', end: '12:00' }] })), bufferMinutes: 0, noticeMinutes: 0 } }
     expect((await rpc('saveCalendarPolicy', firstPolicy)).status()).toBe(200)
     expect((await rpc('saveCalendarPolicy', {...firstPolicy,policy:{...firstPolicy.policy,services:[]}})).status()).toBe(400)
@@ -307,23 +331,7 @@ test.each(['confirmed', 'lost-response-restart', 'no-ack', 'retry-after-no-ack',
     expect(transport.stops).toBe(mode === 'lost-response-restart' || mode === 'selection-recovery' ? 2 : 1)
     await expect.poll(() => peer!.evidence()).toMatchObject({ activeClientSockets: 0, activeSockets: 0, activeRequests: 0, disallowed: 0 })
     if (mode === 'confirmed') {
-      // Actual emitted entry: Calendar starts even though absent Hatchet config
-      // remains a separately visible failure. No mock replaces either lifecycle.
-      const child = spawn(process.execPath, ['--import', pathToFileURL(resolve('tests/helpers/mail-process.mjs')).href, resolve('.output/worker/index.mjs')], {
-        windowsHide: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc'], env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, TEMP: process.env.TEMP, TMP: process.env.TMP, NODE_ENV: 'test', ...workerEnv },
-      })
-      let output = ''
-      child.stdout!.on('data', chunk => { output += String(chunk) }); child.stderr!.on('data', chunk => { output += String(chunk) })
-      const exited = new Promise<number | null>((done, reject) => { child.once('error', reject); child.once('close', done) })
-      try {
-        await expect.poll(() => output.includes('Calendar worker ready'), { timeout: 15000 }).toBe(true)
-        expect(output).toContain('Application worker unavailable')
-        child.send('shutdown'); expect(await bounded(exited, 15000)).toBe(1)
-        expect(output).toContain('Application worker stopped')
-      } finally {
-        if (child.exitCode === null && child.signalCode === null) { child.send('shutdown'); await bounded(exited, 15000).catch(() => { child.kill('SIGKILL') }) }
-        await bounded(exited, 6000)
-      }
+      await verifyEmittedCalendarWorkerEntry(workerEnv)
     }
   } catch (error) {
     functionalFailure = error
