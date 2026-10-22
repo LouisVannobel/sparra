@@ -183,13 +183,6 @@
       "when": 1792536703768,
       "tag": "0025_sparra_calendar_booking",
       "breakpoints": true
-    },
-    {
-      "idx": 26,
-      "version": "7",
-      "when": 1792612964611,
-      "tag": "0026_sparra_diagnostic_sector",
-      "breakpoints": true
     }
   ]
 }

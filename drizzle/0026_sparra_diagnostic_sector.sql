@@ -1,2 +1,0 @@
-ALTER TABLE "sparra_knowledge_revision" DROP CONSTRAINT "sparra_revision_sector";--> statement-breakpoint
-ALTER TABLE "sparra_knowledge_revision" ADD CONSTRAINT "sparra_revision_sector" CHECK ("sparra_knowledge_revision"."sector" in ('garage','controle-technique','diagnostic-immobilier'));

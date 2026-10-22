@@ -835,29 +835,40 @@ test('compiled native result DTO shows category and caller/provider/missing call
   }finally{await context.close()}
 },40000)
 
-test('diagnostic owner selects sector and optional questions explicitly, saves and reloads the same draft',async()=>{
-  const {context,page}=await signedIn('sparra-diagnostic-owner')
+test('current-sector owner saves explicit questions and reloads unchanged after an unsupported diagnostic write',async()=>{
+  const {context,page}=await signedIn('sparra-current-sector-owner')
   try{
     await page.goto(origin+'/app/entreprise?lang=en');await page.getByRole('button',{name:'Create my workspace'}).click()
-    await showActivitySection(page,'establishment');await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).fill('Diagnostic Martin')
+    await showActivitySection(page,'establishment');await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).fill('Centre guided boundary')
     await page.getByRole('combobox',{name:/^Sector/}).click()
-    await page.getByRole('option',{name:'Property diagnostics',exact:true}).click()
+    await page.getByRole('option',{name:'Garage',exact:true}).waitFor()
+    expect(await page.getByRole('option').allTextContents()).toEqual(['Garage','Vehicle inspection'])
+    await page.getByRole('option',{name:'Vehicle inspection',exact:true}).click()
     await showActivitySection(page,'knowledge')
-    await page.getByText('What type of property is concerned?',{exact:true}).waitFor()
+    await page.getByText('What type of vehicle is concerned?',{exact:true}).waitFor()
     const instructions=page.getByRole('textbox',{includeHidden:true,name:'Response instructions',exact:true})
     expect(await instructions.inputValue()).toBe('')
     expect(await page.getByRole('textbox',{includeHidden:true,name:'Frequently asked questions',exact:true}).inputValue()).toBe('')
-    await page.getByRole('button',{name:'Add to instructions : What type of property is concerned?',exact:true}).click()
-    expect(await instructions.inputValue()).toBe('What type of property is concerned?')
+    await page.getByRole('button',{name:'Add to instructions : What type of vehicle is concerned?',exact:true}).click()
+    expect(await instructions.inputValue()).toBe('What type of vehicle is concerned?')
     await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
-    await page.reload();expect(await instructions.inputValue()).toBe('What type of property is concerned?')
-    expect(await instructions.inputValue()).not.toContain('sale or a rental')
-    expect(await page.getByRole('combobox',{includeHidden:true,name:/^Sector/}).textContent()).toContain('Property diagnostics')
+    const workspace=(await stores.administrator.query('SELECT workspace_id FROM sparra_knowledge_revision WHERE business_name=$1',['Centre guided boundary'])).rows[0]
+    expect(workspace).toBeDefined()
+    const persisted=async()=>(await stores.administrator.query('SELECT to_jsonb(k) AS value FROM sparra_knowledge_revision k WHERE workspace_id=$1 ORDER BY revision',[workspace.workspace_id])).rows
+    const before=await persisted()
+    expect(before).toHaveLength(1)
+    expect(before[0].value).toMatchObject({revision:1,sector:'controle-technique',instructions:'What type of vehicle is concerned?'})
+    const refused=await rpc(context,'saveActivity',{expectedRevision:1,businessName:'Unsupported diagnostic',sector:'diagnostic-immobilier',knowledge:{openingHours:'',services:'',prices:'',faq:'',instructions:''},transferDestination:null,recordingEnabled:false})
+    expect(refused.status()).toBe(400)
+    expect(await persisted()).toEqual(before)
+    await page.reload();expect(await instructions.inputValue()).toBe('What type of vehicle is concerned?')
+    expect(await instructions.inputValue()).not.toContain('inspection or a retest')
+    expect(await page.getByRole('combobox',{includeHidden:true,name:/^Sector/}).textContent()).toContain('Vehicle inspection')
     await showActivitySection(page,'knowledge')
     await waitForActivityNavigation(page)
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
     expect((await new AxeBuilder({page}).analyze()).violations).toEqual([])
-    await page.screenshot({path:'.output/test-evidence/sparra/diagnostic-business-en-320.png',fullPage:true})
+    await page.screenshot({path:'.output/test-evidence/sparra/current-sectors-business-en-320.png',fullPage:true})
   }finally{await context.close()}
 },30000)
 
@@ -895,7 +906,7 @@ test.each(['fr','en'] as const)('guided sections in %s preserve draft and questi
     expect(await page.locator('.sparra-business-form').getByRole('button',{name:t.save,exact:true}).isEnabled()).toBe(false)
     await showActivitySection(page,'establishment')
     await page.getByRole('combobox',{name:new RegExp('^'+t.sector)}).click()
-    await page.getByRole('option',{name:getSectorPreset('diagnostic-immobilier',locale).label,exact:true}).click()
+    await page.getByRole('option',{name:getSectorPreset('controle-technique',locale).label,exact:true}).click()
     await showActivitySection(page,'knowledge')
     await page.getByText(t.previousQuestion,{exact:true}).waitFor()
     expect(await answer.inputValue()).toBe('Owner answer kept with the garage question')
@@ -903,7 +914,7 @@ test.each(['fr','en'] as const)('guided sections in %s preserve draft and questi
     expect(await faq.inputValue()).toBe(knowledge.faq);expect(await instructions.inputValue()).toBe(knowledge.instructions)
     await addAnswer.click()
     expect(await faq.inputValue()).toBe(knowledge.faq+'\n\n'+garageQuestion+'\nOwner answer kept with the garage question')
-    const intake=getSectorPreset('diagnostic-immobilier',locale).intakeQuestions[0]!
+    const intake=getSectorPreset('controle-technique',locale).intakeQuestions[0]!
     await page.getByRole('button',{name:t.addCallerQuestion+' : '+intake,exact:true}).click()
     expect(await instructions.inputValue()).toBe(knowledge.instructions+'\n\n'+intake)
     expect(saves).toBe(0)

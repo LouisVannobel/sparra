@@ -1,13 +1,13 @@
 import { expect, test } from 'vitest'
 import { sectorIds, getSectorPreset } from '../../src/modules/sparra/sectors'
 
-test('sector catalogue offers three unique supported trades in both locales', () => {
-  expect(sectorIds).toEqual(['garage','controle-technique','diagnostic-immobilier'])
-  expect(new Set(sectorIds).size).toBe(3)
+test('sector catalogue offers the two published trades in both locales', () => {
+  expect(sectorIds).toEqual(['garage','controle-technique'])
+  expect(new Set(sectorIds).size).toBe(2)
   expect(getSectorPreset('garage','fr').label).toBe('Garage')
   expect(getSectorPreset('controle-technique','en').label).toBe('Vehicle inspection')
-  expect(getSectorPreset('diagnostic-immobilier','fr').label).toBe('Diagnostic immobilier')
-  expect(getSectorPreset('diagnostic-immobilier','en').label).toBe('Property diagnostics')
+  expect(getSectorPreset('controle-technique','fr').label).toBe('Contrôle technique')
+  expect(getSectorPreset('garage','en').label).toBe('Garage')
 })
 test('presets supply only questions to complete, never fabricated business facts', () => {
   for(const locale of ['fr','en'] as const)for(const sector of sectorIds){
@@ -19,6 +19,6 @@ test('presets supply only questions to complete, never fabricated business facts
       expect(question).not.toMatch(/[€$£]|\d|certifi(?:é|ed)|guaranteed|garanti/i)
     }
   }
-  expect(getSectorPreset('diagnostic-immobilier','fr').intakeQuestions).toContain('Quel type de bien est concerné ?')
-  expect(getSectorPreset('diagnostic-immobilier','en').intakeQuestions).toContain('What type of property is concerned?')
+  expect(getSectorPreset('controle-technique','fr').intakeQuestions).toContain('Quel type de véhicule est concerné ?')
+  expect(getSectorPreset('controle-technique','en').intakeQuestions).toContain('What type of vehicle is concerned?')
 })

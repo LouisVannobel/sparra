@@ -31,8 +31,8 @@ test('all prepared FAQ answers survive sections, old sector and saved enterprise
   const {context,page}=await open();try{
     await section(page,1);const question=getSectorPreset('garage','fr').faqQuestions[0]!
     await page.getByRole('button',{name:question,exact:true}).click();await page.getByRole('textbox',{name:activityMessages.fr.ownerAnswer,exact:true}).fill('Prepared garage answer')
-    await section(page,0);await page.getByRole('combobox',{name:/^Secteur/}).click();await page.getByRole('option',{name:getSectorPreset('diagnostic-immobilier','fr').label,exact:true}).click()
-    await section(page,1);await page.getByRole('button',{name:getSectorPreset('diagnostic-immobilier','fr').faqQuestions[0]!,exact:true}).click()
+    await section(page,0);await page.getByRole('combobox',{name:/^Secteur/}).click();await page.getByRole('option',{name:getSectorPreset('controle-technique','fr').label,exact:true}).click()
+    await section(page,1);await page.getByRole('button',{name:getSectorPreset('controle-technique','fr').faqQuestions[0]!,exact:true}).click()
     await page.locator('.sparra-business-form').getByRole('button',{name:'Enregistrer',exact:true}).click();await page.getByText('Configuration enregistrée.',{exact:true}).waitFor()
     await declineLanguage(page);await section(page,0);await page.getByRole('combobox',{name:/^Secteur/}).click();await page.getByRole('option',{name:'Garage',exact:true}).click();await section(page,1);await page.getByRole('button',{name:question,exact:true}).click()
     expect(await page.getByRole('textbox',{name:activityMessages.fr.ownerAnswer,exact:true}).inputValue()).toBe('Prepared garage answer')
