@@ -103,7 +103,7 @@ test('worker image contains the pinned external runtime without a checkout', asy
     process.stdout.write(JSON.stringify({ schema_version: 1, postimages: inspect(fixture.postimages), assets: inspect(fixture.assets), dependencies,
       manifest: JSON.parse(fs.readFileSync('/app/worker-source-manifest.json', 'utf8')), node: process.versions.node }));
   `, JSON.stringify(fixture)]))
-  expect(actual).toEqual({ ...fixture, manifest: await workerSourceManifest(), node: '24.14.0' })
+  expect(actual).toEqual({ ...fixture, manifest: await workerSourceManifest(), node: '24.22.1' })
   const metadata = await stores.imageMetadata(app.id)
   expect(metadata.entrypoint).toEqual(['node', '.output/worker/index.mjs'])
   expect(metadata.readonly).toBe(true); expect(metadata.caps).toEqual(['ALL'])

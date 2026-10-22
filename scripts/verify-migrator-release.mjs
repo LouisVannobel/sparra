@@ -48,7 +48,7 @@ export async function verifyMigratorArtifact(inputDirectory,commit,phase='releas
   if(hashes.some(key=>receipt[key]!==wanted[key]))fail()
   const spdx=JSON.parse(await readFile(join(directory,'migrator-sbom.spdx.json'),'utf8'))
   admitSpdx(spdx)
-  await inspectMigrationArchive(join(directory,'migrator-image.tar'),receipt.image_id,{schema_version:1,node:'24.14.0',pnpm:'10.32.1',
+  await inspectMigrationArchive(join(directory,'migrator-image.tar'),receipt.image_id,{schema_version:1,node:'24.22.1',pnpm:'10.32.1',
     lock_sha256:wanted.lock_sha256,dockerfile_sha256:wanted.dockerfile_sha256,migration_source_sha256:wanted.migration_source_sha256},await migrationSourceFiles(),spdx)
   return receipt
 }

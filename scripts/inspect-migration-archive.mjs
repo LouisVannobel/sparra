@@ -195,7 +195,7 @@ function assertMigrationFiles(actualFiles,expectedManifest,expectedFiles) {
   if(JSON.stringify(Object.entries(manifest).sort())!==JSON.stringify(Object.entries(expectedManifest).sort()))fail()
   if(sha(actualFiles.get('app/pnpm-lock.yaml')??Buffer.alloc(0))!==expectedManifest.lock_sha256)fail()
   const packaged=json(actualFiles.get('app/package.json'))
-  if(packaged.engines?.node!=='24.14.0'||packaged.packageManager!=='pnpm@10.32.1')fail()
+  if(packaged.engines?.node!=='24.22.1'||packaged.packageManager!=='pnpm@10.32.1')fail()
   for(const [name,bytes]of expectedFiles){const actual=actualFiles.get('app/'+name);if(!actual||!actual.equals(bytes))fail()}
   const drizzle=[...actualFiles.keys()].filter(name=>name.startsWith('app/drizzle/'))
   if(drizzle.some(name=>!expectedFiles.has(name.slice(4))))fail()

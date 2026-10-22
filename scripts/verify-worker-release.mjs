@@ -31,7 +31,7 @@ export async function workerArtifactHashes(directory) {
 }
 function admitReceipt(receipt,commit,phase) {
   if(!exact(receipt,['schema_version','node_version','pnpm_version','commit',...hashes,'image_id','platform','run_id','checks'])
-    ||receipt.schema_version!==1||receipt.node_version!=='24.14.0'||receipt.pnpm_version!=='10.32.1'||receipt.commit!==commit||receipt.platform!=='linux/amd64')fail()
+    ||receipt.schema_version!==1||receipt.node_version!=='24.22.1'||receipt.pnpm_version!=='10.32.1'||receipt.commit!==commit||receipt.platform!=='linux/amd64')fail()
   if(typeof receipt.image_id!=='string'||!/^sha256:[0-9a-f]{64}$/.test(receipt.image_id)
     ||typeof receipt.run_id!=='string'||!receipt.run_id.trim()||receipt.run_id!==receipt.run_id.trim()||receipt.run_id.length>256)fail()
   if(hashes.some(key=>typeof receipt[key]!=='string'||!/^[0-9a-f]{64}$/.test(receipt[key])))fail()

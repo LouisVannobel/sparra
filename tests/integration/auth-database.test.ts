@@ -722,11 +722,11 @@ test('owned Redis restart is observed as unavailable and a fresh client can resu
   } finally { await limited.close() }
 })
 
-test.each(['SIGTERM', 'SIGINT'] as const)('Linux Node 24.14.0 receives real %s, drains and releases its store connections', async signal => {
+test.each(['SIGTERM', 'SIGINT'] as const)('Linux Node 24.22.1 receives real %s, drains and releases its store connections', async signal => {
   const redis = await observer()
   const redisClientsBefore = (await redis.clientList()).length
   const web = await stores.startWeb(signal.toLowerCase(), 800)
-  expect((await stores.command(web.id, ['node', '--version'])).trim()).toBe('v24.14.0')
+  expect((await stores.command(web.id, ['node', '--version'])).trim()).toBe('v24.22.1')
   const admin = await stores.poolAdmin()
   try {
     expect((await admin.query('SHOW CLIENTS')).rows.filter(row => row.user === 'runtime').length).toBeGreaterThan(0)
@@ -740,7 +740,7 @@ test.each(['SIGTERM', 'SIGINT'] as const)('Linux Node 24.14.0 receives real %s, 
     expect(await stores.waitWeb(web.id)).toBe(0)
     await expect.poll(async () => (await admin.query('SHOW CLIENTS')).rows.filter(row => row.user === 'runtime').length).toBe(0)
     await expect.poll(async () => (await redis.clientList()).length).toBe(redisClientsBefore)
-    stores.evidence[`linux:${signal}`] = { node: '24.14.0', exit: 0, drainedAfterSignal: true, poolClientsAfter: 0, redisClientsReleased: true }
+    stores.evidence[`linux:${signal}`] = { node: '24.22.1', exit: 0, drainedAfterSignal: true, poolClientsAfter: 0, redisClientsReleased: true }
   } finally { await admin.end(); await redis.close() }
 })
 

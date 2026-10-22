@@ -86,7 +86,7 @@ test.each(['unsupported','malformed-gzip','visitor-refusal','source-error'] as c
   mock.method(zlib,'createGunzip',(...args:Parameters<typeof zlib.createGunzip>)=>{const inflater=originalGunzip(...args);inflaters.push(inflater);return inflater})
   syncBuiltinESMExports()
   try{
-    const expected={schema_version:1,node:'24.14.0',pnpm:'10.32.1',lock_sha256:receipt.lock_sha256,dockerfile_sha256:receipt.dockerfile_sha256,migration_source_sha256:receipt.migration_source_sha256}
+    const expected={schema_version:1,node:'24.22.1',pnpm:'10.32.1',lock_sha256:receipt.lock_sha256,dockerfile_sha256:receipt.dockerfile_sha256,migration_source_sha256:receipt.migration_source_sha256}
     const operation=archive.inspectMigrationArchive(join(directory,'migrator-image.tar'),receipt.image_id,expected,expectedFiles,JSON.parse(await readFile(join(directory,'migrator-sbom.spdx.json'),'utf8')))
     if(scenario==='source-error')await expect(operation).rejects.toBe(fault)
     else await expect(operation).rejects.toThrow()

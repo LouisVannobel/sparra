@@ -322,7 +322,7 @@ function nativeCoverageFixture(activityAfterAll = '',recordingAfterAll = '') {
   for(const name of ['App.tsx','main.tsx','unused.ts'])rmSync(join(root,'src',name))
   for(const directory of ['scripts','tests/integration','tests/helpers','src/modules/auth','drizzle','public','.output/server','.output/public','.output/worker','coverage'])mkdirSync(join(root,directory),{recursive:true})
   const packageFile=join(root,'package.json'),metadata=JSON.parse(readFileSync(join(repositoryRoot,'package.json'),'utf8'))
-  writeFileSync(packageFile,JSON.stringify({name:'native-coverage-canary',private:true,type:'module',engines:metadata.engines,devDependencies:{vitest:'4.1.11','@vitest/coverage-istanbul':'4.1.11'}}))
+  writeFileSync(packageFile,JSON.stringify({name:'native-coverage-canary',private:true,type:'module',engines:metadata.engines,devDependencies:{vitest:'4.1.12','@vitest/coverage-istanbul':'4.1.12'}}))
   writeFileSync(join(root,'pnpm-lock.yaml'),'lockfileVersion: 9.0\n')
   for(const config of ['vitest.config.ts','vitest.integration.config.ts'])writeFileSync(join(root,config),readFileSync(join(repositoryRoot,config)))
   // Runner-wiring adapter only; the canonical prerequisite has separate native
@@ -415,7 +415,7 @@ test('native_activity_blob_admits_twelve_complete_pass_cases_and_refuses_missing
     expect(table[Number(task.type)]).toBe('test')
     expect(table[Number(table[Number(task.result)].state)]).toBe('pass')
   }
-  expect(()=>readNativeBlob(blob,'activity',root,startedAt,'4.1.11')).not.toThrow()
+  expect(()=>readNativeBlob(blob,'activity',root,startedAt,'4.1.12')).not.toThrow()
   for(const count of [11,13]) {
     const changed=JSON.parse(bytes.toString('utf8')),cases=changed[tasksIndex]
     if(count===11)cases.pop()
@@ -424,7 +424,7 @@ test('native_activity_blob_admits_twelve_complete_pass_cases_and_refuses_missing
     expect(changed.filter((_:unknown,index:number)=>index!==tasksIndex)).toEqual(table.filter((_:unknown,index:number)=>index!==tasksIndex))
     const refusal=join(root,'coverage/activity-'+count+'.json')
     writeFileSync(refusal,JSON.stringify(changed))
-    expect(()=>readNativeBlob(refusal,'activity',root,startedAt,'4.1.11'),String(count)+' complete PASS cases').toThrow('Native coverage test cardinality mismatch')
+    expect(()=>readNativeBlob(refusal,'activity',root,startedAt,'4.1.12'),String(count)+' complete PASS cases').toThrow('Native coverage test cardinality mismatch')
   }
   expect(readFileSync(blob)).toEqual(bytes)
 },25000)
@@ -435,7 +435,7 @@ test('native_billing_blob_admits_exact_nine_consumers_and_91_leaves',()=>{
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   const bytes=readFileSync(blob),table=JSON.parse(bytes.toString('utf8')),files=table[Number(table[0][1])]
   expect(files).toHaveLength(9)
-  expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.11')).not.toThrow()
+  expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.12')).not.toThrow()
   function blobWithRefusedBillingLeaves(tasksIndex:number,leafCount:number,kind:'missing'|'extra'|'duplicate'|'renamed'|'reordered'|'skipped'|'failed') {
     const changed=JSON.parse(bytes.toString('utf8')),cases=changed[tasksIndex]
     switch(kind){
@@ -467,16 +467,16 @@ test('native_billing_blob_admits_exact_nine_consumers_and_91_leaves',()=>{
       if(kind==='reordered'&&names.length===1)continue
       const changed=blobWithRefusedBillingLeaves(tasksIndex,names.length,kind)
       const refused=join(root,'coverage/billing-refused.json');writeFileSync(refused,JSON.stringify(changed))
-      expect(()=>readNativeBlob(refused,'billing',root,startedAt,'4.1.11'),filename+':'+kind).toThrow()
+      expect(()=>readNativeBlob(refused,'billing',root,startedAt,'4.1.12'),filename+':'+kind).toThrow()
     }
   }
   for(const kind of ['missing','extra','duplicate','foreign'] as const){
     const changed=blobWithRefusedBillingConsumers(kind)
     const refused=join(root,'coverage/billing-refused.json');writeFileSync(refused,JSON.stringify(changed))
-    expect(()=>readNativeBlob(refused,'billing',root,startedAt,'4.1.11'),kind).toThrow('Native billing blob has an unexpected consumer')
+    expect(()=>readNativeBlob(refused,'billing',root,startedAt,'4.1.12'),kind).toThrow('Native billing blob has an unexpected consumer')
   }
-  expect(()=>readNativeBlob(blob,'billing',root,Date.now()+60000,'4.1.11')).toThrow('Native coverage blob is stale or invalid')
-  expect(()=>readNativeBlob(blob,'billing',join(root,'foreign-root'),startedAt,'4.1.11')).toThrow('Native blob source root mismatch')
+  expect(()=>readNativeBlob(blob,'billing',root,Date.now()+60000,'4.1.12')).toThrow('Native coverage blob is stale or invalid')
+  expect(()=>readNativeBlob(blob,'billing',join(root,'foreign-root'),startedAt,'4.1.12')).toThrow('Native blob source root mismatch')
   expect(readFileSync(blob)).toEqual(bytes)
 },25000)
 
@@ -548,7 +548,7 @@ test('native_billing_gate_refuses_the_previous_three_consumer_25_leaf_run',()=>{
   expect(report.numTotalTests).toBe(25);expect(report.numPassedTests).toBe(25)
   expect(report.testResults).toHaveLength(3)
   expect(()=>assertBillingReport(report,root)).toThrow('Native Billing requires its exact nine consumers and 91 passing leaves')
-  expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.11')).toThrow('Native billing blob has an unexpected consumer')
+  expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.12')).toThrow('Native billing blob has an unexpected consumer')
 },25000)
 
 test('native_billing_gate_refuses_the_previous_four_consumer_34_leaf_run',()=>{
@@ -563,7 +563,7 @@ test('native_billing_gate_refuses_the_previous_four_consumer_34_leaf_run',()=>{
   expect(report.numTotalTests).toBe(34);expect(report.numPassedTests).toBe(34)
   expect(report.testResults).toHaveLength(4)
   expect(()=>assertBillingReport(report,root)).toThrow('Native Billing requires its exact nine consumers and 91 passing leaves')
-  expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.11')).toThrow('Native billing blob has an unexpected consumer')
+  expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.12')).toThrow('Native billing blob has an unexpected consumer')
 },25000)
 
 test('native_billing_gate_refuses_the_previous_five_consumer_40_leaf_run',()=>{
@@ -578,7 +578,7 @@ test('native_billing_gate_refuses_the_previous_five_consumer_40_leaf_run',()=>{
   expect(report.numTotalTests).toBe(40);expect(report.numPassedTests).toBe(40)
   expect(report.testResults).toHaveLength(5)
   expect(()=>assertBillingReport(report,root)).toThrow('Native Billing requires its exact nine consumers and 91 passing leaves')
-  expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.11')).toThrow('Native billing blob has an unexpected consumer')
+  expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.12')).toThrow('Native billing blob has an unexpected consumer')
 },25000)
 
 test('native_billing_gate_refuses_the_previous_seven_consumer_45_leaf_run',()=>{
@@ -592,7 +592,7 @@ test('native_billing_gate_refuses_the_previous_seven_consumer_45_leaf_run',()=>{
   expect(report.numTotalTests).toBe(45);expect(report.numPassedTests).toBe(45)
   expect(report.testResults).toHaveLength(7)
   expect(()=>assertBillingReport(report,root)).toThrow('Native Billing requires its exact nine consumers and 91 passing leaves')
-  expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.11')).toThrow('Native billing blob has an unexpected consumer')
+  expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.12')).toThrow('Native billing blob has an unexpected consumer')
 },25000)
 
 test('native_billing_gate_refuses_the_previous_eight_consumer_55_leaf_run',()=>{
@@ -604,7 +604,7 @@ test('native_billing_gate_refuses_the_previous_eight_consumer_55_leaf_run',()=>{
   expect(report.numTotalTests).toBe(55);expect(report.numPassedTests).toBe(55)
   expect(report.testResults).toHaveLength(8)
   expect(()=>assertBillingReport(report,root)).toThrow('Native Billing requires its exact nine consumers and 91 passing leaves')
-  expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.11')).toThrow('Native billing blob has an unexpected consumer')
+  expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.12')).toThrow('Native billing blob has an unexpected consumer')
 },25000)
 
 test('native_requests_blob_admits_exact_five_consumers_and_40_leaves_without_losing_original_eight',()=>{
@@ -612,7 +612,7 @@ test('native_requests_blob_admits_exact_five_consumers_and_40_leaves_without_los
   const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...requestConsumerPaths,'--maxWorkers=1','--coverage','--reporter=blob','--outputFile.blob='+blob,'--coverage.reportsDirectory='+join(root,'coverage/requests')],requestCanaryEnvironment(root))
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   const bytes=readFileSync(blob),table=JSON.parse(bytes.toString('utf8'))
-  expect(()=>readNativeBlob(blob,'requests',root,startedAt,'4.1.11')).not.toThrow()
+  expect(()=>readNativeBlob(blob,'requests',root,startedAt,'4.1.12')).not.toThrow()
   const files=table[Number(table[0][1])]
   expect(files).toHaveLength(5)
   for(const [filename,names] of requestConsumerNames){
@@ -623,7 +623,7 @@ test('native_requests_blob_admits_exact_five_consumers_and_40_leaves_without_los
       const changed=JSON.parse(bytes.toString('utf8')),cases=changed[tasksIndex]
       if(delta<0)cases.pop();else cases.push(cases[0])
       const path=join(root,'coverage/requests-refused.json');writeFileSync(path,JSON.stringify(changed))
-      expect(()=>readNativeBlob(path,'requests',root,startedAt,'4.1.11')).toThrow('Native coverage test cardinality mismatch')
+      expect(()=>readNativeBlob(path,'requests',root,startedAt,'4.1.12')).toThrow('Native coverage test cardinality mismatch')
     }
     for(const [kind,mutate] of [
       ['duplicate',(changed:typeof table)=>{const cases=changed[tasksIndex];cases[1]=cases[0]}],
@@ -634,7 +634,7 @@ test('native_requests_blob_admits_exact_five_consumers_and_40_leaves_without_los
       const changed=JSON.parse(bytes.toString('utf8'))
       mutate(changed)
       const path=join(root,'coverage/requests-refused.json');writeFileSync(path,JSON.stringify(changed))
-      expect(()=>readNativeBlob(path,'requests',root,startedAt,'4.1.11'),filename+':'+kind).toThrow()
+      expect(()=>readNativeBlob(path,'requests',root,startedAt,'4.1.12'),filename+':'+kind).toThrow()
     }
   }
   for(const kind of ['missing','duplicate','foreign'] as const){
@@ -643,7 +643,7 @@ test('native_requests_blob_admits_exact_five_consumers_and_40_leaves_without_los
     else if(kind==='duplicate')consumers[1]=consumers[0]
     else changed[Number(table[Number(consumers[0])].filepath)]=join(root,'tests/integration/sparra-activity.test.ts').replaceAll('\\','/')
     const path=join(root,'coverage/requests-refused.json');writeFileSync(path,JSON.stringify(changed))
-    expect(()=>readNativeBlob(path,'requests',root,startedAt,'4.1.11'),kind).toThrow('Native requests blob has an unexpected consumer')
+    expect(()=>readNativeBlob(path,'requests',root,startedAt,'4.1.12'),kind).toThrow('Native requests blob has an unexpected consumer')
   }
   expect(readFileSync(blob)).toEqual(bytes)
 },25000)
@@ -844,28 +844,28 @@ test('native_blob_coverage_keeps_additive_counts_zero_entries_and_source_geometr
   } finally {rmSync(ownedLink)}
   expect(()=>assertRunTree(coverageDirectory)).not.toThrow()
   expect(readFileSync(witness)).toEqual(witnessBytes)
-  const nativeOrdinary=readNativeBlob(ordinaryPath,'ordinary',root,startedAt,'4.1.11'),nativeActivity=readNativeBlob(activityPath,'activity',root,startedAt,'4.1.11')
+  const nativeOrdinary=readNativeBlob(ordinaryPath,'ordinary',root,startedAt,'4.1.12'),nativeActivity=readNativeBlob(activityPath,'activity',root,startedAt,'4.1.12')
   expect(nativeOrdinary.digest).toBe(createHash('sha256').update(readFileSync(ordinaryPath)).digest('hex'))
   expect(nativeActivity.digest).toBe(createHash('sha256').update(readFileSync(activityPath)).digest('hex'))
   expect(()=>admitCommonGeometry(nativeOrdinary,nativeActivity)).not.toThrow()
-  expect(()=>readNativeBlob(ordinaryPath,'ordinary',root,Date.now()+60000,'4.1.11')).toThrow('Native coverage blob is stale or invalid')
-  expect(()=>readNativeBlob(ordinaryPath,'ordinary',join(root,'foreign-root'),startedAt,'4.1.11')).toThrow('Native blob source root mismatch')
-  expect(()=>readNativeBlob(ordinaryPath,'activity',root,startedAt,'4.1.11')).toThrow('Native activity blob has an unexpected consumer')
+  expect(()=>readNativeBlob(ordinaryPath,'ordinary',root,Date.now()+60000,'4.1.12')).toThrow('Native coverage blob is stale or invalid')
+  expect(()=>readNativeBlob(ordinaryPath,'ordinary',join(root,'foreign-root'),startedAt,'4.1.12')).toThrow('Native blob source root mismatch')
+  expect(()=>readNativeBlob(ordinaryPath,'activity',root,startedAt,'4.1.12')).toThrow('Native activity blob has an unexpected consumer')
   const refusal=join(root,'coverage/direct-refusal.json')
   const foreign=JSON.parse(readFileSync(ordinaryPath,'utf8')),foreignFiles=foreign[Number(foreign[0][1])],foreignFile=foreign[Number(foreignFiles[0])]
   foreign[Number(foreignFile.filepath)]=process.platform==='win32'?'D:/sparra-foreign/ordinary.test.ts':'/sparra-foreign/ordinary.test.ts'
   writeFileSync(refusal,JSON.stringify(foreign))
-  expect(()=>readNativeBlob(refusal,'ordinary',root,startedAt,'4.1.11')).toThrow('Native blob source root mismatch')
+  expect(()=>readNativeBlob(refusal,'ordinary',root,startedAt,'4.1.12')).toThrow('Native blob source root mismatch')
   const alias=JSON.parse(readFileSync(ordinaryPath,'utf8')),aliasCoverage=alias[Number(alias[0][3])],key=Object.keys(aliasCoverage).find(path=>path.endsWith('/src/covered.ts'))!
   aliasCoverage[key+'.alias']=aliasCoverage[key];delete aliasCoverage[key]
   writeFileSync(refusal,JSON.stringify(alias))
-  expect(()=>readNativeBlob(refusal,'ordinary',root,startedAt,'4.1.11')).toThrow('Native coverage record identity mismatch')
+  expect(()=>readNativeBlob(refusal,'ordinary',root,startedAt,'4.1.12')).toThrow('Native coverage record identity mismatch')
   for(const field of ['statementMap','fnMap','branchMap']) {
     const changed=JSON.parse(readFileSync(ordinaryPath,'utf8')),entries=changed[Number(changed[0][3])],record=changed[Number(entries[key])],geometry=changed[Number(record[field])]
     const location=changed[Number(geometry['0'])]
     location.directConsumerMetadata=1
     writeFileSync(refusal,JSON.stringify(changed))
-    const admitted=readNativeBlob(refusal,'ordinary',root,startedAt,'4.1.11')
+    const admitted=readNativeBlob(refusal,'ordinary',root,startedAt,'4.1.12')
     expect(()=>admitCommonGeometry(admitted,nativeActivity)).toThrow('Native coverage common-file geometry mismatch')
   }
   const merge=(directory:string)=>runNativeCoverage(root,['--config','vitest.config.ts','--coverage','--mergeReports='+directory,'--reporter=default','--coverage.reportsDirectory='+final])
@@ -885,12 +885,12 @@ test('native_blob_coverage_keeps_additive_counts_zero_entries_and_source_geometr
   const empty=join(root,'coverage/empty');mkdirSync(empty)
   for(const directory of [empty,join(root,'coverage/missing')])expect(merge(directory).status).not.toBe(0)
   writeFileSync(join(single,'ordinary.json'),'invalid blob')
-  expect(()=>readNativeBlob(join(single,'ordinary.json'),'ordinary',root,startedAt,'4.1.11')).toThrow()
+  expect(()=>readNativeBlob(join(single,'ordinary.json'),'ordinary',root,startedAt,'4.1.12')).toThrow()
   expect(merge(single).status).not.toBe(0)
   const incompatible=JSON.parse(readFileSync(join(blobs,'ordinary.json'),'utf8'))
   incompatible[Number(incompatible[0][0])]='0.0.0'
   writeFileSync(join(single,'ordinary.json'),JSON.stringify(incompatible))
-  expect(()=>readNativeBlob(join(single,'ordinary.json'),'ordinary',root,startedAt,'4.1.11')).toThrow('Native coverage blob version mismatch')
+  expect(()=>readNativeBlob(join(single,'ordinary.json'),'ordinary',root,startedAt,'4.1.12')).toThrow('Native coverage blob version mismatch')
   expect(merge(single).status).not.toBe(0)
   const ordinaryTest=join(root,'tests/ordinary.test.ts')
   writeFileSync(ordinaryTest,readFileSync(ordinaryTest,'utf8').replace('.toBe(7)','.toBe(9)'))
@@ -1358,7 +1358,7 @@ test('native_complexity_comment_is_function_scoped_and_expires_on_content_or_cou
   expect(broadened.report.verdict).toBe('pass')
   expect(()=>reviewedSyntheticScenario()).toThrow('Synthetic exception target or marker count expired')
   const fixturePackage=join(root,'package.json')
-  writeFileSync(fixturePackage,readFileSync(fixturePackage,'utf8').replace('"vite":"8.2.2"','"vite":"8.2.2","vitest":"4.1.11"'))
+  writeFileSync(fixturePackage,readFileSync(fixturePackage,'utf8').replace('"vite":"8.2.2"','"vite":"8.2.2","vitest":"4.1.12"'))
   mkdirSync(join(root,'tests'))
   const testPath=join(root,'tests/scenario.test.ts')
   const callback=`async()=>{\n  const values = [1, 2, 3];${scenario.slice(scenario.indexOf('{')+1).trimEnd()}`
@@ -1651,10 +1651,10 @@ test('native_calendar_blob_rejects_stale_missing_duplicate_foreign_and_incomplet
   const root=nativeCoverageFixture(),startedAt=Date.now(),blob=join(root,'coverage/calendar.json'),report=join(root,'coverage/calendar-report.json')
   const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...calendarConsumerNames.map(([file])=>'tests/integration/'+file),'--maxWorkers=1','--coverage','--reporter=json','--reporter=blob','--outputFile.json='+report,'--outputFile.blob='+blob,'--coverage.reportsDirectory='+join(root,'coverage/calendar')])
   expect(result.error,result.stdout+result.stderr).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
-  expect(()=>readNativeBlob(blob,'calendar',root,startedAt,'4.1.11')).not.toThrow()
+  expect(()=>readNativeBlob(blob,'calendar',root,startedAt,'4.1.12')).not.toThrow()
   expect(()=>assertCalendarQualification(report,root,startedAt)).not.toThrow()
   expect(()=>assertCalendarQualification(report,root,Date.now()+60000)).toThrow()
-  expect(()=>readNativeBlob(blob,'calendar',root,Date.now()+60000,'4.1.11')).toThrow()
+  expect(()=>readNativeBlob(blob,'calendar',root,Date.now()+60000,'4.1.12')).toThrow()
   const original=JSON.parse(readFileSync(blob,'utf8')),refused=join(root,'coverage/calendar-refused.json')
   for(const kind of ['missing-file','duplicate-file','foreign-file','missing-leaf','duplicate-leaf','skipped','failed'] as const){
     const table=structuredClone(original),files=table[Number(table[0][1])],file=table[Number(files[0])],tasks=table[Number(file.tasks)]
@@ -1665,7 +1665,7 @@ test('native_calendar_blob_rejects_stale_missing_duplicate_foreign_and_incomplet
     if(kind==='duplicate-leaf')tasks[1]=tasks[0]
     if(kind==='skipped'||kind==='failed')table[Number(table[Number(table[Number(tasks[0])].result)].state)]=kind
     writeFileSync(refused,JSON.stringify(table))
-    expect(()=>readNativeBlob(refused,'calendar',root,startedAt,'4.1.11'),kind).toThrow()
+    expect(()=>readNativeBlob(refused,'calendar',root,startedAt,'4.1.12'),kind).toThrow()
   }
 },25000)
 

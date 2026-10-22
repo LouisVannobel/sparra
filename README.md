@@ -25,7 +25,7 @@ commerce and the reusable template derivations remain incomplete.
 
 ## Install and build
 
-Use the exact repository pins: Node.js `24.14.0` and pnpm `10.32.1`.
+Use the exact repository pins: Node.js `24.22.1` and pnpm `10.32.1`.
 
 ```text
 pnpm install --frozen-lockfile
@@ -301,7 +301,7 @@ Run `pnpm build` first. Browser tests additionally require
 `pnpm exec playwright install chromium`; TLS fixtures require OpenSSL. The
 integration suite requires the local `desktop-linux` Docker Desktop context and a
 Linux/amd64 engine, creates only labeled disposable PostgreSQL `16.15`, PgBouncer
-`1.25.2`, Redis `7.2.16`, Node `24.14.0` and Hatchet resources, and reads no
+`1.25.2`, Redis `7.2.16`, Node `24.22.1` and Hatchet resources, and reads no
 existing `.env`. These fixtures are local evidence, not a supported deployment
 topology.
 
