@@ -166,6 +166,14 @@ test('revised policy and authority/PII injection fail closed', async () => {
 const work = async (name: string, args: unknown[] = []) =>
   (await worker.query(`SELECT app_private.${name}(${args.map((_, i) => '$' + (i + 1)).join(',')}) v`, args))
     .rows[0].v
+async function expireForImmediateClaim(id: string, observedAt: string | null = null) {
+  await stores.administrator.query(
+    `WITH observed AS (SELECT coalesce($2::timestamptz,clock_timestamp()) AS at)
+    UPDATE sparra_calendar_command SET lease_until=observed.at-interval '1 second',retry_at=date_trunc('milliseconds',observed.at)
+    FROM observed WHERE id=$1`,
+    [id, observedAt],
+  )
+}
 async function offer(id: string, start = new Date(Date.now() + 86400000).toISOString()) {
   const op = randomUUID(),
     end = new Date(Date.parse(start) + 1800000).toISOString()
@@ -301,10 +309,14 @@ test('overlapping distinct starts cannot both reserve; unknown keeps the interva
       confirmation: await confirmation(y),
     }),
   ).rejects.toThrow()
-  await stores.administrator.query(
-    "UPDATE sparra_calendar_command SET lease_until=clock_timestamp()-interval '1 second',retry_at=clock_timestamp() WHERE id=$1;",
-    [op],
-  )
+  // timestamp(3) rounds this instant forward; an expired fixture must already be due.
+  const boundary = '2026-10-22T09:13:17.000600Z'
+  await expireForImmediateClaim(op, boundary)
+  expect((await stores.administrator.query(
+    'SELECT retry_at<=$2::timestamptz AS due FROM sparra_calendar_command WHERE id=$1',
+    [op, boundary],
+  )).rows[0].due).toBe(true)
+  await expireForImmediateClaim(op)
   const replacement = await work('calendar_claim_v1')
   expect(replacement.possibleSendFence).toBe(q.fence)
   expect(replacement.fence).toBe(q.fence + 1)

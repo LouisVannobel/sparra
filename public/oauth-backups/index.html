@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>projetV0 Backups</title>
+  <style>body{font:18px/1.6 system-ui,sans-serif;max-width:720px;margin:48px auto;padding:0 24px;color:#202124;background:#fff}a{color:#1759ab}nav{display:flex;flex-wrap:wrap;gap:8px 24px}h1,h2{line-height:1.25}h2{margin-top:32px;font-size:1.3em}footer{margin-top:40px;border-top:1px solid #dadce0;padding-top:16px;font-size:.9em}code{overflow-wrap:anywhere}</style>
+</head>
+<body>
+  <nav aria-label="Pages projetV0 Backups">
+    <a href="/oauth-backups/index.html" aria-current="page">Accueil</a>
+    <a href="/oauth-backups/privacy.html">Confidentialité</a>
+    <a href="/oauth-backups/terms.html">Conditions d’utilisation</a>
+  </nav>
+  <main>
+    <h1>projetV0 Backups</h1>
+    <p>projetV0 Backups est un utilitaire privé de sauvegarde de l’infrastructure projetV0, administré par Louis Vannobel pour ses propres sauvegardes. Il ne propose pas d’inscription au public.</p>
+    <h2>Fonctionnement</h2>
+    <p>L’utilitaire copie un dépôt de sauvegardes vers le compte Google Drive autorisé de l’exploitant et vérifie les copies. Le contenu des sauvegardes est chiffré par Restic sur le serveur avant son transfert vers Google Drive.</p>
+    <h2>Connexion à Google Drive</h2>
+    <p>Le client OAuth utilise la permission <code>drive.file</code> pour créer, consulter et gérer les fichiers de sauvegarde utilisés avec cette application. Cette permission vise les fichiers créés par l’application ou explicitement ouverts ou partagés avec elle ; elle ne donne pas accès à l’ensemble des fichiers du compte.</p>
+    <p>Les données reçues des API Google servent uniquement à la sauvegarde et à la vérification. La <a href="/oauth-backups/privacy.html">politique de confidentialité</a> décrit leur utilisation, leur conservation et le retrait de l’autorisation.</p>
+  </main>
+  <footer>
+    <p>Exploitant et contact : <a href="https://github.com/LouisVannobel">Louis Vannobel sur GitHub</a>.</p>
+    <p>Ces informations concernent uniquement projetV0 Backups. Mise à jour : 22 octobre 2026.</p>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Confidentialité — projetV0 Backups</title>
+  <style>body{font:18px/1.6 system-ui,sans-serif;max-width:720px;margin:48px auto;padding:0 24px;color:#202124;background:#fff}a{color:#1759ab}nav{display:flex;flex-wrap:wrap;gap:8px 24px}h1,h2{line-height:1.25}h2{margin-top:32px;font-size:1.3em}footer{margin-top:40px;border-top:1px solid #dadce0;padding-top:16px;font-size:.9em}code{overflow-wrap:anywhere}</style>
+</head>
+<body>
+  <nav aria-label="Pages projetV0 Backups">
+    <a href="/oauth-backups/index.html">Accueil</a>
+    <a href="/oauth-backups/privacy.html" aria-current="page">Confidentialité</a>
+    <a href="/oauth-backups/terms.html">Conditions d’utilisation</a>
+  </nav>
+  <main>
+    <h1>Confidentialité — projetV0 Backups</h1>
+    <h2>Fonction et autorisation</h2>
+    <p>Cette application privée permet à l’exploitant de copier et vérifier ses sauvegardes dans son compte Google Drive. La permission <code>drive.file</code> permet de créer, consulter et gérer les fichiers créés par l’application ou explicitement ouverts ou partagés avec elle. Elle ne donne pas accès à l’ensemble des fichiers du compte.</p>
+    <h2>Données et stockage</h2>
+    <p>Le contenu des sauvegardes est chiffré par Restic sur le serveur avant sa copie vers Google Drive. La copie transfère les objets du dépôt et les métadonnées nécessaires à leur stockage et à leur vérification. Google reçoit ces objets dans le compte autorisé ; aucune localisation exclusivement française du stockage Google Drive n’est annoncée.</p>
+    <p>Les informations d’autorisation OAuth restent dans la configuration du serveur, avec un accès restreint à l’administrateur. Elles servent aux opérations prévues de copie et de vérification et ne sont pas publiées dans les sources ou les rapports.</p>
+    <h2>Utilisation et conservation</h2>
+    <p>L’exploitant utilise les données reçues des API Google uniquement pour la sauvegarde et la vérification. Elles ne servent pas à la publicité ou à l’entraînement de modèles d’intelligence artificielle.</p>
+    <p>La copie hors site actuelle ne supprime pas les objets distants. Leur conservation et leur suppression relèvent du propriétaire du compte et de sa politique de sauvegarde.</p>
+    <h2>Retirer l’accès</h2>
+    <p>Le propriétaire peut retirer l’autorisation dans les <a href="https://myaccount.google.com/connections">connexions de son compte Google</a>. La révocation empêche les prochaines opérations ; elle ne supprime pas les sauvegardes déjà copiées. Ces fichiers restent gérables directement dans Google Drive.</p>
+  </main>
+  <footer>
+    <p>Exploitant et contact : <a href="https://github.com/LouisVannobel">Louis Vannobel sur GitHub</a>.</p>
+    <p>Ces informations concernent uniquement projetV0 Backups. Mise à jour : 22 octobre 2026.</p>
+  </footer>
+</body>
+</html>
