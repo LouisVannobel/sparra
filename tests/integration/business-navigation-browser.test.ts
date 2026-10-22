@@ -1,18 +1,14 @@
 import { afterAll,beforeAll,expect,test } from 'vitest'
-import { createServer,type ViteDevServer } from 'vite'
-import react from '@vitejs/plugin-react'
-import { chromium,type Browser,type Page } from 'playwright'
+import { type Page } from 'playwright'
 import { activityMessages } from '../../src/modules/sparra/messages'
 import { getSectorPreset } from '../../src/modules/sparra/sectors'
-let server:ViteDevServer,browser:Browser,origin:string
-beforeAll(async()=>{
-  server=await createServer({configFile:false,envDir:false,plugins:[react()],logLevel:'error',server:{host:'127.0.0.1',port:0}})
-  await server.listen();const address=server.httpServer!.address();if(!address||typeof address==='string')throw new Error('Fixture listener missing')
-  origin=`http://127.0.0.1:${address.port}`;browser=await chromium.launch({headless:true})
-})
-afterAll(async()=>{try{await browser?.close()}finally{await server?.close()}})
+import { createGuidedBrowserFixture } from '../helpers/guided-browser-coverage'
+const fixture=createGuidedBrowserFixture('business-navigation')
+let origin:string
+beforeAll(async()=>{await fixture.start();origin=fixture.origin})
+afterAll(async()=>{await fixture.close()})
 async function open(mode='',lang:'fr'|'en'='fr'){
-  const context=await browser.newContext(),page=await context.newPage();page.setDefaultTimeout(5000)
+  const {context,page}=await fixture.newPage();page.setDefaultTimeout(5000)
   await context.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort())
   await page.goto(origin+'/tests/helpers/business-navigation.html?lang='+lang+'&mode='+mode)
   await page.getByRole('textbox',{name:new RegExp('^'+activityMessages[lang].businessName)}).waitFor()
@@ -30,7 +26,7 @@ test('immediate edit then language decline retains draft; accepted departure exp
     const name=page.getByRole('textbox',{name:/^Nom de l’établissement/});await name.fill('Draft name');await declineLanguage(page);expect(await name.inputValue()).toBe('Draft name')
     page.once('dialog',dialog=>dialog.accept());await page.getByRole('link',{name:'Language'}).click();await page.waitForURL(/lang=en/)
     expect(await page.getByRole('textbox',{name:/^Business name/}).inputValue()).toBe('Garage known')
-  }finally{await context.close()}
+  }finally{await fixture.closePage(context,page)}
 })
 test('all prepared FAQ answers survive sections, old sector and saved enterprise state',async()=>{
   const {context,page}=await open();try{
@@ -42,7 +38,7 @@ test('all prepared FAQ answers survive sections, old sector and saved enterprise
     await declineLanguage(page);await section(page,0);await page.getByRole('combobox',{name:/^Secteur/}).click();await page.getByRole('option',{name:'Garage',exact:true}).click();await section(page,1);await page.getByRole('button',{name:question,exact:true}).click()
     expect(await page.getByRole('textbox',{name:activityMessages.fr.ownerAnswer,exact:true}).inputValue()).toBe('Prepared garage answer')
     expect(await page.getByLabel('Fixture events').textContent()).toBe('activity-save')
-  }finally{await context.close()}
+  }finally{await fixture.closePage(context,page)}
 })
 test.each(['pristine','restored','saved','empty'])('%s enterprise form leaves without a prompt',async mode=>{
   const {context,page}=await open(mode);try{
@@ -50,7 +46,7 @@ test.each(['pristine','restored','saved','empty'])('%s enterprise form leaves wi
     if(mode==='restored'){await name.fill('Edit');await name.fill('Garage known')}
     if(mode==='saved'){await name.fill('Saved');await page.locator('.sparra-business-form').getByRole('button',{name:'Enregistrer',exact:true}).click();await page.getByText('Configuration enregistrée.',{exact:true}).waitFor()}
     let dialogs=0;page.on('dialog',async dialog=>{dialogs++;await dialog.dismiss()});await page.getByRole('link',{name:'Language'}).click();await page.waitForURL(/lang=en/);expect(dialogs).toBe(0)
-  }finally{await context.close()}
+  }finally{await fixture.closePage(context,page)}
 })
 test('Calendar-only edits survive read until explicit replacement and protect language departure',async()=>{
   const {context,page}=await open();try{
@@ -59,7 +55,7 @@ test('Calendar-only edits survive read until explicit replacement and protect la
     expect(await page.getByRole('textbox',{name:'Prestation 1 Required',exact:true}).inputValue()).toBe('Calendar draft');await declineLanguage(page)
     await page.getByRole('button',{name:'Utiliser les derniers réglages',exact:true}).click();await page.getByRole('link',{name:'Language'}).click();await page.waitForURL(/lang=en/)
     expect(await page.getByLabel('Fixture events').textContent()).toBe('calendar-read')
-  }finally{await context.close()}
+  }finally{await fixture.closePage(context,page)}
 })
 test.each(['activity-pending','uncertain','calendar-read-held'])('%s refuses OAuth before disconnect or consent',async mode=>{
   const {context,page}=await open(mode);try{
@@ -68,7 +64,7 @@ test.each(['activity-pending','uncertain','calendar-read-held'])('%s refuses OAu
     if(mode==='calendar-read-held')expect(await page.getByRole('button',{name:'Reconnecter Google',exact:true}).isDisabled()).toBe(true)
     else{await page.getByRole('button',{name:'Reconnecter Google',exact:true}).click();await page.getByRole('alert').filter({hasText:'Google'}).waitFor()}
     expect(await page.getByLabel('Fixture events').textContent()).toBe(mode==='calendar-read-held'?'calendar-read':'activity-save')
-  }finally{await context.close()}
+  }finally{await fixture.closePage(context,page)}
 })
 test.each(['connect-held','connect-reject'])('%s locks enterprise edits only during approved OAuth preparation',async mode=>{
   const {context,page}=await open(mode);try{
@@ -78,7 +74,7 @@ test.each(['connect-held','connect-reject'])('%s locks enterprise edits only dur
     await page.getByRole('button',{name:'Release operation'}).click()
     if(mode==='connect-held'){await page.waitForURL(/mode=arrived/);expect(prompts).toBe(1)}
     else{await expect.poll(()=>name.isEnabled()).toBe(true);expect(await name.inputValue()).toBe('Kept work');page.removeAllListeners('dialog');await declineLanguage(page)}
-  }finally{await context.close()}
+  }finally{await fixture.closePage(context,page)}
 })
 test('OAuth decline makes zero effects; ordinary login is guarded and explicit auth refusal recovers',async()=>{
   const {context,page}=await open('refused');try{
@@ -86,7 +82,7 @@ test('OAuth decline makes zero effects; ordinary login is guarded and explicit a
     page.once('dialog',dialog=>dialog.dismiss());await page.getByRole('button',{name:'Reconnecter Google',exact:true}).click();expect(await page.getByLabel('Fixture events').textContent()).toBe('')
     let prompts=0;page.once('dialog',async dialog=>{prompts++;await dialog.dismiss()});await page.getByRole('link',{name:'Ordinary login'}).click();expect(prompts).toBe(1);expect(new URL(page.url()).pathname).toContain('business-navigation')
     page.on('dialog',async dialog=>{prompts++;await dialog.dismiss()});await page.locator('.sparra-business-form').getByRole('button',{name:'Enregistrer',exact:true}).click();await page.getByRole('heading',{name:'Login recovery'}).waitFor();expect(prompts).toBe(1)
-  }finally{await context.close()}
+  }finally{await fixture.closePage(context,page)}
   const calendar=await open();try{
     await section(calendar.page,2)
     const service=calendar.page.getByRole('textbox',{name:'Prestation 1 Required',exact:true})
@@ -97,7 +93,7 @@ test('OAuth decline makes zero effects; ordinary login is guarded and explicit a
     expect(await calendar.page.getByLabel('Fixture events').textContent()).toBe('')
     expect(await service.inputValue()).toBe('Calendar OAuth draft')
     expect(new URL(calendar.page.url()).pathname).toContain('business-navigation')
-  }finally{await calendar.context.close()}
+  }finally{await fixture.closePage(calendar.context,calendar.page)}
 })
 test('document departure uses native beforeunload and declining retains work',async()=>{
   for(const source of ['enterprise','calendar']){
@@ -110,7 +106,7 @@ test('document departure uses native beforeunload and declining retains work',as
       expect(prompts).toBe(1);expect(await field.inputValue()).toBe('Document draft')
       expect(new URL(page.url()).pathname).toContain('business-navigation')
       expect(await page.getByLabel('Fixture events').textContent()).toBe('')
-    }finally{await context.close()}
+    }finally{await fixture.closePage(context,page)}
   }
 })
 
@@ -129,7 +125,7 @@ test('Calendar uncertainty refuses OAuth; ordinary Calendar read and save keep e
       await page.locator('.sparra-business-form').getByRole('button',{name:'Enregistrer',exact:true}).click();await page.getByText('Configuration enregistrée.',{exact:true}).waitFor()
       expect(await page.getByLabel('Fixture events').textContent()).toBe((mode==='calendar-read-held'?'calendar-read':'calendar-save')+'\nactivity-save')
       if(mode!=='calendar-uncertain')await page.getByRole('button',{name:'Release operation'}).click()
-    }finally{await context.close()}
+    }finally{await fixture.closePage(context,page)}
   }
 })
 
@@ -141,7 +137,7 @@ test('whitespace FAQ work and added answers remain protected, while guided secti
     expect(dialogs).toBe(0);page.off('dialog',dismiss);await declineLanguage(page)
     await page.getByRole('textbox',{name:activityMessages.fr.ownerAnswer,exact:true}).fill('Added answer');await page.getByRole('button',{name:activityMessages.fr.addOwnerAnswer,exact:true}).click();await declineLanguage(page)
     expect(await page.getByRole('textbox',{name:activityMessages.fr.faq,exact:true}).inputValue()).toContain('Added answer')
-  }finally{await context.close()}
+  }finally{await fixture.closePage(context,page)}
 })
 
 test('pending OAuth retains beforeunload guard and SPA departure remains guarded after rejection',async()=>{
@@ -151,5 +147,5 @@ test('pending OAuth retains beforeunload guard and SPA departure remains guarded
     let native=0;page.once('dialog',async dialog=>{native++;expect(dialog.type()).toBe('beforeunload');await dialog.dismiss()});await page.getByRole('link',{name:'Document',exact:true}).click();expect(native).toBe(1)
     await page.getByRole('button',{name:'Release operation'}).click();await expect.poll(()=>page.getByRole('button',{name:'Reconnecter Google',exact:true}).isEnabled()).toBe(true)
     let spa=0;page.once('dialog',async dialog=>{spa++;await dialog.dismiss()});await page.getByRole('link',{name:'Other page',exact:true}).click();expect(spa).toBe(1);expect(new URL(page.url()).pathname).toContain('business-navigation')
-  }finally{await context.close()}
+  }finally{await fixture.closePage(context,page)}
 })

@@ -1,16 +1,11 @@
 import { afterAll,beforeAll,expect,test } from 'vitest'
-import { createServer,type ViteDevServer } from 'vite'
-import react from '@vitejs/plugin-react'
-import { chromium,type Browser } from 'playwright'
-let server:ViteDevServer,browser:Browser,origin:string
-beforeAll(async()=>{
-  server=await createServer({configFile:false,envDir:false,plugins:[react()],logLevel:'error',server:{host:'127.0.0.1',port:0}})
-  await server.listen();const address=server.httpServer!.address();if(!address||typeof address==='string')throw new Error('Fixture listener missing')
-  origin=`http://127.0.0.1:${address.port}`;browser=await chromium.launch({headless:true})
-})
-afterAll(async()=>{try{await browser?.close()}finally{await server?.close()}})
+import { createGuidedBrowserFixture } from '../helpers/guided-browser-coverage'
+const fixture=createGuidedBrowserFixture('calendar-panel')
+let origin:string
+beforeAll(async()=>{await fixture.start();origin=fixture.origin})
+afterAll(async()=>{await fixture.close()})
 test('keyboard selects calendar, edits actual service and hours, and preserves draft after stale revision refusal',async()=>{
-  const context=await browser.newContext(),page=await context.newPage()
+  const {context,page}=await fixture.newPage()
   page.setDefaultTimeout(5000)
   await context.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort())
   try{
@@ -26,15 +21,15 @@ test('keyboard selects calendar, edits actual service and hours, and preserves d
     await page.getByText('Settings changed or an operation is in progress. Refresh before retrying.').waitFor()
     expect(await page.getByRole('textbox',{name:'Service 1 Required',exact:true}).inputValue()).toBe('Vehicle drop-off')
     expect(JSON.parse(await page.getByLabel('Fixture events').textContent()??'')).toMatchObject({expectedRevision:0,enabled:true,calendarId:'opaque-real-id',policy:{services:[{name:'Vehicle drop-off',durationMinutes:45}],weeklyHours:[{day:1,ranges:[{start:'09:00',end:'12:00'}]}]}})
-  }finally{await context.close()}
+  }finally{await fixture.closePage(context,page)}
 })
 test('keyboard reconnect waits for disconnect before issuing new consent',async()=>{
-  const context=await browser.newContext(),page=await context.newPage()
+  const {context,page}=await fixture.newPage()
   try{await page.goto(origin+'/tests/helpers/calendar-panel.html?mode=reconnect');const button=page.getByRole('button',{name:'Reconnect Google',exact:true});await button.focus();await button.press('Enter');await page.waitForURL(/#connected$/);expect(await page.getByLabel('Fixture events').textContent()).toBe('disconnect\nconnect')}
-  finally{await context.close()}
+  finally{await fixture.closePage(context,page)}
 })
 test('keyboard reconnect cannot issue replacement consent while revocation remains unresolved',async()=>{
-  const context=await browser.newContext(),page=await context.newPage();page.setDefaultTimeout(5000)
+  const {context,page}=await fixture.newPage();page.setDefaultTimeout(5000)
   try{
     await page.goto(origin+'/tests/helpers/calendar-panel.html?mode=reconnect-blocked')
     const button=page.getByRole('button',{name:'Reconnect Google',exact:true});await button.focus();await button.press('Enter')
@@ -43,11 +38,11 @@ test('keyboard reconnect cannot issue replacement consent while revocation remai
     expect(new URL(page.url()).hash).toBe('')
     await button.press('Enter');await expect.poll(()=>page.getByLabel('Fixture events').textContent()).toBe('disconnect\ndisconnect')
     expect(new URL(page.url()).hash).toBe('')
-  }finally{await context.close()}
+  }finally{await fixture.closePage(context,page)}
 })
 
 test('duplicate calendar summaries expose identity and keyboard selection retains the intended ID',async()=>{
-  const context=await browser.newContext(),page=await context.newPage();page.setDefaultTimeout(5000)
+  const {context,page}=await fixture.newPage();page.setDefaultTimeout(5000)
   try{
     await page.goto(origin+'/tests/helpers/calendar-panel.html?mode=duplicates')
     const choice=page.getByRole('combobox',{name:'Booking calendar'});await choice.focus();await choice.press('Enter')
@@ -61,12 +56,12 @@ test('duplicate calendar summaries expose identity and keyboard selection retain
     const save=page.getByRole('button',{name:'Save',exact:true});await save.focus();await page.keyboard.press('Enter')
     await expect.poll(async()=>page.getByLabel('Fixture events').textContent()).toContain('calendar-b@example.test')
     expect(JSON.parse(await page.getByLabel('Fixture events').textContent()??'')).toMatchObject({calendarId:'calendar-b@example.test'})
-  }finally{await context.close()}
+  }finally{await fixture.closePage(context,page)}
 })
 
 
 test.each(['draft-read','draft-conflict','draft-ambiguous'])('%s preserves every edited field and expected revision until explicit replacement',async mode=>{
-  const context=await browser.newContext(),page=await context.newPage();page.setDefaultTimeout(5000)
+  const {context,page}=await fixture.newPage();page.setDefaultTimeout(5000)
   try{
     await page.goto(origin+'/tests/helpers/calendar-panel.html?mode='+mode)
     const choice=page.getByRole('combobox',{name:'Booking calendar'});await choice.click();await page.getByRole('option',{name:'Other calendar',exact:true}).click()
@@ -106,11 +101,11 @@ test.each(['draft-read','draft-conflict','draft-ambiguous'])('%s preserves every
     await page.getByRole('button',{name:'Save',exact:true}).click()
     const replacedWrites=(await page.getByLabel('Fixture events').textContent()??'').split('\n').filter(line=>line.startsWith('{')).map(line=>JSON.parse(line))
     expect(replacedWrites.at(-1).expectedRevision).toBe(7)
-  }finally{await context.close()}
+  }finally{await fixture.closePage(context,page)}
 })
 
 test('saved feedback clears after policy, activation and calendar edits',async()=>{
-  const context=await browser.newContext(),page=await context.newPage();page.setDefaultTimeout(5000)
+  const {context,page}=await fixture.newPage();page.setDefaultTimeout(5000)
   try{
     await page.goto(origin+'/tests/helpers/calendar-panel.html?mode=draft-success')
     const save=page.getByRole('button',{name:'Save',exact:true}),success=page.getByText('Settings saved.',{exact:true})
@@ -118,11 +113,11 @@ test('saved feedback clears after policy, activation and calendar edits',async()
       await save.click();await success.waitFor();await edit();expect(await success.count()).toBe(0)
       await expect.poll(async()=>JSON.parse(await page.getByLabel('Navigation state').innerText()).dirty).toBe(true)
     }
-  }finally{await context.close()}
+  }finally{await fixture.closePage(context,page)}
 })
 
 test('connect guard refusal has no action and async navigation publishes connecting only while pending',async()=>{
-  const context=await browser.newContext(),page=await context.newPage();page.setDefaultTimeout(5000)
+  const {context,page}=await fixture.newPage();page.setDefaultTimeout(5000)
   try{
     await page.goto(origin+'/tests/helpers/calendar-panel.html?mode=guard')
     await page.getByRole('button',{name:'Reconnect Google',exact:true}).click()
@@ -134,12 +129,12 @@ test('connect guard refusal has no action and async navigation publishes connect
     await expect.poll(async()=>JSON.parse(await page.getByLabel('Navigation state').innerText())).toEqual({dirty:false,pending:true,reconcile:false,connecting:true})
     await page.getByRole('button',{name:'Finish navigation',exact:true}).click()
     await expect.poll(async()=>JSON.parse(await page.getByLabel('Navigation state').innerText()).connecting).toBe(false)
-  }finally{await context.close()}
+  }finally{await fixture.closePage(context,page)}
 })
 
 
 test('an uncertain save requires a successful observation before latest adoption; a failed read creates no uncertainty',async()=>{
-  const context=await browser.newContext(),page=await context.newPage();page.setDefaultTimeout(5000)
+  const {context,page}=await fixture.newPage();page.setDefaultTimeout(5000)
   try{
     await page.goto(origin+'/tests/helpers/calendar-panel.html?mode=draft-ambiguous')
     await page.getByRole('textbox',{name:'Service 1 Required',exact:true}).fill('Still mine')
@@ -161,12 +156,12 @@ test('an uncertain save requires a successful observation before latest adoption
     await page.getByRole('button',{name:'Refresh',exact:true}).click()
     await page.getByText('Operation not confirmed. Refresh to check its outcome.').waitFor()
     await expect.poll(async()=>JSON.parse(await page.getByLabel('Navigation state').innerText())).toEqual({dirty:false,pending:false,reconcile:false,connecting:false})
-  }finally{await context.close()}
+  }finally{await fixture.closePage(context,page)}
 })
 
 
 test('French refresh preserves prepared inputs until explicit adoption',async()=>{
-  const context=await browser.newContext(),page=await context.newPage();page.setDefaultTimeout(5000)
+  const {context,page}=await fixture.newPage();page.setDefaultTimeout(5000)
   try{
     await page.goto(origin+'/tests/helpers/calendar-panel.html?mode=draft-read&locale=fr')
     await page.getByRole('textbox',{name:'Prestation 1 Required',exact:true}).fill('Mon brouillon')
@@ -177,12 +172,12 @@ test('French refresh preserves prepared inputs until explicit adoption',async()=
     await page.getByRole('button',{name:'Utiliser les derniers réglages',exact:true}).click()
     expect(await page.getByRole('textbox',{name:'Prestation 1 Required',exact:true}).inputValue()).toBe('Latest service')
     expect(await page.getByLabel('Fixture events').textContent()).toBe('read')
-  }finally{await context.close()}
+  }finally{await fixture.closePage(context,page)}
 })
 
 
 test('an identical read after ambiguous save preserves uncertainty until explicit adoption',async()=>{
-  const context=await browser.newContext(),page=await context.newPage();page.setDefaultTimeout(5000)
+  const {context,page}=await fixture.newPage();page.setDefaultTimeout(5000)
   try{
     await page.goto(origin+'/tests/helpers/calendar-panel.html?mode=draft-ambiguous-identical')
     await page.getByRole('textbox',{name:'Service 1 Required',exact:true}).fill('Uncertain draft')
@@ -199,11 +194,11 @@ test('an identical read after ambiguous save preserves uncertainty until explici
     await expect.poll(async()=>JSON.parse(await page.getByLabel('Navigation state').innerText())).toEqual({dirty:false,pending:false,reconcile:false,connecting:false})
     expect(await page.getByRole('textbox',{name:'Service 1 Required',exact:true}).inputValue()).toBe('Known service')
     expect((await page.getByLabel('Fixture events').textContent()??'').split('\n').filter(line=>line.startsWith('{'))).toHaveLength(2)
-  }finally{await context.close()}
+  }finally{await fixture.closePage(context,page)}
 })
 
 test.each(['en','fr'] as const)('%s visibly identifies dirty Calendar edits and returns to pristine when restored',async locale=>{
-  const context=await browser.newContext(),page=await context.newPage();page.setDefaultTimeout(5000)
+  const {context,page}=await fixture.newPage();page.setDefaultTimeout(5000)
   try{
     await page.goto(origin+'/tests/helpers/calendar-panel.html?mode=draft-success&locale='+locale)
     const unsaved=page.getByText(locale==='fr'?'Modifications non enregistrées.':'Unsaved changes.',{exact:true})
@@ -230,5 +225,5 @@ test.each(['en','fr'] as const)('%s visibly identifies dirty Calendar edits and 
     await page.getByRole('button',{name:locale==='fr'?'Utiliser les derniers réglages':'Use latest settings',exact:true}).click()
     expect(await unsaved.count()).toBe(0)
     await expect.poll(async()=>JSON.parse(await page.getByLabel('Navigation state').innerText()).dirty).toBe(false)
-  }finally{await context.close()}
+  }finally{await fixture.closePage(context,page)}
 })
