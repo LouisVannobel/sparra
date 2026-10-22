@@ -526,6 +526,15 @@ const billingConsumers=[
   ]],
 ]
 
+function consumerReportPassed(report,root,path,names) {
+  const matches=report.testResults.filter(file=>file?.name===join(root,path).replaceAll('\\','/'))
+  const file=matches[0]
+  return matches.length===1&&file.status==='passed'&&file.message===''
+    &&Array.isArray(file.assertionResults)&&file.assertionResults.length===names.length
+    &&file.assertionResults.every((test,index)=>test?.status==='passed'&&test.fullName===names[index]
+      &&Array.isArray(test.failureMessages)&&test.failureMessages.length===0)
+}
+
 function billingSummaryPassed(report) {
   const counters={numTotalTests:91,numPassedTests:91,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
   return report?.success===true&&Object.entries(counters).every(([key,wanted])=>report[key]===wanted)
@@ -533,14 +542,7 @@ function billingSummaryPassed(report) {
 
 export function assertBillingReport(report,root) {
   if(!billingSummaryPassed(report)||!Array.isArray(report.testResults)||report.testResults.length!==9
-    ||!billingConsumers.every(([path,names])=>{
-      const matches=report.testResults.filter(file=>file?.name===join(root,path).replaceAll('\\','/'))
-      const file=matches[0]
-      return matches.length===1&&file.status==='passed'&&file.message===''
-        &&Array.isArray(file.assertionResults)&&file.assertionResults.length===names.length
-        &&file.assertionResults.every((test,index)=>test?.status==='passed'&&test.fullName===names[index]
-          &&Array.isArray(test.failureMessages)&&test.failureMessages.length===0)
-    })) {
+    ||!billingConsumers.every(([path,names])=>consumerReportPassed(report,root,path,names))) {
     throw new Error('Native Billing requires its exact nine consumers and 91 passing leaves')
   }
 }
@@ -686,14 +688,7 @@ export function assertCalendarReport(report,root) {
   const counters={numTotalTests:96,numPassedTests:96,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
   if(report?.success!==true||Object.entries(counters).some(([key,value])=>report[key]!==value)
     ||!Array.isArray(report.testResults)||report.testResults.length!==5
-    ||!calendarConsumers.every(([path,names])=>{
-      const matches=report.testResults.filter(file=>file?.name===join(root,path).replaceAll('\\','/'))
-      const file=matches[0]
-      return matches.length===1&&file.status==='passed'&&file.message===''
-        &&Array.isArray(file.assertionResults)&&file.assertionResults.length===names.length
-        &&file.assertionResults.every((test,index)=>test?.status==='passed'&&test.fullName===names[index]
-          &&Array.isArray(test.failureMessages)&&test.failureMessages.length===0)
-    })) throw new Error('Native Calendar requires its exact five consumers and 96 passing leaves')
+    ||!calendarConsumers.every(([path,names])=>consumerReportPassed(report,root,path,names))) throw new Error('Native Calendar requires its exact five consumers and 96 passing leaves')
 }
 export function assertCalendarQualification(path,root,startedAt) {
   const stat=lstatSync(path)
