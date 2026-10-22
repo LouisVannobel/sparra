@@ -59,6 +59,7 @@
 - [ ] Qualify against explicit candidate source first; preserve source/manifests/digests and budget policy identity in native fixtures. No extra allowances or deadline changes.
 - [ ] After reviewed Voice PR CI passes and the agreed publisher merges it, export genuine immutable main Git bytes into the existing audited regular-file archive and exact manifest. Validate all parser/provenance refusals; do not weaken formats.
 - [ ] Run final exact producer/native/Calendar/current-sector source and browser suites, collector geometry/counters and reconstruction. If leaf names/counts change, update exact admission and prove old plus new leaves genuinely present.
+- [ ] After real bridge RED/GREEN, wire its exact19 passing leaves into the existing canonical runner as a JSON-only `voice bridge qualification` phase after crypto. Reuse prepared producer env and180s adjacent phase bound; preserve20s case limits and every existing phase/deadline/blob consumer. Add meaningful report-admission refusal tests for stale/symlink/foreign/duplicate/missing/failed/skipped leaves and verify the real report. No new workflow or generic framework.
 - [ ] Independent integration/security/budget review, then broad final source review of both repositories.
 
 ## Task4 — frozen qualification and bounded financial transition
@@ -67,12 +68,15 @@
 
 - [ ] Agree one publisher/operator after fresh concurrent Voice/host ownership inventory. Record actual live image, policy N and SQLite state; no mutation yet.
 - [ ] Review the dedicated image/profile-only CAS against the spec with an independent financial reviewer and Oracle standard Pro. Test the exact operation against owned disposable state for N=5 and N=6: counts/floors/UUID/history identical; wrong preimage/active lease/outbox/unknown intent rejected; unknown commit observed, never replayed.
+- [ ] Use the four actual installed schema/contract pairs (N5 V1/10,V2/11; N6 V1/12,V2/13), not an invented cross-product or conversion. With populated terminal history apply the exact CAS and reopen the exact native writer twice; prove old permits stay denied, receipts duplicate/terminal, qualification fingerprints consumed/conflicting as appropriate, and no new allowance/count/floor/schema/history change. Exercise exhaustion and one-remainingN6 using native synthetic peers; retain all USD5/funding/expiry/paid-fence refusals.
+- [ ] Independently qualify CAS-boundary equality, writer reopen and production-style startup. No generic bookkeeping waiver. Verify existing owner-scoped isolation through replacement startup even with one remaining allowance; preserve live truthful ready503 on exhausted state. Qualify committed-CAS/startup failure and unknown commit without reverse transition or auto-rollback.
 - [ ] Publish/attach source PRs through the agreed owner, require complete current CI, conserve reviewed trees through merges, and qualify exact immutable Voice eight-file and App web/migrator release artifacts. No rollout on partial gates.
 - [ ] Freeze source/tree/profile/image/schema identifiers and source/cleanup/CI/image evidence separately. Preserve all failed/refused entry and HOLD receipts.
 
 ## Task5 — compatible rollout and bounded acceptance
 
 - [ ] Operator refreshes protected preimages, verifies no active Voice owner/call/lease/outbox/unknown paid intent and a matching qualified image/profile. Stop/join old owner, perform the reviewed one-row CAS/staging and verify the compatible Voice reader. Preserve installed N and every allowance-bearing state; no provider call.
+- [ ] Before that stop, establish the concretely verified existing admission exclusion/isolated startup; keep it through CAS and protected post-start checks. Do not substitute financial suspension or a readiness probe. Unknown commit remains observe-only; committed CAS plus startup failure stays on the successor binding for forward recovery, with no old-profile/backup restore. Keep exclusions in place on failure and record any later authorized reopening separately.
 - [ ] Apply qualified forward0026 with the existing controlled migrator mechanism. Verify data/constraints/RLS/grants/owners; keep old web until prerequisites pass.
 - [ ] Replace only the complete web reader with the exact qualified image; no worker rollout without a demonstrated reader. Observe ambiguous outcomes rather than repeating mutation.
 - [ ] Compare protected state, every old revision/call and financial identity/counters/floors before/after. Read-only public/private/guided/diagnostic selector checks, old sectors and OAuth bytes. No Save to a real business or real consent/admission unless separately instructed.
