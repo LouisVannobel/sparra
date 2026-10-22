@@ -698,6 +698,15 @@ test('saved feedback clears after every editable business information field chan
 test('native committed save delivery failure retains draft and requires reconciliation while validation and read failures stay distinct',async()=>{
   const {context,page}=await signedIn('sparra-save-delivery'),savePath=await authRpcPath('saveActivity'),readPath=await authRpcPath('getActivity')
   let release=()=>{}
+  let routeOutcome:Promise<PromiseSettledResult<void>[]>|undefined
+  let deliveryOutcome:Promise<PromiseSettledResult<Request>[]>|undefined
+  const failures:unknown[]=[]
+  const nativeFailure=(phase:string,error:unknown)=>{
+    // Playwright transport messages include request headers; retain only an allowlisted code.
+    const message=error instanceof Error?error.message:''
+    const code=/\b(ECONNRESET|ECONNREFUSED|EPIPE|ETIMEDOUT)\b/.exec(message)?.[1]??(/\bclosed\b/i.test(message)?'target-closed':'other')
+    return new Error(`Native save delivery ${phase} failed (${code})`)
+  }
   try{
     await page.goto(origin+'/app/entreprise?lang=en')
     // A failed native read transport during ensure is unavailable, not an ambiguous save.
@@ -720,14 +729,35 @@ test('native committed save delivery failure retains draft and requires reconcil
     expect(await page.getByRole('button',{name:'Check latest version',exact:true}).count()).toBe(0)
     expect(await revision()).toBe(1)
     await showActivitySection(page,'establishment');await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).fill('Delivery fixture')
-    const held=new Promise<void>(done=>{release=done}),committed=new Promise<void>(done=>{
-      void page.route('**'+savePath,async route=>{const response=await route.fetch();expect(response.status()).toBe(200);done();await held;await route.abort('failed')},{times:1})
-    })
-    const failedDelivery=page.waitForEvent('requestfailed',{predicate:request=>new URL(request.url()).pathname===savePath})
-    await showActivitySection(page,'knowledge');await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Committed before lost delivery');await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await bounded(committed)
+    let resolveCommitted=()=>{},rejectCommitted=(error:unknown)=>{failures.push(error)}
+    const held=new Promise<void>(done=>{release=done}),committed=new Promise<void>((done,reject)=>{resolveCommitted=done;rejectCommitted=reject})
+    // Observe rejection before submit/click can yield; the owned await below still fails.
+    const committedOutcome=Promise.allSettled([committed])
+    try{
+      await page.route('**'+savePath,route=>{
+        const task=(async()=>{
+          let response
+          try{response=await route.fetch()}catch(error){throw nativeFailure('fetch',error)}
+          expect(response.status(),'Native save response before held delivery').toBe(200)
+          resolveCommitted()
+          await held
+          try{await route.abort('failed')}catch(error){throw nativeFailure('abort',error)}
+        })()
+        routeOutcome=Promise.allSettled([task])
+        void task.then(undefined,rejectCommitted)
+      },{times:1})
+    }catch(error){const failure=nativeFailure('registration',error);rejectCommitted(failure);throw failure}
+    deliveryOutcome=Promise.allSettled([page.waitForEvent('requestfailed',{predicate:request=>new URL(request.url()).pathname===savePath})])
+    await showActivitySection(page,'knowledge');await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Committed before lost delivery');await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click()
+    const [commitResult]=await bounded(committedOutcome)
+    if(commitResult.status==='rejected')throw commitResult.reason
     expect(await revision()).toBe(2)
     release() // Fail only delivery of the actual committed native response; no Cancel.
-    await failedDelivery
+    if(!routeOutcome)throw new Error('Native save delivery route task missing')
+    const [routeResult]=await bounded(routeOutcome)
+    if(routeResult.status==='rejected')throw routeResult.reason
+    const [deliveryResult]=await deliveryOutcome
+    if(deliveryResult.status==='rejected')throw nativeFailure('request-failure-observer',deliveryResult.reason)
     await page.getByRole('alert').filter({hasText:'The save outcome is unknown. Check the latest version before saving again.'}).waitFor()
     expect(await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).inputValue()).toBe('Committed before lost delivery')
     expect(await page.getByText('Configuration saved.',{exact:true}).count()).toBe(0)
@@ -742,7 +772,20 @@ test('native committed save delivery failure retains draft and requires reconcil
     expect(await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).isDisabled()).toBe(true)
     await showActivitySection(page,'knowledge');await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Explicit reconciled save');await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
     await page.reload();expect(await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).inputValue()).toBe('Explicit reconciled save');expect(await revision()).toBe(3)
-  }finally{release();await context.close()}
+  }catch(error){failures.push(error)}finally{
+    release()
+    try{await context.close()}catch(error){failures.push(nativeFailure('context-cleanup',error))}
+    if(routeOutcome){
+      try{
+        const [result]=await bounded(routeOutcome)
+        if(result.status==='rejected'&&!failures.includes(result.reason))failures.push(result.reason)
+      }catch(error){failures.push(error)}
+    }
+    // Closing the context retires a pending event observer after an earlier failure.
+    if(deliveryOutcome)await deliveryOutcome
+  }
+  if(failures.length===1)throw failures[0]
+  if(failures.length)throw new AggregateError(failures,'Native save delivery test and cleanup failed')
 },40000)
 
 test('inbox native cursor loads the remaining owned call shells exactly once',async()=>{
