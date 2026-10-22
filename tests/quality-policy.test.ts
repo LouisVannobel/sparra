@@ -1172,6 +1172,8 @@ test('fallow_declares_only_native_subprocess_and_actual_browser_roots_and_exact_
   writeFileSync(join(root,'tests/helpers/mail-retry-entry.ts'),"import {main} from './mail-retry-harness';main();\n")
   writeFileSync(join(root,'tests/helpers/undeclared-mail-retry-sibling.ts'),"console.log('synthetic undeclared mail retry sibling');\n")
   writeFileSync(join(root,'tests/helpers/calendar-panel-entry.tsx'),"console.log('synthetic declared Calendar browser entry');\n")
+  writeFileSync(join(root,'tests/helpers/business-navigation-entry.tsx'),"console.log('synthetic declared Business browser entry');\n")
+  writeFileSync(join(root,'tests/helpers/undeclared-business-navigation-sibling.tsx'),"console.log('synthetic undeclared Business browser sibling');\n")
   writeFileSync(join(root,'tests/helpers/undeclared-calendar-panel-sibling.tsx'),"console.log('synthetic undeclared Calendar browser sibling');\n")
   writeFileSync(join(root,'scripts/start-web.mjs'),"await import('../.output/server/index.mjs');\nawait import('../.output/server/genuinely-missing.mjs');\n")
   writeFileSync(join(root,'scripts/test-prerequisites.mjs'),"console.log('synthetic prerequisite decoder');\n")
@@ -1191,6 +1193,7 @@ test('fallow_declares_only_native_subprocess_and_actual_browser_roots_and_exact_
   expect(output).toContain('undeclared-browser-sibling.tsx')
   expect(output).toContain('undeclared-mail-retry-sibling.ts')
   expect(output).toContain('undeclared-calendar-panel-sibling.tsx')
+  expect(output).toContain('undeclared-business-navigation-sibling.tsx')
   expect(output).toContain('./genuinely-missing')
   expect(output).toContain('./genuinely-missing.yaml')
   expect(output).toContain('../.output/server/genuinely-missing.mjs')
@@ -1201,10 +1204,11 @@ test('fallow_declares_only_native_subprocess_and_actual_browser_roots_and_exact_
   expect(output).not.toMatch(/(?:^|[\\/])mail-retry-harness\.ts/)
   expect(output).not.toMatch(/(?:^|[\\/])mail-retry-entry\.ts/)
   expect(output).not.toMatch(/(?:^|[\\/])calendar-panel-entry\.tsx/)
+  expect(output).not.toMatch(/(?:^|[\\/])business-navigation-entry\.tsx/)
   expect(output).not.toContain('hatchet-empty.yaml')
   expect(output).not.toMatch(/(?:^|[\\/])test-prerequisites\.mjs/)
   expect(output).not.toContain('../.output/server/index.mjs')
-  expect(fixtureConfig.entry).toEqual(['scripts/start-web.mjs','scripts/test-prerequisites.mjs','tests/helpers/generate-native-voice-envelope.ts','tests/helpers/inbox-panel-fixture.tsx','tests/helpers/mail-retry-entry.ts','tests/helpers/calendar-panel-entry.tsx','scripts/assign-billing-terms.ts'])
+  expect(fixtureConfig.entry).toEqual(['scripts/start-web.mjs','scripts/test-prerequisites.mjs','tests/helpers/generate-native-voice-envelope.ts','tests/helpers/inbox-panel-fixture.tsx','tests/helpers/mail-retry-entry.ts','tests/helpers/calendar-panel-entry.tsx','tests/helpers/business-navigation-entry.tsx','scripts/assign-billing-terms.ts'])
 },40000)
 
 test('declared_inbox_browser_entry_is_the_exact_HTML_module_mounting_the_runtime_panel',()=>{
@@ -1388,6 +1392,7 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
   // Fixed candidates from TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003; hashes are literal review anchors.
   // SSR C heading and six new summary cases independently reviewed on 2026-10-11.
   // Excerpt cases and nullable DTO fixtures re-reviewed on 2026-10-17.
+  // Whole-file context re-anchored after the guided-control assertion review on 2026-10-22.
   // Only A changes callback text; B/C/D retain their approved callback hashes.
   const targets=[
     ['detail and inbox preserve the translated native category and observed number source in both locales',
@@ -1542,7 +1547,7 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
         expect(source.text.slice(marker.end,marker.end+newlineLength),'Reviewed SSR marker line expired').toMatch(/^\r?\n$/)
         reconstructed=reconstructed.slice(0,marker.start)+reconstructed.slice(marker.end+newlineLength)
       }
-      expect(digest(reconstructed),'Reviewed SSR whole file expired').toBe('a767ee6b60ff91b54c36ff34ba4ae5c5aad3d2b05aa4abeda1a12cd1ffa2e866')
+      expect(digest(reconstructed),'Reviewed SSR whole file expired').toBe('2fad03b61d7ed6c4fb2a06e36729acb7cb14a7baa7926620924b790ab971b219')
     }
     expect(()=>reviewedCallbacks(sources)).not.toThrow()
     const original=sources.get(ssrFile)!,title=targets[0][0]
@@ -1603,14 +1608,14 @@ test('maintained_doctor_changed_scope_reports_actual_component_rule',()=>{
 
 // Reporter canaries exercise admission only, not Calendar product behavior.
 function passingCalendarReport(){
-  return {success:true,numTotalTests:69,numPassedTests:69,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0,
+  return {success:true,numTotalTests:96,numPassedTests:96,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0,
     testResults:calendarConsumerNames.map(([file,names])=>({name:join(repositoryRoot,'tests/integration',file).replaceAll('\\','/'),status:'passed',message:'',assertionResults:names.map(fullName=>({fullName,status:'passed',failureMessages:[]}))}))}
 }
-function refusedCalendarReport(report:ReturnType<typeof passingCalendarReport>,kind:string){
-  const wrong=structuredClone(report),file=wrong.testResults[0]!
+function refusedCalendarReport(report:ReturnType<typeof passingCalendarReport>,kind:string,index=0){
+  const wrong=structuredClone(report),file=wrong.testResults[index]!
   switch(kind){
-    case 'missing-file':wrong.testResults.pop();break
-    case 'duplicate-file':wrong.testResults[1]=file;break
+    case 'missing-file':wrong.testResults.splice(index,1);break
+    case 'duplicate-file':wrong.testResults[(index+1)%wrong.testResults.length]=file;break
     case 'foreign-file':file.name+='-foreign';break
     case 'missing-leaf':file.assertionResults.pop();break
     case 'duplicate-leaf':file.assertionResults[1]=file.assertionResults[0]!;break
@@ -1626,24 +1631,26 @@ test('native_calendar_report_requires_exact_consumers_and_every_passing_leaf',()
   expect(typeof gate).toBe('function')
   const report=passingCalendarReport()
   expect(()=>gate(report,repositoryRoot)).not.toThrow()
-  for(const kind of ['missing-file','duplicate-file','foreign-file','missing-leaf','duplicate-leaf','renamed-leaf','skipped','failed','afterAll','summary'] as const){
-    expect(()=>gate(refusedCalendarReport(report,kind),repositoryRoot),kind).toThrow()
+  for(const [index,file] of report.testResults.entries()){
+    for(const kind of ['missing-file','duplicate-file','foreign-file','missing-leaf','duplicate-leaf','renamed-leaf','skipped','failed','afterAll','summary'] as const){
+      expect(()=>gate(refusedCalendarReport(report,kind,index),repositoryRoot),file.name+':'+kind).toThrow()
+    }
   }
 })
 test('native_calendar_runner_is_mandatory_and_merges_its_coverage_after_retirement',()=>{
   const root=nativeCoverageFixture(),result=runCoverageConsumer(root)
-  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
+  expect(result.error,result.stdout+result.stderr).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   expect(result.stdout).toContain('[tests] calendar qualification\n')
   expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
   const coverage=JSON.parse(readFileSync(join(root,'coverage/coverage-final.json'),'utf8'))
-  expect(coverage[join(root,'src/calendar-covered.ts').replaceAll('\\','/')].f).toEqual({'0':69})
+  expect(coverage[join(root,'src/calendar-covered.ts').replaceAll('\\','/')].f).toEqual({'0':96})
 },30000)
 
 
 test('native_calendar_blob_rejects_stale_missing_duplicate_foreign_and_incomplete_evidence',()=>{
   const root=nativeCoverageFixture(),startedAt=Date.now(),blob=join(root,'coverage/calendar.json'),report=join(root,'coverage/calendar-report.json')
   const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...calendarConsumerNames.map(([file])=>'tests/integration/'+file),'--maxWorkers=1','--coverage','--reporter=json','--reporter=blob','--outputFile.json='+report,'--outputFile.blob='+blob,'--coverage.reportsDirectory='+join(root,'coverage/calendar')])
-  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
+  expect(result.error,result.stdout+result.stderr).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   expect(()=>readNativeBlob(blob,'calendar',root,startedAt,'4.1.12')).not.toThrow()
   expect(()=>assertCalendarQualification(report,root,startedAt)).not.toThrow()
   expect(()=>assertCalendarQualification(report,root,Date.now()+60000)).toThrow()
@@ -1667,7 +1674,7 @@ test.each(['missing','retirement'] as const)('native_calendar_runner_refuses_%s_
   if(kind==='missing')rmSync(file)
   else writeFileSync(file,readFileSync(file,'utf8')+"\nimport {afterAll} from 'vitest';afterAll(()=>{throw new Error('Calendar owned retirement failed')});\n")
   const result=runCoverageConsumer(root)
-  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
+  expect(result.error,result.stdout+result.stderr).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
   expect(result.stdout).toContain('[tests] calendar qualification\n')
   expect(result.stdout).not.toContain('[tests] merge')
   expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)

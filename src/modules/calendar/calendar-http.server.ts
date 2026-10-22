@@ -9,7 +9,7 @@ export async function calendarCallbackResponse(request:Request,resources:Callbac
   try{
     const principal=await resources.auth.requirePrincipal(request)
     const locale=await resources.calendar.completeConnection(principal,{state:query.get('state')!,...(query.get('code')?{code:query.get('code')!}:{}),...(query.get('error')?{error:query.get('error')!}:{})},request.signal)
-    return new Response(null,{status:303,headers:{...headers,location:`/app/entreprise?lang=${locale}`}})
+    return new Response(null,{status:303,headers:{...headers,location:`/app/entreprise?lang=${locale}&calendar=returned`}})
   }catch(error){
     if(error instanceof Response&&error.status===401)return new Response('Unauthorized',{status:401,headers})
     return new Response(null,{status:303,headers:{...headers,location:'/app/entreprise?lang=fr&calendar=failed'}})

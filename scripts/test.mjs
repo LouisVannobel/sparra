@@ -40,7 +40,7 @@ async function runPhase(name, args, timeout) {
   assertFrozenIdentity()
   await voice?.assertIdentity()
   process.stdout.write('[tests] ' + name + '\n')
-  const env = { ...process.env, SPARRA_PLAYBACK_SCREENSHOT_DIR: playbackScreenshots,
+  const env = { ...process.env, SPARRA_GUIDED_BROWSER_COVERAGE_REQUIRED: String(name === 'calendar qualification'), SPARRA_PLAYBACK_SCREENSHOT_DIR: playbackScreenshots,
     SPARRA_MAIL_RETRY_BUILD_DIR: mailRetryBuild, SPARRA_MAIL_RETRY_EVIDENCE_DIR: mailRetryEvidence,
     ...(voice ? { SPARRA_VOICE_TEST_ROOT: voice.root, SPARRA_VOICE_FIXTURE_PYTHON: voice.fixturePython, SPARRA_VOICE_TEST_HOME: voice.testEnvironment.HOME } : {}) }
   const result = await runNativePhase(process.execPath, args, { cwd: root, env, timeout })
@@ -149,7 +149,8 @@ try {
   const calendarReport = join(runDirectory, 'calendar-qualification.json')
   await runPhase('calendar qualification', [vitestCli, 'run', '--config', 'vitest.integration.config.ts',
     'tests/integration/calendar-owner.test.ts', 'tests/integration/calendar-bridge.test.ts',
-    'tests/integration/calendar-panel-browser.test.ts', 'tests/integration/calendar-consumer.test.ts',
+    'tests/integration/calendar-panel-browser.test.ts', 'tests/integration/business-navigation-browser.test.ts',
+    'tests/integration/calendar-consumer.test.ts',
     '--maxWorkers=1', '--coverage', '--reporter=default', '--reporter=json', '--reporter=blob', '--outputFile.json=' + calendarReport,
     '--outputFile.blob='+join(blobs,'calendar.json'),'--coverage.reportsDirectory='+join(runDirectory,'calendar')], 600000)
   assertCalendarQualification(calendarReport,root,startedAt)

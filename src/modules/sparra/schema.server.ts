@@ -1,6 +1,7 @@
 import { sql, type SQLWrapper } from 'drizzle-orm'
 import { bigint, boolean, check, customType, foreignKey, index, integer, jsonb, pgPolicy, pgTable, primaryKey, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
 import { workspace } from '../workspaces/schema.server'
+import { sectorIds } from './sectors'
 import type { NativeEncryptedTurn, EncryptedMessageResult } from './message-crypto.server'
 
 // PostgreSQL stores Unicode scalars; add supplementary scalars once to match
@@ -10,7 +11,7 @@ export const sparraKnowledgeRevision = pgTable('sparra_knowledge_revision', {
   workspaceId: uuid('workspace_id').notNull().references(() => workspace.id, { onDelete: 'restrict' }),
   revision: integer('revision').notNull(),
   businessName: text('business_name').notNull(),
-  sector: text('sector', { enum: ['garage', 'controle-technique'] }).notNull(),
+  sector: text('sector', { enum: sectorIds }).notNull(),
   openingHours: text('opening_hours').notNull(), services: text('services').notNull(), prices: text('prices').notNull(), faq: text('faq').notNull(), instructions: text('instructions').notNull(),
   transferDestination: text('transfer_destination'),
   recordingEnabled: boolean('recording_enabled').notNull().default(false),

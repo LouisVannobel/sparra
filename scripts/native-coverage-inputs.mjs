@@ -186,7 +186,7 @@ export function readNativeBlob(filePath, name, root, startedAt, version) {
     count += admitTestFile(table, blobValue(table, reference), name, files.length, root, startedAt, seen)
   }
   if (!count || (name === 'activity' && count !== 12) || (name === 'requests' && count !== 40)
-    || (name === 'billing' && count !== 91) || (name === 'calendar' && count !== 69)) throw new Error('Native coverage test cardinality mismatch')
+    || (name === 'billing' && count !== 91) || (name === 'calendar' && count !== 96)) throw new Error('Native coverage test cardinality mismatch')
   const coverage = blobValue(table, envelope[3])
   admitCoverageEntries(table, coverage, root)
   return { table, coverage, digest }
@@ -526,6 +526,15 @@ const billingConsumers=[
   ]],
 ]
 
+function consumerReportPassed(report,root,path,names) {
+  const matches=report.testResults.filter(file=>file?.name===join(root,path).replaceAll('\\','/'))
+  const file=matches[0]
+  return matches.length===1&&file.status==='passed'&&file.message===''
+    &&Array.isArray(file.assertionResults)&&file.assertionResults.length===names.length
+    &&file.assertionResults.every((test,index)=>test?.status==='passed'&&test.fullName===names[index]
+      &&Array.isArray(test.failureMessages)&&test.failureMessages.length===0)
+}
+
 function billingSummaryPassed(report) {
   const counters={numTotalTests:91,numPassedTests:91,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
   return report?.success===true&&Object.entries(counters).every(([key,wanted])=>report[key]===wanted)
@@ -533,14 +542,7 @@ function billingSummaryPassed(report) {
 
 export function assertBillingReport(report,root) {
   if(!billingSummaryPassed(report)||!Array.isArray(report.testResults)||report.testResults.length!==9
-    ||!billingConsumers.every(([path,names])=>{
-      const matches=report.testResults.filter(file=>file?.name===join(root,path).replaceAll('\\','/'))
-      const file=matches[0]
-      return matches.length===1&&file.status==='passed'&&file.message===''
-        &&Array.isArray(file.assertionResults)&&file.assertionResults.length===names.length
-        &&file.assertionResults.every((test,index)=>test?.status==='passed'&&test.fullName===names[index]
-          &&Array.isArray(test.failureMessages)&&test.failureMessages.length===0)
-    })) {
+    ||!billingConsumers.every(([path,names])=>consumerReportPassed(report,root,path,names))) {
     throw new Error('Native Billing requires its exact nine consumers and 91 passing leaves')
   }
 }
@@ -625,7 +627,39 @@ const calendarConsumers=[
       "keyboard selects calendar, edits actual service and hours, and preserves draft after stale revision refusal",
       "keyboard reconnect waits for disconnect before issuing new consent",
       "keyboard reconnect cannot issue replacement consent while revocation remains unresolved",
-      "duplicate calendar summaries expose identity and keyboard selection retains the intended ID"
+      "duplicate calendar summaries expose identity and keyboard selection retains the intended ID",
+      "draft-read preserves every edited field and expected revision until explicit replacement",
+      "draft-conflict preserves every edited field and expected revision until explicit replacement",
+      "draft-ambiguous preserves every edited field and expected revision until explicit replacement",
+      "saved feedback clears after policy, activation and calendar edits",
+      "connect guard refusal has no action and async navigation publishes connecting only while pending",
+      "an uncertain save requires a successful observation before latest adoption; a failed read creates no uncertainty",
+      "French refresh preserves prepared inputs until explicit adoption",
+      "an identical read after ambiguous save preserves uncertainty until explicit adoption",
+      "en visibly identifies dirty Calendar edits and returns to pristine when restored",
+      "fr visibly identifies dirty Calendar edits and returns to pristine when restored"
+    ]
+  ],
+  [
+    "tests/integration/business-navigation-browser.test.ts",
+    [
+      "immediate edit then language decline retains draft; accepted departure explicitly abandons it",
+      "all prepared FAQ answers survive sections, old sector and saved enterprise state",
+      "pristine enterprise form leaves without a prompt",
+      "restored enterprise form leaves without a prompt",
+      "saved enterprise form leaves without a prompt",
+      "empty enterprise form leaves without a prompt",
+      "Calendar-only edits survive read until explicit replacement and protect language departure",
+      "activity-pending refuses OAuth before disconnect or consent",
+      "uncertain refuses OAuth before disconnect or consent",
+      "calendar-read-held refuses OAuth before disconnect or consent",
+      "connect-held locks enterprise edits only during approved OAuth preparation",
+      "connect-reject locks enterprise edits only during approved OAuth preparation",
+      "OAuth decline makes zero effects; ordinary login is guarded and explicit auth refusal recovers",
+      "document departure uses native beforeunload and declining retains work",
+      "Calendar uncertainty refuses OAuth; ordinary Calendar read and save keep enterprise independently editable",
+      "whitespace FAQ work and added answers remain protected, while guided sections never request abandonment",
+      "pending OAuth retains beforeunload guard and SPA departure remains guarded after rejection"
     ]
   ],
   [
@@ -646,22 +680,15 @@ const calendarConsumers=[
 function calendarBlobFile(table,file,fileCount,root,seen) {
   const filepath=resolve(blobValue(table,file.filepath))
   const consumer=calendarConsumers.find(([path])=>filepath===join(root,path))
-  if(fileCount!==4||!consumer||seen.has(filepath))throw new Error('Native Calendar blob has an unexpected consumer')
+  if(fileCount!==5||!consumer||seen.has(filepath))throw new Error('Native Calendar blob has an unexpected consumer')
   seen.add(filepath)
   return passedLeafNames(table,file,consumer[1],'Native Calendar blob has unexpected leaves')
 }
 export function assertCalendarReport(report,root) {
-  const counters={numTotalTests:69,numPassedTests:69,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
+  const counters={numTotalTests:96,numPassedTests:96,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
   if(report?.success!==true||Object.entries(counters).some(([key,value])=>report[key]!==value)
-    ||!Array.isArray(report.testResults)||report.testResults.length!==4
-    ||!calendarConsumers.every(([path,names])=>{
-      const matches=report.testResults.filter(file=>file?.name===join(root,path).replaceAll('\\','/'))
-      const file=matches[0]
-      return matches.length===1&&file.status==='passed'&&file.message===''
-        &&Array.isArray(file.assertionResults)&&file.assertionResults.length===names.length
-        &&file.assertionResults.every((test,index)=>test?.status==='passed'&&test.fullName===names[index]
-          &&Array.isArray(test.failureMessages)&&test.failureMessages.length===0)
-    })) throw new Error('Native Calendar requires its exact four consumers and 69 passing leaves')
+    ||!Array.isArray(report.testResults)||report.testResults.length!==5
+    ||!calendarConsumers.every(([path,names])=>consumerReportPassed(report,root,path,names))) throw new Error('Native Calendar requires its exact five consumers and 96 passing leaves')
 }
 export function assertCalendarQualification(path,root,startedAt) {
   const stat=lstatSync(path)

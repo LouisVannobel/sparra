@@ -6,20 +6,12 @@ import json
 import sys
 import tarfile
 
+
 def fail():
     raise ValueError('Invalid native Voice source fixture')
 
-def main():
-    if sys.version_info[:3]!=(3,13,15):
-        fail()
-    incoming=sys.stdin.buffer.read(1048577)
-    if len(incoming)>1048576:
-        fail()
-    envelope=json.loads(incoming)
-    archive=base64.b64decode(envelope['archive'],validate=True)
-    manifest=envelope['manifest']
-    if len(archive)!=402976 or hashlib.sha256(archive).hexdigest()!='2f5ca2c313584d290512f36881cf1373c845af189a12fb0494ec03adf5736813':
-        fail()
+
+def _expected_members(manifest):
     expected={}
     total=0
     for row in manifest['members']:
@@ -30,8 +22,23 @@ def main():
             fail()
         total+=row['size']
         expected[path]=row
-    if len(expected)!=58 or total!=1931238:
+    if len(expected)!=59 or total!=1943556:
         fail()
+    return expected
+
+
+def main():
+    if sys.version_info[:3]!=(3,13,15):
+        fail()
+    incoming=sys.stdin.buffer.read(1048577)
+    if len(incoming)>1048576:
+        fail()
+    envelope=json.loads(incoming)
+    archive=base64.b64decode(envelope['archive'],validate=True)
+    manifest=envelope['manifest']
+    if len(archive)!=405751 or hashlib.sha256(archive).hexdigest()!='f8d745818fb231bcb072edde1a8e4d36384cccba7e65d6c9607c37bb4ba83981':
+        fail()
+    expected=_expected_members(manifest)
     result=[]
     seen=set()
     with tarfile.open(fileobj=io.BytesIO(archive),mode='r:gz') as source:
@@ -50,6 +57,7 @@ def main():
     if seen!=set(expected):
         fail()
     print(json.dumps({'commit':manifest['commit'],'tree':manifest['tree'],'members':result},separators=(',',':')))
+
 
 try:
     main()
