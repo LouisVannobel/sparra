@@ -19,7 +19,12 @@ async function open(mode='',lang:'fr'|'en'='fr'){
   return {context,page}
 }
 async function section(page:Page,index:number,lang:'fr'|'en'='fr'){await page.getByRole('button',{name:activityMessages[lang].guidedSections[index],exact:true}).click()}
-async function declineLanguage(page:Page){let dialogs=0;page.once('dialog',async dialog=>{dialogs++;expect(dialog.type()).toBe('confirm');await dialog.dismiss()});await page.getByRole('link',{name:'Language',exact:true}).click();await page.waitForTimeout(100);expect(dialogs).toBe(1);expect(new URL(page.url()).searchParams.get('lang')).toBe('fr')}
+async function declineLanguage(page:Page){
+  let dialogs=0
+  const declined=page.waitForEvent('dialog')
+  await Promise.all([page.getByRole('link',{name:'Language',exact:true}).click(),declined.then(async dialog=>{dialogs++;expect(dialog.type()).toBe('confirm');await dialog.dismiss()})])
+  expect(dialogs).toBe(1);expect(new URL(page.url()).searchParams.get('lang')).toBe('fr')
+}
 test('immediate edit then language decline retains draft; accepted departure explicitly abandons it',async()=>{
   const {context,page}=await open();try{
     const name=page.getByRole('textbox',{name:/^Nom de l’établissement/});await name.fill('Draft name');await declineLanguage(page);expect(await name.inputValue()).toBe('Draft name')
