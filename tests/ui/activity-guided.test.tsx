@@ -1,9 +1,36 @@
 import { renderToStaticMarkup } from 'react-dom/server'
-import { expect, test } from 'vitest'
+import { expect, test, vi } from 'vitest'
 import { ActivityPanel } from '../../src/ui/sparra/activity-panel'
 import { CalendarPanel } from '../../src/ui/sparra/calendar-panel'
 import { calendarMessages } from '../../src/ui/sparra/calendar-messages'
 const forbidden=async():Promise<never>=>{throw new Error('Rendering must not mutate')}
+
+test('an absent Workspace renders only explicit creation and never mounts an Activity or Calendar form',()=>{
+  const mutation=vi.fn(forbidden)
+  const html=renderToStaticMarkup(<ActivityPanel locale="en" state={{workspace:null,configuration:null,localAudioAvailable:false}} onEnsure={mutation} onSave={mutation} onRead={mutation} onRefused={mutation} calendarSlot={<form aria-label="Calendar must wait for Workspace"/>}/>)
+  expect(html).toContain('Create your workspace')
+  expect(html).not.toContain('<form')
+  expect(html).not.toContain('data-activity-section=')
+  expect(html).not.toContain('sparra-version-note')
+  expect(html).not.toContain('Calendar must wait for Workspace')
+  expect(html.match(/<button\b[^>]*>/)?.[0]).toContain('disabled=""')
+  expect(mutation).not.toHaveBeenCalled()
+})
+
+test.each(['establishment','knowledge','handling','recap'] as const)('initial %s retains every field while Calendar follows only handling and recap',initialSection=>{
+  const html=renderToStaticMarkup(<ActivityPanel locale="en" initialSection={initialSection} state={{workspace:{id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',displayName:'Owner'},configuration:null,localAudioAvailable:true}} onEnsure={forbidden} onSave={forbidden} onRead={forbidden} onRefused={forbidden} calendarSlot={<form aria-label="Independent Calendar"/>}/>)
+  expect(html.match(/data-activity-section=/g)).toHaveLength(4)
+  for(const section of ['establishment','knowledge','handling','recap']){
+    const wrapper=html.match(new RegExp(`<div id="activity-${section}"[^>]*>`))?.[0]
+    expect(wrapper).toBeDefined()
+    expect(wrapper?.includes('hidden=""')).toBe(section!==initialSection)
+  }
+  expect(html.match(/<textarea\b/g)).toHaveLength(5)
+  expect(html.match(/<input\b/g)?.length).toBeGreaterThanOrEqual(3)
+  expect(html).toContain('Business name');expect(html).toContain('Transfer number')
+  expect(html.match(/<div class="sparra-guided-calendar"[^>]*>/)?.[0]?.includes('hidden=""')).toBe(initialSection!=='handling'&&initialSection!=='recap')
+  expect(html.indexOf('<form aria-label="Independent Calendar"')).toBeGreaterThan(html.indexOf('</form>'))
+})
 test.each(['fr','en'] as const)('guided editor %s keeps four mounted sections, global save and a single Calendar form outside its form',locale=>{
   const html=renderToStaticMarkup(<ActivityPanel locale={locale} state={{workspace:{id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',displayName:'Owner'},configuration:null,localAudioAvailable:false}} onEnsure={forbidden} onSave={forbidden} onRead={forbidden} onRefused={forbidden} calendarSlot={<form aria-label="Independent Calendar"><button type="submit">Calendar save</button></form>}/> )
   expect(html).toContain('<nav')
