@@ -44,6 +44,7 @@
 .sparra .sparra-conversation > h3,.sparra .sparra-receipt > h3 { font-size:20px; margin-bottom:22px; }
 .sparra .sparra-player-actions { display:flex; align-items:center; flex-wrap:wrap; gap:12px; }
 .sparra .sparra-player-actions button { min-height:44px; height:auto; white-space:normal; }
+.sparra .sparra-receipt-link { display:inline-flex; align-items:center; min-height:44px; font-size:13px; }
 .sparra .sparra-progress { display:flex; align-items:center; gap:16px; margin-block:20px 24px; }
 .sparra .sparra-progress progress { width:100%; height:4px; accent-color:var(--sp-ink); }
 .sparra .sparra-progress span { flex-shrink:0; font-size:12px; font-variant-numeric:tabular-nums; color:var(--sp-muted); }
@@ -53,7 +54,8 @@
 .sparra .sparra-transcript li[aria-current=true] { border-color:var(--sp-ink); box-shadow:inset 3px 0 var(--sp-accent); }
 .sparra .sparra-transcript p { margin:6px 0 0; }
 .sparra .sparra-speaker { font-size:12px; font-weight:600; color:var(--sp-muted); }
-.sparra .sparra-receipt { background:var(--sp-canvas); border:1px solid #e5e4e2; border-radius:var(--sp-radius); padding:24px; min-width:0; }
+.sparra .sparra-receipt { background:var(--sp-canvas); border:1px solid #e5e4e2; border-radius:var(--sp-radius); padding:24px; min-width:0; scroll-margin-top:24px; }
+.sparra .sparra-receipt:focus-visible { outline:3px solid var(--sp-ink); outline-offset:5px; }
 .sparra small,.sparra .sparra-example-label { color:var(--sp-muted); font-size:12px; line-height:1.5; }
 .sparra .sparra-status { display:inline-flex; align-items:center; gap:6px; background:var(--sp-accent); padding:6px 10px; border-radius:6px; margin:4px 0 20px; font-size:12px; font-weight:600; }
 .sparra .sparra-receipt dl { margin:0; display:flex; flex-direction:column; }
