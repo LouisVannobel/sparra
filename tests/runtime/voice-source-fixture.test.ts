@@ -72,8 +72,8 @@ test('reviewed native Voice source fixture exposes exact authenticated members w
   const archive=readFileSync(join(fixture,'voice-producer-source.tar.gz'))
   const manifest=JSON.parse(readFileSync(join(fixture,'voice-producer-source.manifest.json'),'utf8'))
   const result=await source.readVoiceSourceFixture(archive,manifest,pythonExecutable)
-  expect(result.commit).toBe('31acb9d2de220765e6cbf3833fd50c474f0bc2db')
-  expect(result.tree).toBe('0b61b47a6503fcaabbb7db2dacc7bcf35974b860')
+  expect(result.commit).toBe('2c5006a61b629c2ce6def6fa854a7ea9ef7534b7')
+  expect(result.tree).toBe('b94d513bc538bfcb152e739ac8343e9ce057ac91')
   expect(result.members).toBeInstanceOf(Map)
   expect(result.members.size).toBe(59)
   expect(result.members.has('src/projetv0_voice/recording_archive.py')).toBe(true)
@@ -82,7 +82,7 @@ test('reviewed native Voice source fixture exposes exact authenticated members w
   expect(result.members.has('scripts/prepare_tokenizers.py')).toBe(false)
   expect([...result.members.keys()].filter(path=>path.startsWith('tests/'))).toEqual(['tests/integration/sparra_connected_scenario.py'])
   expect(createHash('sha256').update(result.members.get('tests/integration/sparra_connected_scenario.py')).digest('hex')).toBe('f6e597966eacfaa07e8e4b43d67a93a7de1cbc8ede3608df62db477f07350593')
-  expect(createHash('sha256').update(result.members.get('src/projetv0_voice/models.py')).digest('hex')).toBe('464549f49bda4537aebe59cc19a0a24dbabb713b71e35f8339d328ad160b0208')
+  expect(createHash('sha256').update(result.members.get('src/projetv0_voice/models.py')).digest('hex')).toBe('45b51014c1ea59dc56654af292d790e6d02399c6e4a3fd98f237c987cf5f3556')
   expect([...result.members.keys()].sort()).toEqual(manifest.members.map((row:{path:string})=>row.path).sort())
   for(const row of manifest.members){
     const bytes=result.members.get(row.path)
@@ -92,7 +92,7 @@ test('reviewed native Voice source fixture exposes exact authenticated members w
   }
 })
 
-test.each(['archive-byte','commit','superseded-commit','tree','member-digest','member-blob','input-roots','extra-member','alias-path','absolute-path','backslash-path'] as const)('native source fixture refuses %s before any environment preparation',async kind=>{
+test.each(['archive-byte','commit','superseded-commit','superseded-official-provenance','tree','member-digest','member-blob','input-roots','extra-member','alias-path','absolute-path','backslash-path'] as const)('native source fixture refuses %s before any environment preparation',async kind=>{
   const source:unknown=await import(modulePath)
   if(typeof source!=='object'||source===null||!('readVoiceSourceFixture' in source)||typeof source.readVoiceSourceFixture!=='function')throw new Error('Missing native Voice fixture reader')
   const archive=readFileSync(join(fixture,'voice-producer-source.tar.gz'))
@@ -100,6 +100,10 @@ test.each(['archive-byte','commit','superseded-commit','tree','member-digest','m
   if(kind==='archive-byte')archive[archive.length-1]^=1
   else if(kind==='commit')manifest.commit='0'.repeat(40)
   else if(kind==='superseded-commit')manifest.commit='c270d4418f20848a0d5c31d8056fdb1f19a08998'
+  else if(kind==='superseded-official-provenance')Object.assign(manifest,{
+    commit:'31acb9d2de220765e6cbf3833fd50c474f0bc2db',tree:'0b61b47a6503fcaabbb7db2dacc7bcf35974b860',
+    archive_sha256:'f8d745818fb231bcb072edde1a8e4d36384cccba7e65d6c9607c37bb4ba83981',archive_size:405751,decoded_source_bytes:1943556,
+  })
   else if(kind==='tree')manifest.tree='0'.repeat(40)
   else if(kind==='member-digest')manifest.members[0].sha256='0'.repeat(64)
   else if(kind==='member-blob')manifest.members[0].git_blob='0'.repeat(40)
