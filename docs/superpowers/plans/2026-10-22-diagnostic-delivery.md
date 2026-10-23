@@ -21,6 +21,8 @@
 
 ## Review focus
 
+23 October security ruling: current Trivy rejected inherited transitive GitPython3.2.0 for CVE-2026-114145 / GHSA-83vg-56qc-22m7. The official advisory and upstream3.2.1 release identify3.2.1 as the first correction. Permit only this minimal transitive lock update as an exception to the unchanged-pins constraint; retain Python3.13.17, uv0.13.5, direct dependencies and every other package version. Regenerate with the pinned resolver, prove the narrow lock delta and requalify the actual new source/security/packaging consumers. The previous PR59 security success is historical and cannot qualify the changed candidate or supersede the newly published advisory. No ignored finding, threshold reduction or budget/provider change.
+
 - New sector must not auto-create owner facts, legal claims, tools or paid admission.
 - Both V1 and the real V2 SQL/sink path must pin the revision despite concurrent configuration change.
 - New CHECK must preserve populated old data, RLS/grants/owners and journal on failure and success.
