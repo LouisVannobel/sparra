@@ -35,10 +35,14 @@ async function gate(){
 }
 function fixture(){
   const root=mkdtempSync(join(tmpdir(),'sparra-voice-bridge-gate-'));roots.push(root)
-  const startedAt=Date.now(),path=join(root,'voice-bridge-qualification.json')
+  const startedAt=Date.UTC(2026,0,1),path=join(root,'voice-bridge-qualification.json')
   const report={success:true,startTime:startedAt,numTotalTests:19,numPassedTests:19,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0,
     testResults:[{name:join(root,'tests/integration/sparra-voice-bridge.test.ts').replaceAll('\\','/'),startTime:startedAt,status:'passed',message:'',assertionResults:names.map((fullName):BridgeReportLeaf=>({fullName,status:'passed',failureMessages:[]}))}]}
   writeFileSync(path,JSON.stringify(report))
+  // Explicit synthetic phase/file times avoid racing Linux filesystem mtime
+  // against the wall clock; actual production freshness admission stays strict.
+  const writtenAt=new Date(startedAt+1000)
+  utimesSync(path,writtenAt,writtenAt)
   return {root,path,startedAt,report}
 }
 afterEach(()=>{
