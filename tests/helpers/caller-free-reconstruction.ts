@@ -27,7 +27,7 @@ const code = Schema.Struct({ id: uuid, user_id: id, batch_id: uuid, digest: hex,
 const workspace = Schema.Struct({ id: uuid, kind: Schema.Literal('personal'), lifecycle: Schema.Literal('active'), owner_user_id: id,
   auth_organization_id: Schema.Null, display_name: text(80).check(Schema.isMinLength(1)), created_at: instant, updated_at: instant })
 const revision = Schema.Struct({ workspace_id: uuid, revision: integer.check(Schema.isGreaterThanOrEqualTo(1)), business_name: text(80).check(Schema.isMinLength(1)),
-  sector: Schema.Literals(['garage','controle-technique']), opening_hours: text(1000,true), services: text(2000,true), prices: text(1500,true), faq: text(3000,true), instructions: text(2000,true),
+  sector: Schema.Literals(['garage','controle-technique','diagnostic-immobilier']), opening_hours: text(1000,true), services: text(2000,true), prices: text(1500,true), faq: text(3000,true), instructions: text(2000,true),
   transfer_destination: phone, recording_enabled: Schema.Boolean, recording_policy: Schema.Literals(['off','local_30d']), recording_contact_phone: phone, saved_at: instant })
 export const reconstructionMigrationCount = readMigrationFiles({ migrationsFolder: fileURLToPath(new URL('../../drizzle', import.meta.url)) }).length
 const rows = <S extends Schema.Top>(schema: S) => Schema.Array(schema).check(Schema.isMaxLength(256))

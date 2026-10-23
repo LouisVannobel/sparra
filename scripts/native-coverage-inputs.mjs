@@ -305,6 +305,54 @@ export function assertRequestsQualification(path,root,startedAt) {
   assertRequestsReport(JSON.parse(readFileSync(path,'utf8')),root)
 }
 
+const voiceBridgeLeafNames = [
+  'native session_user and execute-only catalog including restricted Workspace column locks',
+  'real native begin pin is committed, stable on retry, and read through the authenticated Node owner',
+  'pending-before-begin and begin-before-pending preserve one identity, retention and pin',
+  'strict operations, deterministic digest, conflict, monotone facts, loss and first immutable result',
+  'whole JSONB map is bounded atomically; duplicate turns and ordinal/body conflicts do not lose retained content',
+  'native erasure and recording acknowledgements are actual SQL NULL and join local with remote cleanup',
+  'maintenance expires content with audio off and preserves original expiry fences while admission is disabled',
+  'same native call survives a lost successful COMMIT reply; failed COMMIT retains neither fact nor receipt',
+  'native save/begin and erase/ingest serialize on the actual Workspace lock',
+  'recording failed/retry stays queued; replaced tokens fail, deleting Workspace still cleans, and completed fence GC never revives original expiry',
+  'binding tuple cannot change and a renamed or recreated login does not inherit the old role OID',
+  'same Workspace deployments retain hidden revision references without aborting either native cleanup lease',
+  'native company policy pin survives ON and OFF saves while deployment capability independently denies ON',
+  'native sector snapshots V1 garage preserves native snapshots, concurrent revisions and Inbox ownership',
+  'native sector snapshots V1 controle-technique preserves native snapshots, concurrent revisions and Inbox ownership',
+  'native sector snapshots V1 diagnostic-immobilier preserves native snapshots, concurrent revisions and Inbox ownership',
+  'native sector snapshots V2 garage preserves native snapshots, concurrent revisions and Inbox ownership',
+  'native sector snapshots V2 controle-technique preserves native snapshots, concurrent revisions and Inbox ownership',
+  'native sector snapshots V2 diagnostic-immobilier preserves native snapshots, concurrent revisions and Inbox ownership',
+]
+
+function voiceBridgeFilePassed(file,root,startedAt) {
+  return file?.name===join(root,'tests/integration/sparra-voice-bridge.test.ts').replaceAll('\\','/')
+    && file.status==='passed' && file.message==='' && Number.isFinite(file.startTime) && file.startTime>=startedAt
+    && Array.isArray(file.assertionResults) && file.assertionResults.length===19
+    && voiceBridgeLeafNames.every((name,index)=>{
+      const leaf=file.assertionResults[index]
+      return leaf?.status==='passed' && leaf.fullName===name && Array.isArray(leaf.failureMessages) && leaf.failureMessages.length===0
+    })
+}
+
+export function assertVoiceBridgeReport(report,root,startedAt) {
+  const counters={numTotalTests:19,numPassedTests:19,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
+  if(report?.success!==true || !Object.entries(counters).every(([key,wanted])=>report[key]===wanted)
+    || !Number.isFinite(startedAt) || !Number.isFinite(report.startTime) || report.startTime<startedAt
+    || !Array.isArray(report.testResults) || report.testResults.length!==1
+    || !voiceBridgeFilePassed(report.testResults[0],root,startedAt)) {
+    throw new Error('Native Voice bridge requires its exact nineteen passing leaves')
+  }
+}
+
+export function assertVoiceBridgeQualification(path,root,startedAt) {
+  const stat=lstatSync(path)
+  if(!stat.isFile() || stat.isSymbolicLink() || stat.mtimeMs<startedAt || stat.size===0 || stat.size>268435456)throw new Error('Native Voice bridge report is invalid')
+  assertVoiceBridgeReport(JSON.parse(readFileSync(path,'utf8')),root,startedAt)
+}
+
 const recordingReceiptLeafNames = [
   'actual Voice archived receipt commits with provider purge due',
   'native receipt shape and exact integer/canonical deadline validation reject metadata coercion',

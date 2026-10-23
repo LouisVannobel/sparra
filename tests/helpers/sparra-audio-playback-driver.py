@@ -13,7 +13,7 @@ async def produce(request):
     source = Path(request["source_root"])
     assert source.resolve() == source
     assert Path(sys.prefix).resolve() == source.parent / ".venv"
-    assert sys.version_info[:3] == (3, 13, 15)
+    assert sys.version_info[:3] == (3, 13, 17)
     sys.path.insert(0, str(source))
     for name, version in {"cryptography": "50.0.0", "pydantic": "2.13.4", "psycopg": "3.3.4"}.items():
         assert importlib.metadata.version(name) == version

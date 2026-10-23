@@ -24,6 +24,14 @@ test('strict synthetic projection preserves security values and explicit nulls',
   expect(validateSyntheticReconstruction(input,input.source,classified)).toEqual(input)
 })
 
+test.each(['garage','controle-technique','diagnostic-immobilier'])('strict synthetic projection preserves the current %s sector without granting unknown values',sector=>{
+  const input=fixture()
+  Object.assign(input.relations.sparra_knowledge_revision[0],{sector})
+  expect(validateSyntheticReconstruction(input,input.source,classifiedSyntheticFields(input.relations))).toEqual(input)
+  Object.assign(input.relations.sparra_knowledge_revision[0],{sector:'unknown-business'})
+  expect(()=>validateSyntheticReconstruction(input,input.source,classifiedSyntheticFields(input.relations))).toThrow('Synthetic reconstruction refused')
+})
+
 test.each([23,25] as const)('strict synthetic projection refuses %i migration entries despite matching source binding',count=>{
   const input=fixture(),expected=fixture()
   const journal=Array.from({length:count},(_,i)=>({id:i+1,hash:i.toString(16).padStart(64,'0'),created_at:String(1000+i)}))

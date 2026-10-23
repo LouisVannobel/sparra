@@ -36,7 +36,7 @@ class LostCommitReplyPool(AsyncConnectionPool):
 
 
 async def main():
-    assert sys.version_info[:3] == (3, 13, 15)
+    assert sys.version_info[:3] == (3, 13, 17)
     for name, version in {"cryptography": "50.0.0", "pipecat-ai": "1.12.0", "psycopg": "3.3.4"}.items():
         assert importlib.metadata.version(name) == version
     request = incoming

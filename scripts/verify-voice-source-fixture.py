@@ -28,7 +28,7 @@ def _expected_members(manifest):
 
 
 def main():
-    if sys.version_info[:3]!=(3,13,15):
+    if sys.version_info[:3]!=(3,13,17):
         fail()
     incoming=sys.stdin.buffer.read(1048577)
     if len(incoming)>1048576:

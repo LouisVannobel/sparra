@@ -53,7 +53,7 @@ async function canonicalVoiceProducerPaths(requestedRoot:string){
 
 async function assertVoiceProducerPins(producerRoot:string){
   const [python,project,lock]=await Promise.all([readFile(join(producerRoot,'.python-version'),'utf8'),readFile(join(producerRoot,'pyproject.toml'),'utf8'),readFile(join(producerRoot,'uv.lock'),'utf8')])
-  if(python.trim()!=='3.13.15'||!project.includes('"cryptography==50.0.0"')||!project.includes('"pydantic==2.13.4"')||!/\[\[package\]\]\r?\nname = "cryptography"\r?\nversion = "50\.0\.0"\r?\n/.test(lock)||!/\[\[package\]\]\r?\nname = "pydantic"\r?\nversion = "2\.13\.4"\r?\n/.test(lock))throw new Error('Voice producer pins refused')
+  if(python.trim()!=='3.13.17'||!project.includes('"cryptography==50.0.0"')||!project.includes('"pydantic==2.13.4"')||!/\[\[package\]\]\r?\nname = "cryptography"\r?\nversion = "50\.0\.0"\r?\n/.test(lock)||!/\[\[package\]\]\r?\nname = "pydantic"\r?\nversion = "2\.13\.4"\r?\n/.test(lock))throw new Error('Voice producer pins refused')
 }
 
 export async function resolveVoiceProducer(root?:string):Promise<VoiceProducer>{
@@ -81,7 +81,7 @@ from pathlib import Path
 source = Path(sys.argv[4])
 venv = source.parent / '.venv'
 assert source.resolve() == source and venv.resolve() == venv
-assert sys.version_info[:3] == (3, 13, 15)
+assert sys.version_info[:3] == (3, 13, 17)
 assert Path(sys.prefix).resolve() == venv and sys.prefix != sys.base_prefix
 import cryptography, pydantic
 assert cryptography.__version__ == '50.0.0' and pydantic.__version__ == '2.13.4'

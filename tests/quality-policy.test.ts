@@ -126,6 +126,29 @@ const recordingReceiptNames=[
   'receipt columns retain FORCE RLS and execute-only native authority',
 ]
 
+// Runner admission canaries only; genuine SQL/Voice qualification is separate.
+const voiceBridgeNames=[
+  'native session_user and execute-only catalog including restricted Workspace column locks',
+  'real native begin pin is committed, stable on retry, and read through the authenticated Node owner',
+  'pending-before-begin and begin-before-pending preserve one identity, retention and pin',
+  'strict operations, deterministic digest, conflict, monotone facts, loss and first immutable result',
+  'whole JSONB map is bounded atomically; duplicate turns and ordinal/body conflicts do not lose retained content',
+  'native erasure and recording acknowledgements are actual SQL NULL and join local with remote cleanup',
+  'maintenance expires content with audio off and preserves original expiry fences while admission is disabled',
+  'same native call survives a lost successful COMMIT reply; failed COMMIT retains neither fact nor receipt',
+  'native save/begin and erase/ingest serialize on the actual Workspace lock',
+  'recording failed/retry stays queued; replaced tokens fail, deleting Workspace still cleans, and completed fence GC never revives original expiry',
+  'binding tuple cannot change and a renamed or recreated login does not inherit the old role OID',
+  'same Workspace deployments retain hidden revision references without aborting either native cleanup lease',
+  'native company policy pin survives ON and OFF saves while deployment capability independently denies ON',
+  'native sector snapshots V1 garage preserves native snapshots, concurrent revisions and Inbox ownership',
+  'native sector snapshots V1 controle-technique preserves native snapshots, concurrent revisions and Inbox ownership',
+  'native sector snapshots V1 diagnostic-immobilier preserves native snapshots, concurrent revisions and Inbox ownership',
+  'native sector snapshots V2 garage preserves native snapshots, concurrent revisions and Inbox ownership',
+  'native sector snapshots V2 controle-technique preserves native snapshots, concurrent revisions and Inbox ownership',
+  'native sector snapshots V2 diagnostic-immobilier preserves native snapshots, concurrent revisions and Inbox ownership',
+]
+
 // These fixed canary titles test report admission, not the named product behavior.
 const requestConsumerNames=[
   ['sparra-requests.test.ts',[
@@ -333,6 +356,7 @@ function nativeCoverageFixture(activityAfterAll = '',recordingAfterAll = '') {
   writeFileSync(join(root,'scripts/prepare-voice-source.mjs'),`import {existsSync,mkdirSync,rmSync,writeFileSync} from 'node:fs';import {join} from 'node:path';
 export async function prepareVoiceSource({appRoot}){const scope=join(appRoot,'coverage/canary-voice-owner');mkdirSync(scope);return {root:scope,fixturePython:process.execPath,testEnvironment:{HOME:scope,APPDATA:scope},assertIdentity:async()=>{if(!existsSync(scope))throw new Error('Synthetic canary Voice owner missing')},retire:async()=>{if(existsSync(scope)){if(existsSync(join(scope,'retirement-failure')))throw new Error('Synthetic canary Voice retirement failed');rmSync(scope,{recursive:true});writeFileSync(join(appRoot,'canary-voice-retired.txt'),'retired')}}}}\n`)
   writeFileSync(join(root,'tests/integration/sparra-voice-crypto.test.ts'),"import {expect,test} from 'vitest';test('synthetic runner Crypto wiring',()=>expect(process.env.SPARRA_VOICE_TEST_ROOT).toContain('canary-voice-owner'));\n")
+  writeFileSync(join(root,'tests/integration/sparra-voice-bridge.test.ts'),"import {expect,test} from 'vitest';\n"+voiceBridgeNames.map(name=>'test('+JSON.stringify(name)+",()=>{const root=process.env.SPARRA_VOICE_TEST_ROOT;expect(root).toContain('canary-voice-owner');expect(process.env.SPARRA_VOICE_FIXTURE_PYTHON).toBe(process.execPath);expect(process.env.SPARRA_VOICE_TEST_HOME).toBe(root);});\n").join(''))
   // The nine private named leaves qualify report admission and environment
   // forwarding only; they do not qualify native SQL or the real Voice source.
   writeFileSync(join(root,'tests/integration/sparra-recording-receipt.test.ts'),"import {afterAll,expect,test} from 'vitest';import {join} from 'node:path';\n"+recordingReceiptNames.map(name=>'test('+JSON.stringify(name)+",()=>{const root=process.env.SPARRA_VOICE_TEST_ROOT;expect(root).toContain('canary-voice-owner');expect(process.env.SPARRA_VOICE_FIXTURE_PYTHON).toBe(process.execPath);expect(process.env.SPARRA_VOICE_TEST_HOME).toBe(root);});\n").join('')+'afterAll(()=>{'+recordingAfterAll+'});\n')
@@ -907,6 +931,34 @@ function runCoverageConsumer(root:string,preload?:string,timeout=20000) {
   return spawnSync(process.execPath,args,{cwd:root,encoding:'utf8',windowsHide:true,timeout})
 }
 
+test.each(['missing','skipped','duplicate','afterAll'] as const)('native_voice_bridge_runner_refuses_%s_before_later_consumers_and_publication',kind=>{
+  const root=nativeCoverageFixture(),path=join(root,'tests/integration/sparra-voice-bridge.test.ts')
+  const lines=readFileSync(path,'utf8').trimEnd().split('\n')
+  if(kind==='missing')lines.pop()
+  else if(kind==='skipped')lines[19]=lines[19]!.replace('test(','test.skip(')
+  else if(kind==='duplicate')lines[19]=lines[18]!
+  else lines.push("import {afterAll} from 'vitest';afterAll(()=>{throw new Error('Owned native bridge afterAll failure')});")
+  writeFileSync(path,lines.join('\n')+'\n')
+  const result=runCoverageConsumer(root)
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
+  expect(result.stdout).toContain('[tests] voice bridge qualification\n')
+  expect(result.stdout).not.toContain('[tests] recording receipt qualification')
+  expect(result.stdout).not.toContain('[tests] requests qualification')
+  expect(result.stdout).not.toContain('[tests] billing qualification')
+  expect(result.stdout).not.toContain('[tests] merge')
+  expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
+  if(kind==='afterAll'){
+    expect(result.stderr).toContain('Native coverage voice bridge qualification failed; consumer cleanup is unconfirmed')
+    expect(result.stderr).toContain('Native Voice scope retained: consumer resource cleanup is unconfirmed')
+    expect(existsSync(join(root,'coverage/canary-voice-owner'))).toBe(true)
+    expect(existsSync(join(root,'canary-voice-retired.txt'))).toBe(false)
+  }else{
+    expect(result.stderr).toContain('Native Voice bridge requires its exact nineteen passing leaves')
+    expect(readdirSync(join(root,'coverage'))).toEqual([])
+    expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
+  }
+},25000)
+
 test.each(['disabled','missing','adverse'] as const)('native_mail_retry_runner_refuses_%s_before_requests_merge_and_publication',kind=>{
   const root=nativeCoverageFixture(),path=join(root,'tests/integration/mail-retry-native.test.ts')
   const source=readFileSync(path,'utf8')
@@ -981,8 +1033,8 @@ test('actual_coverage_runner_publishes_only_native_complete_map_after_retirement
   expect(readdirSync(join(root,'coverage'))).toEqual(['coverage-final.json'])
   expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
   expect(existsSync(join(root,'coverage/canary-voice-owner'))).toBe(false)
-  expect(result.stdout.split('\n').filter(line=>/^\[tests\] (voice-crypto qualification|recording receipt qualification|mail retry qualification|requests qualification|billing qualification|calendar qualification|private audio playback qualification|audio reader store qualification|audio reader retirement qualification|merge)$/.test(line.trim())).map(line=>line.trim())).toEqual([
-    '[tests] voice-crypto qualification','[tests] recording receipt qualification','[tests] mail retry qualification','[tests] requests qualification','[tests] billing qualification','[tests] calendar qualification','[tests] merge',
+  expect(result.stdout.split('\n').filter(line=>/^\[tests\] (voice-crypto qualification|voice bridge qualification|recording receipt qualification|mail retry qualification|requests qualification|billing qualification|calendar qualification|private audio playback qualification|audio reader store qualification|audio reader retirement qualification|merge)$/.test(line.trim())).map(line=>line.trim())).toEqual([
+    '[tests] voice-crypto qualification','[tests] voice bridge qualification','[tests] recording receipt qualification','[tests] mail retry qualification','[tests] requests qualification','[tests] billing qualification','[tests] calendar qualification','[tests] merge',
   ])
   const audioConsumers: {file:string;screenshots:string}[]=readFileSync(join(root,'canary-audio-consumers.jsonl'),'utf8').trimEnd().split('\n').map(line=>JSON.parse(line))
   expect(audioConsumers.map(row=>row.file).sort()).toEqual(requestConsumerNames.slice(1).map(([file])=>file).sort())
