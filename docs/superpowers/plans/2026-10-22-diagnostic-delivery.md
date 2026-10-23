@@ -38,7 +38,7 @@
 - [ ] Using Voicef16ccb and exact pinned tools, add meaningful all-three-sector V1/V2 and prompt assertions; run targeted tests and observe diagnostic RED without altering old assertions.
 - [ ] Apply only the Literal value and neutral opening from3453abb. Keep disclosure/Calendar/tools/closure and all budget/schema-transition source untouched.
 - [ ] Observe GREEN for the target, run canonical Ruff/mypy/lock checks and preserve command/source receipts. Independent spec/quality review before commit qualification.
-- [ ] Preserve the separate guidance correction's exact-diff source review and earlier real-booking failure; qualify the combined source without another paid call. For the actual unexplained PR773 abrupt exit, only full-suite terminal verbosity may change to `-vv` for diagnosis, keeping ordinary capture, all tests and existing deadlines/assertions. A successful diagnostic run is non-reproduction, not a retrospective cause.
+- [ ] Preserve the separate guidance correction's exact-diff source review and earlier real-booking failure; qualify the combined source without another paid call. For the actual unexplained PR773 abrupt exit, only full-suite terminal verbosity may change to `-vv` for diagnosis, keeping ordinary capture, all tests and existing deadlines/behavior assertions. Align only the expected command string in the retained exact full workflow-composition guard. A successful diagnostic run is non-reproduction, not a retrospective cause.
 
 ## Task2 — App catalog, guided behavior and additive schema
 
