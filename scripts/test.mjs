@@ -46,6 +46,7 @@ async function runPhase(name, args, timeout) {
   const result = await runNativePhase(process.execPath, args, { cwd: root, env, timeout })
   if (!result.cleanExit) {
     consumerCleanupUnknown=true
+    process.stderr.write('NATIVE_PHASE_RESULT '+JSON.stringify({phase:name,status:result.status,signal:result.signal,timedOut:result.timedOut})+'\n')
     throw new Error('Native coverage ' + name + ' failed; consumer cleanup is unconfirmed')
   }
   assertFrozenIdentity()

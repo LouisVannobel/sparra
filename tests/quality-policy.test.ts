@@ -949,6 +949,7 @@ test.each(['missing','skipped','duplicate','afterAll'] as const)('native_voice_b
   expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
   if(kind==='afterAll'){
     expect(result.stderr).toContain('Native coverage voice bridge qualification failed; consumer cleanup is unconfirmed')
+    expect(result.stderr).toContain('NATIVE_PHASE_RESULT '+JSON.stringify({phase:'voice bridge qualification',status:1,signal:null,timedOut:false}))
     expect(result.stderr).toContain('Native Voice scope retained: consumer resource cleanup is unconfirmed')
     expect(existsSync(join(root,'coverage/canary-voice-owner'))).toBe(true)
     expect(existsSync(join(root,'canary-voice-retired.txt'))).toBe(false)
