@@ -87,7 +87,7 @@ test('isolated native reconstruction preserves source security/configuration, au
     account:[{id:'account-a',account_id:'synthetic-google-subject',provider_id:'google',user_id:owners[0],created_at:at,updated_at:at}],passkey:keys,
     recovery_code_batch:batches,recovery_code:batches.flatMap(batch=>Array.from({length:8},(_,i)=>({id:randomUUID(),user_id:batch.user_id,batch_id:batch.batch_id,digest:createHash('sha256').update(batch.user_id+':synthetic:'+i).digest('hex'),spent_at:i===0?at:null}))).sort((a,b)=>a.id.localeCompare(b.id)),
     workspace:owners.map((owner_user_id,i)=>({id:workspaceIds[i],kind:'personal',lifecycle:'active',owner_user_id,auth_organization_id:null,display_name:'Synthetic workshop '+i,created_at:at,updated_at:at})),
-    sparra_knowledge_revision:workspaceIds.map(workspace_id=>({workspace_id,revision:12,business_name:'Synthetic garage',sector:'garage',opening_hours:'Monday',services:'Oil change',prices:'',faq:'',instructions:'',transfer_destination:null,recording_enabled:false,recording_policy:'off',recording_contact_phone:null,saved_at:at}))}
+    sparra_knowledge_revision:workspaceIds.map((workspace_id,index)=>({workspace_id,revision:12,business_name:'Synthetic establishment',sector:(['diagnostic-immobilier','controle-technique','garage'] as const)[index],opening_hours:'Monday',services:'Explicit synthetic service',prices:'',faq:'',instructions:'',transfer_destination:null,recording_enabled:false,recording_policy:'off',recording_contact_phone:null,saved_at:at}))}
   const classified=classifiedSyntheticFields(data)
   let stores:Awaited<ReturnType<typeof startDisposableStores>>|undefined, pool:Pool|undefined,voice:Client|undefined
   let limiter:ReturnType<typeof createAuthRateLimiter>|undefined,auth:ReturnType<typeof createApplicationAuth>|undefined
@@ -163,7 +163,9 @@ test('isolated native reconstruction preserves source security/configuration, au
     const personal=createPersonalWorkspaces(owner),activity=createActivityOperations(owner)
     expect(await personal.readWorkspace(first.principal,workspaceIds[0])).toEqual({id:workspaceIds[0],displayName:'Synthetic workshop 0'})
     const state=await activity.read(first.principal)
-    expect(state.configuration).toEqual({workspaceId:workspaceIds[0],revision:12,savedAt:at,businessName:'Synthetic garage',sector:'garage',knowledge:{openingHours:'Monday',services:'Oil change',prices:'',faq:'',instructions:''},transferDestination:null,recordingEnabled:false,recordingPolicy:'off',recordingContactPhone:null})
+    expect(state.configuration).toEqual({workspaceId:workspaceIds[0],revision:12,savedAt:at,businessName:'Synthetic establishment',sector:'diagnostic-immobilier',knowledge:{openingHours:'Monday',services:'Explicit synthetic service',prices:'',faq:'',instructions:''},transferDestination:null,recordingEnabled:false,recordingPolicy:'off',recordingContactPhone:null})
+    expect((await activity.read(second.principal)).configuration).toMatchObject({revision:12,sector:'controle-technique'})
+    expect((await stores.administrator.query('SELECT sector FROM sparra_knowledge_revision ORDER BY workspace_id')).rows).toEqual([{sector:'diagnostic-immobilier'},{sector:'controle-technique'},{sector:'garage'}])
     expect(state.localAudioAvailable).toBe(false)
     expect(await personal.readWorkspace(second.principal,workspaceIds[0])).toBeNull()
     expect(await personal.renameWorkspace(second.principal,workspaceIds[0],'Forbidden rename')).toBeNull()
