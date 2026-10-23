@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { closeSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { admitCommonGeometry, assertCalendarQualification, assertBillingQualification, assertDirectory, assertRunTree, assertRecordingReceiptQualification, assertRequestsQualification, assertMailRetryQualification, readMailRetryBuildIdentity, readNativeBlob, sourceIdentity } from './native-coverage-inputs.mjs'
+import { admitCommonGeometry, assertCalendarQualification, assertBillingQualification, assertDirectory, assertRunTree, assertRecordingReceiptQualification, assertRequestsQualification, assertVoiceBridgeQualification, assertMailRetryQualification, readMailRetryBuildIdentity, readNativeBlob, sourceIdentity } from './native-coverage-inputs.mjs'
 import { prepareVoiceSource } from './prepare-voice-source.mjs'
 import { runNativePhase } from './native-test-phase.mjs'
 
@@ -46,6 +46,7 @@ async function runPhase(name, args, timeout) {
   const result = await runNativePhase(process.execPath, args, { cwd: root, env, timeout })
   if (!result.cleanExit) {
     consumerCleanupUnknown=true
+    process.stderr.write('NATIVE_PHASE_RESULT '+JSON.stringify({phase:name,status:result.status,signal:result.signal,timedOut:result.timedOut})+'\n')
     throw new Error('Native coverage ' + name + ' failed; consumer cleanup is unconfirmed')
   }
   assertFrozenIdentity()
@@ -112,6 +113,13 @@ try {
     '--outputFile.blob=' + join(blobs, 'activity.json'), '--coverage.reportsDirectory=' + join(runDirectory, 'activity')], 600000)
   admitBlob('activity')
   await runPhase('voice-crypto qualification', [vitestCli, 'run', '--config', 'vitest.integration.config.ts', 'tests/integration/sparra-voice-crypto.test.ts', '--maxWorkers=1'], 180000)
+  const voiceBridgeReport = join(runDirectory, 'voice-bridge-qualification.json')
+  await runPhase('voice bridge qualification', [
+    vitestCli, 'run', '--config', 'vitest.integration.config.ts',
+    'tests/integration/sparra-voice-bridge.test.ts', '--maxWorkers=1',
+    '--reporter=default', '--reporter=json', '--outputFile.json=' + voiceBridgeReport,
+  ], 180000)
+  assertVoiceBridgeQualification(voiceBridgeReport, root, startedAt)
   const recordingReport = join(runDirectory, 'recording-receipt-qualification.json')
   await runPhase('recording receipt qualification', [
     vitestCli, 'run', '--config', 'vitest.integration.config.ts',

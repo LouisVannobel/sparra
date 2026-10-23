@@ -6,6 +6,19 @@ import { readVoiceSourceFixture } from '../../scripts/voice-source-fixture.mjs'
 
 const modulePath='../../scripts/prepare-voice-source.mjs'
 
+test('current canonical Voice producer prepares with Python 3.13.17 while retaining native package and module identity',async()=>{
+  const root=process.env.SPARRA_VOICE_TEST_ROOT
+  if(!root)throw new Error('Current genuine producer qualification requires an explicit root')
+  const parent=await mkdtemp(join(tmpdir(),'sparra-current-voice-'))
+  let prepared:Awaited<ReturnType<typeof import('../../scripts/prepare-voice-source.mjs')['prepareVoiceSource']>>|undefined
+  try{
+    const {prepareVoiceSource}=await import('../../scripts/prepare-voice-source.mjs')
+    prepared=await prepareVoiceSource({appRoot:process.cwd(),explicitRoot:root,scopeParent:parent})
+    expect((await readFile(join(prepared.root,'.python-version'),'utf8')).trim()).toBe('3.13.17')
+    await prepared.assertIdentity()
+  }finally{await prepared?.retire();await rm(parent,{recursive:true,force:true})}
+},65000)
+
 test('native Voice preparation owns an isolated HOME and APPDATA and refuses inventory drift',async()=>{
   const parent=await mkdtemp(join(tmpdir(),'sparra-home-test-'))
   try{

@@ -7,7 +7,8 @@ const controlled = vi.hoisted(() => ({ spawnSync: vi.fn(), launch: vi.fn(), clos
 vi.mock('node:child_process', () => ({ spawnSync: controlled.spawnSync }))
 vi.mock('playwright', () => ({ chromium: { launch: controlled.launch } }))
 
-const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+if(!platform)throw new Error('Missing test platform descriptor')
 const hosted = { CI: 'true', GITHUB_ACTIONS: 'true', RUNNER_OS: 'Linux', RUNNER_ENVIRONMENT: 'github-hosted' }
 const missing = () => new Error("browserType.launch: Executable doesn't exist at /owned/missing-browser")
 const modulePath = '../../scripts/test-prerequisites.mjs'
@@ -81,3 +82,32 @@ test('a still-missing browser after installation refuses readiness without anoth
   expect(controlled.spawnSync.mock.calls.filter(call => call[0] === process.execPath)).toHaveLength(1)
   expect(controlled.launch).toHaveBeenCalledTimes(2)
 })
+
+const installerFailures=[
+  {name:'nonzero',result:{status:37,signal:null},expected:{status:37,code:null,signal:null}},
+  {name:'timeout',result:{status:null,error:{code:'ETIMEDOUT',message:'owned-private-message'},signal:'SIGTERM'},expected:{status:null,code:'ETIMEDOUT',signal:'SIGTERM'}},
+  {name:'spawn-error',result:{status:null,error:{code:'ENOENT',message:'owned-private-message'},signal:null},expected:{status:null,code:'ENOENT',signal:null}},
+  {name:'unsafe-fields',result:{status:1,error:{code:'owned-private-message\n',message:'owned-private-message'},signal:'owned-private-message'},expected:{status:1,code:null,signal:null}},
+]
+for(const stage of ['decoder-update','decoder-install','browser-install'] as const){
+  test.each(installerFailures)('installer '+stage+' reports safe $name metadata and still refuses readiness',async({result,expected})=>{
+    for(const [key,setting] of Object.entries(hosted))vi.stubEnv(key,setting)
+    if(stage==='browser-install')controlled.launch.mockRejectedValueOnce(missing())
+    controlled.spawnSync.mockImplementation((command,args)=>{
+      if(stage!=='browser-install'&&command==='ffmpeg')return {status:1}
+      const selected=stage==='browser-install'?command===process.execPath:command==='sudo'&&args[1]===(stage==='decoder-update'?'update':'install')
+      return selected?result:{status:0}
+    })
+    const failure=await import(modulePath).then(()=>null,error=>error)
+    expect(failure).toBeInstanceOf(Error)
+    if(!(failure instanceof Error))throw new Error('Expected installer refusal')
+    expect(failure.message).toContain(stage==='browser-install'?'Hosted test browser installation failed':'Hosted test decoder installation failed')
+    expect(failure.message).toContain(JSON.stringify({stage,...expected}))
+    expect(failure.message).not.toContain('owned-private-message')
+    expect(controlled.close).not.toHaveBeenCalled()
+    expect(controlled.launch).toHaveBeenCalledTimes(stage==='browser-install'?1:0)
+    const installers=controlled.spawnSync.mock.calls.filter(([command])=>command==='sudo'||command===process.execPath)
+    expect(installers).toHaveLength(stage==='decoder-install'?2:1)
+    expect(installers.every(([, , options])=>options.timeout===120000)).toBe(true)
+  })
+}

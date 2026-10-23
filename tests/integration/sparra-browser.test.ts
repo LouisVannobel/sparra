@@ -1,5 +1,5 @@
 import { showActivitySection, waitForActivityNavigation } from '../helpers/activity-navigation'
-import { activityMessages } from '../../src/modules/sparra/messages'
+import { activityMessages, appMessages } from '../../src/modules/sparra/messages'
 import { getSectorPreset } from '../../src/modules/sparra/sectors'
 import { afterAll, beforeAll, expect, test } from 'vitest'
 import { createServer, request as httpRequest } from 'node:http'
@@ -886,14 +886,14 @@ test('compiled native result DTO shows category and caller/provider/missing call
   }finally{await context.close()}
 },40000)
 
-test('current-sector owner saves explicit questions and reloads unchanged after an unsupported diagnostic write',async()=>{
+test('current-sector owner saves explicit questions and reloads unchanged after an unknown-sector write',async()=>{
   const {context,page}=await signedIn('sparra-current-sector-owner')
   try{
     await page.goto(origin+'/app/entreprise?lang=en');await page.getByRole('button',{name:'Create my workspace'}).click()
     await showActivitySection(page,'establishment');await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).fill('Centre guided boundary')
     await page.getByRole('combobox',{name:/^Sector/}).click()
     await page.getByRole('option',{name:'Garage',exact:true}).waitFor()
-    expect(await page.getByRole('option').allTextContents()).toEqual(['Garage','Vehicle inspection'])
+    expect(await page.getByRole('option').allTextContents()).toEqual(['Garage','Vehicle inspection','Property diagnostics'])
     await page.getByRole('option',{name:'Vehicle inspection',exact:true}).click()
     await showActivitySection(page,'knowledge')
     await page.getByText('What type of vehicle is concerned?',{exact:true}).waitFor()
@@ -909,7 +909,7 @@ test('current-sector owner saves explicit questions and reloads unchanged after 
     const before=await persisted()
     expect(before).toHaveLength(1)
     expect(before[0].value).toMatchObject({revision:1,sector:'controle-technique',instructions:'What type of vehicle is concerned?'})
-    const refused=await rpc(context,'saveActivity',{expectedRevision:1,businessName:'Unsupported diagnostic',sector:'diagnostic-immobilier',knowledge:{openingHours:'',services:'',prices:'',faq:'',instructions:''},transferDestination:null,recordingEnabled:false})
+    const refused=await rpc(context,'saveActivity',{expectedRevision:1,businessName:'Unsupported sector',sector:'unknown-sector',knowledge:{openingHours:'',services:'',prices:'',faq:'',instructions:''},transferDestination:null,recordingEnabled:false})
     expect(refused.status()).toBe(400)
     expect(await persisted()).toEqual(before)
     await page.reload();expect(await instructions.inputValue()).toBe('What type of vehicle is concerned?')
@@ -920,6 +920,42 @@ test('current-sector owner saves explicit questions and reloads unchanged after 
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
     expect((await new AxeBuilder({page}).analyze()).violations).toEqual([])
     await page.screenshot({path:'.output/test-evidence/sparra/current-sectors-business-en-320.png',fullPage:true})
+  }finally{await context.close()}
+},30000)
+
+test.each(['fr','en'] as const)('diagnostic owner in %s explicitly adds prepared answers and caller questions, saves and reloads without prefilled facts',async locale=>{
+  const {context,page}=await signedIn('sparra-diagnostic-owner-'+locale),t=activityMessages[locale]
+  const preset=getSectorPreset('diagnostic-immobilier',locale)
+  try{
+    await page.goto(origin+'/app/entreprise?lang='+locale);await page.getByRole('button',{name:appMessages[locale].create,exact:true}).click()
+    await showActivitySection(page,'establishment')
+    await page.getByRole('combobox',{name:new RegExp('^'+t.sector)}).click()
+    await page.getByRole('option',{name:preset.label,exact:true}).click()
+    const businessName=page.getByRole('textbox',{name:new RegExp('^'+t.businessName)})
+    expect(await businessName.inputValue()).toBe('')
+    expect(await businessName.getAttribute('placeholder')).toBe(locale==='fr'?'Établissement Martin':'Martin Business')
+    await businessName.fill('Diagnostic Martin '+locale)
+    await showActivitySection(page,'knowledge')
+    const faq=page.getByRole('textbox',{includeHidden:true,name:t.faq,exact:true}),instructions=page.getByRole('textbox',{includeHidden:true,name:t.instructions,exact:true})
+    for(const field of [t.openingHours,t.services,t.prices,t.faq,t.instructions])expect(await page.getByRole('textbox',{includeHidden:true,name:field,exact:true}).inputValue()).toBe('')
+    const question=preset.faqQuestions[0]!,intake=preset.intakeQuestions[0]!
+    await page.getByRole('button',{name:question,exact:true}).click()
+    await page.getByRole('textbox',{name:t.ownerAnswer,exact:true}).fill('Réponse fournie explicitement par le propriétaire')
+    expect(await faq.inputValue()).toBe('')
+    await page.getByRole('button',{name:t.addOwnerAnswer,exact:true}).click()
+    expect(await faq.inputValue()).toBe(question+'\nRéponse fournie explicitement par le propriétaire')
+    expect(await instructions.inputValue()).toBe('')
+    await page.getByRole('button',{name:t.addCallerQuestion+' : '+intake,exact:true}).click()
+    expect(await instructions.inputValue()).toBe(intake)
+    expect(await instructions.inputValue()).not.toContain(preset.intakeQuestions[1])
+    await page.locator('.sparra-business-form').getByRole('button',{name:t.save,exact:true}).click();await page.getByText(t.saved,{exact:true}).waitFor()
+    await page.reload();await showActivitySection(page,'knowledge')
+    expect(await faq.inputValue()).toBe(question+'\nRéponse fournie explicitement par le propriétaire')
+    expect(await instructions.inputValue()).toBe(intake)
+    expect(await page.getByRole('combobox',{includeHidden:true,name:new RegExp('^'+t.sector)}).textContent()).toContain(preset.label)
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+    expect((await new AxeBuilder({page}).analyze()).violations).toEqual([])
+    await page.screenshot({path:'.output/test-evidence/sparra/diagnostic-business-'+locale+'-320.png',fullPage:true})
   }finally{await context.close()}
 },30000)
 
@@ -963,6 +999,17 @@ test.each(['fr','en'] as const)('guided sections in %s preserve draft and questi
     expect(await answer.inputValue()).toBe('Owner answer kept with the garage question')
     expect(await page.locator('.sparra-helper-answer > p').first().textContent()).toBe(garageQuestion)
     expect(await faq.inputValue()).toBe(knowledge.faq);expect(await instructions.inputValue()).toBe(knowledge.instructions)
+    await showActivitySection(page,'establishment')
+    await page.getByRole('combobox',{name:new RegExp('^'+t.sector)}).click()
+    await page.getByRole('option',{name:getSectorPreset('diagnostic-immobilier',locale).label,exact:true}).click()
+    await showActivitySection(page,'knowledge')
+    expect(await answer.inputValue()).toBe('Owner answer kept with the garage question')
+    expect(await page.locator('.sparra-helper-answer > p').first().textContent()).toBe(garageQuestion)
+    expect(await faq.inputValue()).toBe(knowledge.faq);expect(await instructions.inputValue()).toBe(knowledge.instructions)
+    await showActivitySection(page,'establishment')
+    await page.getByRole('combobox',{name:new RegExp('^'+t.sector)}).click()
+    await page.getByRole('option',{name:getSectorPreset('controle-technique',locale).label,exact:true}).click()
+    await showActivitySection(page,'knowledge')
     await addAnswer.click()
     expect(await faq.inputValue()).toBe(knowledge.faq+'\n\n'+garageQuestion+'\nOwner answer kept with the garage question')
     const intake=getSectorPreset('controle-technique',locale).intakeQuestions[0]!

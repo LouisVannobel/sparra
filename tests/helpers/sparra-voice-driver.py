@@ -36,7 +36,7 @@ class LostCommitReplyPool(AsyncConnectionPool):
 
 
 async def main():
-    assert sys.version_info[:3] == (3, 13, 15)
+    assert sys.version_info[:3] == (3, 13, 17)
     for name, version in {"cryptography": "50.0.0", "pipecat-ai": "1.12.0", "psycopg": "3.3.4"}.items():
         assert importlib.metadata.version(name) == version
     request = incoming
@@ -80,7 +80,11 @@ async def main():
     try:
         action = request["action"]
         if action in {"begin", "begin_context", "begin_unknown_commit"}:
-            value = await sink.begin_call(request["deployment"], UUID(request["call_id"]), RoutingV1.model_validate(request["routing"]))
+            version = request.get("version", 1) if action == "begin_context" else 1
+            if type(version) is not int or version not in {1, 2}:
+                raise ValueError("unknown snapshot version")
+            begin_call = sink.begin_call_v2 if version == 2 else sink.begin_call
+            value = await begin_call(request["deployment"], UUID(request["call_id"]), RoutingV1.model_validate(request["routing"]))
             if action == "begin_context":
                 from types import SimpleNamespace
                 from pipecat.processors.frame_processor import FrameProcessor
@@ -104,7 +108,11 @@ async def main():
                                          "pipeline": str(Path(pipeline.__file__).resolve())}}
             return value.model_dump(mode="json")
         if action == "ingest":
-            await sink.ingest(VoiceOperationV1.model_validate(request["operation"]))
+            if request["operation"].get("schema_version") == 2:
+                from projetv0_voice.audio_contract import VoiceOperationV2
+                await sink.ingest_v2(VoiceOperationV2.model_validate(request["operation"]))
+            else:
+                await sink.ingest(VoiceOperationV1.model_validate(request["operation"]))
             return {"ack": True}
         if action == "lease_call":
             return [dataclasses.asdict(item) for item in await sink.lease_call_erasures("fixture", 30, 100)]

@@ -4,9 +4,9 @@ import { fileURLToPath } from 'node:url'
 import { isAbsolute, join, resolve } from 'node:path'
 import { realpath, stat } from 'node:fs/promises'
 
-const commit='31acb9d2de220765e6cbf3833fd50c474f0bc2db'
-const tree='0b61b47a6503fcaabbb7db2dacc7bcf35974b860'
-const archiveHash='f8d745818fb231bcb072edde1a8e4d36384cccba7e65d6c9607c37bb4ba83981'
+const commit='2c5006a61b629c2ce6def6fa854a7ea9ef7534b7'
+const tree='b94d513bc538bfcb152e739ac8343e9ce057ac91'
+const archiveHash='e081802f5de46f1b01a979d71d8414aab78c270cc6c080cba220a79ef47c5aeb'
 const inputRoots=['.python-version','pyproject.toml','uv.lock','README.md','src','scripts','agents','deployment-profiles','tests/integration/sparra_connected_scenario.py']
 const invalid=()=>new Error('Invalid native Voice source fixture')
 
@@ -21,8 +21,8 @@ function assertFixtureProvenance(manifest){
 }
 
 function assertFixtureArchive(archive,manifest){
-  if(!Buffer.isBuffer(archive)||archive.length!==405751||createHash('sha256').update(archive).digest('hex')!==archiveHash
-    ||manifest.archive_sha256!==archiveHash||manifest.archive_size!==archive.length||manifest.decoded_source_bytes!==1943556)throw invalid()
+  if(!Buffer.isBuffer(archive)||archive.length!==405952||createHash('sha256').update(archive).digest('hex')!==archiveHash
+    ||manifest.archive_sha256!==archiveHash||manifest.archive_size!==archive.length||manifest.decoded_source_bytes!==1947107)throw invalid()
 }
 
 function assertFixtureMembers(manifest){

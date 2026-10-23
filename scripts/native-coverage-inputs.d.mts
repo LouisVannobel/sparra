@@ -14,6 +14,8 @@ export function admitCommonGeometry(ordinary: NativeCoverageBlob, activity: Nati
 
 export function assertRequestsReport(report: unknown, root: string): void
 export function assertRequestsQualification(path: string, root: string, startedAt: number): void
+export function assertVoiceBridgeReport(report: unknown, root: string, startedAt: number): void
+export function assertVoiceBridgeQualification(path: string, root: string, startedAt: number): void
 export function assertRecordingReceiptReport(report: unknown, root: string): void
 export function assertRecordingReceiptQualification(path: string, root: string, startedAt: number): void
 export function assertMailRetryReport(report: unknown, root: string, startedAt: number): void

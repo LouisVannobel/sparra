@@ -4,11 +4,12 @@ import { resolveVoiceProducer } from './sparra-crypto-fixture'
 import type { NativeEncryptedTurn } from '../../src/modules/sparra/message-crypto.server'
 
 type BeginSnapshot={schema_version:1;call_id:string;configuration_revision:number;recording_enabled:boolean;knowledge:{business_name:string;sector:string;opening_hours:string;services:string;prices:string;faq:string;instructions:string};transfer_destination:string|null;retention_until:string}
+type BeginSnapshotV2=Omit<BeginSnapshot,'schema_version'|'recording_enabled'>&{schema_version:2;workspace_id:string;recording_policy:'off'|'local_30d';recording_contact_phone:string|null;audio_available:boolean;recording_id:string|null}
 type CallLease={schema_version:1;call_id:string;lease_token:string;deployment_id:string;original_retention_until:string;lease_expires_at:string}
 type RecordingLease={schema_version:1;recording_id:string;lease_token:string;telnyx_recording_id:string;purge_attempt:number;lease_expires_at:string}
 type BeginRequest={url:string;deployment:string;call_id:string;routing:object}
-type FixtureRequests={identity:{url:string};begin:BeginRequest;begin_context:BeginRequest;begin_unknown_commit:BeginRequest;ingest:{url:string;operation:object};lease_call:{url:string};lease_recording:{url:string};ack_call:{url:string;id:string;token:string;at:string};ack_recording:{url:string;id:string;token:string;at:string;outcome:string};aggregate_size:{turns:object};turn:{keyring_path:string;turn_id:string;at:string}}
-type FixtureResults={identity:{login:string;role:string};begin:BeginSnapshot;begin_context:{snapshot:BeginSnapshot;messages:Array<{role:string;content:string}>;tools:Array<{name:string;properties:object;required:string[]}>;source_files:{models:string;pipeline:string}};begin_unknown_commit:BeginSnapshot;ingest:{ack:true};lease_call:CallLease[];lease_recording:RecordingLease[];ack_call:{ack:true};ack_recording:{ack:true};aggregate_size:{bytes:number};turn:NativeEncryptedTurn}
+type FixtureRequests={identity:{url:string};begin:BeginRequest;begin_context:BeginRequest&{version?:1|2};begin_unknown_commit:BeginRequest;ingest:{url:string;operation:object};lease_call:{url:string};lease_recording:{url:string};ack_call:{url:string;id:string;token:string;at:string};ack_recording:{url:string;id:string;token:string;at:string;outcome:string};aggregate_size:{turns:object};turn:{keyring_path:string;turn_id:string;at:string}}
+type FixtureResults={identity:{login:string;role:string};begin:BeginSnapshot;begin_context:{snapshot:BeginSnapshot|BeginSnapshotV2;messages:Array<{role:string;content:string}>;tools:Array<{name:string;properties:object;required:string[]}>;source_files:{models:string;pipeline:string}};begin_unknown_commit:BeginSnapshot;ingest:{ack:true};lease_call:CallLease[];lease_recording:RecordingLease[];ack_call:{ack:true};ack_recording:{ack:true};aggregate_size:{bytes:number};turn:NativeEncryptedTurn}
 type FixtureReply<T>={ok:T;error?:never}|{error:string;ok?:never}
 export function nativeValue<T>(reply:FixtureReply<T>):T {
   if(reply.error!==undefined)throw new Error('Native Voice fixture: '+reply.error)
@@ -21,7 +22,7 @@ export async function nativeVoice<A extends keyof FixtureRequests>(request:{acti
   const selected=await resolveVoiceProducer(producer?dirname(producer.sourceRoot):undefined)
   if(producer&&(selected.pythonExecutable!==producer.pythonExecutable||selected.sourceRoot!==producer.sourceRoot))throw new Error('Voice producer descriptor refused')
   return new Promise((accept,reject)=>{
-    const child=spawn(selected.pythonExecutable,['-I','-B',resolve('tests/helpers/sparra-voice-driver.py')],{windowsHide:true,cwd:dirname(selected.sourceRoot),env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,TEMP:process.env.TEMP,TMP:process.env.TMP,PYTHONDONTWRITEBYTECODE:'1'}})
+    const child=spawn(selected.pythonExecutable,['-I','-B',resolve('tests/helpers/sparra-voice-driver.py')],{windowsHide:true,cwd:dirname(selected.sourceRoot),env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,TEMP:process.env.TEMP,TMP:process.env.TMP,PYTHONDONTWRITEBYTECODE:'1',HOME:process.env.SPARRA_VOICE_TEST_HOME,APPDATA:process.env.SPARRA_VOICE_TEST_HOME}})
     const timeout=setTimeout(()=>{child.kill();reject(new Error('Native Voice fixture deadline'))},15000)
     let output=''
     child.stdout.on('data',data=>{output+=data;if(output.length>1048576){child.kill();reject(new Error('Native Voice fixture output bound'))}})

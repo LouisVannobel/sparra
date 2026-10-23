@@ -20,7 +20,7 @@ vi.mock('../../src/modules/calendar/calendar.functions', () => rpc)
 
 const workspace = { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', displayName: 'Route owner' }
 const disconnected: CalendarState = { available: true, status: 'disconnected', accountEmail: null, selectedCalendar: null, calendars: [], enabled: false, policy: null, revision: 0 }
-function activity(sector: 'garage' | 'controle-technique'): ActivityState {
+function activity(sector: 'garage' | 'controle-technique' | 'diagnostic-immobilier'): ActivityState {
   return { workspace, localAudioAvailable: true, configuration: { workspaceId: workspace.id, businessName: `Saved ${sector}`, sector,
     revision: 7, savedAt: '2026-10-21T10:00:00.000Z', knowledge: { openingHours: 'Saved hours', services: 'Saved services', prices: 'Saved prices', faq: 'Saved answers', instructions: 'Saved instructions' },
     transferDestination: '+33123456789', recordingEnabled: false, recordingPolicy: 'local_30d', recordingContactPhone: '+33987654321' } }
@@ -39,7 +39,7 @@ function expectNoMutations() {
 }
 afterEach(() => vi.resetAllMocks())
 
-for (const lang of ['fr', 'en'] as const) for (const sector of ['garage', 'controle-technique'] as const) {
+for (const lang of ['fr', 'en'] as const) for (const sector of ['garage', 'controle-technique', 'diagnostic-immobilier'] as const) {
   test.each(['', 'returned', 'failed'] as const)(`Business ${lang} ${sector} callback=%s renders persisted Activity and the observed Calendar state without writes`, async callback => {
     const saved = activity(sector), t = activityMessages[lang], c = calendarMessages[lang]
     rpc.getWorkspace.mockResolvedValue(workspace); rpc.getActivity.mockResolvedValue(saved); rpc.getCalendar.mockResolvedValue(disconnected)
@@ -62,7 +62,8 @@ for (const lang of ['fr', 'en'] as const) for (const sector of ['garage', 'contr
     expect(html).toContain(c.disconnected); expect(html).not.toContain(`${c.connected} : `)
     expect(html.includes(c.callbackFailed)).toBe(callback === 'failed')
     expect(html).not.toContain(t.saved)
-    expect(html).not.toContain('Property diagnostics'); expect(html).not.toContain('Diagnostic immobilier')
+    if(sector==='diagnostic-immobilier')expect(html).toContain(lang==='fr'?'Diagnostic immobilier':'Property diagnostics')
+    else{expect(html).not.toContain('Property diagnostics');expect(html).not.toContain('Diagnostic immobilier')}
     expect(rpc.getActivity).toHaveBeenCalledOnce(); expect(rpc.getCalendar).toHaveBeenCalledOnce()
     expectNoMutations()
   })

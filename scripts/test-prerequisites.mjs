@@ -7,14 +7,21 @@ const hostedLinux = process.platform === 'linux' && process.env.CI === 'true'
   && process.env.GITHUB_ACTIONS === 'true' && process.env.RUNNER_OS === 'Linux'
   && process.env.RUNNER_ENVIRONMENT === 'github-hosted'
 
+function installerFailure(stage,result) {
+  const code=result.error?.code,signal=result.signal
+  return JSON.stringify({stage,status:Number.isInteger(result.status)?result.status:null,
+    code:typeof code==='string'&&/^[A-Z][A-Z0-9_]{0,63}$/.test(code)?code:null,
+    signal:typeof signal==='string'&&/^SIG[A-Z0-9]{1,16}$/.test(signal)?signal:null})
+}
+
 const decoderAvailable = () => ['ffmpeg', 'ffprobe'].every(command =>
   spawnSync(command, ['-version'], { stdio: 'ignore', timeout: 10000, windowsHide: true }).status === 0)
 
 if (!decoderAvailable()) {
   if (!hostedLinux) throw new Error('Tests require local ffmpeg and ffprobe; no local installation attempted')
-  for (const args of [['apt-get', 'update'], ['apt-get', 'install', '--no-install-recommends', '-y', 'ffmpeg']]) {
+  for (const [stage,args] of [['decoder-update',['apt-get', 'update']], ['decoder-install',['apt-get', 'install', '--no-install-recommends', '-y', 'ffmpeg']]]) {
     const result = spawnSync('sudo', args, { stdio: 'inherit', timeout: 120000 })
-    if (result.status !== 0) throw new Error('Hosted test decoder installation failed')
+    if (result.status !== 0) throw new Error('Hosted test decoder installation failed '+installerFailure(stage,result))
   }
   if (!decoderAvailable()) throw new Error('Hosted test decoder prerequisites remain unavailable')
 }
@@ -41,6 +48,6 @@ if (!await browserAvailable()) {
   const result = spawnSync(process.execPath, [cli, 'install', '--with-deps', 'chromium'], {
     stdio: 'inherit', timeout: 120000, windowsHide: true,
   })
-  if (result.status !== 0) throw new Error('Hosted test browser installation failed')
+  if (result.status !== 0) throw new Error('Hosted test browser installation failed '+installerFailure('browser-install',result))
   if (!await browserAvailable()) throw new Error('Hosted test browser prerequisites remain unavailable')
 }

@@ -1,7 +1,7 @@
 {
   "repository": "LouisVannobel/projetV0-voice",
-  "commit": "31acb9d2de220765e6cbf3833fd50c474f0bc2db",
-  "tree": "0b61b47a6503fcaabbb7db2dacc7bcf35974b860",
+  "commit": "2c5006a61b629c2ce6def6fa854a7ea9ef7534b7",
+  "tree": "b94d513bc538bfcb152e739ac8343e9ce057ac91",
   "owned_ref": "refs/heads/main",
   "input_roots": [
     ".python-version",
@@ -14,21 +14,21 @@
     "deployment-profiles",
     "tests/integration/sparra_connected_scenario.py"
   ],
-  "archive_sha256": "f8d745818fb231bcb072edde1a8e4d36384cccba7e65d6c9607c37bb4ba83981",
-  "archive_size": 405751,
-  "decoded_source_bytes": 1943556,
+  "archive_sha256": "e081802f5de46f1b01a979d71d8414aab78c270cc6c080cba220a79ef47c5aeb",
+  "archive_size": 405952,
+  "decoded_source_bytes": 1947107,
   "members": [
     {
       "path": ".python-version",
       "size": 8,
-      "git_blob": "4de75f8d77a3e872d8883636a5d65deefb47fbe6",
-      "sha256": "861b3dd8083d28f336ef70f6755bc399538ddad627b1d095820ca34cb953cf14"
+      "git_blob": "67d7dc5576361cd612c0359023f8f29468dd6b5b",
+      "sha256": "d761e85906942f4363d4298b838e4820724e5a51f54563a7d863edf5b258a3a4"
     },
     {
       "path": "README.md",
       "size": 6129,
-      "git_blob": "5c3602e891886cad8c11ad390c3ef7c90c1388be",
-      "sha256": "6017bcd1667852942e05860bfe92c6ac5349fd0d8b14c4e3959a1d3b67daf2cf"
+      "git_blob": "40150ca36e255e871a9d872a0c86d4b51176a126",
+      "sha256": "f82fed28d768fb172d706825f0835c2866ab743ebc4663883776c8af07064c32"
     },
     {
       "path": "agents/agent-a/manifest.yaml",
@@ -200,9 +200,9 @@
     },
     {
       "path": "src/projetv0_voice/models.py",
-      "size": 24982,
-      "git_blob": "452dc4e45a707bdf76737cd773526126982e6657",
-      "sha256": "464549f49bda4537aebe59cc19a0a24dbabb713b71e35f8339d328ad160b0208"
+      "size": 25007,
+      "git_blob": "6fe64980e6a425334a1a9eeb1cf33b33b865a6c9",
+      "sha256": "45b51014c1ea59dc56654af292d790e6d02399c6e4a3fd98f237c987cf5f3556"
     },
     {
       "path": "src/projetv0_voice/observability_bootstrap.py",
@@ -212,15 +212,15 @@
     },
     {
       "path": "src/projetv0_voice/owned_pilot_budget.py",
-      "size": 10440,
-      "git_blob": "b13860a54ae597659c16ae875d8a5071b8f78bfd",
-      "sha256": "eebd8c931b81031f1e18db7be450cc30d64bfd914f9fdbec153057e96a45679f"
+      "size": 10443,
+      "git_blob": "096617bc2c7936d5e51858af829818de83ff3680",
+      "sha256": "e581fc5f213526fdeb2fbb3d3e7566bb0b15394f87be8227c3d9f43256509880"
     },
     {
       "path": "src/projetv0_voice/owned_pilot_budget_cli.py",
-      "size": 6151,
-      "git_blob": "1b9787a6ab6f6bc2fbb2546aa92478830222a998",
-      "sha256": "bf2b785ac4d9cc84fab235d57e0099c58e33edef68d26f85088124c9b1404103"
+      "size": 7082,
+      "git_blob": "d4378561a6ff1254b5987827fc8b06aeaa2262ee",
+      "sha256": "54b2f243feb3b19bd25ea0b03addcfe6270dff9178a085eb76817298a991fc68"
     },
     {
       "path": "src/projetv0_voice/persistence/__init__.py",
@@ -260,21 +260,21 @@
     },
     {
       "path": "src/projetv0_voice/persistence/schema.py",
-      "size": 13161,
-      "git_blob": "17e903e22ca3cc4834a2080e651f131ed7d7b83b",
-      "sha256": "d291602a888a195da7b9b7c1ed2338b3568d6fa0be3f4a2598f3cf4f5880a343"
+      "size": 14098,
+      "git_blob": "0288c2c9aa671bcddadaf479ef8565dd0cef41f8",
+      "sha256": "3afd37c1058d83cae5b60cc4b80d518dbe143b653fb09bb8be63a7d38ad074e7"
     },
     {
       "path": "src/projetv0_voice/persistence/writer.py",
-      "size": 242618,
-      "git_blob": "35f6d04366d8b49906434ad96e48f68c3e5761e6",
-      "sha256": "2740550fd4bebdc6bc7e74769efd09440674b520a11986dd360d18034523de85"
+      "size": 247396,
+      "git_blob": "b07ba402945230cb6a000ec6230e3aa08275e74d",
+      "sha256": "7aeee4d844764a5123ed446038baab9903ec8a230da083f2fc31ed99b1700d4e"
     },
     {
       "path": "src/projetv0_voice/pipeline.py",
-      "size": 58186,
-      "git_blob": "60ffc53142ceb7f76637156dd67292639ccd5925",
-      "sha256": "e5bf4bec287f31a2b292c43174f14a74cfcd374789a7246e6937007516ef3a96"
+      "size": 58291,
+      "git_blob": "4060b3d45c5265907746d91fe4d35d8cc2b69df9",
+      "sha256": "28a6a96a490fe269dd2832b487d761edf97ecaefba8a4a150b9383e55f14163c"
     },
     {
       "path": "src/projetv0_voice/production_wiring.py",
@@ -308,9 +308,9 @@
     },
     {
       "path": "src/projetv0_voice/session.py",
-      "size": 125706,
-      "git_blob": "df6031e22a92bfc03fa41de5d24eed8cbe9b4a3d",
-      "sha256": "1e287c4ab258add8e081d4a54460afec60525f20f528d0f1310cf63b4482ca20"
+      "size": 126783,
+      "git_blob": "595502cfaedbc536fe081741451719934668cf48",
+      "sha256": "074b53d50b6152622d53f9e7304eef3a97da77ff05e6b1f5484b7a2a329b8a23"
     },
     {
       "path": "src/projetv0_voice/session_factory.py",
@@ -368,9 +368,9 @@
     },
     {
       "path": "uv.lock",
-      "size": 348488,
-      "git_blob": "c34ef47504f3c24701f09efd0e7c08036704ca62",
-      "sha256": "dfc95727e1150d814493634d75fc6f9411c8daa03a9d7f321d4babfc8d252311"
+      "size": 344183,
+      "git_blob": "5c47a75226a28591ff3572ac382832c3f0246ce7",
+      "sha256": "e3d7c476ccd9b66fb36026f5186912e4e6031c159f6e88a04d982d25ba94918c"
     }
   ]
 }

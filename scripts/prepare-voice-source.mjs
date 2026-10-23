@@ -8,7 +8,7 @@ import { readVoiceSourceFixture } from './voice-source-fixture.mjs'
 
 const invalid=()=>new Error('Native Voice preparation failed')
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex')
-const uvHash='c8c60f47e6f88d18dbf6f33d7279fb1fbf7ae76631768152cf5578c3d65729b4'
+const uvHash='f68d291c75783122dad58ab77def0e13f3233f358731db5d6d7e8715603b928f'
 const scannerHash='551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb'
 const safeAbsolute=path=>typeof path==='string'&&isAbsolute(path)&&!path.split(/[\\/]/).some(part=>part==='.'||part==='..')
 const samePath=(left,right)=>process.platform==='win32'?left.toLowerCase()===right.toLowerCase():left===right
@@ -50,7 +50,7 @@ async function download(url,hash,destination){
 }
 
 // The OS interpreter only decodes checksum-verified public tools. The native
-// producer archive is verified with the owned, pinned 3.13.15 installation.
+// producer archive is verified with the owned, pinned 3.13.17 installation.
 async function tool(archive,destination,member){
   const script=String.raw`
 import io,sys,tarfile
@@ -122,7 +122,7 @@ import importlib.metadata,inspect,sys
 from pathlib import Path
 source=Path(sys.argv[1]);venv=source.parent/'.venv'
 assert source.resolve()==source and venv.resolve()==venv
-assert sys.version_info[:3]==(3,13,15) and sys.prefix!=sys.base_prefix
+assert sys.version_info[:3]==(3,13,17) and sys.prefix!=sys.base_prefix
 assert Path(sys.prefix).resolve()==venv
 import cryptography,pydantic
 assert cryptography.__version__=='50.0.0' and pydantic.__version__=='2.13.4'
@@ -238,11 +238,11 @@ async function scanVoiceSource(appRoot,producerRoot,tools,env){
 }
 
 async function assertUvVersion(uv,env){
-  if((await run(uv,['--version'],{env})).toString().trim()!=='uv 0.12.4 (x86_64-unknown-linux-gnu)')throw invalid()
+  if((await run(uv,['--version'],{env})).toString().trim()!=='uv 0.13.5 (x86_64-unknown-linux-gnu)')throw invalid()
 }
 
 async function findManagedPython(uv,python,env){
-  const bootstrap=(await run(uv,['python','find','--no-project','3.13.15'],{env})).toString().trim()
+  const bootstrap=(await run(uv,['python','find','--no-project','3.13.17'],{env})).toString().trim()
   if(!safeAbsolute(bootstrap)||!bootstrap.startsWith(python+'/'))throw invalid()
   return bootstrap
 }
@@ -258,13 +258,13 @@ async function prepareLinuxVoiceSource(appRoot,scopeParent){
     const env={PATH:'/usr/bin:/bin',...home.environment,TMPDIR:temporary,UV_CACHE_DIR:cache,UV_PYTHON_INSTALL_DIR:python,UV_PYTHON_BIN_DIR:join(scope,'bin'),UV_NO_CONFIG:'1',UV_PYTHON_PREFERENCE:'only-managed',UV_PYTHON_DOWNLOADS:'automatic',UV_CONCURRENT_BUILDS:'1',UV_CONCURRENT_DOWNLOADS:'2',UV_CONCURRENT_INSTALLS:'1',PYTHONDONTWRITEBYTECODE:'1'}
     const uvArchive=join(tools,'uv.tar.gz'),uv=join(tools,'uv')
     stage='uv archive download'
-    await download('https://releases.astral.sh/github/uv/releases/download/0.12.4/uv-x86_64-unknown-linux-gnu.tar.gz',uvHash,uvArchive)
+    await download('https://releases.astral.sh/github/uv/releases/download/0.13.5/uv-x86_64-unknown-linux-gnu.tar.gz',uvHash,uvArchive)
     stage='uv archive extraction'
     await tool(uvArchive,uv,'uv-x86_64-unknown-linux-gnu/uv')
     stage='uv executable version'
     await assertUvVersion(uv,env)
     stage='Python installation'
-    await run(uv,['python','install','3.13.15','--no-bin'],{env,timeout:180000})
+    await run(uv,['python','install','3.13.17','--no-bin'],{env,timeout:180000})
     stage='Python lookup'
     const bootstrap=await findManagedPython(uv,python,env)
     const fixture=join(appRoot,'tests/fixtures/voice-source')
