@@ -5,6 +5,7 @@ import { afterEach, expect, test } from 'vitest'
 
 const modulePath='../../scripts/native-coverage-inputs.mjs'
 const roots:string[]=[]
+type BridgeReportLeaf={fullName:string;status:string;failureMessages:string[]}
 const names=[
   'native session_user and execute-only catalog including restricted Workspace column locks',
   'real native begin pin is committed, stable on retry, and read through the authenticated Node owner',
@@ -36,7 +37,7 @@ function fixture(){
   const root=mkdtempSync(join(tmpdir(),'sparra-voice-bridge-gate-'));roots.push(root)
   const startedAt=Date.now(),path=join(root,'voice-bridge-qualification.json')
   const report={success:true,startTime:startedAt,numTotalTests:19,numPassedTests:19,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0,
-    testResults:[{name:join(root,'tests/integration/sparra-voice-bridge.test.ts').replaceAll('\\','/'),startTime:startedAt,status:'passed',message:'',assertionResults:names.map(fullName=>({fullName,status:'passed',failureMessages:[] as string[]}))}]}
+    testResults:[{name:join(root,'tests/integration/sparra-voice-bridge.test.ts').replaceAll('\\','/'),startTime:startedAt,status:'passed',message:'',assertionResults:names.map((fullName):BridgeReportLeaf=>({fullName,status:'passed',failureMessages:[]}))}]}
   writeFileSync(path,JSON.stringify(report))
   return {root,path,startedAt,report}
 }

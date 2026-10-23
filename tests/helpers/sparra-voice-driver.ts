@@ -21,7 +21,7 @@ export async function nativeVoice<A extends keyof FixtureRequests>(request:{acti
   const selected=await resolveVoiceProducer(producer?dirname(producer.sourceRoot):undefined)
   if(producer&&(selected.pythonExecutable!==producer.pythonExecutable||selected.sourceRoot!==producer.sourceRoot))throw new Error('Voice producer descriptor refused')
   return new Promise((accept,reject)=>{
-    const child=spawn(selected.pythonExecutable,['-I','-B',resolve('tests/helpers/sparra-voice-driver.py')],{windowsHide:true,cwd:dirname(selected.sourceRoot),env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,TEMP:process.env.TEMP,TMP:process.env.TMP,PYTHONDONTWRITEBYTECODE:'1'}})
+    const child=spawn(selected.pythonExecutable,['-I','-B',resolve('tests/helpers/sparra-voice-driver.py')],{windowsHide:true,cwd:dirname(selected.sourceRoot),env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,TEMP:process.env.TEMP,TMP:process.env.TMP,PYTHONDONTWRITEBYTECODE:'1',HOME:process.env.SPARRA_VOICE_TEST_HOME,APPDATA:process.env.SPARRA_VOICE_TEST_HOME}})
     const timeout=setTimeout(()=>{child.kill();reject(new Error('Native Voice fixture deadline'))},15000)
     let output=''
     child.stdout.on('data',data=>{output+=data;if(output.length>1048576){child.kill();reject(new Error('Native Voice fixture output bound'))}})
