@@ -40,15 +40,16 @@ export async function performRequestAction(kind:'treat'|'erase',current:RequestL
 
 function RequestSummary({locale,detail}:{locale:Locale;detail:RequestDetailDto}){
   const t=appMessages[locale],labels=requestMessages[locale]
+  const bookingLabel=detail.category==='appointment_to_confirm'?(detail.bookingOutcome==='confirmed'?bookingMessages[locale].confirmed:detail.bookingOutcome==='cancelled'?bookingMessages[locale].cancelled:null):null
   return <section className="sparra-request-summary" aria-label={locale==='fr'?'Résumé':'Summary'}>
     <Heading level={2}>{detail.resultAvailability==='unavailable'?t.summaryUnavailable:detail.resultQuality==='partial'?t.partial:t.summary}</Heading>
-    {detail.summary&&<p>{detail.summary}</p>}
-    {detail.category&&<><h3>{labels.reason}</h3><p>{labels.category[detail.category]}</p></>}
-    {detail.nextAction&&<><h3>{t.nextAction}</h3><p>{detail.nextAction}</p></>}
+    {detail.category&&<><h3>{labels.reason}</h3><p>{bookingLabel??labels.category[detail.category]}</p></>}
+    {bookingLabel&&detail.summary?<details><summary>{labels.initialExtraction}</summary><p>{detail.summary}</p></details>:detail.summary&&<p>{detail.summary}</p>}
+    {detail.nextAction&&<><h3>{bookingLabel?labels.extractedAction:t.nextAction}</h3><p>{detail.nextAction}</p></>}
     {detail.contact&&<>
       <h3>{t.contact}</h3><p>{[detail.contact.name,detail.contact.callback_e164,detail.contact.preference].filter(Boolean).join(' — ')||'—'}</p>
       <h3>{labels.numberSource}</h3><p>{labels.callbackSource[detail.contact.callback_source]}</p>
-      <p>{t.unconfirmed}</p>
+      <p>{bookingLabel?labels.numberUnconfirmed:t.unconfirmed}</p>
     </>}
   </section>
 }
@@ -61,7 +62,7 @@ function RequestTranscript({locale,detail}:{locale:Locale;detail:RequestDetailDt
 function RequestBooking({locale,booking}:{locale:Locale;booking:NonNullable<RequestDetailDto['bookings']>[number]}){
   const labels=bookingMessages[locale]
   return <>
-    <Heading level={2}>{booking.observedState==='cancelled'?labels.cancelled:booking.state==='confirmed'?labels.confirmed:labels.unconfirmed}</Heading>
+    <Heading level={2}>{booking.state==='confirmed'&&booking.providerReference&&booking.observedState==='cancelled'?labels.cancelled:booking.state==='confirmed'&&booking.providerReference&&(booking.observedState===null||booking.observedState==='confirmed')?labels.confirmed:labels.unconfirmed}</Heading>
     <p>{booking.serviceName}</p><p><time dateTime={booking.start}>{new Intl.DateTimeFormat(locale,{dateStyle:'long',timeStyle:'short',timeZone:booking.timezone}).format(new Date(booking.start))}</time> · {booking.timezone}</p>
     {booking.providerReference&&<p>{labels.reference} : {booking.providerReference}</p>}
     {booking.originalStart&&booking.originalStart!==booking.start&&<p>{labels.original} : <time dateTime={booking.originalStart}>{new Intl.DateTimeFormat(locale,{dateStyle:'long',timeStyle:'short',timeZone:booking.timezone}).format(new Date(booking.originalStart))}</time></p>}

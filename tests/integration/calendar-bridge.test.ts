@@ -525,8 +525,13 @@ test('native worker store commits before HTTP, confirms Inbox independently and 
       createTransactions(pool, { maxStatementTimeoutMs: 1000, maxCleanupTimeoutMs: 1000 }),
     )
   try {
+    const otherCall = await call()
+    const listed = await requests.list(principal, {})
+    expect(listed.requests.find(request => request.id === id)?.bookingOutcome).toBe('confirmed')
+    expect(listed.requests.find(request => request.id === otherCall)?.bookingOutcome).toBeUndefined()
     const detail = await requests.detail(principal, id)
     expect(detail.resultAvailability).toBe('unavailable')
+    expect(detail.bookingOutcome).toBe('confirmed')
     expect(detail.bookings).toMatchObject([
       { state: 'confirmed', serviceName: 'Vidange', providerReference: 'sparra' + op.replaceAll('-', '') },
     ])
