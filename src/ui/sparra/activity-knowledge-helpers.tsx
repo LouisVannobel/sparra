@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '@astryxdesign/core/Button'
 import { TextArea } from '@astryxdesign/core/TextArea'
 import { activityMessages } from '../../modules/sparra/messages'
@@ -20,23 +20,27 @@ export function ActivityFaqHelper({locale,faq,questions,disabled,onChange,onPrep
   const t=activityMessages[locale]
   // Answers retain their question identity, including when the owner changes sector.
   const [question,setQuestion]=useState<string|null>(null),[answers,setAnswers]=useState<Record<string,string>>({})
+  const [additions,setAdditions]=useState(0),answerRef=useRef<HTMLTextAreaElement>(null)
   const hasPreparedAnswers=Object.values(answers).some(value=>value.length>0)
   useEffect(()=>{onPreparedAnswersChange?.(hasPreparedAnswers)},[hasPreparedAnswers,onPreparedAnswersChange])
   const answer=question===null?'':answers[question]??''
   const next=question===null?null:appendFaqAnswer(faq,question,answer)
   return <div className="sparra-knowledge-helper"><h2>{t.ownerAnswers}</h2><p className="sparra-form-hint">{t.faqQuestionsHint}</p>
     <div className="sparra-helper-choices">{questions.map(value=><Button key={value} type="button" label={value} aria-pressed={question===value} isDisabled={disabled} onClick={()=>setQuestion(value)}/>)}</div>
-    {question!==null&&<div className="sparra-helper-answer"><p>{question}</p>{!questions.includes(question)&&<p className="sparra-form-hint">{t.previousQuestion}</p>}
-      <TextArea label={t.ownerAnswer} value={answer} onChange={value=>setAnswers(previous=>({...previous,[question]:value}))} rows={3} isDisabled={disabled} width="100%"/>
+    {question!==null&&<div className="sparra-helper-answer">
+      <TextArea ref={answerRef} label={t.ownerAnswer} description={question+(!questions.includes(question)?` ${t.previousQuestion}`:'')} value={answer} onChange={value=>setAnswers(previous=>({...previous,[question]:value}))} rows={3} isDisabled={disabled} width="100%"/>
       {answer.trim()&&next===null&&<p role="alert">{t.helperFaqFull}</p>}
-      <Button type="button" label={t.addOwnerAnswer} isDisabled={disabled||next===null} onClick={()=>{if(next!==null){onChange(next);setAnswers(previous=>({...previous,[question]:''}))}}}/>
+      <Button type="button" label={t.addOwnerAnswer} isDisabled={disabled||next===null} onClick={()=>{if(!disabled&&next!==null){onChange(next);setAnswers(previous=>({...previous,[question]:''}));setAdditions(value=>value+1);answerRef.current?.focus()}}}/>
     </div>}
+    <p className="sparra-form-hint" role="status" aria-atomic="true">{additions>0?t.helperFaqAdded(additions):''}</p>
   </div>
 }
 export function ActivityIntakeHelper({locale,instructions,questions,disabled,onChange}:HelperProps&{instructions:string}){
   const t=activityMessages[locale]
+  const [additions,setAdditions]=useState(0)
   return <div className="sparra-knowledge-helper"><h2>{t.callerInformation}</h2><p className="sparra-form-hint">{t.intakeQuestionsHint}</p>
-    <ul className="sparra-helper-intake">{questions.map(question=>{const next=appendIntakeQuestion(instructions,question);return <li key={question}><span>{question}</span><Button type="button" label={t.addCallerQuestion} aria-label={`${t.addCallerQuestion} : ${question}`} isDisabled={disabled||next===null} onClick={()=>{if(next!==null)onChange(next)}}/></li>})}</ul>
+    <ul className="sparra-helper-intake">{questions.map(question=>{const next=appendIntakeQuestion(instructions,question);return <li key={question}><span>{question}</span><Button type="button" label={t.addCallerQuestion} aria-label={`${t.addCallerQuestion} : ${question}`} isDisabled={disabled||next===null} onClick={()=>{if(!disabled&&next!==null){onChange(next);setAdditions(value=>value+1)}}}/></li>})}</ul>
     {questions.some(question=>appendIntakeQuestion(instructions,question)===null)&&<p role="alert">{t.helperInstructionsFull}</p>}
+    <p className="sparra-form-hint" role="status" aria-atomic="true">{additions>0?t.helperIntakeAdded(additions):''}</p>
   </div>
 }
