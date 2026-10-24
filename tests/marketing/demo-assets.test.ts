@@ -2,10 +2,50 @@ import { expect, test } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readdirSync, symlinkSync, copyFileSync } from 'node:fs'
-import { resolve, sep, dirname, basename } from 'node:path'
+import { resolve, sep, dirname, basename, join, relative } from 'node:path'
+import { tmpdir } from 'node:os'
 import { demoScenarios } from '../../src/modules/marketing/demo-scenarios.generated'
 
-const offlineEnv = Object.fromEntries(Object.keys(process.env).filter(name => name.toUpperCase() !== 'OPENROUTER_API_KEY').map(name => [name, process.env[name]]))
+const offlineEnv = Object.fromEntries(Object.entries(process.env).filter(([name]) =>
+  ['path', 'pathext', 'systemroot', 'windir', 'temp', 'tmp', 'userprofile', 'home'].includes(name.toLowerCase())))
+offlineEnv.NO_COLOR = '1'
+
+const demoOutputs = ['src/modules/marketing/demo-scenarios.generated.ts', 'docs/demos/audio-provenance.json', 'public/demos/garage-revision.mp3', 'public/demos/controle-technique.mp3']
+function checkoutInventory() {
+  const hash = createHash('sha256')
+  function visit(directory: string) {
+    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const path = join(directory, entry.name)
+      if (entry.isDirectory()) visit(path)
+      else if (entry.isFile()) hash.update(relative(process.cwd(), path)).update('\0').update(readFileSync(path)).update('\0')
+      else throw new Error('Checkout inventory requires regular files')
+    }
+  }
+  for (const directory of ['src', 'docs', 'public']) visit(directory)
+  return hash.digest('hex')
+}
+function createDemoFixture() {
+  const baseline = checkoutInventory()
+  const root = mkdtempSync(join(tmpdir(), 'sparra-demo-fixture-'))
+  const cleanup = () => {
+    const target = resolve(root)
+    if (dirname(target) !== resolve(tmpdir()) || !basename(target).startsWith('sparra-demo-fixture-')) throw new Error('Non-owned demo fixture cleanup')
+    const beforeCleanup = checkoutInventory()
+    rmSync(target, { recursive: true })
+    expect(beforeCleanup).toBe(baseline)
+    expect(checkoutInventory()).toBe(baseline)
+  }
+  try {
+    for (const path of [...demoOutputs, 'docs/demos/scenarios.fr.json', 'scripts/generate-demo-audio.ps1']) {
+      const destination = resolve(root, path)
+      mkdirSync(dirname(destination), { recursive: true })
+      copyFileSync(path, destination)
+    }
+    copyAvailableSuccessRecords(resolve('docs/demos/known-successes'), resolve(root, 'docs/demos/known-successes'))
+  } catch (error) { cleanup(); throw error }
+  return { root, script: resolve(root, 'scripts/generate-demo-audio.ps1'), paths: demoOutputs.map(path => resolve(root, path)),
+    assertCheckout: () => expect(checkoutInventory()).toBe(baseline), cleanup }
+}
 
 function nativeContainmentFailure(error: unknown) {
   const stderr = error && typeof error === 'object' && 'stderr' in error
@@ -146,10 +186,12 @@ test('both real MP3 illustrations decode and match their cues, text, receipt and
 }, 30000)
 
 test('offline generation preview preserves deliverables and lists exactly ten verbatim French turns', () => {
-  const paths = ['src/modules/marketing/demo-scenarios.generated.ts', 'docs/demos/audio-provenance.json', 'public/demos/garage-revision.mp3', 'public/demos/controle-technique.mp3']
+  const fixture = createDemoFixture()
+  try {
+  const paths = fixture.paths
   const before = paths.map(path => readFileSync(path))
-  const preview = JSON.parse(execFileSync('pwsh', ['-NoProfile', '-File', 'scripts/generate-demo-audio.ps1', '-DryRun'], { encoding: 'utf8', env: offlineEnv }))
-  const source = JSON.parse(readFileSync('docs/demos/scenarios.fr.json', 'utf8'))
+  const preview = JSON.parse(execFileSync('pwsh', ['-NoProfile', '-File', fixture.script, '-DryRun'], { encoding: 'utf8', env: offlineEnv }))
+  const source = JSON.parse(readFileSync(resolve(fixture.root, 'docs/demos/scenarios.fr.json'), 'utf8'))
   expect(preview.model).toBe('microsoft/mai-voice-2.1-flash')
   expect(preview.requestCount).toBe(10)
   // Delivered request identities must remain non-billable even when build erased old raw caches.
@@ -159,53 +201,64 @@ test('offline generation preview preserves deliverables and lists exactly ten ve
     source.flatMap((scenario: { id: string; turns: { speaker: string; text: string }[] }) => scenario.turns.map(turn => [scenario.id, turn.speaker === 'sparra' ? 'fr-FR-Soleil:MAI-Voice-2.1-Flash' : 'fr-FR-Marc:MAI-Voice-2.1-Flash', turn.text.length])),
   )
   expect(paths.map(path => readFileSync(path))).toEqual(before)
+  fixture.assertCheckout()
+  } finally { fixture.cleanup() }
 }, 30000)
 
 test('generation refuses oversized text before changing deliverables', () => {
-  const source = JSON.parse(readFileSync('docs/demos/scenarios.fr.json', 'utf8'))
+  const fixture = createDemoFixture()
+  try {
+  const source = JSON.parse(readFileSync(resolve(fixture.root, 'docs/demos/scenarios.fr.json'), 'utf8'))
   source[0].turns[1].text = 'Bonjour '.repeat(100)
-  const paths = ['src/modules/marketing/demo-scenarios.generated.ts', 'docs/demos/audio-provenance.json', 'public/demos/garage-revision.mp3', 'public/demos/controle-technique.mp3']
+  const paths = fixture.paths
   const before = paths.map(path => readFileSync(path))
-  const directory = mkdtempSync(resolve('.output/demo-invalid-'))
+  const directory = mkdtempSync(resolve(fixture.root, 'demo-invalid-'))
   try {
     const sourcePath = resolve(directory, 'oversized.json')
     writeFileSync(sourcePath, JSON.stringify(source))
     let rejection = ''
     try {
-      execFileSync('pwsh', ['-NoProfile', '-File', 'scripts/generate-demo-audio.ps1', '-SourcePath', sourcePath, '-DryRun'], { stdio: 'pipe' })
+      execFileSync('pwsh', ['-NoProfile', '-File', fixture.script, '-SourcePath', sourcePath, '-DryRun'], { stdio: 'pipe', env: offlineEnv })
     } catch (error) {
       if (error && typeof error === 'object' && 'stderr' in error) rejection = String(error.stderr)
     }
     expect(rejection).toContain('Dialogue text exceeds')
     expect(paths.map(path => readFileSync(path))).toEqual(before)
+    fixture.assertCheckout()
   } finally { rmSync(directory, { recursive: true }) }
+  } finally { fixture.cleanup() }
 }, 30000)
 
 test('an uncertain synthesis attempt blocks preview until recover-only assessment', () => {
-  const source = JSON.parse(readFileSync('docs/demos/scenarios.fr.json', 'utf8'))
-  source[0].turns[0].text += ' Cet exemple reste fictif.'
-  const directory = mkdtempSync(resolve('.output/demo-invalid-'))
+  const fixture = createDemoFixture()
   let marker: string | undefined
+  try {
+  const source = JSON.parse(readFileSync(resolve(fixture.root, 'docs/demos/scenarios.fr.json'), 'utf8'))
+  source[0].turns[0].text += ' Cet exemple reste fictif.'
+  const directory = mkdtempSync(resolve(fixture.root, 'demo-invalid-'))
   try {
     const sourcePath = resolve(directory, 'uncertain.json')
     writeFileSync(sourcePath, JSON.stringify(source))
-    const args = ['-NoProfile', '-File', 'scripts/generate-demo-audio.ps1', '-SourcePath', sourcePath, '-DryRun']
-    const preview = JSON.parse(execFileSync('pwsh', args, { encoding: 'utf8' }))
+    const args = ['-NoProfile', '-File', fixture.script, '-SourcePath', sourcePath, '-DryRun']
+    const preview = JSON.parse(execFileSync('pwsh', args, { encoding: 'utf8', env: offlineEnv }))
     const turn = preview.requests[0]
-    mkdirSync('.demo-audio-cache/segments', { recursive: true })
-    const candidate = resolve(`.demo-audio-cache/segments/${turn.scenario}-${turn.index}-${turn.requestSha256}.json`)
+    const cache = resolve(fixture.root, '.demo-audio-cache/segments')
+    mkdirSync(cache, { recursive: true })
+    const candidate = resolve(cache, `${turn.scenario}-${turn.index}-${turn.requestSha256}.json`)
     expect(existsSync(candidate)).toBe(false)
     writeFileSync(candidate, JSON.stringify({ state: 'attempted' }), { flag: 'wx' }); marker = candidate
     let rejection = ''
-    try { execFileSync('pwsh', args, { stdio: 'pipe' }) } catch (error) {
+    try { execFileSync('pwsh', args, { stdio: 'pipe', env: offlineEnv }) } catch (error) {
       if (error && typeof error === 'object' && 'stderr' in error) rejection = String(error.stderr)
     }
     expect(rejection).toContain('recover-only assessment')
     expect(JSON.parse(readFileSync(marker, 'utf8'))).toEqual({ state: 'attempted' })
+    fixture.assertCheckout()
   } finally {
     if (marker) rmSync(marker)
     rmSync(directory, { recursive: true })
   }
+  } finally { fixture.cleanup() }
 }, 30000)
 
 function copyAvailableSuccessRecords(source: string, target: string) {
@@ -239,9 +292,11 @@ test('lost successful requests remain fenced after current provenance changes mo
     copyAvailableSuccessRecords('.demo-audio-cache/known-successes', recordsDirectory)
     const prior = readdirSync(recordsDirectory).map(name => [name, readFileSync(resolve(recordsDirectory, name))] as const)
     const script = resolve(fixture, 'scripts/generate-demo-audio.ps1')
-    let seedOutput = ''
-    try { seedOutput = execFileSync('pwsh', ['-NoProfile', '-File', script, '-RecordKnownSuccesses'], { encoding: 'utf8', stdio: 'pipe', env: offlineEnv }) } catch { /* Preserve the original failure witness for missing success seeding. */ }
-    expect(seedOutput).toContain('"recordOnly": true')
+    let seedOutput = '', seedFailure = ''
+    try { seedOutput = execFileSync('pwsh', ['-NoProfile', '-File', script, '-RecordKnownSuccesses'], { encoding: 'utf8', stdio: 'pipe', env: offlineEnv }) } catch (error) {
+      if (error && typeof error === 'object' && 'stderr' in error) seedFailure = String(error.stderr)
+    }
+    expect(seedOutput, seedFailure).toContain('"recordOnly": true')
     for (const segment of delivered.segments) {
       const record = JSON.parse(readFileSync(resolve(recordsDirectory, `${segment.requestSha256}.json`), 'utf8'))
       expect(record).toEqual({ state: 'recovery-required', model: delivered.model, requestSha256: segment.requestSha256 })
@@ -289,32 +344,36 @@ test('lost successful requests remain fenced after current provenance changes mo
 }, 30000)
 
 test.each(['unknown', 'duplicate', 'escape', 'case'])('generator rejects %s before changing any output', kind => {
-  const source = JSON.parse(readFileSync('docs/demos/scenarios.fr.json', 'utf8'))
+  const fixture = createDemoFixture()
+  try {
+  const source = JSON.parse(readFileSync(resolve(fixture.root, 'docs/demos/scenarios.fr.json'), 'utf8'))
   if (kind === 'unknown') source[0].id = 'autre'
   if (kind === 'case') source[0].id = 'Garage'
   if (kind === 'duplicate') source[1].id = source[0].id
   if (kind === 'escape') source[0].audioSrc = '/../../escaped.mp3'
-  const paths = ['src/modules/marketing/demo-scenarios.generated.ts', 'docs/demos/audio-provenance.json', 'public/demos/garage-revision.mp3', 'public/demos/controle-technique.mp3']
+  const paths = fixture.paths
   const before = paths.map(path => readFileSync(path))
-  mkdirSync('.output/demo-generation', { recursive: true })
-  const marker = '.output/demo-generation/validation-marker'
+  mkdirSync(resolve(fixture.root, '.output/demo-generation'), { recursive: true })
+  const marker = resolve(fixture.root, '.output/demo-generation/validation-marker')
   writeFileSync(marker, 'must survive rejected input')
-  const directory = mkdtempSync(resolve('.output/demo-invalid-'))
+  const directory = mkdtempSync(resolve(fixture.root, 'demo-invalid-'))
   try {
     const sourcePath = resolve(directory, 'invalid.json')
     writeFileSync(sourcePath, JSON.stringify(source))
     let rejection = ''
     try {
-      execFileSync('pwsh', ['-NoProfile', '-File', 'scripts/generate-demo-audio.ps1', '-SourcePath', sourcePath], { stdio: 'pipe' })
+      execFileSync('pwsh', ['-NoProfile', '-File', fixture.script, '-SourcePath', sourcePath], { stdio: 'pipe', env: offlineEnv })
     } catch (error) {
       if (error && typeof error === 'object' && 'stderr' in error) rejection = String(error.stderr)
     }
     expect(rejection).toContain(kind === 'escape' ? 'Audio target must match' : 'Unknown or duplicate scenario ID')
     expect(paths.map(path => readFileSync(path))).toEqual(before)
     expect(readFileSync(marker, 'utf8')).toBe('must survive rejected input')
+    fixture.assertCheckout()
   } finally {
     // Preserve owned deliverables even when a regression makes invalid input reach generation.
-    paths.forEach((path, index) => { if (!readFileSync(path).equals(before[index]!)) writeFileSync(path, before[index]!) })
-    rmSync(directory, { recursive: true }); rmSync(marker, { force: true })
+    try { paths.forEach((path, index) => { if (!readFileSync(path).equals(before[index]!)) writeFileSync(path, before[index]!) }) }
+    finally { rmSync(directory, { recursive: true }); rmSync(marker, { force: true }) }
   }
+  } finally { fixture.cleanup() }
 }, 30000)
