@@ -6,6 +6,7 @@ import { basename, dirname, join, relative } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, expect, test } from 'vitest'
 import { assertMailRetryBuildConfig, assertMailRetryQualification, assertMailRetryReport, readMailRetryBuildIdentity } from '../../scripts/native-coverage-inputs.mjs'
+import { createOwnedFixtureDependencies } from '../helpers/owned-fixture-dependencies.mjs'
 
 const roots: string[] = []
 const repositoryRoot = process.cwd()
@@ -51,7 +52,7 @@ function buildFixture() {
   writeFileSync(join(item.root, 'public/i3-public-copy-marker.txt'), 'owned public fixture marker\n')
   writeFileSync(join(item.root, '.env'), 'VITE_SPARRA_I3_FIXTURE_SENTINEL=owned-root-env-marker\n')
   writeFileSync(join(item.root, '.env.production'), 'VITE_SPARRA_I3_FIXTURE_SENTINEL=owned-production-env-marker\n')
-  symlinkSync(join(repositoryRoot, 'node_modules'), join(item.root, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
+  createOwnedFixtureDependencies(item.root, repositoryRoot)
   const metadata: unknown = JSON.parse(readFileSync(join(repositoryRoot, 'node_modules/vite/package.json'), 'utf8'))
   expect(metadata).toMatchObject({ name: 'vite', version: '8.2.4' })
   const build = (output = item.build) => spawnSync(process.execPath, [join(repositoryRoot, 'node_modules/vite/bin/vite.js'), 'build', '--config', config, '--outDir', output], {

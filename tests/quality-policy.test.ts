@@ -12,6 +12,7 @@ import { afterAll, beforeAll, expect, test } from 'vitest'
 import { admitCommonGeometry, assertCalendarReport, assertCalendarQualification, assertBillingQualification, assertBillingReport, assertDirectory, assertRunTree, assertRecordingReceiptQualification, assertRecordingReceiptReport, assertRequestsQualification, assertRequestsReport, readNativeBlob, sourceIdentity } from '../scripts/native-coverage-inputs.mjs'
 import calendarNames from './fixtures/calendar-consumer-names.json' with { type: 'json' }
 import { createLintFixture } from './helpers/ordinary-fixture-isolation'
+import { createOwnedFixtureDependencies } from './helpers/owned-fixture-dependencies.mjs'
 const calendarConsumerNames: [string, string[]][] = calendarNames.map(([file,names]) => {
   if(typeof file!=='string'||!Array.isArray(names)||names.some(name=>typeof name!=='string'))throw new Error('Invalid Calendar reporter canary')
   return [file,names]
@@ -79,7 +80,7 @@ function qualityFixture() {
   writeFileSync(join(root,'src/unused.ts'),'export const unusedSparraCanary = 1;\n')
   writeFileSync(join(root,'src/App.tsx'),"import {useEffect,useState} from 'react';export function App({value}:{value:string}){const [derived,setDerived]=useState(value);useEffect(()=>{setDerived(value)},[value]);return <div>{derived}</div>}\n")
   git(['add','.'])
-  symlinkSync(join(repositoryRoot,'node_modules'),join(root,'node_modules'),process.platform==='win32'?'junction':'dir')
+  createOwnedFixtureDependencies(root, repositoryRoot)
   return {root,base}
 }
 function qualityBinary(tool:'fallow'|'react-doctor') {

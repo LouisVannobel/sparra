@@ -1,4 +1,5 @@
-import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createOwnedFixtureDependencies } from './owned-fixture-dependencies.mjs'
 import { basename, dirname, join, relative, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -14,7 +15,7 @@ export function createLintFixture(repositoryRoot: string, toolingRoot = reposito
     cpSync(join(toolingRoot, '.oxlintrc.json'), join(fixtureRoot, '.oxlintrc.json'))
     mkdirSync(join(fixtureRoot, 'tools', 'oxlint'), { recursive: true })
     cpSync(join(toolingRoot, 'tools', 'oxlint', 'anti-slop'), join(fixtureRoot, 'tools', 'oxlint', 'anti-slop'), { recursive: true })
-    symlinkSync(join(toolingRoot, 'node_modules'), join(fixtureRoot, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
+    createOwnedFixtureDependencies(fixtureRoot, toolingRoot)
   } catch (error) { cleanup(); throw error }
   const canaryRoot = join(fixtureRoot, 'src', '.anti-slop-canary')
   mkdirSync(canaryRoot)

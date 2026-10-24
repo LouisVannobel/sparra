@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest'
 import { createHash } from 'node:crypto'
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { createLintFixture } from '../helpers/ordinary-fixture-isolation'
@@ -72,3 +73,55 @@ test('checkout source receipt remains valid during lint fixture use and adverse 
     }
   }
 }, 30000)
+
+test('fixture dependencies keep real Vite and Vitest caches private and preserve foreign cache witnesses', () => {
+  const repositoryRoot = process.cwd()
+  const owner = mkdtempSync(join(tmpdir(), 'sparra-cache-witness-'))
+  let fixture: ReturnType<typeof createLintFixture> | undefined
+  try {
+    cpSync(join(repositoryRoot, '.oxlintrc.json'), join(owner, '.oxlintrc.json'))
+    cpSync(join(repositoryRoot, 'tools'), join(owner, 'tools'), { recursive: true })
+    const foreignModules = join(owner, 'node_modules')
+    mkdirSync(foreignModules)
+    for (const name of ['vite', 'vitest', '@vitest']) {
+      symlinkSync(realpathSync(join(repositoryRoot, 'node_modules', name)), join(foreignModules, name), process.platform === 'win32' ? 'junction' : 'dir')
+    }
+    for (const name of ['.vite', '.vite-temp', '.cache']) {
+      mkdirSync(join(foreignModules, name))
+      writeFileSync(join(foreignModules, name, 'foreign.txt'), 'preserve foreign cache\n')
+    }
+    fixture = createLintFixture(owner)
+    const modules = join(fixture.root, 'node_modules')
+    writeFileSync(join(fixture.root, 'package.json'), JSON.stringify({ type: 'module', private: true }))
+    writeFileSync(join(fixture.root, 'entry.js'), 'export const owned = 42\n')
+    writeFileSync(join(fixture.root, 'vite.config.ts'), "import {writeFileSync,readdirSync} from 'node:fs';const temp=readdirSync('node_modules/.vite-temp');export default {envDir:false,plugins:[{name:'owned-temp-witness',configResolved(c){writeFileSync('cache-witness.json',JSON.stringify({cacheDir:c.cacheDir,temp}))}}],build:{ssr:'entry.js',outDir:'build'}}\n")
+    writeFileSync(join(fixture.root, 'owned.test.ts'), "import {test,expect} from 'vitest';test('real fixture tool',()=>expect(42).toBe(42))\n")
+    writeFileSync(join(fixture.root, 'vitest.config.ts'), 'export default {}\n')
+    for (const args of [
+      [join(modules, 'vite/bin/vite.js'), 'build'],
+      [join(modules, 'vitest/vitest.mjs'), 'run', 'owned.test.ts', '--config', 'vitest.config.ts', '--maxWorkers=1'],
+    ]) {
+      const result = spawnSync(process.execPath, args, { cwd: fixture.root, encoding: 'utf8', windowsHide: true, timeout: 30000,
+        env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, TEMP: process.env.TEMP, TMP: process.env.TMP } })
+      expect(result.error).toBeUndefined()
+      expect(result.status, result.stderr || result.stdout).toBe(0)
+    }
+    const witness = JSON.parse(readFileSync(join(fixture.root, 'cache-witness.json'), 'utf8'))
+    expect(witness.cacheDir.replaceAll('\\', '/')).toBe(join(modules, '.vite').replaceAll('\\', '/'))
+    expect(witness.temp.some((name: string) => /^vite\.config\.ts\.timestamp-.*\.mjs$/.test(name))).toBe(true)
+    expect(lstatSync(modules).isSymbolicLink()).toBe(false)
+    expect(existsSync(join(modules, '.vite/vitest'))).toBe(true)
+    for (const name of ['.vite', '.vite-temp', '.cache']) {
+      expect(existsSync(join(modules, name, 'foreign.txt'))).toBe(false)
+      expect(readdirSync(join(foreignModules, name))).toEqual(['foreign.txt'])
+    }
+    expect(realpathSync(join(modules, 'vite'))).toBe(realpathSync(join(repositoryRoot, 'node_modules/vite')))
+    expect(realpathSync(join(modules, 'vitest'))).toBe(realpathSync(join(repositoryRoot, 'node_modules/vitest')))
+    fixture.cleanup(); fixture = undefined
+    for (const name of ['.vite', '.vite-temp', '.cache']) expect(readFileSync(join(foreignModules, name, 'foreign.txt'), 'utf8')).toBe('preserve foreign cache\n')
+  } finally {
+    fixture?.cleanup()
+    if (dirname(resolve(owner)) !== resolve(tmpdir()) || !basename(owner).startsWith('sparra-cache-witness-')) throw new Error('Non-owned cache witness cleanup')
+    rmSync(owner, { recursive: true })
+  }
+}, 65000)
