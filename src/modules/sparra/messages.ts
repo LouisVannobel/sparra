@@ -46,12 +46,12 @@ export const appMessages = {
 
 export const requestMessages = {
   fr: {
-    reason:'Motif', numberSource:'Origine du numéro',
+    reason:'Motif', numberSource:'Origine du numéro', initialExtraction:'Demande extraite lors de l’appel', extractedAction:'Suivi extrait de l’appel (à vérifier avec l’agenda)', numberUnconfirmed:'Numéro non confirmé.',
     category:{callback:'Demande de rappel',information:'Demande d’information',appointment_to_confirm:'Rendez-vous à confirmer',declared_urgent:'Urgence déclarée'},
     callbackSource:{caller:'Numéro déclaré par l’appelant',provider:'Numéro fourni par le fournisseur téléphonique',missing:'Aucun numéro disponible'},
   },
   en: {
-    reason:'Reason', numberSource:'Number source',
+    reason:'Reason', numberSource:'Number source', initialExtraction:'Request extracted during the call', extractedAction:'Follow-up extracted from the call (check against the calendar)', numberUnconfirmed:'Number unconfirmed.',
     category:{callback:'Callback request',information:'Information request',appointment_to_confirm:'Appointment to confirm',declared_urgent:'Declared urgent request'},
     callbackSource:{caller:'Number stated by the caller',provider:'Number supplied by the phone provider',missing:'No number available'},
   },

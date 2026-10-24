@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, truncateSync, utimesSync, writeFileSync } from 'node:fs'
-import { join, relative, resolve, dirname, basename } from 'node:path'
+import { join, resolve, dirname, basename } from 'node:path'
 import { tmpdir } from 'node:os'
 import { spawnSync } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
@@ -11,40 +11,27 @@ import type { CallExpression, Node, SourceFile } from 'typescript/unstable/ast'
 import { afterAll, beforeAll, expect, test } from 'vitest'
 import { admitCommonGeometry, assertCalendarReport, assertCalendarQualification, assertBillingQualification, assertBillingReport, assertDirectory, assertRunTree, assertRecordingReceiptQualification, assertRecordingReceiptReport, assertRequestsQualification, assertRequestsReport, readNativeBlob, sourceIdentity } from '../scripts/native-coverage-inputs.mjs'
 import calendarNames from './fixtures/calendar-consumer-names.json' with { type: 'json' }
+import { createLintFixture } from './helpers/ordinary-fixture-isolation'
+import { createOwnedFixtureDependencies } from './helpers/owned-fixture-dependencies.mjs'
 const calendarConsumerNames: [string, string[]][] = calendarNames.map(([file,names]) => {
   if(typeof file!=='string'||!Array.isArray(names)||names.some(name=>typeof name!=='string'))throw new Error('Invalid Calendar reporter canary')
   return [file,names]
 })
 
 const repositoryRoot = process.cwd()
-const fixtureRoot = mkdtempSync(join(repositoryRoot, 'src', '.anti-slop-canary-'))
 const oxlint = join(repositoryRoot, 'node_modules', 'oxlint', 'bin', 'oxlint')
-let acceptedFiles: string[], rejectedFiles: string[]
-
-function writeFixture(name: string, source: string): string {
-  const path = join(fixtureRoot, name)
-  writeFileSync(path, source)
-  return relative(repositoryRoot, path).replaceAll('\\', '/')
-}
+let lintFixture: ReturnType<typeof createLintFixture>, acceptedFiles: string[], rejectedFiles: string[]
 function runOxlint(files: string[]) {
   return spawnSync(process.execPath, [oxlint, '--threads=1', '--format', 'json', ...files], {
-    cwd: repositoryRoot, encoding: 'utf8', windowsHide: true, timeout: 15000,
+    cwd: lintFixture.root, encoding: 'utf8', windowsHide: true, timeout: 15000,
   })
 }
 beforeAll(() => {
-  acceptedFiles = [
-    writeFixture('boundaries.ts', "export function decode(input: unknown): string { return typeof input === 'string' ? input : ''; }\nexport const browser = typeof window !== 'undefined';\n"),
-    writeFixture('service.test.ts', "import { makeMarketingService } from './marketing-service';\nvoid makeMarketingService;\n"),
-  ]
-  rejectedFiles = [
-    writeFixture('assertion.ts', 'declare const input: unknown;\ninterface User { id: string }\nexport const user = input as object as User;\n'),
-    writeFixture('service.ts', "import { makeMarketingService } from './marketing-service';\nvoid makeMarketingService;\n"),
-  ]
+  lintFixture = createLintFixture(repositoryRoot)
+  ;({ acceptedFiles, rejectedFiles } = lintFixture)
 })
 afterAll(() => {
-  const target = resolve(fixtureRoot)
-  if (dirname(target) !== join(repositoryRoot, 'src') || !basename(target).startsWith('.anti-slop-canary-')) throw new Error('Refusing non-owned canary cleanup')
-  rmSync(target, { recursive: true, force: true })
+  lintFixture?.cleanup()
 })
 
 test('accepts narrowed boundaries and test-only service constructors', () => {
@@ -93,7 +80,7 @@ function qualityFixture() {
   writeFileSync(join(root,'src/unused.ts'),'export const unusedSparraCanary = 1;\n')
   writeFileSync(join(root,'src/App.tsx'),"import {useEffect,useState} from 'react';export function App({value}:{value:string}){const [derived,setDerived]=useState(value);useEffect(()=>{setDerived(value)},[value]);return <div>{derived}</div>}\n")
   git(['add','.'])
-  symlinkSync(join(repositoryRoot,'node_modules'),join(root,'node_modules'),process.platform==='win32'?'junction':'dir')
+  createOwnedFixtureDependencies(root, repositoryRoot)
   return {root,base}
 }
 function qualityBinary(tool:'fallow'|'react-doctor') {

@@ -106,7 +106,7 @@ try {
   voice = await prepareVoiceSource({ appRoot: root })
   await voice.assertIdentity()
   const blobs = join(runDirectory, 'blobs')
-  await runPhase('ordinary', [vitestCli, 'run', '--config', 'vitest.config.ts', '--maxWorkers=1', '--coverage', '--reporter=default', '--reporter=blob',
+  await runPhase('ordinary', [vitestCli, 'run', '--config', 'vitest.config.ts', '--maxWorkers=2', '--coverage', '--reporter=default', '--reporter=blob',
     '--outputFile.blob=' + join(blobs, 'ordinary.json'), '--coverage.reportsDirectory=' + join(runDirectory, 'ordinary')], 600000)
   admitBlob('ordinary')
   await runPhase('activity', [vitestCli, 'run', '--config', 'vitest.integration.config.ts', 'tests/integration/sparra-activity.test.ts', '--maxWorkers=1', '--coverage', '--reporter=default', '--reporter=blob',

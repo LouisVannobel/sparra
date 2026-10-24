@@ -56,11 +56,13 @@ export function startWeb(overrides: Record<string, string | undefined> = {}) {
   const child = spawn(process.execPath, ['--import', pathToFileURL(resolve('tests/helpers/runtime-probe.mjs')).href, entry], {
     env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   })
+  const startupEvidence = overrides.FIXTURE_STARTUP_EVIDENCE === 'yes' ? createWebStartupEvidence(child) : undefined
   let output = ''
   let listened = false
   let googleReady = false
   let googleClosed = false
   child.on('message', message => {
+    startupEvidence?.receive(message)
     if (typeof message === 'object' && message !== null && 'type' in message && message.type === 'google-ready') googleReady = true
     if (typeof message === 'object' && message !== null && 'type' in message && message.type === 'google-closed' && 'evidence' in message) {
       const value = message.evidence
@@ -76,7 +78,9 @@ export function startWeb(overrides: Record<string, string | undefined> = {}) {
   const ready = new Promise<{ address: string; port: number }>((resolveReady, reject) => {
     child.on('message', message => {
       if (typeof message === 'object' && message !== null && 'type' in message && message.type === 'listening' && 'address' in message) {
+        startupEvidence?.listening(message)
         listened = true
+        // SAFETY: The owned runtime probe sends Server.address() in this receipt; keep the original IPC readiness contract.
         resolveReady(message.address as { address: string; port: number })
       }
     })
@@ -85,7 +89,7 @@ export function startWeb(overrides: Record<string, string | undefined> = {}) {
   // Invalid-config cases intentionally never await ready.
   void ready.catch(() => {})
   return {
-    child, exit, ready, output: () => output, listened: () => listened,
+    child, exit, ready, output: () => output, listened: () => listened, ...(startupEvidence ? { startupEvidence } : {}),
     async registerGoogle(url: string, subject: string, options?: import('./google-protocol-peer.mjs').GoogleFixtureOptions) {
       if (!googleReady) throw new Error('Google fixture protection not armed')
       const id = randomUUID()
@@ -142,6 +146,56 @@ export function startWeb(overrides: Record<string, string | undefined> = {}) {
         await bounded(exit)
       }
     },
+  }
+}
+
+const startupStages = ['probe-entry', 'ssr-imported', 'start-imported'] as const
+type StartupStage = typeof startupStages[number] | 'listening-sent' | 'listening-received'
+type StartupListeningReceipt = { type: unknown; address: unknown; startupSentAtNs?: unknown }
+
+function createWebStartupEvidence(child: ReturnType<typeof spawn>) {
+  const started = process.hrtime.bigint()
+  const stages: { stage: StartupStage; elapsedMs: number }[] = []
+  let next = 0
+  const record = (stage: StartupStage, at = process.hrtime.bigint()) => {
+    const elapsedMs = Number((at - started) / 1_000_000n)
+    if (at < started || !Number.isSafeInteger(elapsedMs)) return
+    stages.push({ stage, elapsedMs })
+  }
+  return {
+    receive(message: unknown) {
+      if (typeof message !== 'object' || message === null || !('type' in message) || message.type !== 'startup-evidence'
+        || !('stage' in message) || Object.keys(message).length !== 2 || message.stage !== startupStages[next]) return
+      record(startupStages[next])
+      next++
+    },
+    listening(message: StartupListeningReceipt) {
+      const received = process.hrtime.bigint()
+      if ('startupSentAtNs' in message && typeof message.startupSentAtNs === 'string' && /^\d{1,20}$/.test(message.startupSentAtNs)) {
+        const sent = BigInt(message.startupSentAtNs)
+        if (sent >= started && sent <= received) record('listening-sent', sent)
+      }
+      record('listening-received', received)
+    },
+    snapshot(outcome: 'ready' | 'error') {
+      return {
+        outcome,
+        stages: stages.map(event => ({ ...event })),
+        exitCode: Number.isSafeInteger(child.exitCode) ? child.exitCode : null,
+        signal: child.signalCode === null ? null : 'signaled',
+      }
+    },
+  }
+}
+
+export async function awaitWebStartup(app: Pick<ReturnType<typeof startWeb>, 'ready' | 'startupEvidence'>) {
+  try {
+    const address = await bounded(app.ready)
+    if (app.startupEvidence) console.info('WEB_STARTUP_EVIDENCE', app.startupEvidence.snapshot('ready'))
+    return address
+  } catch (error) {
+    if (app.startupEvidence) console.info('WEB_STARTUP_EVIDENCE', app.startupEvidence.snapshot('error'))
+    throw error
   }
 }
 

@@ -8,6 +8,7 @@ import { appMessages, requestMessages } from '../../modules/sparra/messages'
 import type { Locale } from '../auth/messages'
 import { observedDate, privateResult, PrivateUnavailable } from './app-shell'
 import { useRequestAttempt } from './use-request-attempt'
+import { bookingMessages } from './calendar-messages'
 
 export function mergeInboxPage(current: ListRequestsPage, next: ListRequestsPage): ListRequestsPage {
   // Only IDs from the already-loaded page suppress incoming rows.
@@ -56,14 +57,15 @@ export async function treatInboxRequest(current:ListRequestsPage,requestId:strin
 }
 
 type InboxRequest=ListRequestsPage['requests'][number]
-function InboxContact({contact,locale}:{contact:InboxRequest['contact'];locale:Locale}){
+function InboxContact({contact,locale,bookingOutcome}:{contact:InboxRequest['contact'];locale:Locale;bookingOutcome:boolean}){
   if(!contact)return null
-  return <>{contact.callback_e164&&<p>{contact.callback_e164}</p>}<p>{requestMessages[locale].callbackSource[contact.callback_source]}</p><p>{appMessages[locale].unconfirmed}</p></>
+  return <>{contact.callback_e164&&<p>{contact.callback_e164}</p>}<p>{requestMessages[locale].callbackSource[contact.callback_source]}</p><p>{bookingOutcome?requestMessages[locale].numberUnconfirmed:appMessages[locale].unconfirmed}</p></>
 }
 function InboxResult({request,locale}:{request:InboxRequest;locale:Locale}){
   const t=appMessages[locale],labels=requestMessages[locale]
-  return <>{request.category&&<><strong>{labels.reason}</strong><p>{labels.category[request.category]}</p></>}{request.nextAction&&<><strong>{t.nextAction}</strong><p>{request.nextAction}</p></>}
-    <InboxContact contact={request.contact} locale={locale}/>{request.resultAvailability==='available'&&request.resultQuality==='partial'&&<span className="sparra-app-label">{t.partial}</span>}</>
+  const bookingLabel=request.category==='appointment_to_confirm'?(request.bookingOutcome==='confirmed'?bookingMessages[locale].confirmed:request.bookingOutcome==='cancelled'?bookingMessages[locale].cancelled:null):null
+  return <>{request.category&&<><strong>{labels.reason}</strong><p>{bookingLabel??labels.category[request.category]}</p></>}{request.nextAction&&<><strong>{bookingLabel?labels.extractedAction:t.nextAction}</strong><p>{request.nextAction}</p></>}
+    <InboxContact contact={request.contact} locale={locale} bookingOutcome={bookingLabel!==null}/>{request.resultAvailability==='available'&&request.resultQuality==='partial'&&<span className="sparra-app-label">{t.partial}</span>}</>
 }
 function InboxTreatment({request,locale,disabled,treating,onTreat}:{request:InboxRequest;locale:Locale;disabled:boolean;treating:string|null;onTreat(requestId:string):void}){
   if(request.treatedAt)return null
@@ -71,7 +73,8 @@ function InboxTreatment({request,locale,disabled,treating,onTreat}:{request:Inbo
 }
 function InboxRow({request,locale,disabled,treating,onTreat}:{request:InboxRequest;locale:Locale;disabled:boolean;treating:string|null;onTreat(requestId:string):void}){
   const t=appMessages[locale],excerpt=request.summary===null&&request.resultAvailability==='unavailable'?request.conversationExcerpt:null
-  return <li><div className="sparra-inbox-row-heading" id={`inbox-call-${request.id}`}><a href={`/app/demandes/${request.id}?lang=${locale}`}>{request.summary??(excerpt?t.conversationExcerpt:t.summaryUnavailable)}</a><p><time dateTime={request.admittedAt}>{observedDate(request.admittedAt,locale)}</time></p></div>
+  const bookingLabel=request.category==='appointment_to_confirm'?(request.bookingOutcome==='confirmed'?bookingMessages[locale].confirmed:request.bookingOutcome==='cancelled'?bookingMessages[locale].cancelled:null):null
+  return <li><div className="sparra-inbox-row-heading" id={`inbox-call-${request.id}`}><a href={`/app/demandes/${request.id}?lang=${locale}`}>{bookingLabel??request.summary??(excerpt?t.conversationExcerpt:t.summaryUnavailable)}</a><p><time dateTime={request.admittedAt}>{observedDate(request.admittedAt,locale)}</time></p></div>
     {excerpt&&<p><q>{excerpt}</q></p>}
     <div className="sparra-app-label sparra-inbox-operator">{request.treatedAt?<time dateTime={request.treatedAt}>{t.treated}</time>:t.untreated}</div><p className="sparra-inbox-status">{t.status[request.status]}</p>
     <InboxResult request={request} locale={locale}/><InboxTreatment request={request} locale={locale} disabled={disabled} treating={treating} onTreat={onTreat}/></li>

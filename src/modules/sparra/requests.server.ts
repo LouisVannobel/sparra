@@ -1,14 +1,15 @@
 import { randomUUID } from 'node:crypto'
-import { and, desc, eq, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { Schema, SchemaGetter } from 'effect'
 import type { AuthTransactions } from '../../platform/db/transactions.server'
+import type { PersonalWorkspaceLease } from '../../platform/db/auth-pg-lease.server'
 import type { AdmittedPrincipal } from '../auth/session.server'
 import { configuration, type ActivityConfigurationDto } from './activity.server'
 import { decodeMessageContent, readKeyring, type MessageContent, type MessageResultV1 } from './message-crypto.server'
 import { sparraCall, sparraErasure, sparraKnowledgeRevision } from './schema.server'
 import { audioDto, type AudioDto } from './audio.server'
 import { calendarCommand } from '../calendar/schema.server'
-import type { CalendarBookingDto } from '../calendar/booking'
+import { calendarBookingOutcome, type CalendarBookingDto, type CalendarBookingOutcome } from '../calendar/booking'
 import { calendarPolicySchema } from '../calendar/policy'
 
 const idSchema=Schema.String.check(Schema.isUUID()).pipe(Schema.decode({decode:SchemaGetter.transform(value=>value.toLowerCase()),encode:SchemaGetter.transform(value=>value)}))
@@ -21,7 +22,7 @@ export function parseListRequestsInput(input:unknown){try{return Schema.decodeUn
 export function parseRequestInput(input:unknown){try{return Schema.decodeUnknownSync(requestInput,{onExcessProperty:'error'})(input)}catch{throw new InvalidRequestInput()}}
 export type ListRequestsInput=typeof listInput.Type
 export type EraseReceipt=Readonly<{requestId:string;state:'queued'|'completed'}>
-export type RequestSummaryDto=Readonly<{id:string;admittedAt:string;endedAt:string|null;status:typeof sparraCall.$inferSelect.status;configurationRevision:number|null;treatedAt:string|null;resultAvailability:'available'|'unavailable';resultQuality:'partial'|'complete'|null;category:MessageResultV1['category']|null;summary:string|null;conversationExcerpt:string|null;contact:MessageResultV1['contact']|null;nextAction:string|null}>
+export type RequestSummaryDto=Readonly<{id:string;admittedAt:string;endedAt:string|null;status:typeof sparraCall.$inferSelect.status;configurationRevision:number|null;treatedAt:string|null;resultAvailability:'available'|'unavailable';resultQuality:'partial'|'complete'|null;category:MessageResultV1['category']|null;summary:string|null;conversationExcerpt:string|null;contact:MessageResultV1['contact']|null;nextAction:string|null;bookingOutcome?:CalendarBookingOutcome}>
 export type RequestDetailDto=RequestSummaryDto & Readonly<{configuration:ActivityConfigurationDto|null;transcript:MessageContent['transcript'];transcriptAvailability:MessageContent['transcriptAvailability'];unavailableTurnCount:number;moreTurns:boolean;transcriptLossCount:number;erasureState:'queued'|'completed'|null;audio?:AudioDto;bookings?:readonly CalendarBookingDto[]}>
 export type ListRequestsPage=Readonly<{requests:RequestSummaryDto[];nextCursor:{admittedAt:string;id:string}|null}>
 function conversationExcerpt(content:MessageContent):string|null {
@@ -35,6 +36,16 @@ function summary(row:typeof sparraCall.$inferSelect,content:MessageContent):Requ
   return {id:row.id,admittedAt:row.admittedAt.toISOString(),endedAt:row.endedAt?.toISOString()??null,status:row.status,configurationRevision:row.configurationRevision,treatedAt:row.treatedAt?.toISOString()??null,resultAvailability:result?'available':'unavailable',resultQuality:result?.quality??null,category:result?.category??null,summary:result?.summary??null,conversationExcerpt:result?null:conversationExcerpt(content),contact:result?.contact??null,nextAction:result?.next_action??null}
 }
 const hasContent=(row:typeof sparraCall.$inferSelect)=>row.encryptedMessageResult!==null || Object.keys(row.encryptedTurns).length>0
+async function bookingOutcomes(lease:PersonalWorkspaceLease,callIds:readonly string[]):Promise<Map<string,CalendarBookingOutcome>> {
+  if(callIds.length===0)return new Map()
+  const rows=await lease.db.select({callId:calendarCommand.callId,total:sql<number>`count(*)::int`,confirmed:sql<number>`count(*) filter (where ${calendarCommand.state} = 'confirmed' and ${calendarCommand.eventId} is not null and ${calendarCommand.eventId} <> '' and (${calendarCommand.observedState} is null or ${calendarCommand.observedState} = 'confirmed'))::int`,cancelled:sql<number>`count(*) filter (where ${calendarCommand.state} = 'confirmed' and ${calendarCommand.eventId} is not null and ${calendarCommand.eventId} <> '' and ${calendarCommand.observedState} = 'cancelled')::int`}).from(calendarCommand).where(and(eq(calendarCommand.workspaceId,lease.workspaceId),eq(calendarCommand.kind,'book_appointment'),inArray(calendarCommand.callId,callIds))).groupBy(calendarCommand.callId)
+  const outcomes=new Map<string,CalendarBookingOutcome>()
+  for(const row of rows){
+    const outcome=calendarBookingOutcome(row)
+    if(row.callId&&outcome)outcomes.set(row.callId,outcome)
+  }
+  return outcomes
+}
 export function createRequestOperations(owner:AuthTransactions){
   const options=(signal?:AbortSignal)=>({deadlineAtMs:Date.now()+10000,statementTimeoutMs:1000,cleanupTimeoutMs:1000,correlationId:randomUUID(),signal})
   const owned=(workspaceId:string,id:string)=>and(eq(sparraCall.workspaceId,workspaceId),eq(sparraCall.id,id))
@@ -45,7 +56,8 @@ export function createRequestOperations(owner:AuthTransactions){
       if(!lease)return {requests:[],nextCursor:null}
       const rows=await lease.db.select().from(sparraCall).where(and(eq(sparraCall.workspaceId,lease.workspaceId),eligible(),cursor?sql`(${sparraCall.admittedAt},${sparraCall.id}) < (${cursor.admittedAt}::timestamptz,${cursor.id}::uuid)`:undefined)).orderBy(desc(sparraCall.admittedAt),desc(sparraCall.id)).limit(51)
       const page=rows.slice(0,50),keys=page.some(hasContent)?await readKeyring():null,last=page.at(-1)
-      return {requests:page.map(row=>summary(row,decodeMessageContent(row.id,row.encryptedTurns,row.encryptedMessageResult,keys,row.transcriptLossCount))),nextCursor:rows.length>50&&last?{admittedAt:last.admittedAt.toISOString(),id:last.id}:null}
+      const outcomes=await bookingOutcomes(lease,page.map(row=>row.id))
+      return {requests:page.map(row=>({ ...summary(row,decodeMessageContent(row.id,row.encryptedTurns,row.encryptedMessageResult,keys,row.transcriptLossCount)),...(outcomes.has(row.id)?{bookingOutcome:outcomes.get(row.id)}:{}) })),nextCursor:rows.length>50&&last?{admittedAt:last.admittedAt.toISOString(),id:last.id}:null}
     })
   }
   async function detail(principal:AdmittedPrincipal,requestId:string,signal?:AbortSignal):Promise<RequestDetailDto>{
@@ -61,7 +73,8 @@ export function createRequestOperations(owner:AuthTransactions){
         const policy=Schema.decodeUnknownSync(calendarPolicySchema)(booking.policy)
         return {state:Schema.decodeUnknownSync(Schema.Literals(['waiting_evidence','pending','running','confirmed','refused','unknown']))(booking.state),serviceName:booking.serviceName,start:(booking.currentStart??booking.start).toISOString(),end:booking.currentEnd?new Date(booking.currentEnd.getTime()-policy.bufferMinutes*60000).toISOString():booking.end.toISOString(),originalStart:booking.start.toISOString(),timezone:policy.timeZone,providerReference:booking.state==='confirmed'?booking.eventId:null,observedState:booking.observedState}
       })
-      return {...summary(row,content),bookings,configuration:pin?configuration(pin):null,transcript:content.transcript,transcriptAvailability:content.transcriptAvailability,unavailableTurnCount:content.unavailableTurnCount,moreTurns:content.moreTurns,transcriptLossCount:content.transcriptLossCount,erasureState:null,audio:audioDto(row)}
+      const outcome=(await bookingOutcomes(lease,[id])).get(id)
+      return {...summary(row,content),...(outcome?{bookingOutcome:outcome}:{}),bookings,configuration:pin?configuration(pin):null,transcript:content.transcript,transcriptAvailability:content.transcriptAvailability,unavailableTurnCount:content.unavailableTurnCount,moreTurns:content.moreTurns,transcriptLossCount:content.transcriptLossCount,erasureState:null,audio:audioDto(row)}
     })
   }
   async function treat(principal:AdmittedPrincipal,requestId:string,signal?:AbortSignal){
