@@ -7,7 +7,8 @@ import { pathToFileURL } from 'node:url'
 const startupEvidence = process.env.FIXTURE_STARTUP_EVIDENCE === 'yes'
 function startupStage(stage) {
   if (!startupEvidence || !process.connected) return
-  try { process.send?.({ type: 'startup-evidence', stage }, () => {}) }
+  // A connected Node IPC child has send; a closing channel remains diagnostic-only.
+  try { process.send({ type: 'startup-evidence', stage }, () => {}) }
   catch { /* Diagnostics must not fail startup or cleanup. */ }
 }
 startupStage('probe-entry')

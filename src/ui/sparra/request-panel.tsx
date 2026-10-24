@@ -38,19 +38,32 @@ export async function performRequestAction(kind:'treat'|'erase',current:RequestL
   }catch(error){await settleRequestActionFailure(error,live,effects)}finally{if(live())effects.setPending(false)}
 }
 
+function RequestSummaryExtraction({locale,detail,bookingLabel}:{locale:Locale;detail:RequestDetailDto;bookingLabel:string|null}){
+  const t=appMessages[locale],labels=requestMessages[locale]
+  return <>
+    {bookingLabel&&detail.summary?<details><summary>{labels.initialExtraction}</summary><p>{detail.summary}</p></details>:detail.summary&&<p>{detail.summary}</p>}
+    {detail.nextAction&&<><h3>{bookingLabel?labels.extractedAction:t.nextAction}</h3><p>{detail.nextAction}</p></>}
+  </>
+}
+
+function RequestSummaryContact({locale,contact,bookingLabel}:{locale:Locale;contact:RequestDetailDto['contact'];bookingLabel:string|null}){
+  const t=appMessages[locale],labels=requestMessages[locale]
+  if(!contact)return null
+  return <>
+    <h3>{t.contact}</h3><p>{[contact.name,contact.callback_e164,contact.preference].filter(Boolean).join(' — ')||'—'}</p>
+    <h3>{labels.numberSource}</h3><p>{labels.callbackSource[contact.callback_source]}</p>
+    <p>{bookingLabel?labels.numberUnconfirmed:t.unconfirmed}</p>
+  </>
+}
+
 function RequestSummary({locale,detail}:{locale:Locale;detail:RequestDetailDto}){
   const t=appMessages[locale],labels=requestMessages[locale]
   const bookingLabel=detail.category==='appointment_to_confirm'?(detail.bookingOutcome==='confirmed'?bookingMessages[locale].confirmed:detail.bookingOutcome==='cancelled'?bookingMessages[locale].cancelled:null):null
   return <section className="sparra-request-summary" aria-label={locale==='fr'?'Résumé':'Summary'}>
     <Heading level={2}>{detail.resultAvailability==='unavailable'?t.summaryUnavailable:detail.resultQuality==='partial'?t.partial:t.summary}</Heading>
     {detail.category&&<><h3>{labels.reason}</h3><p>{bookingLabel??labels.category[detail.category]}</p></>}
-    {bookingLabel&&detail.summary?<details><summary>{labels.initialExtraction}</summary><p>{detail.summary}</p></details>:detail.summary&&<p>{detail.summary}</p>}
-    {detail.nextAction&&<><h3>{bookingLabel?labels.extractedAction:t.nextAction}</h3><p>{detail.nextAction}</p></>}
-    {detail.contact&&<>
-      <h3>{t.contact}</h3><p>{[detail.contact.name,detail.contact.callback_e164,detail.contact.preference].filter(Boolean).join(' — ')||'—'}</p>
-      <h3>{labels.numberSource}</h3><p>{labels.callbackSource[detail.contact.callback_source]}</p>
-      <p>{bookingLabel?labels.numberUnconfirmed:t.unconfirmed}</p>
-    </>}
+    <RequestSummaryExtraction locale={locale} detail={detail} bookingLabel={bookingLabel}/>
+    <RequestSummaryContact locale={locale} contact={detail.contact} bookingLabel={bookingLabel}/>
   </section>
 }
 
