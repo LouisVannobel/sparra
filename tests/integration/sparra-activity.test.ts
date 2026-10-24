@@ -15,7 +15,7 @@ import { startGoogleProtocolPeer } from '../helpers/google-protocol-peer.mjs'
 import { googleCeremony } from '../helpers/google-ceremony'
 import { createAuthRateLimiter, readRateLimitConfig } from '../../src/modules/auth/rate-limit.server'
 import type { createApplicationAuth } from '../../src/modules/auth/auth.server'
-import { startWeb, bounded, unusedLoopbackPort } from '../helpers/web-process'
+import { startWeb, awaitWebStartup, unusedLoopbackPort } from '../helpers/web-process'
 import { authRpcPath, rpcBody } from '../helpers/auth-rpc'
 
 let stores: Awaited<ReturnType<typeof startDisposableStores>>, pool: Pool
@@ -132,8 +132,8 @@ beforeAll(async () => {
   await limiter.connect()
   auth = createApplicationAuth(owner,readAuthConfig({APP_ORIGIN:'http://localhost:3000',NODE_ENV:'test',AUTH_SECRET:secret,GOOGLE_CLIENT_ID:'fixture.apps.googleusercontent.com',GOOGLE_CLIENT_SECRET:'fixture-only'})!,limiter)
   ceremony = googleCeremony(auth,owner,peer); personal=createPersonalWorkspaces(owner); activity=createActivityOperations(owner)
-  app = startWeb({PORT:String(webPort),NODE_ENV:'test',APP_ORIGIN:origin,DATABASE_URL:stores.runtimeUrl,REDIS_URL:stores.redisUrl,RATE_LIMIT_HMAC_SECRET:stores.hmac,RATE_LIMIT_KEY_ID:'activity-web',TRUSTED_PROXY_IPS:'127.0.0.1',AUTH_SECRET:secret,REQUEST_TIMEOUT_MS:'10000'})
-  const address = await bounded(app.ready)
+  app = startWeb({PORT:String(webPort),NODE_ENV:'test',APP_ORIGIN:origin,DATABASE_URL:stores.runtimeUrl,REDIS_URL:stores.redisUrl,RATE_LIMIT_HMAC_SECRET:stores.hmac,RATE_LIMIT_KEY_ID:'activity-web',TRUSTED_PROXY_IPS:'127.0.0.1',AUTH_SECRET:secret,REQUEST_TIMEOUT_MS:'10000',FIXTURE_STARTUP_EVIDENCE:'yes'})
+  const address = await awaitWebStartup(app)
   origin = 'http://localhost:'+address.port
 })
 afterAll(async () => {

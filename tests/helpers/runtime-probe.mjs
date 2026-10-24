@@ -4,6 +4,14 @@ import { readdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
+const startupEvidence = process.env.FIXTURE_STARTUP_EVIDENCE === 'yes'
+function startupStage(stage) {
+  if (!startupEvidence || !process.connected) return
+  try { process.send?.({ type: 'startup-evidence', stage }, () => {}) }
+  catch { /* Diagnostics must not fail startup or cleanup. */ }
+}
+startupStage('probe-entry')
+
 let googlePeer
 // Install before importing any emitted application module.
 if (process.env.FIXTURE_CALENDAR_PROTOCOL === 'yes') {
@@ -22,6 +30,7 @@ if (process.env.FIXTURE_GOOGLE_PROTOCOL === 'yes') {
 // Request arrives through the real Nitro node socket and SSR bundle bridge.
 const directory = resolve('.output/server/_ssr')
 const compiled = await import(pathToFileURL(resolve(directory, 'ssr.mjs')).href)
+startupStage('ssr-imported')
 const { createMiddleware } = compiled
 if (process.env.FIXTURE_INGRESS === 'yes') {
   const entry = compiled.default ?? compiled.server_default
@@ -36,6 +45,7 @@ if (process.env.FIXTURE_INGRESS === 'yes') {
 }
 const startFile = (await readdir(directory)).find(name => /^start-.*\.mjs$/.test(name))
 const { startInstance } = await import(pathToFileURL(resolve(directory, startFile)).href)
+startupStage('start-imported')
 const originalOptions = startInstance.getOptions.bind(startInstance)
 const identities = new WeakMap()
 let effects = 0
@@ -137,7 +147,7 @@ function observeListening(server) {
     googleCloseRegistered = true
     hooks.hook('close', retireGooglePeer)
   }
-  process.send?.({ type: 'listening', address: server.address() })
+  process.send?.({ type: 'listening', address: server.address(), ...(startupEvidence ? { startupSentAtNs: process.hrtime.bigint().toString() } : {}) })
 }
 
 async function retireGooglePeer() {
