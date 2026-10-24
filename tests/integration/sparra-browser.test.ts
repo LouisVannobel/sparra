@@ -942,8 +942,9 @@ test.each(['fr','en'] as const)('diagnostic owner in %s explicitly adds prepared
     await page.getByRole('button',{name:question,exact:true}).click()
     await page.getByRole('textbox',{name:t.ownerAnswer,exact:true}).fill('Réponse fournie explicitement par le propriétaire')
     expect(await faq.inputValue()).toBe('')
-    await page.getByRole('button',{name:t.addOwnerAnswer,exact:true}).click()
+    await page.getByRole('button',{name:t.addOwnerAnswer,exact:true}).focus();await page.keyboard.press('Enter')
     expect(await faq.inputValue()).toBe(question+'\nRéponse fournie explicitement par le propriétaire')
+    expect(await page.getByRole('textbox',{name:t.ownerAnswer,exact:true}).evaluate(field=>document.activeElement===field)).toBe(true)
     expect(await instructions.inputValue()).toBe('')
     await page.getByRole('button',{name:t.addCallerQuestion+' : '+intake,exact:true}).click()
     expect(await instructions.inputValue()).toBe(intake)
@@ -981,6 +982,9 @@ test.each(['fr','en'] as const)('guided sections in %s preserve draft and questi
     const garageQuestion=getSectorPreset('garage',locale).faqQuestions[0]!
     await page.getByRole('button',{name:garageQuestion,exact:true}).click()
     const answer=page.getByRole('textbox',{name:t.ownerAnswer,exact:true}),addAnswer=page.getByRole('button',{name:t.addOwnerAnswer,exact:true})
+    await expect.poll(()=>answer.getAttribute('aria-describedby')).toBeTruthy()
+    const description=()=>answer.evaluate(field=>(field.getAttribute('aria-describedby')??'').split(/\s+/).map(id=>document.getElementById(id)?.textContent??'').join(' '))
+    expect(await description()).toBe(garageQuestion)
     expect(await addAnswer.isDisabled()).toBe(true)
     await answer.fill('   ');expect(await addAnswer.isDisabled()).toBe(true);expect(await faq.inputValue()).toBe(knowledge.faq)
     await answer.fill('Owner answer kept with the garage question')
@@ -995,16 +999,17 @@ test.each(['fr','en'] as const)('guided sections in %s preserve draft and questi
     await page.getByRole('combobox',{name:new RegExp('^'+t.sector)}).click()
     await page.getByRole('option',{name:getSectorPreset('controle-technique',locale).label,exact:true}).click()
     await showActivitySection(page,'knowledge')
-    await page.getByText(t.previousQuestion,{exact:true}).waitFor()
+    await expect.poll(description).toBe(garageQuestion+' '+t.previousQuestion)
     expect(await answer.inputValue()).toBe('Owner answer kept with the garage question')
-    expect(await page.locator('.sparra-helper-answer > p').first().textContent()).toBe(garageQuestion)
+    expect(await description()).toBe(garageQuestion+' '+t.previousQuestion)
+    expect((await page.locator('.sparra-helper-answer').innerText()).split(garageQuestion)).toHaveLength(2)
     expect(await faq.inputValue()).toBe(knowledge.faq);expect(await instructions.inputValue()).toBe(knowledge.instructions)
     await showActivitySection(page,'establishment')
     await page.getByRole('combobox',{name:new RegExp('^'+t.sector)}).click()
     await page.getByRole('option',{name:getSectorPreset('diagnostic-immobilier',locale).label,exact:true}).click()
     await showActivitySection(page,'knowledge')
     expect(await answer.inputValue()).toBe('Owner answer kept with the garage question')
-    expect(await page.locator('.sparra-helper-answer > p').first().textContent()).toBe(garageQuestion)
+    expect(await description()).toBe(garageQuestion+' '+t.previousQuestion)
     expect(await faq.inputValue()).toBe(knowledge.faq);expect(await instructions.inputValue()).toBe(knowledge.instructions)
     await showActivitySection(page,'establishment')
     await page.getByRole('combobox',{name:new RegExp('^'+t.sector)}).click()
@@ -1032,6 +1037,59 @@ test.each(['fr','en'] as const)('guided sections in %s preserve draft and questi
     expect(await page.getByRole('checkbox',{name:t.recordingEnabled,exact:true}).isChecked()).toBe(false)
   }finally{await context.close()}
 },50000)
+
+test.each(['fr','en'] as const)('private FAQ and intake additions in %s announce only draft changes and retain keyboard focus',async locale=>{
+  const {context,page}=await signedIn('sparra-helper-accessibility-'+locale),t=activityMessages[locale],preset=getSectorPreset('garage',locale)
+  const savePath=await authRpcPath('saveActivity'),requests:string[]=[]
+  try{
+    await page.goto(origin+'/app/entreprise?lang='+locale);await page.getByRole('button',{name:appMessages[locale].create,exact:true}).click()
+    await showActivitySection(page,'knowledge')
+    const faq=page.getByRole('textbox',{includeHidden:true,name:t.faq,exact:true}),instructions=page.getByRole('textbox',{includeHidden:true,name:t.instructions,exact:true})
+    const faqHelper=page.locator('.sparra-knowledge-helper').filter({has:page.getByRole('heading',{name:t.ownerAnswers,exact:true})})
+    const intakeHelper=page.locator('.sparra-knowledge-helper').filter({has:page.getByRole('heading',{name:t.callerInformation,exact:true})})
+    const faqStatus=faqHelper.locator(':scope > [role="status"]'),intakeStatus=intakeHelper.locator(':scope > [role="status"]')
+    for(const status of [faqStatus,intakeStatus]){expect(await status.count()).toBe(1);expect(await status.textContent()).toBe('');expect(await status.getAttribute('aria-atomic')).toBe('true')}
+    const initialFaqStatus=await faqStatus.elementHandle(),initialIntakeStatus=await intakeStatus.elementHandle()
+    page.on('request',request=>requests.push(new URL(request.url()).pathname))
+    const faqMessage=locale==='fr'?'Réponse ajoutée au brouillon de la FAQ. Ajout n° ':'Answer added to the FAQ draft. Addition no. '
+    const intakeMessage=locale==='fr'?'Question ajoutée au brouillon des consignes. Ajout n° ':'Question added to the instructions draft. Addition no. '
+    const first=preset.faqQuestions[0]!,second=preset.faqQuestions[1]!,intake=preset.intakeQuestions[0]!,otherIntake=preset.intakeQuestions[1]!
+    await page.getByRole('button',{name:first,exact:true}).click()
+    const answer=page.getByRole('textbox',{name:t.ownerAnswer,exact:true}),add=page.getByRole('button',{name:t.addOwnerAnswer,exact:true})
+    await answer.fill('   ');expect(await add.isDisabled()).toBe(true);expect(await faqStatus.textContent()).toBe('')
+    let expectedFaq=''
+    for(const [index,question] of [first,second,second].entries()){
+      await page.getByRole('button',{name:question,exact:true}).click();await answer.fill('Owner text 😀')
+      await add.focus();await page.keyboard.press('Enter')
+      expectedFaq+=(expectedFaq?'\n\n':'')+question+'\nOwner text 😀'
+      await expect.poll(()=>faq.inputValue()).toBe(expectedFaq)
+      expect(await answer.inputValue()).toBe('');expect(await add.isDisabled()).toBe(true)
+      expect(await answer.evaluate(field=>document.activeElement===field)).toBe(true)
+      expect(await faqStatus.textContent()).toBe(faqMessage+(index+1)+'.')
+      expect(await faqStatus.evaluate((node,initial)=>node===initial,initialFaqStatus)).toBe(true)
+    }
+    let expectedInstructions=''
+    for(const [index,question] of [intake,otherIntake,otherIntake].entries()){
+      const button=page.getByRole('button',{name:t.addCallerQuestion+' : '+question,exact:true})
+      await button.focus();await page.keyboard.press('Enter')
+      expectedInstructions+=(expectedInstructions?'\n\n':'')+question
+      await expect.poll(()=>instructions.inputValue()).toBe(expectedInstructions)
+      expect(await button.evaluate(node=>document.activeElement===node)).toBe(true)
+      expect(await intakeStatus.textContent()).toBe(intakeMessage+(index+1)+'.')
+      expect(await intakeStatus.evaluate((node,initial)=>node===initial,initialIntakeStatus)).toBe(true)
+    }
+    await faq.fill('x'.repeat(3000));await answer.fill('Refused answer')
+    expect(await add.isDisabled()).toBe(true);await page.getByRole('alert').filter({hasText:t.helperFaqFull}).waitFor()
+    await add.evaluate(button=>{if(button instanceof HTMLButtonElement)button.click()});expect(await faq.inputValue()).toBe('x'.repeat(3000));expect(await answer.inputValue()).toBe('Refused answer')
+    expect(await faqStatus.textContent()).toBe(faqMessage+'3.')
+    await instructions.fill('x'.repeat(2000))
+    const fullIntake=page.getByRole('button',{name:t.addCallerQuestion+' : '+intake,exact:true})
+    expect(await fullIntake.isDisabled()).toBe(true);await fullIntake.evaluate(button=>{if(button instanceof HTMLButtonElement)button.click()})
+    expect(await instructions.inputValue()).toBe('x'.repeat(2000));expect(await intakeStatus.textContent()).toBe(intakeMessage+'3.')
+    expect(requests).toEqual([]);expect(requests).not.toContain(savePath)
+    expect((await stores.administrator.query('SELECT count(*)::int n FROM sparra_knowledge_revision WHERE workspace_id=(SELECT id FROM workspace WHERE owner_user_id=(SELECT id FROM "user" WHERE email=$1))',['sparra-helper-accessibility-'+locale+'@example.test'])).rows[0].n).toBe(0)
+  }finally{await context.close()}
+},40000)
 
 // Bounded native Business wiring regression; uses this file's existing identity/store fixture.
 test.each(['enterprise','prepared-faq'] as const)('compiled Business %s declines language departure without losing work and accepts explicit abandonment',async kind=>{
