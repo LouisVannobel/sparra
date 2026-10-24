@@ -7,8 +7,9 @@ import { startWeb, bounded, awaitWebStartup } from '../helpers/web-process'
 const sourceProbe = resolve('tests/helpers/runtime-probe.mjs')
 const originalCwd = process.cwd()
 let fixtureDirectory: string | undefined
+let ownedApp: ReturnType<typeof startWeb> | undefined
 
-async function fixture(mode: 'listen' | 'phase-only' | 'exit', evidence: boolean) {
+async function fixture(mode: 'listen' | 'phase-only' | 'exit' | 'silent-exit', evidence: boolean) {
   fixtureDirectory = await mkdtemp(join(tmpdir(), 'web-startup-evidence-'))
   const server = join(fixtureDirectory, '.output/server')
   await mkdir(join(server, '_ssr'), { recursive: true })
@@ -25,6 +26,8 @@ async function fixture(mode: 'listen' | 'phase-only' | 'exit', evidence: boolean
     } else if (process.env.FIXTURE_STARTUP_MODE === 'exit') {
       process.send?.({ type: 'startup-evidence', stage: 'listening', secret: 'SECRET_SENTINEL' })
       setImmediate(() => process.exit(7))
+    } else if (process.env.FIXTURE_STARTUP_MODE === 'silent-exit') {
+      setImmediate(() => process.exit(7))
     } else {
       const server = createServer((_request, response) => response.end('ok'))
       server.listen(0, '127.0.0.1')
@@ -32,16 +35,49 @@ async function fixture(mode: 'listen' | 'phase-only' | 'exit', evidence: boolean
     }
   `)
   process.chdir(fixtureDirectory)
-  return startWeb({ FIXTURE_STARTUP_MODE: mode, ...(evidence ? { FIXTURE_STARTUP_EVIDENCE: 'yes' } : {}) })
+  ownedApp = startWeb({ FIXTURE_STARTUP_MODE: mode, ...(evidence ? { FIXTURE_STARTUP_EVIDENCE: 'yes' } : {}) })
+  return ownedApp
 }
 
 afterEach(async () => {
-  process.chdir(originalCwd)
-  if (fixtureDirectory) await rm(fixtureDirectory, { recursive: true, force: true })
-  fixtureDirectory = undefined
-  vi.restoreAllMocks()
   vi.useRealTimers()
+  try {
+    if (ownedApp) {
+      await ownedApp.cleanup()
+      expect(ownedApp.child.exitCode !== null || ownedApp.child.signalCode !== null).toBe(true)
+    }
+  } finally {
+    ownedApp = undefined
+    process.chdir(originalCwd)
+    if (fixtureDirectory) await rm(fixtureDirectory, { recursive: true, force: true })
+    fixtureDirectory = undefined
+    vi.restoreAllMocks()
+  }
 })
+
+async function waitForSyntheticListeningMarker(app: ReturnType<typeof startWeb>) {
+  let onMessage: (message: unknown) => void = () => {}
+  let onExit: () => void = () => {}
+  let onError: () => void = () => {}
+  const receipt = new Promise<void>((resolve, reject) => {
+    onMessage = message => {
+      if (typeof message === 'object' && message !== null && 'type' in message && message.type === 'startup-evidence'
+        && 'stage' in message && message.stage === 'listening') resolve()
+    }
+    onExit = () => reject(new Error('Web exited before synthetic listening marker'))
+    onError = () => reject(new Error('Web child failed before synthetic listening marker'))
+    app.child.on('message', onMessage)
+    app.child.once('exit', onExit)
+    app.child.once('error', onError)
+    if (app.child.exitCode !== null || app.child.signalCode !== null) onExit()
+  })
+  try { await bounded(receipt) }
+  finally {
+    app.child.removeListener('message', onMessage)
+    app.child.removeListener('exit', onExit)
+    app.child.removeListener('error', onError)
+  }
+}
 
 describe.sequential('owned web startup evidence', () => {
   test('opt-in reports only fixed phases and safe fields after a real listening receipt', async () => {
@@ -76,15 +112,9 @@ describe.sequential('owned web startup evidence', () => {
     const app = await fixture('phase-only', true)
     const log = vi.spyOn(console, 'info').mockImplementation(() => {})
     try {
-      await new Promise<void>(resolve => {
-        const listener = (message: unknown) => {
-          if (typeof message === 'object' && message !== null && 'stage' in message && message.stage === 'listening') {
-            app.child.removeListener('message', listener)
-            resolve()
-          }
-        }
-        app.child.on('message', listener)
-      })
+      const messageListeners = app.child.listenerCount('message')
+      await waitForSyntheticListeningMarker(app)
+      expect(app.child.listenerCount('message')).toBe(messageListeners)
       vi.useFakeTimers()
       const waiting = awaitWebStartup(app)
       const rejected = expect(waiting).rejects.toThrow('Owned process operation exceeded its bound')
@@ -109,6 +139,17 @@ describe.sequential('owned web startup evidence', () => {
       await expect(awaitWebStartup(app)).rejects.toThrow('Web exited before listen:')
       expect(log.mock.calls[0][1]).toMatchObject({ outcome: 'error', exitCode: 7, signal: null })
     } finally { await app.cleanup() }
+  })
+
+  test('a missing synthetic marker rejects on child exit and joins the owned child', async () => {
+    const app = await fixture('silent-exit', true)
+    const messageListeners = app.child.listenerCount('message')
+    const errorListeners = app.child.listenerCount('error')
+    await expect(waitForSyntheticListeningMarker(app)).rejects.toThrow('Web exited before synthetic listening marker')
+    expect(await bounded(app.exit)).toBe(7)
+    expect(app.child.listenerCount('message')).toBe(messageListeners)
+    expect(app.child.listenerCount('exit')).toBe(0)
+    expect(app.child.listenerCount('error')).toBe(errorListeners)
   })
 
   test('the existing default bound still rejects at 6000 ms', async () => {
