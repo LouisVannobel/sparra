@@ -71,7 +71,9 @@ beforeAll(async () => {
     expect((await stores.administrator.query(`SELECT (SELECT to_jsonb(u) FROM "user" u WHERE id='preexisting-user') AS u,(SELECT to_jsonb(s) FROM session s WHERE id='preexisting-session') AS s,(SELECT to_jsonb(w) FROM workspace w WHERE owner_user_id='preexisting-user') AS w,(SELECT to_jsonb(a) FROM workspace_audit a WHERE actor_user_id='preexisting-user') AS a`)).rows).toEqual(before)
     await stores.administrator.query('DROP EVENT TRIGGER fixture_forward_ddl_seen; DROP FUNCTION app_private.fixture_forward_ddl_seen(); DROP SEQUENCE fixture_forward_ddl_marker; DROP FUNCTION app_private.sparra_revision_immutable()')
     // Qualify the additive sector CHECK against a populated 0025 schema.
-    expect(journal.entries.at(-1)?.tag).toBe('0026_sparra_diagnostic_sector')
+    const forwardEntries: {tag:string;when:number}[]=journal.entries.slice(26)
+    expect(forwardEntries.map(entry=>entry.tag)).toEqual(['0026_sparra_diagnostic_sector','0027_sparra_inbox_publication'])
+    const forwardHashes=await Promise.all(forwardEntries.map(async entry=>createHash('sha256').update(await readFile('drizzle/'+entry.tag+'.sql')).digest('hex')))
     const previousEntries=journal.entries.slice(0,26)
     expect(previousEntries.at(-1)?.tag).toBe('0025_sparra_calendar_booking')
     const previousHashes=await Promise.all(previousEntries.map(async (entry: {tag:string}) => createHash('sha256').update(await readFile('drizzle/'+entry.tag+'.sql')).digest('hex')))
@@ -108,8 +110,9 @@ beforeAll(async () => {
       VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',3,'Diagnostic Martin','diagnostic-immobilier','','Diagnostics','','','Quel type de bien est concerné ?')`)).rejects.toMatchObject({code:'23514'})
     await stores.migrate()
     const sectorJournalAfter=(await stores.administrator.query('SELECT id,hash,created_at::text FROM drizzle.__drizzle_migrations ORDER BY id')).rows
-    expect(sectorJournalAfter.slice(0,-1)).toEqual(sectorJournalBefore)
-    expect(sectorJournalAfter).toHaveLength(sectorJournalBefore.length+1)
+    expect(sectorJournalAfter.slice(0,sectorJournalBefore.length)).toEqual(sectorJournalBefore)
+    expect(sectorJournalAfter).toHaveLength(sectorJournalBefore.length+2)
+    expect(sectorJournalAfter.slice(sectorJournalBefore.length).map(({hash,created_at})=>({hash,created_at}))).toEqual(forwardEntries.map((entry,index)=>({hash:forwardHashes[index],created_at:String(entry.when)})))
     expect(await security()).toEqual(securityBefore)
     expect((await stores.administrator.query('SELECT to_jsonb(k) AS value FROM sparra_knowledge_revision k ORDER BY revision')).rows).toEqual(oldRows)
     await stores.administrator.query(`INSERT INTO sparra_knowledge_revision(workspace_id,revision,business_name,sector,opening_hours,services,prices,faq,instructions)
