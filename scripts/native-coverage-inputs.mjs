@@ -185,7 +185,7 @@ export function readNativeBlob(filePath, name, root, startedAt, version) {
   for (const reference of files) {
     count += admitTestFile(table, blobValue(table, reference), name, files.length, root, startedAt, seen)
   }
-  if (!count || (name === 'activity' && count !== 12) || (name === 'requests' && count !== 40)
+  if (!count || (name === 'activity' && count !== 12) || (name === 'requests' && count !== 44)
     || (name === 'billing' && count !== 91) || (name === 'calendar' && count !== 96)) throw new Error('Native coverage test cardinality mismatch')
   const coverage = blobValue(table, envelope[3])
   admitCoverageEntries(table, coverage, root)
@@ -218,6 +218,10 @@ export function admitCommonGeometry(ordinary, activity) {
 
 
 const requestsLeafNames = [
+    'inbox publication DTO never mixes live content with displayed C/T and keeps C0 provisional',
+    'unreadable published pieces refuse declaration without mutating A/T; restoration stays pending and revocation and real gaps remain allowed',
+    'inbox publication CAS handles revoke ABA, later publications, cross tenant and lost commit acknowledgement',
+    'inbox publication pending filter precedes pagination and late content reopens old declarations',
     'native owner reads absent state, actual Voice ciphertext and pinned configuration without inventing pending results',
     'native owner lists only the first authenticated nonblank caller excerpt without inventing result fields',
     'native caller excerpt preserves the exact bound without inventing a summary',
@@ -227,8 +231,8 @@ const requestsLeafNames = [
     'invalid result may expose a valid caller excerpt but missing keys and unauthenticated turns cannot',
     'an assistant turn without a caller never supplies an Inbox excerpt',
     'equal-millisecond pagination returns all 103 calls exactly once in tuple order',
-    'treat active preserves inventory and stamp, erase deletes native content and survives retention',
-    'treat closed preserves inventory and stamp, erase deletes native content and survives retention',
+    'provisional active cannot be declared; erase deletes native content and survives retention',
+    'provisional closed cannot be declared; erase deletes native content and survives retention',
     'expired content stays unreadable including a Workspace lock held across retention; queued receipt outlives fence deadline',
     'native runtime UPDATE RETURNING cooperates with narrow definer, FORCE RLS and column grants',
     'fence insertion failure and cancellation roll back; recorded COMMIT cancellation rejects completion and reload resolves',
@@ -273,7 +277,7 @@ const requestConsumers=[
 ]
 
 function requestsSummaryPassed(report) {
-  const counters = {numTotalTests:40,numPassedTests:40,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
+  const counters = {numTotalTests:44,numPassedTests:44,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
   return report?.success === true && Object.entries(counters).every(([key,wanted])=>report[key]===wanted)
 }
 
@@ -295,7 +299,7 @@ function requestsConsumerPassed(report,path,names,root) {
 export function assertRequestsReport(report,root) {
   if(!requestsSummaryPassed(report) || !Array.isArray(report.testResults) || report.testResults.length!==5
     || !requestConsumers.every(([path,names])=>requestsConsumerPassed(report,path,names,root))) {
-    throw new Error('Native Requests requires its exact five consumers and 40 passing leaves')
+    throw new Error('Native Requests requires its exact five consumers and 44 passing leaves')
   }
 }
 
@@ -325,12 +329,14 @@ const voiceBridgeLeafNames = [
   'native sector snapshots V2 garage preserves native snapshots, concurrent revisions and Inbox ownership',
   'native sector snapshots V2 controle-technique preserves native snapshots, concurrent revisions and Inbox ownership',
   'native sector snapshots V2 diagnostic-immobilier preserves native snapshots, concurrent revisions and Inbox ownership',
+  'collection waits for retained pieces, freezes agenda and ignores replay and accounting',
+  'current publication can revoke a declaration after a native extra turn makes collection provisional',
 ]
 
 function voiceBridgeFilePassed(file,root,startedAt) {
   return file?.name===join(root,'tests/integration/sparra-voice-bridge.test.ts').replaceAll('\\','/')
     && file.status==='passed' && file.message==='' && Number.isFinite(file.startTime) && file.startTime>=startedAt
-    && Array.isArray(file.assertionResults) && file.assertionResults.length===19
+    && Array.isArray(file.assertionResults) && file.assertionResults.length===21
     && voiceBridgeLeafNames.every((name,index)=>{
       const leaf=file.assertionResults[index]
       return leaf?.status==='passed' && leaf.fullName===name && Array.isArray(leaf.failureMessages) && leaf.failureMessages.length===0
@@ -338,12 +344,12 @@ function voiceBridgeFilePassed(file,root,startedAt) {
 }
 
 export function assertVoiceBridgeReport(report,root,startedAt) {
-  const counters={numTotalTests:19,numPassedTests:19,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
+  const counters={numTotalTests:21,numPassedTests:21,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
   if(report?.success!==true || !Object.entries(counters).every(([key,wanted])=>report[key]===wanted)
     || !Number.isFinite(startedAt) || !Number.isFinite(report.startTime) || report.startTime<startedAt
     || !Array.isArray(report.testResults) || report.testResults.length!==1
     || !voiceBridgeFilePassed(report.testResults[0],root,startedAt)) {
-    throw new Error('Native Voice bridge requires its exact nineteen passing leaves')
+    throw new Error('Native Voice bridge requires its exact twenty-one passing leaves')
   }
 }
 

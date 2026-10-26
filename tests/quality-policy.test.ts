@@ -9,7 +9,7 @@ import type { FileChangeSummary } from 'typescript/unstable/proto'
 import { createScanner, getLeadingCommentRanges, getTokenAtPosition, getTrailingCommentRanges, isArrowFunction, isBlock, isCallExpression, isExpressionStatement, isFunctionDeclaration, isIdentifier, isImportDeclaration, isNamedImports, isStringLiteral, LanguageVariant, SyntaxKind } from 'typescript/unstable/ast'
 import type { CallExpression, Node, SourceFile } from 'typescript/unstable/ast'
 import { afterAll, beforeAll, expect, test } from 'vitest'
-import { admitCommonGeometry, assertCalendarReport, assertCalendarQualification, assertBillingQualification, assertBillingReport, assertDirectory, assertRunTree, assertRecordingReceiptQualification, assertRecordingReceiptReport, assertRequestsQualification, assertRequestsReport, readNativeBlob, sourceIdentity } from '../scripts/native-coverage-inputs.mjs'
+import { admitCommonGeometry, assertCalendarReport, assertCalendarQualification, assertBillingQualification, assertBillingReport, assertDirectory, assertRunTree, assertRecordingReceiptQualification, assertRecordingReceiptReport, assertRequestsQualification, assertRequestsReport, assertVoiceBridgeReport, readNativeBlob, sourceIdentity } from '../scripts/native-coverage-inputs.mjs'
 import calendarNames from './fixtures/calendar-consumer-names.json' with { type: 'json' }
 import { createLintFixture } from './helpers/ordinary-fixture-isolation'
 import { createOwnedFixtureDependencies } from './helpers/owned-fixture-dependencies.mjs'
@@ -134,11 +134,17 @@ const voiceBridgeNames=[
   'native sector snapshots V2 garage preserves native snapshots, concurrent revisions and Inbox ownership',
   'native sector snapshots V2 controle-technique preserves native snapshots, concurrent revisions and Inbox ownership',
   'native sector snapshots V2 diagnostic-immobilier preserves native snapshots, concurrent revisions and Inbox ownership',
+  'collection waits for retained pieces, freezes agenda and ignores replay and accounting',
+  'current publication can revoke a declaration after a native extra turn makes collection provisional',
 ]
 
 // These fixed canary titles test report admission, not the named product behavior.
 const requestConsumerNames=[
   ['sparra-requests.test.ts',[
+    'inbox publication DTO never mixes live content with displayed C/T and keeps C0 provisional',
+    'unreadable published pieces refuse declaration without mutating A/T; restoration stays pending and revocation and real gaps remain allowed',
+    'inbox publication CAS handles revoke ABA, later publications, cross tenant and lost commit acknowledgement',
+    'inbox publication pending filter precedes pagination and late content reopens old declarations',
     'native owner reads absent state, actual Voice ciphertext and pinned configuration without inventing pending results',
     'native owner lists only the first authenticated nonblank caller excerpt without inventing result fields',
     'native caller excerpt preserves the exact bound without inventing a summary',
@@ -148,8 +154,8 @@ const requestConsumerNames=[
     'invalid result may expose a valid caller excerpt but missing keys and unauthenticated turns cannot',
     'an assistant turn without a caller never supplies an Inbox excerpt',
     'equal-millisecond pagination returns all 103 calls exactly once in tuple order',
-    'treat active preserves inventory and stamp, erase deletes native content and survives retention',
-    'treat closed preserves inventory and stamp, erase deletes native content and survives retention',
+    'provisional active cannot be declared; erase deletes native content and survives retention',
+    'provisional closed cannot be declared; erase deletes native content and survives retention',
     'expired content stays unreadable including a Workspace lock held across retention; queued receipt outlives fence deadline',
     'native runtime UPDATE RETURNING cooperates with narrow definer, FORCE RLS and column grants',
     'fence insertion failure and cancellation roll back; recorded COMMIT cancellation rejects completion and reload resolves',
@@ -305,25 +311,49 @@ const billingConsumerNames=[
 ] as const
 const billingConsumerPaths=billingConsumerNames.map(([file])=>'tests/integration/'+file)
 
-test('native_requests_requires_all_seven_adopted_excerpt_leaves_in_its_exact_forty_case_report',()=>{
+test('native_requests_requires_inbox_publication_and_all_seven_adopted_excerpt_leaves_in_its_exact_44_case_report',()=>{
   // Synthetic reporter records qualify admission only, not native SQL behavior.
-  const report={success:true,numTotalTests:40,numPassedTests:40,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0,
+  const report={success:true,numTotalTests:44,numPassedTests:44,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0,
     testResults:requestConsumerNames.map(([file,names])=>({name:join(repositoryRoot,'tests/integration',file).replaceAll('\\','/'),status:'passed',message:'',
       assertionResults:names.map((fullName:string)=>({fullName,status:'passed',failureMessages:[]}))}))}
   expect(()=>assertRequestsReport(report,repositoryRoot)).not.toThrow()
   const old=structuredClone(report)
-  old.numTotalTests=33;old.numPassedTests=33;old.testResults[0]!.assertionResults.splice(1,7)
-  const refusal='Native Requests requires its exact five consumers and 40 passing leaves'
+  old.numTotalTests=33;old.numPassedTests=33;old.testResults[0]!.assertionResults.splice(0,4);old.testResults[0]!.assertionResults.splice(1,7)
+  const refusal='Native Requests requires its exact five consumers and 44 passing leaves'
   expect(()=>assertRequestsReport(old,repositoryRoot)).toThrow(refusal)
-  for(const name of requestConsumerNames[0][1].slice(1,8)){
+  const preInbox=structuredClone(report)
+  preInbox.numTotalTests=40;preInbox.numPassedTests=40;preInbox.testResults[0]!.assertionResults.splice(0,4)
+  preInbox.testResults[0]!.assertionResults[9]!.fullName='treat active preserves inventory and stamp, erase deletes native content and survives retention'
+  preInbox.testResults[0]!.assertionResults[10]!.fullName='treat closed preserves inventory and stamp, erase deletes native content and survives retention'
+  expect(()=>assertRequestsReport(preInbox,repositoryRoot)).toThrow(refusal)
+  for(const name of [...requestConsumerNames[0][1].slice(0,4),...requestConsumerNames[0][1].slice(5,12)]){
     for(const kind of ['missing','skipped','failed','renamed'] as const){
       const wrong=structuredClone(report),leaves=wrong.testResults[0]!.assertionResults,index=leaves.findIndex(leaf=>leaf.fullName===name)
-      expect(index).toBeGreaterThan(0)
+      expect(index).toBeGreaterThanOrEqual(0)
       if(kind==='missing')leaves.splice(index,1)
       else if(kind==='renamed')leaves[index]!.fullName='Unreviewed excerpt leaf'
       else leaves[index]!.status=kind
       expect(()=>assertRequestsReport(wrong,repositoryRoot),name+':'+kind).toThrow(refusal)
     }
+  }
+})
+
+test('native_voice_bridge_requires_both_inbox_publication_leaves_in_its_exact_21_case_report',()=>{
+  // Fixed reporter canaries qualify admission only, never native SQL behavior.
+  const startedAt=Date.now(),report={success:true,startTime:startedAt,numTotalTests:21,numPassedTests:21,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0,
+    testResults:[{name:join(repositoryRoot,'tests/integration/sparra-voice-bridge.test.ts').replaceAll('\\','/'),status:'passed',message:'',startTime:startedAt,
+      assertionResults:voiceBridgeNames.map(fullName=>({fullName,status:'passed',failureMessages:[]}))}]}
+  expect(()=>assertVoiceBridgeReport(report,repositoryRoot,startedAt)).not.toThrow()
+  const refusal='Native Voice bridge requires its exact twenty-one passing leaves',preInbox=structuredClone(report)
+  preInbox.numTotalTests=19;preInbox.numPassedTests=19;preInbox.testResults[0]!.assertionResults.splice(19,2)
+  expect(()=>assertVoiceBridgeReport(preInbox,repositoryRoot,startedAt)).toThrow(refusal)
+  for(const index of [19,20])for(const kind of ['missing','skipped','failed','renamed','duplicate'] as const){
+    const wrong=structuredClone(report),leaves=wrong.testResults[0]!.assertionResults
+    if(kind==='missing')leaves.splice(index,1)
+    else if(kind==='renamed')leaves[index]!.fullName='Unreviewed publication leaf'
+    else if(kind==='duplicate')leaves[index]=structuredClone(leaves[0]!)
+    else leaves[index]!.status=kind
+    expect(()=>assertVoiceBridgeReport(wrong,repositoryRoot,startedAt),index+':'+kind).toThrow(refusal)
   }
 })
 
@@ -618,7 +648,7 @@ test('native_billing_gate_refuses_the_previous_eight_consumer_55_leaf_run',()=>{
   expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.12')).toThrow('Native billing blob has an unexpected consumer')
 },25000)
 
-test('native_requests_blob_admits_exact_five_consumers_and_40_leaves_without_losing_original_eight',()=>{
+test('native_requests_blob_admits_exact_five_consumers_and_44_leaves_without_losing_original_eight',()=>{
   const root=nativeCoverageFixture(),blob=join(root,'coverage/requests.json'),startedAt=Date.now()
   const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...requestConsumerPaths,'--maxWorkers=1','--coverage','--reporter=blob','--outputFile.blob='+blob,'--coverage.reportsDirectory='+join(root,'coverage/requests')],requestCanaryEnvironment(root))
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
@@ -664,9 +694,9 @@ test('native_requests_report_preserves_exact_summary_consumer_and_leaf_admission
   const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...requestConsumerPaths,'--maxWorkers=1','--reporter=json','--outputFile.json='+reportPath],requestCanaryEnvironment(root))
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   const report=JSON.parse(readFileSync(reportPath,'utf8'))
-  expect(report.numTotalTests).toBe(40);expect(report.numPassedTests).toBe(40)
+  expect(report.numTotalTests).toBe(44);expect(report.numPassedTests).toBe(44)
   expect(()=>assertRequestsReport(report,root)).not.toThrow()
-  const refusal='Native Requests requires its exact five consumers and 40 passing leaves'
+  const refusal='Native Requests requires its exact five consumers and 44 passing leaves'
   for(const field of ['success','numTotalTests','numPassedTests','numPendingTests','numTodoTests','numFailedTests','numFailedTestSuites','numPendingTestSuites']){
     const wrong={...report,[field]:field==='success'?false:report[field]+1}
     expect(()=>assertRequestsReport(wrong,root)).toThrow(refusal)
@@ -735,7 +765,7 @@ test('native_requests_file_admission_requires_a_current_bounded_regular_report_w
   writeFileSync(refused,'{')
   expect(()=>assertRequestsQualification(refused,root,startedAt)).toThrow(SyntaxError)
   for(const [kind,mutate] of [
-    ['summary',(value:typeof report)=>{value.numPassedTests=39}],
+    ['summary',(value:typeof report)=>{value.numPassedTests=43}],
     ['consumer',(value:typeof report)=>{value.testResults[0].name=join(root,'tests/foreign.ts')}],
     ['missing-leaf',(value:typeof report)=>{value.testResults[0].assertionResults.pop()}],
     ['extra-leaf',(value:typeof report)=>{value.testResults[0].assertionResults.push({...value.testResults[0].assertionResults[0],fullName:'extra leaf'})}],
@@ -744,7 +774,7 @@ test('native_requests_file_admission_requires_a_current_bounded_regular_report_w
     const wrong=structuredClone(report)
     mutate(wrong)
     writeFileSync(refused,JSON.stringify(wrong))
-    expect(()=>assertRequestsQualification(refused,root,startedAt),kind).toThrow('Native Requests requires its exact five consumers and 40 passing leaves')
+    expect(()=>assertRequestsQualification(refused,root,startedAt),kind).toThrow('Native Requests requires its exact five consumers and 44 passing leaves')
   }
 },25000)
 
@@ -922,8 +952,8 @@ test.each(['missing','skipped','duplicate','afterAll'] as const)('native_voice_b
   const root=nativeCoverageFixture(),path=join(root,'tests/integration/sparra-voice-bridge.test.ts')
   const lines=readFileSync(path,'utf8').trimEnd().split('\n')
   if(kind==='missing')lines.pop()
-  else if(kind==='skipped')lines[19]=lines[19]!.replace('test(','test.skip(')
-  else if(kind==='duplicate')lines[19]=lines[18]!
+  else if(kind==='skipped')lines[21]=lines[21]!.replace('test(','test.skip(')
+  else if(kind==='duplicate')lines[21]=lines[20]!
   else lines.push("import {afterAll} from 'vitest';afterAll(()=>{throw new Error('Owned native bridge afterAll failure')});")
   writeFileSync(path,lines.join('\n')+'\n')
   const result=runCoverageConsumer(root)
@@ -941,7 +971,7 @@ test.each(['missing','skipped','duplicate','afterAll'] as const)('native_voice_b
     expect(existsSync(join(root,'coverage/canary-voice-owner'))).toBe(true)
     expect(existsSync(join(root,'canary-voice-retired.txt'))).toBe(false)
   }else{
-    expect(result.stderr).toContain('Native Voice bridge requires its exact nineteen passing leaves')
+    expect(result.stderr).toContain('Native Voice bridge requires its exact twenty-one passing leaves')
     expect(readdirSync(join(root,'coverage'))).toEqual([])
     expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
   }
@@ -1030,11 +1060,11 @@ test('actual_coverage_runner_publishes_only_native_complete_map_after_retirement
   expect(existsSync(audioConsumers[0]!.screenshots)).toBe(false)
   const coverage=JSON.parse(readFileSync(join(root,'coverage/coverage-final.json'),'utf8'))
   expect(coverage.stale).toBeUndefined()
-  // Fifteen Requests and one ordinary case take true; twelve Activity cases take false.
+  // Nineteen Requests and one ordinary case take true; twelve Activity cases take false.
   // These literal totals independently check that all five phases were merged once.
-  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].f).toEqual({'0':28})
-  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].s).toEqual({'0':28,'1':16,'2':12})
-  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].b).toEqual({'0':[16,12]})
+  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].f).toEqual({'0':32})
+  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].s).toEqual({'0':32,'1':20,'2':12})
+  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].b).toEqual({'0':[20,12]})
   expect(coverage[join(root,'src/unexecuted.ts').replaceAll('\\','/')].f).toEqual({'0':0})
   expect(coverage[join(root,'src/audio-covered.ts').replaceAll('\\','/')].f).toEqual({'0':25})
   expect(coverage[join(root,'src/audio-covered.ts').replaceAll('\\','/')].b).toEqual({'0':[25,0]})
@@ -1088,14 +1118,14 @@ test('actual_coverage_runner_retains_producer_on_recording_afterAll_failure',()=
 },25000)
 
 test('actual_coverage_runner_refuses_requests_missing_or_extra_leaves_before_publication',()=>{
-  for(const count of [14,16]){
+  for(const count of [18,20]){
     const root=nativeCoverageFixture(),path=join(root,'tests/integration/sparra-requests.test.ts')
     const lines=readFileSync(path,'utf8').trimEnd().split('\n')
-    if(count===14)lines.pop();else lines.push(lines.at(-1)!.replace('built native RPC','extra native RPC'))
+    if(count===18)lines.pop();else lines.push(lines.at(-1)!.replace('built native RPC','extra native RPC'))
     writeFileSync(path,lines.join('\n')+'\n')
     const result=runCoverageConsumer(root)
     expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
-    expect(result.stderr).toContain('Native Requests requires its exact five consumers and 40 passing leaves')
+    expect(result.stderr).toContain('Native Requests requires its exact five consumers and 44 passing leaves')
     expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
   }
 },25000)
@@ -1108,7 +1138,7 @@ test.each(['missing','extra'] as const)('actual_coverage_runner_refuses_connecte
   writeFileSync(path,lines.join('\n')+'\n')
   const result=runCoverageConsumer(root)
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
-  expect(result.stderr).toContain('Native Requests requires its exact five consumers and 40 passing leaves')
+  expect(result.stderr).toContain('Native Requests requires its exact five consumers and 44 passing leaves')
   expect(result.stdout).toContain('[tests] requests qualification')
   expect(result.stdout).not.toContain('[tests] merge')
   expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
