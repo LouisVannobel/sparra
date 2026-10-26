@@ -14,7 +14,7 @@
 
 - Worktree exclusif C:/Users/louis/Documents/ChatGPT/.worktrees/sparra-knowledge-import-oct26, branche z/sparra-knowledge-import-oct26, base origin/main 45a5061. Le natif de cette conversation est lié à infra et ne peut cibler Sparra ; fallback Git local, tentative attach_worktree refusée car non géré. Toujours utiliser ce chemin explicitement.
 - Ni secrets/.env/goal-objective, ni fournisseur IA ou téléphonie ; pas de push ou mise en production. Préserver les autres worktrees.
-- Français pour ce parcours, conserver les parcours FR/EN existants ; Astryx et transactions natives seulement. Ne pas remettre transfert/audio/calendrier à zéro.
+- Français pour ce parcours, conserver les parcours FR/EN existants ; Astryx et transactions natives seulement. Ne pas remettre transfert/audio/calendrier à zéro ; préserver les réglages acceptés par le flux natif et garder le blocage/correction explicite du mode audio hérité.
 - Une page HTML HTTPS publique sur 443, sans cookie/auth/script/média/crawl, trois redirections au maximum de même origine. IP effectivement connectée publique après contrôle DNS ; destinations internes et hôte applicatif refusés.
 - Acquisition au plus 15 s dans une tentative totale de 30 s, 2 097 152 octets décompressés et 50 000 unités UTF-16. Pour rester simple, demander identity et refuser une compression non sollicitée plutôt qu’ajouter un décompresseur. Dépassement/interruption : aucun fragment applicable.
 - Passage intégral sourcé, jamais montant ou horaire inféré ; prix absent reste inconnu. Aucun préremplissage de instructions/destination/capacités. Les textes approuvés n’accordent aucun pouvoir au modèle.
@@ -56,7 +56,7 @@
 
 ### Task 3: Parcours visible, aperçu exact et reprise
 
-**Files:** modifier src/ui/sparra/activity-panel.tsx, messages.ts, routes/app.entreprise.tsx ; créer composant ciblé knowledge-import-panel.tsx si nécessaire ; tests UI/browser existants de navigation et Sparra.
+**Files:** modifier src/ui/sparra/activity-panel.tsx, messages.ts, routes/app.entreprise.tsx, activity.server.ts pour lecture du justificatif courant ; créer composant ciblé knowledge-import-panel.tsx si nécessaire ; tests UI/browser existants de navigation et Sparra.
 
 **Interfaces:** consommer les RPC tâche 2 et WebsiteCapture tâche 1, injecter callbacks au panneau comme les opérations actuelles. Pas de seconde route d’administration, formulaire générique ou second versioner.
 
@@ -64,6 +64,7 @@
 - [ ] Boutons « Lire cette page », « Renseigner moi-même », « Annuler », texte copie ponctuelle/date/source, limites et erreurs françaises. Aucun chargement HTML brut ; source consultable avec lien sûr. Les passages choisis préparent les rubriques factuelles ; consignes restent manuelles. Absence de tarif/exclusion lisibles, aucune promesse de fraîcheur automatique.
 - [ ] Aperçu de tous les cinq textes après normalisation et bornes, confirmation unique explicite, réinitialisée après édition. Attestation : « Je confirme avoir relu les cinq textes affichés. Les informations décrites sont applicables dès maintenant et restent utilisées jusqu’à ma prochaine modification. J’ai retiré toute prise d’effet future, expiration ou exception datée, y compris dans la FAQ, les consignes et les ajouts manuels. Sparra ne détecte ni n’actualise automatiquement ces informations. » Engagement humain, pas garantie automatique. Un passage corrigé devient une adaptation du gérant, pas une citation de source. Indiquer que l’ancien prix reste utilisable avant confirmation et par les appels déjà admis.
 - [ ] Associer dirty/pending/reconcile à la navigation existante ; capture avant confirmation ne change aucune révision. Conserver le brouillon après échec et distinguer reçu historique/état courant. Clavier/focus et lecture mobile dans la vérification ciblée, pas de campagne visuelle exhaustive.
+- [ ] Après rechargement, permettre de consulter la provenance du reçu de la révision courante tant qu’il est valide (sept jours). Une lecture scoped dans getActivity peut exposer `ActivityState.confirmation?:{savedAt:string;expiresAt:string;provenance:KnowledgeProvenance}|null`. Ne jamais reconstruire une source ancienne ; après expiration, indiquer origine non disponible et la limite de conservation. Aucun nouveau stockage ni troisième table.
 - [ ] Commit et rapport tâche ; une revue indépendante de branche et Oracle final sur diff + résultats minimaux. Corriger les écarts concrets puis lancer une fois les checks finaux appropriés. Aucune publication implicite.
 
 ## Décisions de méthode
