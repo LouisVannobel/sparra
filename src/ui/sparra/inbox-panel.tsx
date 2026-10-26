@@ -47,7 +47,7 @@ function applyInboxTreatment(page:ListRequestsPage,shown:ListRequestsPage['reque
 
 export async function treatInboxRequest(current:ListRequestsPage,requestId:string,lock:{current:boolean},begin:ReturnType<typeof useRequestAttempt>,onTreat:Props['onTreat'],effects:InboxTreatmentEffects){
   const shown=current.requests.find(request=>request.id===requestId)
-  if(lock.current||!shown||!requiresReview(shown.followUp)||!shown.followUp.collectionClosed)return
+  if(lock.current||!shown||!requiresReview(shown.followUp)||!shown.followUp.collectionClosed||!shown.followUp.contentReadable)return
   const {signal,live}=begin()
   lock.current=true;effects.setPending(false);effects.setTreating(requestId);effects.setReadFailed(false);effects.setFailed(false);effects.setFailure?.(null)
   try{
@@ -71,7 +71,7 @@ function InboxResult({request,locale}:{request:InboxRequest;locale:Locale}){
     <InboxContact contact={request.contact} locale={locale} bookingOutcome={bookingLabel!==null}/>{request.resultAvailability==='available'&&request.resultQuality==='partial'&&<span className="sparra-app-label">{t.partial}</span>}</>
 }
 function InboxTreatment({request,locale,disabled,treating,onTreat}:{request:InboxRequest;locale:Locale;disabled:boolean;treating:string|null;onTreat(requestId:string):void}){
-  if(!requiresReview(request.followUp)||!request.followUp.collectionClosed)return null
+  if(!requiresReview(request.followUp)||!request.followUp.collectionClosed||!request.followUp.contentReadable)return null
   return <Button variant="primary" label={appMessages[locale].treat} aria-describedby={`inbox-call-${request.id}`} isDisabled={disabled} isLoading={treating===request.id} onClick={()=>onTreat(request.id)}/>
 }
 function InboxRow({request,locale,disabled,treating,onTreat,view='pending'}:{request:InboxRequest;locale:Locale;disabled:boolean;treating:string|null;onTreat(requestId:string):void;view?:'pending'|'all'}){
@@ -80,7 +80,7 @@ function InboxRow({request,locale,disabled,treating,onTreat,view='pending'}:{req
   return <li><div className="sparra-inbox-row-heading" id={`inbox-call-${request.id}`}><a href={`/app/demandes/${request.id}?lang=${locale}&view=${view}`}>{bookingLabel??request.summary??(excerpt?t.conversationExcerpt:t.summaryUnavailable)}</a><p><time dateTime={request.admittedAt}>{observedDate(request.admittedAt,locale)}</time></p></div>
     {excerpt&&<p><q>{excerpt}</q></p>}
     <div className="sparra-app-label sparra-inbox-operator">{requiresReview(request.followUp)?(request.followUp.declarationActive?followUpMessages[locale].newPublication:t.untreated):t.treated}</div><p className="sparra-inbox-status">{t.status[request.status]}</p>
-    {!request.followUp.collectionClosed&&<p>{followUpMessages[locale].provisional}</p>}<InboxResult request={request} locale={locale}/><InboxTreatment request={request} locale={locale} disabled={disabled} treating={treating} onTreat={onTreat}/></li>
+    {!request.followUp.collectionClosed&&<p>{followUpMessages[locale].provisional}</p>}{!request.followUp.contentReadable&&<p>{followUpMessages[locale].unreadable}</p>}<InboxResult request={request} locale={locale}/><InboxTreatment request={request} locale={locale} disabled={disabled} treating={treating} onTreat={onTreat}/></li>
 }
 function InboxRows({requests,locale,disabled,treating,onTreat,view}:{requests:InboxRequest[];locale:Locale;disabled:boolean;treating:string|null;onTreat(requestId:string):void;view?:'pending'|'all'}){
   if(requests.length===0)return <div className="sparra-inbox-empty"><span className="sparra-empty-icon"><Icon icon="microphone" aria-hidden="true"/></span><p>{appMessages[locale].noCalls}</p></div>

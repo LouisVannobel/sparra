@@ -14,7 +14,7 @@ test('verified appointment remains visible independently from absent or partial 
     endedAt: null,
     status: 'closed' as const,
     configurationRevision: null,
-    treatedAt:null,followUp:{publicationRevision:1,decisionToken:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',reviewedRevision:0,declarationActive:false,collectionClosed:true,firstDeclaredAt:null},
+    treatedAt:null,followUp:{publicationRevision:1,decisionToken:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',reviewedRevision:0,declarationActive:false,collectionClosed:true,contentReadable:true,firstDeclaredAt:null},
     resultAvailability: 'unavailable' as const,
     resultQuality: null,
     category: null,
@@ -72,7 +72,7 @@ test('verified appointment remains visible independently from absent or partial 
 
 const appointment: RequestDetailDto = {
   id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', admittedAt: '2026-10-01T10:00:00.000Z', endedAt: '2026-10-01T10:03:00.000Z',
-  status: 'closed', configurationRevision: null, treatedAt:null,followUp:{publicationRevision:1,decisionToken:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',reviewedRevision:0,declarationActive:false,collectionClosed:true,firstDeclaredAt:null}, resultAvailability: 'available', resultQuality: 'partial',
+  status: 'closed', configurationRevision: null, treatedAt:null,followUp:{publicationRevision:1,decisionToken:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',reviewedRevision:0,declarationActive:false,collectionClosed:true,contentReadable:true,firstDeclaredAt:null}, resultAvailability: 'available', resultQuality: 'partial',
   category: 'appointment_to_confirm', summary: 'Vidange demandée', conversationExcerpt: null,
   contact: { name: 'Camille', callback_e164: '+33123456789', preference: null, callback_source: 'caller', callback_confirmed: false },
   nextAction: 'Appeler Camille pour le devis', configuration: null, transcript: [], transcriptAvailability: 'unavailable',

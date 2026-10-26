@@ -7,7 +7,7 @@ import type {} from '../helpers/inbox-panel-fixture'
 
 const row: ListRequestsPage['requests'][number] = {
   id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', admittedAt: '2026-10-01T10:00:00.000Z', endedAt: null,
-  status: 'pending', configurationRevision: null, treatedAt:null,followUp:{publicationRevision:1,decisionToken:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',reviewedRevision:0,declarationActive:false,collectionClosed:true,firstDeclaredAt:null}, resultAvailability: 'unavailable',
+  status: 'pending', configurationRevision: null, treatedAt:null,followUp:{publicationRevision:1,decisionToken:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',reviewedRevision:0,declarationActive:false,collectionClosed:true,contentReadable:true,firstDeclaredAt:null}, resultAvailability: 'unavailable',
   resultQuality: null, category: null, conversationExcerpt:null,summary: 'Initial summary', contact: null, nextAction: null,
 }
 const closed = {
@@ -136,7 +136,7 @@ test('mounted French refresh stays available on empty pages and unmount aborts i
   } finally { await cleanup(context) }
 })
 
-const actionRow = { ...closed, treatedAt:null,followUp:{publicationRevision:1,decisionToken:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',reviewedRevision:0,declarationActive:false,collectionClosed:true,firstDeclaredAt:null}, nextAction: 'Confirm the callback request', resultQuality: 'partial' } satisfies ListRequestsPage['requests'][number]
+const actionRow = { ...closed, treatedAt:null,followUp:{publicationRevision:1,decisionToken:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',reviewedRevision:0,declarationActive:false,collectionClosed:true,contentReadable:true,firstDeclaredAt:null}, nextAction: 'Confirm the callback request', resultQuality: 'partial' } satisfies ListRequestsPage['requests'][number]
 const otherRow = { ...row, id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', summary: null }
 const actionable: ListRequestsPage = { requests: [actionRow, otherRow], nextCursor: { id: otherRow.id, admittedAt: otherRow.admittedAt } }
 const stamp = '2026-10-03T16:42:11.000Z'
@@ -270,7 +270,7 @@ test('compiled current publication, provisional revocation and old response pres
   expect((await page.evaluate(()=>window.inboxFixture.snapshot())).reads[0].data).toEqual({view:'all'})
   await resolved(page,0,{requests:[next],nextCursor:null})
   expect(await page.getByRole('button',{name:'Actualiser les appels',exact:true}).evaluate(node=>node===document.activeElement)).toBe(true)
-  const detail:RequestDetailDto={...next,followUp:{...next.followUp,reviewedRevision:1,declarationActive:true,collectionClosed:false,firstDeclaredAt:stamp},summary:null,configuration:null,transcript:[{id:'source-turn',role:'user',ordinal:1,text:'Demande réelle',interrupted:false,startedAt:next.admittedAt}],transcriptAvailability:'available',unavailableTurnCount:0,moreTurns:false,transcriptLossCount:0,erasureState:null,evidence:[{turnId:'source-turn',role:'user'},{turnId:'missing-turn',role:'user'}],callerPhone:'+33123456789',collectionGaps:['audio_partial'],audioCoverage:'unknown',bookings:[{state:'confirmed',serviceName:'Vidange',start:'2026-10-26T08:00:00.000Z',end:'2026-10-26T08:30:00.000Z',timezone:'Europe/Paris',providerReference:'native-receipt',observedState:'confirmed'}]}
+  const detail:RequestDetailDto={...next,followUp:{...next.followUp,reviewedRevision:1,declarationActive:true,collectionClosed:false,contentReadable:true,firstDeclaredAt:stamp},summary:null,configuration:null,transcript:[{id:'source-turn',role:'user',ordinal:1,text:'Demande réelle',interrupted:false,startedAt:next.admittedAt}],transcriptAvailability:'available',unavailableTurnCount:0,moreTurns:false,transcriptLossCount:0,erasureState:null,evidence:[{turnId:'source-turn',role:'user'},{turnId:'missing-turn',role:'user'}],callerPhone:'+33123456789',collectionGaps:['audio_partial'],audioCoverage:'unknown',bookings:[{state:'confirmed',serviceName:'Vidange',start:'2026-10-26T08:00:00.000Z',end:'2026-10-26T08:30:00.000Z',timezone:'Europe/Paris',providerReference:'native-receipt',observedState:'confirmed'}]}
   await page.evaluate(detail=>window.inboxFixture.detailPublish({detail,receipt:null}),detail)
   await page.getByRole('button',{name:'Remettre à traiter',exact:true}).waitFor()
   expect(await page.getByRole('button',{name:'Marquer comme traité',exact:true}).isDisabled()).toBe(true)
@@ -312,6 +312,23 @@ test('compiled current publication, provisional revocation and old response pres
 function audioRecoveryDetail():RequestDetailDto{
  return {...row,status:'closed',summary:'Audio recovery fixture',configuration:null,transcript:[],transcriptAvailability:'available',unavailableTurnCount:0,moreTurns:false,transcriptLossCount:0,erasureState:null,evidence:[],callerPhone:null,collectionGaps:['audio_partial'],audioCoverage:'unknown',audio:{state:'partial',durationSeconds:2,expiresAt:'2026-11-01T10:00:00.000Z',partialReason:'interrupted',available:true}}
 }
+
+test('compiled unreadable publication blocks classification in list and detail while revocation remains enabled',async()=>{
+ const {context,page}=await mounted()
+ try{
+  const degraded={...actionRow,followUp:{...actionRow.followUp,contentReadable:false}}
+  await page.evaluate(data=>window.inboxFixture.publish({requests:[data],nextCursor:null},'fr','all'),degraded)
+  await page.getByText('Des pièces de la fiche sont illisibles. Actualisez après leur rétablissement pour pouvoir classer.',{exact:true}).waitFor()
+  expect(await page.getByRole('button',{name:'Marquer comme traité',exact:true}).count()).toBe(0)
+  const detail:RequestDetailDto={...audioRecoveryDetail(),followUp:{...degraded.followUp,declarationActive:true,reviewedRevision:0,publicationRevision:2,firstDeclaredAt:stamp}}
+  await page.evaluate(detail=>window.inboxFixture.detailPublish({detail,receipt:null}),detail)
+  await page.getByRole('button',{name:'Remettre à traiter',exact:true}).waitFor()
+  expect(await page.getByRole('button',{name:'Marquer comme traité',exact:true}).isDisabled()).toBe(true)
+  expect(await page.getByRole('button',{name:'Remettre à traiter',exact:true}).isEnabled()).toBe(true)
+  await page.getByRole('button',{name:'Remettre à traiter',exact:true}).click();await treatmentCount(page,1)
+  expect((await page.evaluate(()=>window.inboxFixture.snapshot())).treatments[0].input.treated).toBe(false)
+ }finally{await cleanup(context)}
+})
 
 test('compiled audio error recovers only after successful same-ID reread without retiring playback on treatment',async()=>{
  const {context,page}=await mounted()

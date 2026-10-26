@@ -23,7 +23,7 @@ type ParentMatch = Awaited<LoaderContext['parentMatchPromise']>
 
 const requestId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const detail: RequestDetailDto = {
-  id: requestId, admittedAt: '2026-10-01T10:00:00.000Z', endedAt: null, status: 'pending', configurationRevision: null, treatedAt:null,followUp:{publicationRevision:1,decisionToken:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',reviewedRevision:0,declarationActive:false,collectionClosed:true,firstDeclaredAt:null},
+  id: requestId, admittedAt: '2026-10-01T10:00:00.000Z', endedAt: null, status: 'pending', configurationRevision: null, treatedAt:null,followUp:{publicationRevision:1,decisionToken:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',reviewedRevision:0,declarationActive:false,collectionClosed:true,contentReadable:true,firstDeclaredAt:null},
   resultAvailability: 'unavailable', resultQuality: null, category: null, conversationExcerpt:null,summary: null, contact: null, nextAction: null, configuration: null,
   transcript: [], transcriptAvailability: 'unavailable', unavailableTurnCount: 0, moreTurns: false, transcriptLossCount: 0, erasureState:null,evidence:[],callerPhone:null,collectionGaps:[],audioCoverage:'unknown',
 }

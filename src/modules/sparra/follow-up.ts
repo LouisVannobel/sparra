@@ -4,6 +4,7 @@ export type RequestFollowUp = Readonly<{
   reviewedRevision: number
   declarationActive: boolean
   collectionClosed: boolean
+  contentReadable: boolean
   firstDeclaredAt: string | null
 }>
 export type UpdateRequestFollowUpInput = Readonly<{

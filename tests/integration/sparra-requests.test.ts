@@ -59,6 +59,45 @@ test('inbox publication DTO never mixes live content with displayed C/T and keep
   expect(await requests.detail(principal,id)).toEqual(first)
   expect((await requests.list(principal,{view:'all'})).requests[0]).toMatchObject({bookingOutcome:'confirmed',followUp:first.followUp})
 })
+
+test('unreadable published pieces refuse declaration without mutating A/T; restoration stays pending and revocation and real gaps remain allowed',async()=>{
+  const {principal}=await ceremony(),workspace=await personal.ensurePersonalWorkspace(principal),id=randomUUID()
+  const turns=[crypto.turn,encryptedTurn('Une deuxième demande',2),encryptedTurn('Une troisième demande',3)]
+  await call(workspace!.id,{id,turns:Object.fromEntries(turns.map(turn=>[turn.turn_id,turn])),result:{schema_version:1,...crypto.encrypt(JSON.stringify(crypto.inner),'result:'+id)}})
+  await publish(id,workspace!.id,true)
+  const shown=await requests.detail(principal,id)
+  const input=(treated:boolean,detail=shown)=>({requestId:id,expectedPublicationRevision:detail.followUp.publicationRevision,expectedDecisionToken:detail.followUp.decisionToken,treated})
+  const state=async()=>(await stores.administrator.query('SELECT publication_version,publication_token,declared_publication,declaration_active,treated_at FROM sparra_call WHERE id=$1',[id])).rows[0]
+  const before=await state()
+  vi.stubEnv('SPARRA_AEAD_KEYRING_PATH','')
+  try{
+    // Use the previously readable C/T: the server must protect even a stale open UI.
+    await expect(requests.updateFollowUp(principal,input(true))).rejects.toMatchObject({name:'RequestPublicationUnreadable'})
+    expect(await state()).toEqual(before)
+    expect(await requests.detail(principal,id)).toMatchObject({summary:null,transcript:[],followUp:{collectionClosed:true,contentReadable:false}})
+    expect((await requests.list(principal,{})).requests).toEqual([expect.objectContaining({id,followUp:expect.objectContaining({contentReadable:false})})])
+  }finally{vi.stubEnv('SPARRA_AEAD_KEYRING_PATH',crypto.path)}
+  const restored=await requests.detail(principal,id)
+  expect(restored).toMatchObject({summary:'Demande de rappel',transcript:turns.map(turn=>({id:turn.turn_id})),followUp:{...shown.followUp,contentReadable:true}})
+  expect(await state()).toEqual(before)
+  expect((await requests.list(principal,{})).requests.map(row=>row.id)).toEqual([id])
+  const applied=await requests.updateFollowUp(principal,input(true,restored))
+  expect(applied.followUp).toMatchObject({declarationActive:true,contentReadable:true,firstDeclaredAt:expect.any(String)})
+  vi.stubEnv('SPARRA_AEAD_KEYRING_PATH','')
+  try{
+    const degraded=await requests.detail(principal,id),revoked=await requests.updateFollowUp(principal,input(false,degraded))
+    expect(revoked.followUp).toMatchObject({declarationActive:false,contentReadable:false,firstDeclaredAt:applied.followUp.firstDeclaredAt})
+    expect(revoked.followUp.decisionToken).not.toBe(degraded.followUp.decisionToken)
+    await expect(requests.updateFollowUp(principal,input(true))).rejects.toMatchObject({name:'RequestPublicationConflict'})
+    // A genuine terminal without a result and with a producer loss is classable.
+    const partial=await call(workspace!.id)
+    await publish(partial,workspace!.id,true)
+    await stores.administrator.query("UPDATE sparra_call SET transcript_loss_count=1,collection_manifest=jsonb_set(collection_manifest,'{gaps}','[\"transcript_loss\",\"result_unavailable\"]') WHERE id=$1",[partial]);await publish(partial,workspace!.id)
+    const absent=await requests.detail(principal,partial)
+    expect(absent.followUp).toMatchObject({collectionClosed:true,contentReadable:true})
+    expect((await requests.updateFollowUp(principal,{requestId:partial,expectedPublicationRevision:absent.followUp.publicationRevision,expectedDecisionToken:absent.followUp.decisionToken,treated:true})).followUp.declarationActive).toBe(true)
+  }finally{vi.stubEnv('SPARRA_AEAD_KEYRING_PATH',crypto.path)}
+})
 test('inbox publication CAS handles revoke ABA, later publications, cross tenant and lost commit acknowledgement',async()=>{
   const {principal}=await ceremony(),workspace=await personal.ensurePersonalWorkspace(principal),foreign=(await ceremony()).principal
   const id=await call(workspace!.id)

@@ -20,7 +20,7 @@ function sparraErrors(kind: keyof typeof failures) {
     catch (error) {
       if (error instanceof Response) throw error
       const name = error instanceof Error ? error.name : ''
-      if(kind==='request'&&(name==='RequestPublicationConflict'||name==='RequestPublicationProvisional'))throw new Response(error instanceof Error?error.message:'Request unavailable',{status:409,headers:{'x-sparra-request-error':name==='RequestPublicationConflict'?'publication-conflict':'publication-provisional'}})
+      if(kind==='request'&&(name==='RequestPublicationConflict'||name==='RequestPublicationProvisional'||name==='RequestPublicationUnreadable'))throw new Response(error instanceof Error?error.message:'Request unavailable',{status:409,headers:{'x-sparra-request-error':name==='RequestPublicationConflict'?'publication-conflict':name==='RequestPublicationUnreadable'?'publication-unreadable':'publication-provisional'}})
       if(kind === 'activity' && name === 'ActivityRecordingUnavailable') throw new Response('Local audio unavailable',{status:409,headers:{'x-sparra-activity-error':'recording-unavailable'}})
       const status = name === failure.special ? failure.status : name === failure.invalid || Schema.isSchemaError(error) ? 400 : 500
       throw new Response(failure.message, { status })

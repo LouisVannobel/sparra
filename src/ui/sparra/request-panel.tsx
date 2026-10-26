@@ -143,7 +143,7 @@ export function RequestAudio({locale,detail,blocked,readGeneration=0}:{locale:Lo
 function RequestActions({locale,detail,hydrated,pending,onMutate}:{locale:Locale;detail:RequestDetailDto;hydrated:boolean;pending:boolean;onMutate(kind:'treat'|'revoke'|'erase'):Promise<void>}){
  const t=appMessages[locale],f=followUpMessages[locale],follow=detail.followUp
  return <div className="sparra-request-actions">
-  {requiresReview(follow)?<Button variant="primary" label={t.treat} isDisabled={!hydrated||pending||!follow.collectionClosed} onClick={()=>void onMutate('treat')}/>:<p role="status">{t.treated}</p>}
+  {requiresReview(follow)?<Button variant="primary" label={t.treat} isDisabled={!hydrated||pending||!follow.collectionClosed||!follow.contentReadable} onClick={()=>void onMutate('treat')}/>:<p role="status">{t.treated}</p>}
   {follow.declarationActive&&<Button variant="secondary" label={f.revoke} isDisabled={!hydrated||pending} onClick={()=>void onMutate('revoke')}/>}
  </div>
 }
@@ -152,6 +152,7 @@ function RequestProvenance({locale,detail}:{locale:Locale;detail:RequestDetailDt
  const evidence=detail.evidence.filter(source=>detail.transcript.some(turn=>turn.id===source.turnId&&turn.role===source.role))
  return <section className="sparra-request-provenance" aria-label={f.gaps}>
   <p>{detail.followUp.collectionClosed?f.closed:f.provisional}</p>
+  {!detail.followUp.contentReadable&&<p>{f.unreadable}</p>}
   {detail.followUp.declarationActive&&requiresReview(detail.followUp)&&<p>{f.newPublication}</p>}
   {detail.followUp.firstDeclaredAt&&<p>{f.firstDeclaration} : <time dateTime={detail.followUp.firstDeclaredAt}>{observedDate(detail.followUp.firstDeclaredAt,locale)}</time></p>}
   {detail.callerPhone&&<p>{f.callerPhone} : {detail.callerPhone}</p>}

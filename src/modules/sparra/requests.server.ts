@@ -19,6 +19,7 @@ class InvalidRequestInput extends Error {constructor(){super('Invalid request in
 class RequestNotFound extends Error {constructor(){super('Request unavailable');this.name='RequestNotFound'}}
 class RequestPublicationConflict extends Error {constructor(){super('La fiche a changé. Actualisez avant de déclarer son traitement.');this.name='RequestPublicationConflict'}}
 class RequestPublicationProvisional extends Error {constructor(){super('La collecte est provisoire. Le classement sera disponible après sa clôture.');this.name='RequestPublicationProvisional'}}
+class RequestPublicationUnreadable extends Error {constructor(){super('Des pièces de la fiche sont illisibles. Actualisez après leur rétablissement pour pouvoir classer.');this.name='RequestPublicationUnreadable'}}
 export function parseListRequestsInput(input:unknown){try{return Schema.decodeUnknownSync(listInput,{onExcessProperty:'error'})(input===undefined?{}:input)}catch{throw new InvalidRequestInput()}}
 export function parseRequestInput(input:unknown){try{return Schema.decodeUnknownSync(requestInput,{onExcessProperty:'error'})(input)}catch{throw new InvalidRequestInput()}}
 export function parseUpdateRequestFollowUpInput(input:unknown){try{return Schema.decodeUnknownSync(followUpInput,{onExcessProperty:'error'})(input)}catch{throw new InvalidRequestInput()}}
@@ -33,8 +34,11 @@ function conversationExcerpt(content:MessageContent):string|null {
   const characters=[...text]
   return characters.length<=240?text:characters.slice(0,239).join('')+'…'
 }
-function followUp(row:typeof sparraCall.$inferSelect):RequestFollowUp {
-  return {publicationRevision:row.publicationVersion,decisionToken:row.publicationToken,reviewedRevision:row.declaredPublication,declarationActive:row.declarationActive,collectionClosed:row.publicationSnapshot?.collection_closed===true&&row.collectionClosed,firstDeclaredAt:row.treatedAt?.toISOString()??null}
+function followUp(row:typeof sparraCall.$inferSelect,content:MessageContent):RequestFollowUp {
+  // Producer omissions/losses are published limits; an unreadable present piece
+  // may reappear at the same C after key recovery and cannot be declared reviewed.
+  const contentReadable=content.unavailableTurnCount===0&&!content.moreTurns&&(row.publicationSnapshot?.encrypted_message_result==null||content.result!==null)
+  return {publicationRevision:row.publicationVersion,decisionToken:row.publicationToken,reviewedRevision:row.declaredPublication,declarationActive:row.declarationActive,collectionClosed:row.publicationSnapshot?.collection_closed===true&&row.collectionClosed,contentReadable,firstDeclaredAt:row.treatedAt?.toISOString()??null}
 }
 const instant=(value:string)=>new Date(value).toISOString()
 function outcome(snapshot:InboxPublicationSnapshot|null):CalendarBookingOutcome|null {
@@ -44,7 +48,7 @@ function outcome(snapshot:InboxPublicationSnapshot|null):CalendarBookingOutcome|
 function summary(row:typeof sparraCall.$inferSelect,content:MessageContent):RequestSummaryDto {
   const result=content.result
   const snapshot=row.publicationSnapshot,bookingOutcome=outcome(snapshot)
-  return {id:row.id,admittedAt:snapshot?instant(snapshot.admitted_at):row.admittedAt.toISOString(),endedAt:snapshot?.ended_at?instant(snapshot.ended_at):null,status:snapshot?.status??'pending',configurationRevision:snapshot?.configuration_revision??null,treatedAt:row.treatedAt?.toISOString()??null,followUp:followUp(row),resultAvailability:result?'available':'unavailable',resultQuality:result?.quality??null,category:result?.category??null,summary:result?.summary??null,conversationExcerpt:result?null:conversationExcerpt(content),contact:result?.contact??null,nextAction:result?.next_action??null,...(bookingOutcome?{bookingOutcome}:{})}
+  return {id:row.id,admittedAt:snapshot?instant(snapshot.admitted_at):row.admittedAt.toISOString(),endedAt:snapshot?.ended_at?instant(snapshot.ended_at):null,status:snapshot?.status??'pending',configurationRevision:snapshot?.configuration_revision??null,treatedAt:row.treatedAt?.toISOString()??null,followUp:followUp(row,content),resultAvailability:result?'available':'unavailable',resultQuality:result?.quality??null,category:result?.category??null,summary:result?.summary??null,conversationExcerpt:result?null:conversationExcerpt(content),contact:result?.contact??null,nextAction:result?.next_action??null,...(bookingOutcome?{bookingOutcome}:{})}
 }
 const hasContent=(row:typeof sparraCall.$inferSelect)=>row.publicationSnapshot!==null&&(row.publicationSnapshot.encrypted_message_result!==null || Object.keys(row.publicationSnapshot.encrypted_turns).length>0)
 const decode=(row:typeof sparraCall.$inferSelect,keys:Awaited<ReturnType<typeof readKeyring>>)=>decodeMessageContent(row.id,row.publicationSnapshot?.encrypted_turns??{},row.publicationSnapshot?.encrypted_message_result??null,keys,row.publicationSnapshot?.transcript_loss_count??0)
@@ -82,6 +86,16 @@ export function createRequestOperations(owner:AuthTransactions){
     const data=parseUpdateRequestFollowUpInput(input)
     return owner.withPersonalWorkspacePromise(options(signal),principal,false,async lease=>{
       if(!lease)throw new RequestNotFound()
+      // Same native transaction and call lock as publication and the SQL CAS:
+      // the readable snapshot cannot be replaced between validation and decision.
+      if(data.treated){
+        const [shown]=await lease.db.select().from(sparraCall).where(owned(lease.workspaceId,data.requestId)).for('update')
+        if(!shown||shown.erasureRequestedAt!==null||shown.retentionUntil.getTime()<=Date.now())throw new RequestNotFound()
+        if(shown.publicationVersion!==data.expectedPublicationRevision||shown.publicationToken!==data.expectedDecisionToken)throw new RequestPublicationConflict()
+        const content=decode(shown,hasContent(shown)?await readKeyring():null),follow=followUp(shown,content)
+        if(!follow.collectionClosed||shown.publicationSnapshot?.collection==null)throw new RequestPublicationProvisional()
+        if(!follow.contentReadable)throw new RequestPublicationUnreadable()
+      }
       const [response]=await lease.db.select({outcome:sql<string>`app_private.update_sparra_follow_up_v1(${lease.workspaceId}::uuid,${data.requestId}::uuid,${data.expectedPublicationRevision}::integer,${data.expectedDecisionToken}::uuid,${data.treated}::boolean)`}).from(sparraCall).where(owned(lease.workspaceId,data.requestId)).limit(1)
       const state=response?.outcome
       if(state==='conflict')throw new RequestPublicationConflict()
@@ -90,7 +104,7 @@ export function createRequestOperations(owner:AuthTransactions){
       // The SQL command retains the call lock until the native transaction commits.
       const [row]=await lease.db.select().from(sparraCall).where(and(owned(lease.workspaceId,data.requestId),eligible()))
       if(!row)throw new RequestNotFound()
-      return {requestId:row.id,followUp:followUp(row)}
+      return {requestId:row.id,followUp:followUp(row,decode(row,hasContent(row)?await readKeyring():null))}
     })
   }
   async function erase(principal:AdmittedPrincipal,requestId:string,signal?:AbortSignal):Promise<EraseReceipt>{
