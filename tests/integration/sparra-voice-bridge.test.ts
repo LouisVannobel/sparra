@@ -563,3 +563,24 @@ test('collection waits for retained pieces, freezes agenda and ignores replay an
  await requests.erase(principalA,id)
  expect(await row(id)).toBeUndefined()
 })
+
+test('current publication can revoke a declaration after a native extra turn makes collection provisional',async()=>{
+ const {id,route}=await begin(),op=callOp(id,route,{status:'closed',started_at:route.admitted_at,ended_at:route.admitted_at,end_reason:'closed'})
+ const terminal={...op,payload:{...op.payload,collection:{schema_version:1,episode_id:randomUUID(),expected_turn_ids:[],result_outcome:'absent',audio:{state:'off'},gaps:[]}}}
+ expect((await ingest(terminal)).status).toBe('applied')
+ const closed=await requests.detail(principalA,id)
+ expect(closed.followUp).toMatchObject({publicationRevision:1,collectionClosed:true})
+ const declared=await requests.updateFollowUp(principalA,{requestId:id,expectedPublicationRevision:closed.followUp.publicationRevision,expectedDecisionToken:closed.followUp.decisionToken,treated:true})
+ expect(declared.followUp).toMatchObject({declarationActive:true,reviewedRevision:1,firstDeclaredAt:expect.any(String)})
+ const extra=nativeValue(await nativeVoice({action:'turn',keyring_path:crypto.path,turn_id:randomUUID(),at:route.admitted_at}))
+ expect((await ingest(turnOp(id,extra))).status).toBe('applied')
+ const provisional=await requests.detail(principalA,id),current={requestId:id,expectedPublicationRevision:provisional.followUp.publicationRevision,expectedDecisionToken:provisional.followUp.decisionToken,treated:false}
+ expect(provisional.followUp).toMatchObject({publicationRevision:2,collectionClosed:false,declarationActive:true,reviewedRevision:1})
+ await expect(requests.updateFollowUp(principalA,{...current,treated:true})).rejects.toMatchObject({name:'RequestPublicationProvisional'})
+ const revoked=await requests.updateFollowUp(principalA,current)
+ expect(revoked.followUp).toMatchObject({publicationRevision:2,collectionClosed:false,declarationActive:false,reviewedRevision:1,firstDeclaredAt:declared.followUp.firstDeclaredAt})
+ expect(revoked.followUp.decisionToken).not.toBe(provisional.followUp.decisionToken)
+ await expect(requests.updateFollowUp(principalA,current)).rejects.toMatchObject({name:'RequestPublicationConflict'})
+ await expect(requests.updateFollowUp(principalA,{...current,expectedDecisionToken:revoked.followUp.decisionToken,treated:true})).rejects.toMatchObject({name:'RequestPublicationProvisional'})
+ expect((await requests.detail(principalA,id)).followUp).toEqual(revoked.followUp)
+})

@@ -169,9 +169,9 @@ BEGIN
  -- Evaluate time after acquiring the shared publication lock, not before a wait.
  IF NOT FOUND OR c.erasure_requested_at IS NOT NULL OR c.retention_until<=clock_timestamp() THEN RETURN 'missing';END IF;
  IF expected_c IS DISTINCT FROM c.publication_version OR expected_t IS DISTINCT FROM c.publication_token THEN RETURN 'conflict';END IF;
- IF c.publication_version=0 OR c.publication_snapshot IS NULL OR NOT c.collection_closed
+ IF treated AND (c.publication_version=0 OR c.publication_snapshot IS NULL OR NOT c.collection_closed
   OR c.publication_snapshot->>'collection_closed' IS DISTINCT FROM 'true'
-  OR c.publication_snapshot->'collection' IS NULL OR c.publication_snapshot->'collection'='null'::jsonb
+  OR c.publication_snapshot->'collection' IS NULL OR c.publication_snapshot->'collection'='null'::jsonb)
  THEN RETURN 'provisional';END IF;
  UPDATE public.sparra_call SET declared_publication=CASE WHEN treated THEN publication_version ELSE declared_publication END,
   declaration_active=treated,treated_at=CASE WHEN treated THEN coalesce(treated_at,clock_timestamp()) ELSE treated_at END,
