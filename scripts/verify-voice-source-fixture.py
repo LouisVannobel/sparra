@@ -22,7 +22,7 @@ def _expected_members(manifest):
             fail()
         total+=row['size']
         expected[path]=row
-    if len(expected)!=59 or total!=1947107:
+    if len(expected)!=59 or total!=1958308:
         fail()
     return expected
 
@@ -36,7 +36,7 @@ def main():
     envelope=json.loads(incoming)
     archive=base64.b64decode(envelope['archive'],validate=True)
     manifest=envelope['manifest']
-    if len(archive)!=405952 or hashlib.sha256(archive).hexdigest()!='e081802f5de46f1b01a979d71d8414aab78c270cc6c080cba220a79ef47c5aeb':
+    if len(archive)!=408149 or hashlib.sha256(archive).hexdigest()!='d5b5f4e7ef68055b92ca1f1358cc8f611fd770ee1277791853b71efd1d766afb':
         fail()
     expected=_expected_members(manifest)
     result=[]
