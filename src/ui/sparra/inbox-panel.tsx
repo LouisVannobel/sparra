@@ -42,7 +42,8 @@ export async function loadInboxPage(current:ListRequestsPage,begin:ReturnType<ty
 type InboxTreatmentEffects=Pick<InboxPageEffects,'setPending'|'setFailed'|'setRefused'|'onRefused'>&{setCurrent(update:(page:ListRequestsPage)=>ListRequestsPage):void;setReadFailed(value:boolean):void;setTreating(value:string|null):void;setFailure?(value:FollowUpFailure|null):void}
 
 function applyInboxTreatment(page:ListRequestsPage,shown:ListRequestsPage['requests'][number],receipt:RequestFollowUpReceipt):ListRequestsPage{
-  return {...page,requests:page.requests.map(request=>request.id===shown.id&&request.followUp.publicationRevision===shown.followUp.publicationRevision&&request.followUp.decisionToken===shown.followUp.decisionToken?{...request,followUp:receipt.followUp,treatedAt:receipt.followUp.firstDeclaredAt}:request)}
+  // Only a full reread can restore readability of the retained row content.
+  return {...page,requests:page.requests.map(request=>request.id===shown.id&&request.followUp.publicationRevision===shown.followUp.publicationRevision&&request.followUp.decisionToken===shown.followUp.decisionToken?{...request,followUp:{...receipt.followUp,contentReadable:request.followUp.contentReadable&&receipt.followUp.contentReadable},treatedAt:receipt.followUp.firstDeclaredAt}:request)}
 }
 
 export async function treatInboxRequest(current:ListRequestsPage,requestId:string,lock:{current:boolean},begin:ReturnType<typeof useRequestAttempt>,onTreat:Props['onTreat'],effects:InboxTreatmentEffects){

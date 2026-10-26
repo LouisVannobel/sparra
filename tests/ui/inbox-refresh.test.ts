@@ -320,13 +320,28 @@ test('compiled unreadable publication blocks classification in list and detail w
   await page.evaluate(data=>window.inboxFixture.publish({requests:[data],nextCursor:null},'fr','all'),degraded)
   await page.getByText('Des pièces de la fiche sont illisibles. Actualisez après leur rétablissement pour pouvoir classer.',{exact:true}).waitFor()
   expect(await page.getByRole('button',{name:'Marquer comme traité',exact:true}).count()).toBe(0)
-  const detail:RequestDetailDto={...audioRecoveryDetail(),followUp:{...degraded.followUp,declarationActive:true,reviewedRevision:0,publicationRevision:2,firstDeclaredAt:stamp}}
+  const detail:RequestDetailDto={...audioRecoveryDetail(),summary:null,transcriptAvailability:'unavailable',followUp:{...degraded.followUp,declarationActive:true,reviewedRevision:0,publicationRevision:2,firstDeclaredAt:stamp}}
   await page.evaluate(detail=>window.inboxFixture.detailPublish({detail,receipt:null}),detail)
   await page.getByRole('button',{name:'Remettre à traiter',exact:true}).waitFor()
   expect(await page.getByRole('button',{name:'Marquer comme traité',exact:true}).isDisabled()).toBe(true)
   expect(await page.getByRole('button',{name:'Remettre à traiter',exact:true}).isEnabled()).toBe(true)
   await page.getByRole('button',{name:'Remettre à traiter',exact:true}).click();await treatmentCount(page,1)
   expect((await page.evaluate(()=>window.inboxFixture.snapshot())).treatments[0].input.treated).toBe(false)
+  const revoked={...detail.followUp,declarationActive:false,contentReadable:true,decisionToken:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'}
+  await page.evaluate(({requestId,followUp})=>window.inboxFixture.treatResolve(0,{requestId,followUp}),{requestId:detail.id,followUp:revoked})
+  await expect.poll(()=>page.getByRole('button',{name:'Remettre à traiter',exact:true}).count()).toBe(0)
+  expect(await page.getByRole('button',{name:'Marquer comme traité',exact:true}).isDisabled()).toBe(true)
+  await page.getByText('Des pièces de la fiche sont illisibles. Actualisez après leur rétablissement pour pouvoir classer.',{exact:true}).waitFor()
+  expect(await page.locator('.sparra-request-summary p').count()).toBe(0)
+  expect(await page.locator('.sparra-call-transcript li').count()).toBe(0)
+  await page.getByRole('button',{name:'Actualiser les appels',exact:true}).click()
+  await expect.poll(()=>page.evaluate(()=>window.inboxFixture.detailSnapshot().length)).toBe(1)
+  const restored:RequestDetailDto={...detail,summary:'Les trois demandes restaurées',transcript:[{id:'restored-turn',ordinal:1,role:'user',text:'Demande restaurée',interrupted:false,startedAt:detail.admittedAt}],transcriptAvailability:'available',followUp:revoked}
+  await page.evaluate(detail=>window.inboxFixture.detailResolve(0,{detail,receipt:null}),restored)
+  await page.getByText(restored.summary!,{exact:true}).waitFor()
+  await page.getByText('Demande restaurée',{exact:true}).waitFor()
+  expect(await page.getByRole('button',{name:'Marquer comme traité',exact:true}).isEnabled()).toBe(true)
+  expect(await page.getByText('Des pièces de la fiche sont illisibles. Actualisez après leur rétablissement pour pouvoir classer.',{exact:true}).count()).toBe(0)
  }finally{await cleanup(context)}
 })
 

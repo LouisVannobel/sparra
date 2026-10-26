@@ -21,7 +21,8 @@ async function consumeTreatAction(treated:boolean,current:RequestLoaded,signal:A
   if(!shown)return
   const result=await privateResult(onTreat({requestId:shown.id,expectedPublicationRevision:shown.followUp.publicationRevision,expectedDecisionToken:shown.followUp.decisionToken,treated},signal))
   if(result.requestId!==shown.id||result.followUp.publicationRevision!==shown.followUp.publicationRevision||result.followUp.declarationActive!==treated)throw new Error('Treatment receipt mismatch')
-  if(live())setCurrent({...current,detail:current.detail?{...current.detail,treatedAt:result.followUp.firstDeclaredAt,followUp:result.followUp}:null})
+  // A decision receipt cannot restore content that was not part of the response.
+  if(live())setCurrent({...current,detail:current.detail?{...current.detail,treatedAt:result.followUp.firstDeclaredAt,followUp:{...result.followUp,contentReadable:shown.followUp.contentReadable&&result.followUp.contentReadable}}:null})
 }
 
 async function consumeEraseAction(signal:AbortSignal,live:()=>boolean,onErase:Props['onErase'],setCurrent:RequestActionEffects['setCurrent']){

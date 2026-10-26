@@ -166,6 +166,16 @@ test('a deferred treatment update keeps the requested row identity captured befo
   receipt.requestId=newRow.id
   expect(update(observed.state.page)).toEqual({requests:[{...oldRow,treatedAt,followUp:declared},newRow],nextCursor:cursor})
 })
+
+test('metadata-only inbox receipt never promotes unreadable current content',async()=>{
+  const observed=observeTreatment(),receipt=deferred<{requestId:string;followUp:typeof declared}>()
+  const operation=treatInboxRequest(current,oldRow.id,observed.lock,()=>({signal:new AbortController().signal,live:()=>true}),()=>receipt.promise,observed.effects)
+  const degraded={...oldRow,followUp:{...oldRow.followUp,contentReadable:false}}
+  observed.state.page={requests:[degraded],nextCursor:cursor}
+  receipt.resolve({requestId:oldRow.id,followUp:declared});await operation
+  expect(observed.state.page.requests).toEqual([{...degraded,treatedAt,followUp:{...declared,contentReadable:false}}])
+  expect(observed.state.page.nextCursor).toBe(cursor)
+})
 test.each(['rejection','503','mismatch'] as const)('current treatment %s leaves prior rows and announces unknown outcome',async kind=>{
   const observed=observeTreatment()
   await treatInboxRequest(current,oldRow.id,observed.lock,()=>({signal:new AbortController().signal,live:()=>true}),async()=>{
