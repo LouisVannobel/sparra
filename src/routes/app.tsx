@@ -8,7 +8,7 @@ import stylesheet from '../ui/sparra/sparra.css?url'
 type InboxViewSearch={view?:'pending'|'all'}
 
 export const Route=createFileRoute('/app')({
-  validateSearch:(search:{view?:unknown}):InboxViewSearch=>({view:search.view==='all'?'all':'pending'}),
+  validateSearch:(search:{view?:unknown}):InboxViewSearch=>({view:search.view===undefined?undefined:search.view==='all'?'all':'pending'}),
   loaderDeps:({search})=>({lang:search.lang}),
   loader:async({deps,abortController})=>{
     try{return await privateResult(getWorkspace({data:{},signal:abortController.signal}))}

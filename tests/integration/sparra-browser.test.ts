@@ -86,6 +86,12 @@ async function signedIn(subject:string,observeBootstrap=false) {
 async function rpc(context:BrowserContext,name:Parameters<typeof authRpcPath>[0],data:unknown) {
   return context.request.post(origin+await authRpcPath(name),{headers:{origin,'content-type':'application/json','x-tsr-serverFn':'true'},data:await rpcBody(data)})
 }
+// Explicit fixture collection, published by the same SQL authority as ingress.
+// Never write the decision snapshot or its C/T directly.
+async function publishCall(id:string,workspaceId:string){
+  await stores.administrator.query(`UPDATE sparra_call SET collection_manifest=jsonb_build_object('schema_version',1,'episode_id',gen_random_uuid(),'expected_turn_ids',(SELECT coalesce(jsonb_agg(key ORDER BY key),'[]') FROM jsonb_object_keys(encrypted_turns) key),'result_outcome',CASE WHEN encrypted_message_result IS NULL THEN 'absent' ELSE 'present' END,'audio',jsonb_build_object('state','off'),'gaps','[]'::jsonb) WHERE id=$1`,[id])
+  await stores.administrator.query('SELECT app_private.publish_sparra_inbox_v1($1,$2)',[id,workspaceId])
+}
 test('compiled private inbox creates only by POST, saves knowledge across restart, keeps conflicting draft, treats and reloads durable erasure',async()=>{
   const {context,page}=await signedIn('sparra-owner',true), errors:string[]=[]
   let releaseMutation=()=>{}
@@ -151,18 +157,25 @@ test('compiled private inbox creates only by POST, saves knowledge across restar
     const unavailableId=randomUUID()
     await stores.administrator.query(`INSERT INTO sparra_call(id,workspace_id,deployment_id,provider_call_control_id,admitted_at,retention_until,status,configuration_revision,encrypted_turns,encrypted_message_result) VALUES($1::uuid,$2::uuid,'fixture',$1::text,clock_timestamp(),clock_timestamp()+interval '30 days','closing',1,$3,$4)`,[crypto.callId,workspace.id,{[crypto.turnId]:native,[unavailableId]:{...native,turn_id:unavailableId,turn_no:2}},crypto.result()])
     await stores.administrator.query(`INSERT INTO sparra_call(id,workspace_id,deployment_id,provider_call_control_id,admitted_at,retention_until,status) VALUES($1::uuid,$2::uuid,'fixture',$1::text,clock_timestamp(),clock_timestamp()+interval '30 days','pending')`,[foreignCallId,workspace.id])
+    await publishCall(crypto.callId,workspace.id)
     await page.reload();await page.getByRole('link',{name:'Demande de rappel',exact:true}).click()
     await page.getByRole('heading',{name:'Call details',exact:true}).waitFor();await page.getByText('Rappelez-moi',{exact:true}).waitFor()
     expect(await page.locator('[data-configuration-snapshot]').textContent()).toContain('Vidange sur rendez-vous')
     await page.getByText('Partial summary',{exact:true}).waitFor()
     await page.getByText('Partial transcript: 1 unavailable turns.',{exact:true}).waitFor()
+    expect(await page.getByRole('button',{name:'Mark as treated',exact:true}).isDisabled()).toBe(true)
+    await page.getByText('Some published content cannot be read. Refresh after it is restored before classifying.',{exact:true}).waitFor()
+    const restored={turn_id:unavailableId,turn_no:2,role:'user',source:'stt_final',...crypto.encrypt('Deuxième demande','turn:'+unavailableId),started_at:crypto.turn.started_at,ended_at:crypto.turn.ended_at,interrupted:false}
+    await stores.administrator.query('UPDATE sparra_call SET encrypted_turns=jsonb_set(encrypted_turns,ARRAY[$2::text],$3::jsonb) WHERE id=$1',[crypto.callId,unavailableId,JSON.stringify(restored)])
+    await publishCall(crypto.callId,workspace.id)
+    await page.getByRole('button',{name:'Refresh calls',exact:true}).click();await page.getByText('Deuxième demande',{exact:true}).waitFor()
     await expect.poll(()=>page.getByRole('button',{name:'Mark as treated',exact:true}).isEnabled()).toBe(true)
     await expect.poll(()=>page.getByRole('button',{name:'Erase this call',exact:true}).isEnabled()).toBe(true)
     await expect.poll(()=>page.getByRole('button',{name:'Mark as treated',exact:true}).evaluate(button=>getComputedStyle(button).opacity)).toBe('1')
     await expect.poll(()=>page.getByRole('button',{name:'Erase this call',exact:true}).evaluate(button=>getComputedStyle(button).opacity)).toBe('1')
     const detailAxe=await new AxeBuilder({page}).analyze();expect(detailAxe.violations).toEqual([])
     await page.screenshot({path:'.output/test-evidence/sparra/detail-en-320.png',fullPage:true})
-    const treatPath=await authRpcPath('markRequestTreated'),erasePath=await authRpcPath('eraseRequest'),erasures:string[]=[]
+    const treatPath=await authRpcPath('updateRequestFollowUp'),erasePath=await authRpcPath('eraseRequest'),erasures:string[]=[]
     page.on('request',request=>{if(new URL(request.url()).pathname===erasePath)erasures.push(request.method())})
     expect(await page.getByRole('button',{name:'Mark as treated',exact:true}).isDisabled()).toBe(false)
     await page.getByRole('button',{name:'Erase this call',exact:true}).click();await page.getByRole('button',{name:'Cancel',exact:true}).click()
@@ -187,7 +200,7 @@ test('compiled private inbox creates only by POST, saves knowledge across restar
     releaseMutation()
     await page.getByText('Erasure queued. Other copies are awaiting deletion.',{exact:true}).waitFor();expect(await page.getByText('Rappelez-moi',{exact:true}).count()).toBe(0)
     await page.reload();await page.getByText('Erasure queued. Other copies are awaiting deletion.',{exact:true}).waitFor()
-    for(const name of ['getActivity','saveActivity','listRequests','getRequestDetail','markRequestTreated','eraseRequest','getRequestErasure'] as const)expect(await authRpcPath(name)).toMatch(/^\/_serverFn\/[a-f0-9]{64}$/)
+    for(const name of ['getActivity','saveActivity','listRequests','getRequestDetail','updateRequestFollowUp','eraseRequest','getRequestErasure'] as const)expect(await authRpcPath(name)).toMatch(/^\/_serverFn\/[a-f0-9]{64}$/)
     expect((await stores.administrator.query('SELECT count(*)::int n FROM sparra_call WHERE id=$1',[crypto.callId])).rows[0].n).toBe(0)
     const axe=await new AxeBuilder({page}).analyze();expect(axe.violations).toEqual([])
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
@@ -200,7 +213,7 @@ test('compiled private inbox creates only by POST, saves knowledge across restar
 },90000)
 
 test('request unmount aborts held native delivery, failure retains confirmation and auth refusal hides content before navigation',async()=>{
-  const {context,page}=await signedIn('sparra-request-refusal'),treatPath=await authRpcPath('markRequestTreated'),erasePath=await authRpcPath('eraseRequest'),loginPath=await authRpcPath('getLoginAvailability'),id=randomUUID()
+  const {context,page}=await signedIn('sparra-request-refusal'),treatPath=await authRpcPath('updateRequestFollowUp'),erasePath=await authRpcPath('eraseRequest'),loginPath=await authRpcPath('getLoginAvailability'),id=randomUUID()
   let releaseLogin=()=>{},releaseTreatment=()=>{},cleanupRefusal=async()=>{}
   try{
     await page.goto(origin+'/app/entreprise?lang=en');await page.getByRole('button',{name:'Create my workspace'}).click()
@@ -208,6 +221,7 @@ test('request unmount aborts held native delivery, failure retains confirmation 
     const workspace=(await stores.administrator.query('SELECT id FROM workspace WHERE owner_user_id=(SELECT id FROM "user" WHERE email=$1)',['sparra-request-refusal@example.test'])).rows[0]
     const result={schema_version:1,...crypto.encrypt(JSON.stringify({...crypto.inner,summary:'Private refusal request'}),'result:'+id)}
     await stores.administrator.query(`INSERT INTO sparra_call(id,workspace_id,deployment_id,provider_call_control_id,admitted_at,retention_until,status,configuration_revision,encrypted_turns,encrypted_message_result) VALUES($1::uuid,$2::uuid,'fixture',$1::text,clock_timestamp(),clock_timestamp()+interval '30 days','closing',1,$3,$4)`,[id,workspace.id,{[crypto.turnId]:crypto.turn},result])
+    await publishCall(id,workspace.id)
     await page.goto(origin+'/app/demandes/'+id+'?lang=en');await page.getByText('Private refusal request',{exact:true}).waitFor()
     const treatmentHeld=new Promise<void>(done=>{releaseTreatment=done}),treatmentCommitted=new Promise<void>(done=>{
       void page.route('**'+treatPath,async route=>{const response=await route.fetch();expect(response.status()).toBe(200);done();await treatmentHeld;await route.fulfill({response}).catch(()=>{})},{times:1})
@@ -219,7 +233,7 @@ test('request unmount aborts held native delivery, failure retains confirmation 
     await page.goto(origin+'/app/demandes/'+id+'?lang=en');await page.getByText('Private refusal request',{exact:true}).waitFor();await page.getByText('Treated',{exact:true}).waitFor()
     await page.getByRole('button',{name:'Erase this call',exact:true}).click()
     await page.route('**'+erasePath,route=>route.abort('failed'),{times:1})
-    await page.getByRole('button',{name:'Confirm erasure',exact:true}).click();await page.getByRole('alert').filter({hasText:'Data unavailable. Reload the page or sign in again.'}).waitFor()
+    await page.getByRole('button',{name:'Confirm erasure',exact:true}).click();await page.getByRole('alert').filter({hasText:'Result needs checking. The response may have been lost after saving. Refresh to read the current state before retrying.'}).waitFor()
     expect(await page.getByText('Private refusal request',{exact:true}).count()).toBe(1)
     expect(await page.getByRole('button',{name:'Confirm erasure',exact:true}).isDisabled()).toBe(false)
     expect(await page.getByRole('button',{name:'Cancel',exact:true}).isDisabled()).toBe(false)
@@ -301,7 +315,9 @@ test('unknown and foreign receipts reveal no private data; revoked native sessio
     await page.goto(origin+'/app/demandes/'+randomUUID()+'?lang=en');await page.getByRole('alert').waitFor()
     await page.goto(origin+'/app/demandes/'+foreignCallId+'?lang=en');await page.getByRole('alert').waitFor()
     expect(await page.content()).not.toContain('Information known during the call')
-    for(const name of ['markRequestTreated','eraseRequest'] as const)expect((await rpc(context,name,{requestId:crypto.callId})).status()).toBe(404)
+    expect((await rpc(context,'markRequestTreated',{requestId:crypto.callId})).status()).toBe(400)
+    for(const name of ['markRequestTreated','updateRequestFollowUp'] as const)expect((await rpc(context,name,{requestId:crypto.callId,expectedPublicationRevision:0,expectedDecisionToken:randomUUID(),treated:true})).status()).toBe(404)
+    expect((await rpc(context,'eraseRequest',{requestId:crypto.callId})).status()).toBe(404)
     const denied=await context.request.post(origin+await authRpcPath('saveActivity'),{headers:{origin:'https://foreign.example','content-type':'application/json','x-tsr-serverFn':'true'},data:await rpcBody({})});expect(denied.status()).toBe(403)
     await stores.administrator.query('DELETE FROM session WHERE user_id=(SELECT id FROM "user" WHERE email=$1)',['sparra-other@example.test'])
     await page.goto(origin+'/app/entreprise?lang=en');await page.waitForURL(origin+'/login?lang=en')
@@ -804,33 +820,36 @@ test('inbox native cursor loads the remaining owned call shells exactly once',as
     const workspace=(await stores.administrator.query('SELECT id FROM workspace WHERE owner_user_id=(SELECT id FROM "user" WHERE email=$1)',['sparra-pagination-owner@example.test'])).rows[0]
     expect((await stores.administrator.query('SELECT count(*)::int n FROM sparra_call WHERE workspace_id=$1',[workspace.id])).rows[0].n).toBe(0)
     const ids=Array.from({length:52},()=>randomUUID())
-    await stores.administrator.query(`INSERT INTO sparra_call(id,workspace_id,deployment_id,provider_call_control_id,admitted_at,retention_until,status) SELECT id,$2::uuid,'fixture','page-'||id::text,clock_timestamp(),clock_timestamp()+interval '30 days','pending' FROM unnest($1::uuid[]) AS id`,[ids,workspace.id])
-    await page.goto(origin+'/app?lang=en');await page.getByRole('heading',{name:'Call inbox',exact:true}).waitFor()
+    await stores.administrator.query(`INSERT INTO sparra_call(id,workspace_id,deployment_id,provider_call_control_id,admitted_at,retention_until,status) SELECT id,$2::uuid,'fixture','page-'||id::text,clock_timestamp(),clock_timestamp()+interval '30 days','closing' FROM unnest($1::uuid[]) AS id`,[ids,workspace.id])
+    for(const id of ids)await publishCall(id,workspace.id)
+    await page.goto(origin+'/app?lang=en&view=all');await page.getByRole('heading',{name:'Call inbox',exact:true}).waitFor()
     expect(await page.locator('.sparra-inbox > li').count()).toBe(50)
     await page.getByRole('button',{name:'Show more calls',exact:true}).click()
     await expect.poll(()=>page.locator('.sparra-inbox > li').count()).toBe(52)
     expect(await page.getByRole('button',{name:'Show more calls',exact:true}).count()).toBe(0)
     const links=await page.locator('.sparra-inbox-row-heading > a').evaluateAll(elements=>elements.map(element=>element.getAttribute('href')))
-    expect(new Set(links).size).toBe(52);expect(new Set(links)).toEqual(new Set(ids.map(id=>`/app/demandes/${id}?lang=en`)));expect(await page.getByText('Partial summary',{exact:true}).count()).toBe(0)
+    expect(new Set(links).size).toBe(52);expect(new Set(links)).toEqual(new Set(ids.map(id=>`/app/demandes/${id}?lang=en&view=all`)));expect(await page.getByText('Partial summary',{exact:true}).count()).toBe(0)
     const visibleId=links[0]!.split('/').at(-1)!.split('?')[0],expiredId=links[1]!.split('/').at(-1)!.split('?')[0]
-    const selected=page.locator('.sparra-inbox > li').filter({has:page.locator(`a[href="/app/demandes/${visibleId}?lang=en"]`)})
+    const selected=page.locator('.sparra-inbox > li').filter({has:page.locator(`a[href="/app/demandes/${visibleId}?lang=en&view=all"]`)})
     await selected.getByText('To treat',{exact:true}).waitFor()
-    const treatPath=await authRpcPath('markRequestTreated'),treatment=page.waitForRequest(request=>new URL(request.url()).pathname===treatPath)
+    const treatPath=await authRpcPath('updateRequestFollowUp'),treatment=page.waitForRequest(request=>new URL(request.url()).pathname===treatPath)
     await selected.getByRole('button',{name:'Mark as treated',exact:true}).focus();await page.keyboard.press('Enter')
     expect((await treatment).method()).toBe('POST')
     await selected.getByText('Treated',{exact:true}).waitFor()
     const receipt=(await stores.administrator.query('SELECT treated_at FROM sparra_call WHERE workspace_id=$1 AND id=$2',[workspace.id,visibleId])).rows[0]
-    expect(await selected.locator('.sparra-inbox-operator time').getAttribute('datetime')).toBe(receipt.treated_at.toISOString())
+    expect(receipt.treated_at).toBeInstanceOf(Date)
+    expect((await stores.administrator.query('SELECT declaration_active,declared_publication,publication_version FROM sparra_call WHERE id=$1',[visibleId])).rows[0]).toMatchObject({declaration_active:true,declared_publication:1,publication_version:1})
     expect((await stores.administrator.query('SELECT count(*)::int n FROM sparra_call WHERE workspace_id=$1 AND treated_at IS NOT NULL',[workspace.id])).rows[0].n).toBe(1)
     expect(await page.locator('.sparra-inbox > li').count()).toBe(52)
-    await stores.administrator.query("UPDATE sparra_call SET status='closed',ended_at=clock_timestamp(),treated_at=clock_timestamp() WHERE workspace_id=$1 AND id=$2",[workspace.id,visibleId])
+    await stores.administrator.query("UPDATE sparra_call SET status='closed',ended_at=clock_timestamp() WHERE workspace_id=$1 AND id=$2",[workspace.id,visibleId])
+    await publishCall(visibleId,workspace.id)
     await stores.administrator.query("UPDATE sparra_call SET admitted_at=admitted_at-interval '31 days',retention_until=retention_until-interval '31 days' WHERE workspace_id=$1 AND id=$2",[workspace.id,expiredId])
     const listPath=await authRpcPath('listRequests'),read=page.waitForRequest(request=>new URL(request.url()).pathname===listPath)
     await page.getByRole('button',{name:'Refresh calls',exact:true}).click()
     expect((await read).method()).toBe('GET')
     await expect.poll(()=>page.locator('.sparra-inbox > li').count()).toBe(50)
-    await selected.getByText('Closed',{exact:true}).waitFor();await selected.getByText('Treated',{exact:true}).waitFor()
-    expect(await page.locator(`a[href="/app/demandes/${expiredId}?lang=en"]`).count()).toBe(0)
+    await selected.getByText('Closed',{exact:true}).waitFor();await selected.getByText('New information to review',{exact:true}).waitFor()
+    expect(await page.locator(`a[href="/app/demandes/${expiredId}?lang=en&view=all"]`).count()).toBe(0)
     await page.getByRole('button',{name:'Show more calls',exact:true}).click()
     await expect.poll(()=>page.locator('.sparra-inbox > li').count()).toBe(51)
     expect(await page.getByRole('button',{name:'Show more calls',exact:true}).count()).toBe(0)
@@ -876,6 +895,7 @@ test('compiled native result DTO shows category and caller/provider/missing call
       const id=randomUUID(),inner={...crypto.inner,category:fixture.category,summary:fixture.summary,contact:{...crypto.inner.contact,callback_e164:fixture.number,callback_source:fixture.source}}
       const result={schema_version:1,...crypto.encrypt(JSON.stringify(inner),'result:'+id)}
       await stores.administrator.query(`INSERT INTO sparra_call(id,workspace_id,deployment_id,provider_call_control_id,admitted_at,retention_until,status,configuration_revision,encrypted_turns,encrypted_message_result) VALUES($1::uuid,$2::uuid,'fixture',$1::text,clock_timestamp(),clock_timestamp()+interval '30 days','closing',1,$3,$4)`,[id,workspace.id,{[crypto.turnId]:native},result])
+      await publishCall(id,workspace.id)
       calls.push({id,...fixture})
     }
     for(const locale of ['en','fr'] as const){
