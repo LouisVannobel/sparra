@@ -21,5 +21,5 @@ export const Route=createFileRoute('/app/demandes/$requestId')({
   errorComponent:function RequestUnavailable(){const {lang}=Route.useSearch();return <PrivateUnavailable locale={lang} title={appMessages[lang].details}/>},
 })
 function Request(){const {lang}=Route.useSearch(),{requestId}=Route.useParams(),loaded=Route.useLoaderData(),router=useRouter(),treat=useServerFn(markRequestTreated),erase=useServerFn(eraseRequest)
-  return <RequestPanel key={requestId+lang+JSON.stringify(loaded)} locale={lang} loaded={loaded} onTreat={signal=>treat({data:{requestId},signal})} onErase={signal=>erase({data:{requestId},signal})} onRefused={async()=>{await router.navigate({to:'/login',search:{lang,error:undefined}})}}/>
+  return <RequestPanel key={requestId+lang+JSON.stringify(loaded)} locale={lang} loaded={loaded} onTreat={(data,signal)=>treat({data,signal})} onErase={signal=>erase({data:{requestId},signal})} onRefused={async()=>{await router.navigate({to:'/login',search:{lang,error:undefined}})}}/>
 }

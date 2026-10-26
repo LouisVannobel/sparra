@@ -160,7 +160,7 @@ test('strict operations, deterministic digest, conflict, monotone facts, loss an
  for(const changed of [{...op,extra:1},{...op,payload:{...op.payload,message_result:null}},{...op,payload:{...op.payload,disclosure_evidence:null}},{...op,payload:{...op.payload,retention_until:new Date(Date.parse(route.admitted_at)+2592001000).toISOString()}}])await expect(ingest({...changed,operation_id:randomUUID()})).rejects.toMatchObject({code:'PV202'})
  const firstResult={schema_version:1,...crypto.encrypt(JSON.stringify({...crypto.inner,evidence:[]}),'result:'+id)}
  const terminal=callOp(id,route,{status:'closed',started_at:route.admitted_at,ended_at:route.admitted_at,end_reason:'closed',message_result:firstResult,transcript_loss_count:9,disclosure_state:'completed',disclosure_evidence:{schema_version:1,started_at:route.admitted_at,completed_at:route.admitted_at,failed_at:null,input_gate_opened_at:route.admitted_at}})
- await ingest(terminal);await requests.treat(principalA,id);const treated=(await row(id)).treated_at
+ await ingest(terminal);const shown=await requests.detail(principalA,id);await expect(requests.updateFollowUp(principalA,{requestId:id,expectedPublicationRevision:shown.followUp.publicationRevision,expectedDecisionToken:shown.followUp.decisionToken,treated:true})).rejects.toMatchObject({name:'RequestPublicationProvisional'});const treated=(await row(id)).treated_at
  await ingest(callOp(id,route,{status:'failed',ended_at:route.admitted_at,end_reason:'failed',disclosure_state:'failed',transcript_loss_count:2}))
  await ingest(callOp(id,route));expect(await row(id)).toMatchObject({status:'closed',end_reason:'closed',transcript_loss_count:9,treated_at:treated,disclosure_state:'completed',disclosure_completed_at:new Date(route.admitted_at)})
  expect((await row(id)).encrypted_message_result).toEqual(firstResult)
@@ -517,7 +517,7 @@ describe('native sector snapshots',()=>{
  expect((await requests.list(principalA,{})).requests.some(call=>call.id===id)).toBe(true)
  expect((await requests.list(principalB,{})).requests.some(call=>call.id===id)).toBe(false)
  await expect(requests.detail(principalB,id)).rejects.toMatchObject({name:'RequestNotFound'})
- await expect(requests.treat(principalB,id)).rejects.toMatchObject({name:'RequestNotFound'})
+ await expect(requests.updateFollowUp(principalB,{requestId:id,expectedPublicationRevision:1,expectedDecisionToken:randomUUID(),treated:true})).rejects.toMatchObject({name:'RequestNotFound'})
  expect((await row(id)).treated_at).toBeNull()
  // Retain the earlier native automotive/diagnostic revision through this save.
  expect(nativeValue(await nativeVoice({action:'begin_context',url:stores.voiceUrlA,deployment:'fixture-a',call_id:legacy.id,routing:legacy.route},producer))).toEqual(legacyContext)

@@ -4,7 +4,7 @@ import { loadInboxPage, treatInboxRequest } from '../../src/ui/sparra/inbox-pane
 
 const oldRow: ListRequestsPage['requests'][number] = {
   id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', admittedAt: '2026-10-01T10:00:00.000Z', endedAt: null,
-  status: 'pending', configurationRevision: null, treatedAt: null, resultAvailability: 'unavailable',
+  status: 'pending', configurationRevision: null, treatedAt:null,followUp:{publicationRevision:1,decisionToken:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',reviewedRevision:0,declarationActive:false,collectionClosed:true,firstDeclaredAt:null}, resultAvailability: 'unavailable',
   resultQuality: null, category: null, conversationExcerpt:null,summary: null, contact: null, nextAction: null,
 }
 const cursor = { admittedAt: oldRow.admittedAt, id: oldRow.id }
@@ -125,6 +125,7 @@ test('inbox rechecks ownership after an awaited refusal before clearing pending'
 })
 
 const treatedAt='2026-10-03T16:42:11.000Z'
+const declared={...oldRow.followUp,decisionToken:'ffffffff-ffff-4fff-8fff-ffffffffffff',reviewedRevision:1,declarationActive:true,firstDeclaredAt:treatedAt}
 type TreatmentState={page:ListRequestsPage;pending:boolean;readFailed:boolean;treating:string|null;failed:boolean;refused:boolean;refusals:number}
 function observeTreatment(page=current) {
   const events:string[]=[],lock={current:false}
@@ -141,48 +142,48 @@ function observeTreatment(page=current) {
   return {state,events,lock,effects}
 }
 test.each(['locked','missing','treated'] as const)('treatment %s admission neither begins nor mutates',async kind=>{
-  const observed=observeTreatment(kind==='treated'?{...current,requests:[{...oldRow,treatedAt}]}:current)
+  const observed=observeTreatment(kind==='treated'?{...current,requests:[{...oldRow,treatedAt,followUp:declared}]}:current)
   observed.lock.current=kind==='locked'
   await treatInboxRequest(observed.state.page,kind==='missing'?newRow.id:oldRow.id,observed.lock,()=>{throw new Error('Unexpected attempt')},async()=>{throw new Error('Unexpected mutation')},observed.effects)
   expect(observed.events).toEqual([])
 })
 test('treatment locks before mutation, sends exact signal, updates only matching current rows and preserves cursor',async()=>{
-  const observed=observeTreatment(),receipt=deferred<{requestId:string;treatedAt:string}|Response>(),signal=new AbortController().signal
+  const observed=observeTreatment(),receipt=deferred<{requestId:string;followUp:typeof declared}|Response>(),signal=new AbortController().signal
   let sent:{requestId:string;signal:AbortSignal}|undefined
-  const operation=treatInboxRequest(current,oldRow.id,observed.lock,()=>{observed.events.push('begin');return {signal,live:()=>true}},(requestId,signal)=>{sent={requestId,signal};expect(observed.lock.current).toBe(true);return receipt.promise},observed.effects)
+  const operation=treatInboxRequest(current,oldRow.id,observed.lock,()=>{observed.events.push('begin');return {signal,live:()=>true}},(input,signal)=>{sent={requestId:input.requestId,signal};expect(input).toEqual({requestId:oldRow.id,expectedPublicationRevision:1,expectedDecisionToken:oldRow.followUp.decisionToken,treated:true});expect(observed.lock.current).toBe(true);return receipt.promise},observed.effects)
   expect(sent).toEqual({requestId:oldRow.id,signal})
   expect(observed.events).toEqual(['begin','pending:false',`treating:${oldRow.id}`,'readFailed:false','failed:false'])
   observed.state.page={requests:[oldRow,newRow],nextCursor:cursor}
-  receipt.resolve({requestId:oldRow.id,treatedAt});await operation
-  expect(observed.state.page).toEqual({requests:[{...oldRow,treatedAt},newRow],nextCursor:cursor})
+  receipt.resolve({requestId:oldRow.id,followUp:declared});await operation
+  expect(observed.state.page).toEqual({requests:[{...oldRow,treatedAt,followUp:declared},newRow],nextCursor:cursor})
   expect(observed.state.page.requests[1]).toBe(newRow);expect(observed.state.page.nextCursor).toBe(cursor)
   expect(observed.state.treating).toBe(null);expect(observed.lock.current).toBe(false)
 })
 test('a deferred treatment update keeps the requested row identity captured before the receipt can change',async()=>{
-  const observed=observeTreatment({requests:[oldRow,newRow],nextCursor:cursor}),receipt={requestId:oldRow.id,treatedAt}
+  const observed=observeTreatment({requests:[oldRow,newRow],nextCursor:cursor}),receipt={requestId:oldRow.id,followUp:declared}
   let update=(page:ListRequestsPage)=>page
   await treatInboxRequest(observed.state.page,oldRow.id,observed.lock,()=>({signal:new AbortController().signal,live:()=>true}),async()=>receipt,{...observed.effects,setCurrent:next=>{update=next}})
   receipt.requestId=newRow.id
-  expect(update(observed.state.page)).toEqual({requests:[{...oldRow,treatedAt},newRow],nextCursor:cursor})
+  expect(update(observed.state.page)).toEqual({requests:[{...oldRow,treatedAt,followUp:declared},newRow],nextCursor:cursor})
 })
 test.each(['rejection','503','mismatch'] as const)('current treatment %s leaves prior rows and announces unknown outcome',async kind=>{
   const observed=observeTreatment()
   await treatInboxRequest(current,oldRow.id,observed.lock,()=>({signal:new AbortController().signal,live:()=>true}),async()=>{
     if(kind==='rejection')throw new Error('Owned failure')
     if(kind==='503')return new Response(null,{status:503})
-    return {requestId:newRow.id,treatedAt}
+    return {requestId:newRow.id,followUp:declared}
   },observed.effects)
   expect(observed.state.page).toBe(current);expect(observed.state.failed).toBe(true);expect(observed.state.readFailed).toBe(false)
   expect(observed.state.refusals).toBe(0);expect(observed.lock.current).toBe(false);expect(observed.state.treating).toBe(null)
 })
 test.each(['receipt','401','rejection'] as const)('retired treatment %s cannot change newer state, refusal or lock',async kind=>{
-  const observed=observeTreatment(),result=deferred<{requestId:string;treatedAt:string}|Response>()
+  const observed=observeTreatment(),result=deferred<{requestId:string;followUp:typeof declared}|Response>()
   let live=true
   const operation=treatInboxRequest(current,oldRow.id,observed.lock,()=>({signal:new AbortController().signal,live:()=>live}),()=>result.promise,observed.effects)
   live=false;observed.state.page=next;observed.state.treating=newRow.id;observed.lock.current=true
   const before=[...observed.events]
   if(kind==='rejection')result.reject(new Error('Owned late failure'))
-  else result.resolve(kind==='401'?new Response(null,{status:401}):{requestId:oldRow.id,treatedAt})
+  else result.resolve(kind==='401'?new Response(null,{status:401}):{requestId:oldRow.id,followUp:declared})
   await operation
   expect(observed.events).toEqual(before);expect(observed.state.page).toBe(next);expect(observed.state.treating).toBe(newRow.id)
   expect(observed.state.refusals).toBe(0);expect(observed.lock.current).toBe(true)

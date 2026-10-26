@@ -5,15 +5,15 @@ import { performRequestAction, type RequestLoaded } from '../../src/ui/sparra/re
 const detail: RequestDetailDto = {
   id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', admittedAt: '2026-10-01T10:00:00.000Z',
   endedAt: '2026-10-01T10:03:00.000Z', status: 'closed', configurationRevision: 7,
-  treatedAt: null, resultAvailability: 'available', resultQuality: 'partial', category: 'information',
+  treatedAt:null,followUp:{publicationRevision:1,decisionToken:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',reviewedRevision:0,declarationActive:false,collectionClosed:true,firstDeclaredAt:null}, resultAvailability: 'available', resultQuality: 'partial', category: 'information',
   conversationExcerpt:null,summary: 'Local request text', contact: { name: 'Camille', callback_e164: '+33123456789', preference: 'Afternoon', callback_source: 'caller', callback_confirmed: false },
   nextAction: 'Check the request', configuration: { workspaceId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', revision: 7, savedAt: '2026-09-30T10:00:00.000Z', businessName: 'Local garage', sector: 'garage', knowledge: { openingHours: '09:00–17:00', services: 'Oil change', prices: '', faq: 'Bring the vehicle papers', instructions: 'Ask before proceeding' }, transferDestination: null, recordingPolicy: 'off', recordingContactPhone: null },
   transcript: [{ id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', ordinal: 1, role: 'user', text: 'Caller turn', interrupted: false, startedAt: '2026-10-01T10:00:00.000Z' }],
-  transcriptAvailability: 'partial', unavailableTurnCount: 2, moreTurns: true, transcriptLossCount: 3, erasureState: null,
+  transcriptAvailability: 'partial', unavailableTurnCount: 2, moreTurns: true, transcriptLossCount: 3, erasureState:null,evidence:[],callerPhone:null,collectionGaps:[],audioCoverage:'unknown',
 }
 const receipt: EraseReceipt = { requestId: detail.id, state: 'queued' }
 const current: RequestLoaded = { detail, receipt }
-const treated = { requestId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', treatedAt: '2026-10-04T10:00:00.000Z' }
+const treated = { requestId: detail.id, followUp: {...detail.followUp,reviewedRevision:1,declarationActive:true,decisionToken:'ffffffff-ffff-4fff-8fff-ffffffffffff',firstDeclaredAt:'2026-10-04T10:00:00.000Z'} }
 const unexpectedAction = async (): Promise<never> => { throw new Error('Unexpected action') }
 const unexpectedRefusal = async (): Promise<never> => { throw new Error('Unexpected refusal') }
 
@@ -34,15 +34,15 @@ function observeRequest(loaded: RequestLoaded) {
   return { events, state, setters }
 }
 
-test('treat uses its owned signal and preserves the loaded DTO except treatedAt', async () => {
+test('treat uses its owned signal and preserves the loaded DTO with its publication-bound declaration', async () => {
   const observed = observeRequest(current), result = deferred<typeof treated | Response>(), signal = new AbortController().signal
   let received: AbortSignal | undefined
-  const operation = performRequestAction('treat', current, () => { observed.events.push('begin'); return { signal, live: () => true } }, actualSignal => { received = actualSignal; observed.events.push('treat'); return result.promise }, unexpectedAction, { ...observed.setters, onRefused: unexpectedRefusal })
+  const operation = performRequestAction('treat', current, () => { observed.events.push('begin'); return { signal, live: () => true } }, (_input,actualSignal) => { received = actualSignal; observed.events.push('treat'); return result.promise }, unexpectedAction, { ...observed.setters, onRefused: unexpectedRefusal })
   expect(received).toBe(signal)
   expect(observed.events).toEqual(['begin', 'pending:true', 'failed:false', 'treat'])
   expect(observed.state.loaded).toBe(current); expect(observed.state.pending).toBe(true)
   result.resolve(treated); await operation
-  expect(observed.state).toEqual({ loaded: { detail: { ...detail, treatedAt: '2026-10-04T10:00:00.000Z' }, receipt }, pending: false, failed: false, refused: false })
+  expect(observed.state).toEqual({ loaded: { detail: { ...detail, treatedAt: '2026-10-04T10:00:00.000Z',followUp:treated.followUp }, receipt }, pending: false, failed: false, refused: false })
   expect(observed.state.loaded.detail?.id).toBe(detail.id)
   expect(observed.state.loaded.detail?.contact).toBe(detail.contact)
   expect(observed.state.loaded.detail?.configuration).toBe(detail.configuration)
@@ -57,7 +57,7 @@ test('treat keeps null detail and the existing receipt when its result settles',
   await performRequestAction('treat', loaded, () => ({ signal, live: () => true }), async () => treated, unexpectedAction, { ...observed.setters, onRefused: unexpectedRefusal })
   expect(observed.state).toEqual({ loaded: { detail: null, receipt }, pending: false, failed: false, refused: false })
   expect(observed.state.loaded.receipt).toBe(receipt)
-  expect(observed.events).toEqual(['pending:true', 'failed:false', 'loaded', 'pending:false'])
+  expect(observed.events).toEqual(['pending:true', 'failed:false', 'pending:false'])
 })
 
 test('erase uses its owned signal and replaces the detail with exactly its returned receipt', async () => {

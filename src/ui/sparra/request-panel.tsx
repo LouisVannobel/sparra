@@ -8,14 +8,18 @@ import type { Locale } from '../auth/messages'
 import { observedDate, privateResult, PrivateUnavailable } from './app-shell'
 import { useRequestAttempt } from './use-request-attempt'
 import { bookingMessages } from './calendar-messages'
+import type { UpdateRequestFollowUpInput, RequestFollowUpReceipt } from '../../modules/sparra/follow-up'
 
 export type RequestLoaded={detail:RequestDetailDto|null;receipt:EraseReceipt|null}
-type Props={locale:Locale;loaded:RequestLoaded;onTreat(signal:AbortSignal):Promise<{requestId:string;treatedAt:string}|Response>;onErase(signal:AbortSignal):Promise<EraseReceipt|Response>;onRefused():Promise<void>}
+type Props={locale:Locale;loaded:RequestLoaded;onTreat(input:UpdateRequestFollowUpInput,signal:AbortSignal):Promise<RequestFollowUpReceipt|Response>;onErase(signal:AbortSignal):Promise<EraseReceipt|Response>;onRefused():Promise<void>}
 type RequestActionEffects={setCurrent(loaded:RequestLoaded):void;setPending(value:boolean):void;setFailed(value:boolean):void;setRefused(value:boolean):void;onRefused():Promise<void>}
 
 async function consumeTreatAction(current:RequestLoaded,signal:AbortSignal,live:()=>boolean,onTreat:Props['onTreat'],setCurrent:RequestActionEffects['setCurrent']){
-  const result=await privateResult(onTreat(signal))
-  if(live())setCurrent({...current,detail:current.detail?{...current.detail,treatedAt:result.treatedAt}:null})
+  const shown=current.detail
+  if(!shown)return
+  const result=await privateResult(onTreat({requestId:shown.id,expectedPublicationRevision:shown.followUp.publicationRevision,expectedDecisionToken:shown.followUp.decisionToken,treated:true},signal))
+  if(result.requestId!==shown.id||result.followUp.publicationRevision!==shown.followUp.publicationRevision||!result.followUp.declarationActive)throw new Error('Treatment receipt mismatch')
+  if(live())setCurrent({...current,detail:current.detail?{...current.detail,treatedAt:result.followUp.firstDeclaredAt,followUp:result.followUp}:null})
 }
 
 async function consumeEraseAction(signal:AbortSignal,live:()=>boolean,onErase:Props['onErase'],setCurrent:RequestActionEffects['setCurrent']){

@@ -4,8 +4,9 @@ import { Schema } from 'effect'
 import { requestResources } from '../../platform/resources.server'
 import { createActivityOperations, parseSaveActivityInput } from './activity.server'
 export type { ActivityConfigurationDto, ActivityState, SaveActivityInput } from './activity.server'
-import { createRequestOperations, parseListRequestsInput, parseRequestInput } from './requests.server'
+import { createRequestOperations, parseListRequestsInput, parseRequestInput, parseUpdateRequestFollowUpInput } from './requests.server'
 export type { ListRequestsInput, ListRequestsPage, RequestDetailDto, EraseReceipt } from './requests.server'
+export type { RequestFollowUp, RequestFollowUpReceipt, UpdateRequestFollowUpInput } from './follow-up'
 
 const failures = {
   activity: { message: 'Activity unavailable', special: 'ActivityRevisionConflict', status: 409, invalid: 'InvalidActivityInput' },
@@ -19,6 +20,7 @@ function sparraErrors(kind: keyof typeof failures) {
     catch (error) {
       if (error instanceof Response) throw error
       const name = error instanceof Error ? error.name : ''
+      if(kind==='request'&&(name==='RequestPublicationConflict'||name==='RequestPublicationProvisional'))throw new Response(error instanceof Error?error.message:'Request unavailable',{status:409,headers:{'x-sparra-request-error':name==='RequestPublicationConflict'?'publication-conflict':'publication-provisional'}})
       if(kind === 'activity' && name === 'ActivityRecordingUnavailable') throw new Response('Local audio unavailable',{status:409,headers:{'x-sparra-activity-error':'recording-unavailable'}})
       const status = name === failure.special ? failure.status : name === failure.invalid || Schema.isSchemaError(error) ? 400 : 500
       throw new Response(failure.message, { status })
@@ -57,9 +59,15 @@ export const getRequestDetail=createServerFn({method:'GET'}).middleware([request
   const detail=await createRequestOperations(resources.transactions).detail(principal,data.requestId,request.signal)
   return {...detail,audio:detail.audio?{...detail.audio,available:detail.audio.available&&resources.audioReader?.isAvailable()===true}:undefined}
 })
-export const markRequestTreated=createServerFn({method:'POST'}).middleware([requestErrors]).validator(parseRequestInput).handler(async({data})=>{
+export const updateRequestFollowUp=createServerFn({method:'POST'}).middleware([requestErrors]).validator(parseUpdateRequestFollowUpInput).handler(async({data})=>{
   const {request,resources,principal}=await admittedRequest()
-  return createRequestOperations(resources.transactions).treat(principal,data.requestId,request.signal)
+  return createRequestOperations(resources.transactions).updateFollowUp(principal,data,request.signal)
+})
+// Existing callers keep their endpoint name during the UI migration, with the
+// same strict publication-bound command. ID-only payloads are always rejected.
+export const markRequestTreated=createServerFn({method:'POST'}).middleware([requestErrors]).validator(parseUpdateRequestFollowUpInput).handler(async({data})=>{
+  const {request,resources,principal}=await admittedRequest()
+  return createRequestOperations(resources.transactions).updateFollowUp(principal,data,request.signal)
 })
 export const eraseRequest=createServerFn({method:'POST'}).middleware([requestErrors]).validator(parseRequestInput).handler(async({data})=>{
   const {request,resources,principal}=await admittedRequest()

@@ -9,13 +9,14 @@ import type { Locale } from '../auth/messages'
 import { observedDate, privateResult, PrivateUnavailable } from './app-shell'
 import { useRequestAttempt } from './use-request-attempt'
 import { bookingMessages } from './calendar-messages'
+import { requiresReview, type UpdateRequestFollowUpInput, type RequestFollowUpReceipt } from '../../modules/sparra/follow-up'
 
 export function mergeInboxPage(current: ListRequestsPage, next: ListRequestsPage): ListRequestsPage {
   // Only IDs from the already-loaded page suppress incoming rows.
   return { requests: [...current.requests, ...next.requests.filter(row => !current.requests.some(existing => existing.id === row.id))], nextCursor: next.nextCursor }
 }
 
-type Props={locale:Locale;state:ActivityState;page:ListRequestsPage;onMore(data:ListRequestsInput,signal:AbortSignal):Promise<ListRequestsPage|Response>;onTreat(requestId:string,signal:AbortSignal):Promise<{requestId:string;treatedAt:string}|Response>;onRefused():Promise<void>}
+type Props={locale:Locale;state:ActivityState;page:ListRequestsPage;onMore(data:ListRequestsInput,signal:AbortSignal):Promise<ListRequestsPage|Response>;onTreat(input:UpdateRequestFollowUpInput,signal:AbortSignal):Promise<RequestFollowUpReceipt|Response>;onRefused():Promise<void>}
 const descriptions={fr:'Les demandes de vos appelants, au même endroit.',en:'Your callers’ requests, in one place.'} as const
 type InboxPageEffects={setCurrent(page:ListRequestsPage):void;setPending(value:boolean):void;setFailed(value:boolean):void;setRefused(value:boolean):void;onRefused():Promise<void>}
 
@@ -39,19 +40,20 @@ export async function loadInboxPage(current:ListRequestsPage,begin:ReturnType<ty
 
 type InboxTreatmentEffects=Pick<InboxPageEffects,'setPending'|'setFailed'|'setRefused'|'onRefused'>&{setCurrent(update:(page:ListRequestsPage)=>ListRequestsPage):void;setReadFailed(value:boolean):void;setTreating(value:string|null):void}
 
-function applyInboxTreatment(page:ListRequestsPage,requestId:string,treatedAt:string):ListRequestsPage{
-  return {...page,requests:page.requests.map(request=>request.id===requestId?{...request,treatedAt}:request)}
+function applyInboxTreatment(page:ListRequestsPage,shown:ListRequestsPage['requests'][number],receipt:RequestFollowUpReceipt):ListRequestsPage{
+  return {...page,requests:page.requests.map(request=>request.id===shown.id&&request.followUp.publicationRevision===shown.followUp.publicationRevision&&request.followUp.decisionToken===shown.followUp.decisionToken?{...request,followUp:receipt.followUp,treatedAt:receipt.followUp.firstDeclaredAt}:request)}
 }
 
 export async function treatInboxRequest(current:ListRequestsPage,requestId:string,lock:{current:boolean},begin:ReturnType<typeof useRequestAttempt>,onTreat:Props['onTreat'],effects:InboxTreatmentEffects){
-  if(lock.current||!current.requests.some(request=>request.id===requestId&&!request.treatedAt))return
+  const shown=current.requests.find(request=>request.id===requestId)
+  if(lock.current||!shown||!requiresReview(shown.followUp)||!shown.followUp.collectionClosed)return
   const {signal,live}=begin()
   lock.current=true;effects.setPending(false);effects.setTreating(requestId);effects.setReadFailed(false);effects.setFailed(false)
   try{
-    const receipt=await privateResult(onTreat(requestId,signal))
+    const receipt=await privateResult(onTreat({requestId,expectedPublicationRevision:shown.followUp.publicationRevision,expectedDecisionToken:shown.followUp.decisionToken,treated:true},signal))
     if(!live())return
-    if(receipt.requestId!==requestId)throw new Error('Treatment receipt mismatch')
-    effects.setCurrent(latest=>applyInboxTreatment(latest,requestId,receipt.treatedAt))
+    if(receipt.requestId!==requestId||receipt.followUp.publicationRevision!==shown.followUp.publicationRevision||!receipt.followUp.declarationActive)throw new Error('Treatment receipt mismatch')
+    effects.setCurrent(latest=>applyInboxTreatment(latest,shown,receipt))
   }catch(error){await settleInboxFailure(error,live,effects)}
   finally{if(live()){lock.current=false;effects.setTreating(null)}}
 }
@@ -68,7 +70,7 @@ function InboxResult({request,locale}:{request:InboxRequest;locale:Locale}){
     <InboxContact contact={request.contact} locale={locale} bookingOutcome={bookingLabel!==null}/>{request.resultAvailability==='available'&&request.resultQuality==='partial'&&<span className="sparra-app-label">{t.partial}</span>}</>
 }
 function InboxTreatment({request,locale,disabled,treating,onTreat}:{request:InboxRequest;locale:Locale;disabled:boolean;treating:string|null;onTreat(requestId:string):void}){
-  if(request.treatedAt)return null
+  if(!requiresReview(request.followUp)||!request.followUp.collectionClosed)return null
   return <Button label={appMessages[locale].treat} aria-describedby={`inbox-call-${request.id}`} isDisabled={disabled} isLoading={treating===request.id} onClick={()=>onTreat(request.id)}/>
 }
 function InboxRow({request,locale,disabled,treating,onTreat}:{request:InboxRequest;locale:Locale;disabled:boolean;treating:string|null;onTreat(requestId:string):void}){

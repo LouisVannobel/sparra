@@ -7,7 +7,7 @@ import type {} from '../helpers/inbox-panel-fixture'
 
 const row: ListRequestsPage['requests'][number] = {
   id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', admittedAt: '2026-10-01T10:00:00.000Z', endedAt: null,
-  status: 'pending', configurationRevision: null, treatedAt: null, resultAvailability: 'unavailable',
+  status: 'pending', configurationRevision: null, treatedAt:null,followUp:{publicationRevision:1,decisionToken:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',reviewedRevision:0,declarationActive:false,collectionClosed:true,firstDeclaredAt:null}, resultAvailability: 'unavailable',
   resultQuality: null, category: null, conversationExcerpt:null,summary: 'Initial summary', contact: null, nextAction: null,
 }
 const closed = {
@@ -135,7 +135,7 @@ test('mounted French refresh stays available on empty pages and unmount aborts i
   } finally { await cleanup(context) }
 })
 
-const actionRow = { ...closed, treatedAt: null, nextAction: 'Confirm the callback request', resultQuality: 'partial' } satisfies ListRequestsPage['requests'][number]
+const actionRow = { ...closed, treatedAt:null,followUp:{publicationRevision:1,decisionToken:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',reviewedRevision:0,declarationActive:false,collectionClosed:true,firstDeclaredAt:null}, nextAction: 'Confirm the callback request', resultQuality: 'partial' } satisfies ListRequestsPage['requests'][number]
 const otherRow = { ...row, id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', summary: null }
 const actionable: ListRequestsPage = { requests: [actionRow, otherRow], nextCursor: { id: otherRow.id, admittedAt: otherRow.admittedAt } }
 const stamp = '2026-10-03T16:42:11.000Z'

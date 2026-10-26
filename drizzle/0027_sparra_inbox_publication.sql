@@ -153,3 +153,31 @@ DO $$ DECLARE c record; BEGIN
   PERFORM app_private.publish_sparra_inbox_v1(c.id,c.workspace_id);
  END LOOP;
 END $$;
+--> statement-breakpoint
+-- Native runtime owns the authenticated Workspace lease; only this bounded
+-- command may mutate declaration state. No direct C/T/snapshot grant is added.
+REVOKE UPDATE(treated_at) ON public.sparra_call FROM runtime;
+CREATE FUNCTION app_private.update_sparra_follow_up_v1(wid uuid,cid uuid,expected_c integer,expected_t uuid,treated boolean)
+ RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp SET row_security=on AS $$
+DECLARE c public.sparra_call;
+BEGIN
+ IF wid::text IS DISTINCT FROM current_setting('app.tenant_id',true)
+  OR wid='00000000-0000-0000-0000-000000000000' OR treated IS NULL
+  OR NOT EXISTS(SELECT 1 FROM public.workspace WHERE id=wid AND kind='personal' AND lifecycle='active' AND auth_organization_id IS NULL)
+ THEN RETURN 'missing';END IF;
+ SELECT * INTO c FROM public.sparra_call WHERE id=cid AND workspace_id=wid FOR UPDATE;
+ -- Evaluate time after acquiring the shared publication lock, not before a wait.
+ IF NOT FOUND OR c.erasure_requested_at IS NOT NULL OR c.retention_until<=clock_timestamp() THEN RETURN 'missing';END IF;
+ IF expected_c IS DISTINCT FROM c.publication_version OR expected_t IS DISTINCT FROM c.publication_token THEN RETURN 'conflict';END IF;
+ IF c.publication_version=0 OR c.publication_snapshot IS NULL OR NOT c.collection_closed
+  OR c.publication_snapshot->>'collection_closed' IS DISTINCT FROM 'true'
+  OR c.publication_snapshot->'collection' IS NULL OR c.publication_snapshot->'collection'='null'::jsonb
+ THEN RETURN 'provisional';END IF;
+ UPDATE public.sparra_call SET declared_publication=CASE WHEN treated THEN publication_version ELSE declared_publication END,
+  declaration_active=treated,treated_at=CASE WHEN treated THEN coalesce(treated_at,clock_timestamp()) ELSE treated_at END,
+  publication_token=gen_random_uuid() WHERE id=cid AND workspace_id=wid;
+ RETURN 'applied';
+END $$;
+ALTER FUNCTION app_private.update_sparra_follow_up_v1(uuid,uuid,integer,uuid,boolean) OWNER TO workspace_owner;
+REVOKE ALL ON FUNCTION app_private.update_sparra_follow_up_v1(uuid,uuid,integer,uuid,boolean) FROM PUBLIC,workspace_bootstrap,sparra_voice_definer,calendar_definer;
+GRANT EXECUTE ON FUNCTION app_private.update_sparra_follow_up_v1(uuid,uuid,integer,uuid,boolean) TO runtime;
