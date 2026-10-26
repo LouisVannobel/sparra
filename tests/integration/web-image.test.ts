@@ -84,6 +84,7 @@ test('native_voice_envelope_decrypts_in_image_and_restart_rereads_credentials',a
     const account=await googleCeremony(auth,owner,peer)(),personal=createPersonalWorkspaces(owner),workspace=await personal.ensurePersonalWorkspace(account.principal)
     expect(workspace).not.toBeNull()
     await stores.administrator.query("INSERT INTO sparra_call(id,workspace_id,deployment_id,provider_call_control_id,admitted_at,retention_until,status,encrypted_turns) VALUES($1::uuid,$2,'synthetic',$1::text,clock_timestamp(),clock_timestamp()+interval '30 days','pending',$3)",[fixture.call_id,workspace!.id,{[fixture.turn_id]:fixture.turn}])
+    await stores.administrator.query('SELECT app_private.publish_sparra_inbox_v1($1,$2)',[fixture.call_id,workspace!.id])
     app=await stores.startWebImage(image,'valid',authInput,JSON.stringify(fixture.keyring),false,imagePort)
     const metadata=await stores.imageMetadata(app.id)
     expect(JSON.stringify(metadata)).not.toContain(secret)
