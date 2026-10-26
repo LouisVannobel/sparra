@@ -17,3 +17,9 @@
 
 - Relecture des bornes : IP locales, privées, réservées, IPv4 mappées, mélange DNS et préfixes IPv6 hors 2000::/3 refusés ; aucune connexion avant validation. La frontière de test est la même composition appelée par l'export public avec résolution/requête natives par défaut. Aucun adaptateur factice n'est livré en production.
 - La suite ciblée utilise une frontière réseau instrumentée et ne constitue pas une preuve d'un serveur HTTPS public réel. Le futur appelant devra fournir ses propres hôtes applicatifs dans `blockedHosts` et décider lui-même de la validation des passages avant usage. Aucun accès fournisseur, DB, déploiement ou push effectué.
+
+## Correctif de revue 1/5
+
+- Deux tests comportementaux ajoutés avant les changements : un conteneur `<div>Uniquement sur rendez-vous <p>Diagnostic</p></div>` doit garder condition et fait dans le même passage ; un `Content-Type` avec `charset=iso-8859-1; charset=utf-8` doit être refusé. RED observé sur les deux : `33 tests | 2 failed`, avec sortie `['Diagnostic']` et capture résolue malgré l'en-tête contradictoire.
+- Correctifs limités à l'extracteur et au contrôle `Content-Type` : lorsque du texte direct entoure un passage enfant, le conteneur fournit le passage complet ; les paramètres d'en-tête sont analysés et tout charset non UTF-8, répété ou ambigu est refusé.
+- GREEN : `pnpm exec vitest run tests/sparra/website-capture.test.ts --maxWorkers=1` → `33 passed`; `pnpm run typecheck` → code 0. Aucune suite globale ni nouveau contrôle de transport natif exécuté.

@@ -51,6 +51,21 @@ function header(headers: Page['headers'], name: string): string | undefined {
   return Array.isArray(value) ? value.join(',') : value
 }
 
+function isHtmlUtf8(contentType: string): boolean {
+  const [mediaType, ...parameters] = contentType.split(';')
+  if (mediaType.trim().toLowerCase() !== 'text/html') return false
+  let charsetSeen = false
+  for (const parameter of parameters) {
+    const match = /^([a-z0-9-]+)\s*=\s*(?:"([a-z0-9-]+)"|([a-z0-9-]+))$/i.exec(parameter.trim())
+    if (!match) return false
+    if (match[1].toLowerCase() === 'charset') {
+      if (charsetSeen || (match[2] ?? match[3]).toLowerCase() !== 'utf-8') return false
+      charsetSeen = true
+    }
+  }
+  return true
+}
+
 function abortable<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) return Promise.reject(new WebsiteCaptureError('ABORTED'))
   return new Promise((resolve, reject) => {
@@ -128,8 +143,8 @@ export async function captureWebsiteWithBoundaries(input: string, options: { sig
         if (page.status !== 200) return fail('HTTP_STATUS')
         const encoding = header(page.headers, 'content-encoding')?.toLowerCase()
         if (encoding && encoding !== 'identity') return fail('ENCODING')
-        const contentType = header(page.headers, 'content-type')?.toLowerCase() ?? ''
-        if (!/^text\/html(?:\s*;|\s*$)/.test(contentType) || (/charset=/.test(contentType) && !/charset\s*=\s*["']?utf-8\b/.test(contentType))) return fail('CONTENT_TYPE')
+        const contentType = header(page.headers, 'content-type') ?? ''
+        if (!isHtmlUtf8(contentType)) return fail('CONTENT_TYPE')
         const bytes = await readPage(page, controller.signal)
         let html: string
         try { html = new TextDecoder('utf-8', { fatal: true }).decode(bytes) } catch { return fail('ENCODING') }

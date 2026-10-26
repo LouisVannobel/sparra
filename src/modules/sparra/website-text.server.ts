@@ -46,7 +46,9 @@ export function extractWebsiteText(html: string): { title: string; passages: Rea
         if (text) passages.push({ id: `p${passages.length + 1}`, text })
         return
       }
-      if (fallbackTags.has(node.tagName) && !children(node).some(child => isElement(child) && (passageTags.has(child.tagName) || fallbackTags.has(child.tagName)))) {
+      const hasPassageChild = children(node).some(child => isElement(child) && (passageTags.has(child.tagName) || fallbackTags.has(child.tagName)))
+      const hasDirectText = children(node).some(child => child.nodeName === '#text' && 'value' in child && clean(child.value) !== '')
+      if (fallbackTags.has(node.tagName) && (!hasPassageChild || hasDirectText)) {
         const text = clean(visibleText(node))
         if (text) passages.push({ id: `p${passages.length + 1}`, text })
         return

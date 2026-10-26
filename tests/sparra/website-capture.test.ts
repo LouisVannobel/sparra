@@ -52,6 +52,12 @@ test('pins a public resolved address while retaining the URL host and preserves 
   expect(f.closed).toBe(1)
 })
 
+test('keeps a direct parent condition with its nested passage', async () => {
+  const f = fixture({ body: (async function* () { yield new TextEncoder().encode('<div>Uniquement sur rendez-vous <p>Diagnostic</p></div>') })() })
+  const result = await captureWebsiteWithBoundaries('https://example.com/', {}, f.boundaries)
+  expect(result.passages.map(passage => passage.text)).toContain('Uniquement sur rendez-vous Diagnostic')
+})
+
 test('drops a fragment from the captured URL', async () => {
   const f = fixture()
   const result = await captureWebsiteWithBoundaries('https://example.com/hours#opening', {}, f.boundaries)
@@ -91,6 +97,12 @@ test('refuses unsolicited compression and closes the stream', async () => {
 test.each(['application/pdf', 'application/json', 'text/html; charset=iso-8859-1'])('rejects unsupported content type %s', async contentType => {
   const f = fixture({ headers: { 'content-type': contentType } })
   await expect(captureWebsiteWithBoundaries('https://example.com/', {}, f.boundaries)).rejects.toThrow()
+  expect(f.closed).toBe(1)
+})
+
+test('rejects contradictory charset declarations', async () => {
+  const f = fixture({ headers: { 'content-type': 'text/html; charset=iso-8859-1; charset=utf-8' } })
+  await expect(captureWebsiteWithBoundaries('https://example.com/', {}, f.boundaries)).rejects.toThrow('CONTENT_TYPE')
   expect(f.closed).toBe(1)
 })
 
