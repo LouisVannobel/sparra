@@ -203,3 +203,12 @@ test('a rejected treatment refusal propagates after releasing the current treatm
   expect(observed.state.refused).toBe(true);expect(observed.state.page).toBe(current)
   expect(observed.lock.current).toBe(false);expect(observed.state.treating).toBe(null)
 })
+
+
+test('changing inbox view requests the first page without the prior cursor', async () => {
+ const observed=observeInbox(current)
+ let input:ListRequestsInput|undefined
+ await loadInboxPage(current,()=>({signal:new AbortController().signal,live:()=>true}),async data=>{input=data;return next},{...observed.setters,onRefused:async()=>{}},'refresh','all')
+ expect(input).toEqual({view:'all'})
+ expect(observed.state.page).toBe(next)
+})

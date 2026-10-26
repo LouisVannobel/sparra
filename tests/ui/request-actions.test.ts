@@ -173,3 +173,23 @@ test('the request action rechecks ownership after awaiting refusal before cleari
   expect(observed.state).toEqual({ loaded: current, pending: true, failed: false, refused: true })
   expect(observed.events).toEqual(['pending:true', 'failed:false', 'refused:true'])
 })
+
+
+test('revoke submits the provisional snapshot C/T and preserves the first declaration', async () => {
+  const first='2026-10-04T10:00:00.000Z'
+  const provisional:RequestLoaded={detail:{...detail,followUp:{...treated.followUp,publicationRevision:2,collectionClosed:false}},receipt:null}
+  const observed=observeRequest(provisional)
+  let input:unknown
+  const revoked={requestId:detail.id,followUp:{...provisional.detail!.followUp,declarationActive:false,decisionToken:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'}}
+  await performRequestAction('revoke',provisional,()=>({signal:new AbortController().signal,live:()=>true}),async value=>{input=value;return revoked},unexpectedAction,{...observed.setters,onRefused:unexpectedRefusal})
+  expect(input).toEqual({requestId:detail.id,expectedPublicationRevision:2,expectedDecisionToken:treated.followUp.decisionToken,treated:false})
+  expect(observed.state.loaded.detail?.followUp).toEqual(revoked.followUp)
+  expect(observed.state.loaded.detail?.treatedAt).toBe(first)
+})
+
+
+test.each([['publication-conflict','conflict'],['publication-provisional','provisional'],[null,'unknown']] as const)('a %s response retains content and reports %s independently',async(code,expected)=>{
+ const observed=observeRequest(current),failures:unknown[]=[]
+ await performRequestAction('treat',current,()=>({signal:new AbortController().signal,live:()=>true}),async()=>new Response(null,{status:409,headers:code?{'x-sparra-request-error':code}:{}}),unexpectedAction,{...observed.setters,setFailure:value=>failures.push(value),onRefused:unexpectedRefusal})
+ expect(failures).toEqual([null,expected]);expect(observed.state.loaded).toBe(current)
+})

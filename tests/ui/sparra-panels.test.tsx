@@ -8,7 +8,7 @@ test.each(['fr','en'] as const)('inbox %s shows an escaped caller excerpt linked
   const {InboxPanel}=await import('../../src/ui/sparra/inbox-panel')
   const row={id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',admittedAt:'2026-10-01T10:00:00.000Z',endedAt:null,status:'closed',configurationRevision:null,treatedAt:null,followUp:{publicationRevision:1,decisionToken:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',reviewedRevision:0,declarationActive:false,collectionClosed:true,firstDeclaredAt:null},resultAvailability:'unavailable',resultQuality:null,category:null,summary:null,conversationExcerpt:'Je souhaite un devis <script>alert(1)</script> & un rappel.',contact:null,nextAction:null} satisfies import('../../src/modules/sparra/sparra.functions').ListRequestsPage['requests'][number]
   const html=renderToStaticMarkup(<InboxPanel locale={locale} state={{workspace:null,configuration:null,localAudioAvailable:false}} page={{requests:[row],nextCursor:null}} onMore={unavailable} onTreat={unavailable} onRefused={unavailable}/> )
-  expect(html).toContain(`<a href="/app/demandes/${row.id}?lang=${locale}">${locale==='fr'?'Extrait de la conversation':'Conversation excerpt'}</a>`)
+  expect(html).toContain(`<a href="/app/demandes/${row.id}?lang=${locale}&amp;view=pending">${locale==='fr'?'Extrait de la conversation':'Conversation excerpt'}</a>`)
   expect(html).toContain('<q>Je souhaite un devis &lt;script&gt;alert(1)&lt;/script&gt; &amp; un rappel.</q>')
   expect(html).not.toContain('<script>')
   expect(html).not.toContain(locale==='fr'?'Résumé indisponible':'Summary unavailable')
@@ -137,7 +137,7 @@ test('request detail keeps observed metadata, ordered partial turns, pinned know
     expect(html).toContain(locale==='fr'?'Transcription partielle: 2 tours indisponibles.':'Partial transcript: 2 unavailable turns.')
     expect(html).toContain(locale==='fr'?'3 tours capturés perdus.':'3 captured turns lost.')
     expect(html).toContain(locale==='fr'?'La transcription affichée est limitée aux 200 premiers tours.':'The displayed transcript is limited to the first 200 turns.')
-    expect(html).toContain('<ol class="sparra-call-transcript"><li><p><strong>'+(locale==='fr'?'Appelant':'Caller')+'</strong></p><p>Caller turn</p></li><li><p><strong>Sparra</strong> — '+(locale==='fr'?'Interrompu':'Interrupted')+'</p><p>Assistant turn</p></li></ol>')
+    expect(html).toContain('<ol class="sparra-call-transcript"><li id="turn-cccccccc-cccc-4ccc-8ccc-cccccccccccc" tabindex="-1"><p><strong>'+(locale==='fr'?'Appelant':'Caller')+'</strong></p><p>Caller turn</p></li><li id="turn-dddddddd-dddd-4ddd-8ddd-dddddddddddd" tabindex="-1"><p><strong>Sparra</strong> — '+(locale==='fr'?'Interrompu':'Interrupted')+'</p><p>Assistant turn</p></li></ol>')
     expect(html).toContain(locale==='fr'?'Pinned garage — Version enregistrée 7':'Pinned garage — Saved version 7')
     expect(html.match(/<dt>/g)).toHaveLength(5)
     for(const text of ['09:00–17:00','Oil change','Bring the vehicle papers','Ask before proceeding'])expect(html).toContain('<dd>'+text+'</dd>')
@@ -152,7 +152,7 @@ test('request detail keeps observed metadata, ordered partial turns, pinned know
 test('request detail retains empty contact and absent snapshot fallbacks without treating complete quality as partial',async()=>{
   const {RequestPanel}=await import('../../src/ui/sparra/request-panel')
   for(const locale of ['fr','en'] as const){
-    const detail:RequestDetailDto={...requestDetail,resultQuality:'complete',summary:null,category:null,nextAction:null,contact:{name:null,callback_e164:null,preference:null,callback_source:'missing',callback_confirmed:false},configuration:null,transcript:[],transcriptAvailability:'available',unavailableTurnCount:0,moreTurns:false,transcriptLossCount:0,treatedAt:'2026-10-01T11:00:00.000Z'}
+    const detail:RequestDetailDto={...requestDetail,resultQuality:'complete',summary:null,category:null,nextAction:null,contact:{name:null,callback_e164:null,preference:null,callback_source:'missing',callback_confirmed:false},configuration:null,transcript:[],transcriptAvailability:'available',unavailableTurnCount:0,moreTurns:false,transcriptLossCount:0,treatedAt:'2026-10-01T11:00:00.000Z',followUp:{...requestDetail.followUp,reviewedRevision:1,declarationActive:true,firstDeclaredAt:'2026-10-01T11:00:00.000Z'}}
     const html=renderToStaticMarkup(<RequestPanel locale={locale} loaded={{detail,receipt:null}} onTreat={unavailable} onErase={unavailable} onRefused={unavailable}/> )
     expect(html).toMatch(new RegExp('<h2[^>]*>'+(locale==='fr'?'Résumé':'Summary')+'</h2>'))
     expect(html).not.toContain(locale==='fr'?'Résumé partiel':'Partial summary')

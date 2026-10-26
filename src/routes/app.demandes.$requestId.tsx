@@ -1,6 +1,6 @@
 import { createFileRoute, redirect, useRouter } from '@tanstack/react-router'
 import { useServerFn } from '@tanstack/react-start'
-import { getRequestDetail, getRequestErasure, markRequestTreated, eraseRequest } from '../modules/sparra/sparra.functions'
+import { getRequestDetail, getRequestErasure, updateRequestFollowUp, eraseRequest } from '../modules/sparra/sparra.functions'
 import { RequestPanel, type RequestLoaded } from '../ui/sparra/request-panel'
 import { privateResult, PrivateUnavailable } from '../ui/sparra/app-shell'
 import { appMessages } from '../modules/sparra/messages'
@@ -20,6 +20,6 @@ export const Route=createFileRoute('/app/demandes/$requestId')({
   component:Request,
   errorComponent:function RequestUnavailable(){const {lang}=Route.useSearch();return <PrivateUnavailable locale={lang} title={appMessages[lang].details}/>},
 })
-function Request(){const {lang}=Route.useSearch(),{requestId}=Route.useParams(),loaded=Route.useLoaderData(),router=useRouter(),treat=useServerFn(markRequestTreated),erase=useServerFn(eraseRequest)
-  return <RequestPanel key={requestId+lang+JSON.stringify(loaded)} locale={lang} loaded={loaded} onTreat={(data,signal)=>treat({data,signal})} onErase={signal=>erase({data:{requestId},signal})} onRefused={async()=>{await router.navigate({to:'/login',search:{lang,error:undefined}})}}/>
+function Request(){const {lang,view}=Route.useSearch(),{requestId}=Route.useParams(),loaded=Route.useLoaderData(),router=useRouter(),treat=useServerFn(updateRequestFollowUp),erase=useServerFn(eraseRequest)
+  return <RequestPanel key={requestId+lang} locale={lang} view={view} loaded={loaded} onRefresh={async signal=>{try{return {detail:await privateResult(getRequestDetail({data:{requestId},signal})),receipt:null}}catch(error){if(!(error instanceof Response)||error.status!==404)throw error;return {detail:null,receipt:await privateResult(getRequestErasure({data:{requestId},signal}))}}}} onTreat={(data,signal)=>treat({data,signal})} onErase={signal=>erase({data:{requestId},signal})} onRefused={async()=>{await router.navigate({to:'/login',search:{lang,error:undefined}})}}/>
 }

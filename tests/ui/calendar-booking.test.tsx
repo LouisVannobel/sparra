@@ -154,7 +154,7 @@ test.each(['fr', 'en'] as const)('model-only confirmation and mixed booking evid
 
 test('confirmed booking does not mark the request treated or remove a prior treatment', () => {
   const open = { ...appointment, bookingOutcome: 'confirmed' as const }
-  const treated = { ...open, treatedAt: '2026-10-01T11:00:00.000Z' }
+  const treated = { ...open, treatedAt: '2026-10-01T11:00:00.000Z',followUp:{...open.followUp,reviewedRevision:1,declarationActive:true,firstDeclaredAt:'2026-10-01T11:00:00.000Z'} }
   const render = (detail: typeof open) => renderToStaticMarkup(<InboxPanel locale="en" state={{ workspace: null, configuration: null, localAudioAvailable: false }} page={{ requests: [detail], nextCursor: null }} onMore={unavailable} onTreat={unavailable} onRefused={unavailable} />)
   expect(render(open)).toContain('To treat')
   expect(render(treated)).toContain('Treated')
