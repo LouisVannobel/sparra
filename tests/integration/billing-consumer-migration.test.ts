@@ -29,18 +29,30 @@ test('forward billing migration preserves populated consumer0022 auth, Inbox and
     await stores.administrator.query("INSERT INTO sparra_call(id,workspace_id,configuration_revision,deployment_id,provider_call_control_id,admitted_at,retention_until,recording_id,audio_state) VALUES($1,$2,1,'billing-migration','synthetic-call',now(),now()+interval '30 days',$3,'pending')", [callId, workspaceId, recordingId])
     await stores.administrator.query("INSERT INTO sparra_audio_chunk(workspace_id,call_id,recording_id,deployment_id,sequence,configuration_revision,retention_until,sample_count,sample_rate,channels,sample_format,crypto_version,key_version,nonce,ciphertext,charged_bytes) VALUES($1,$2,$3,'billing-migration',0,1,now()+interval '30 days',1,8000,2,'s16le',1,1,decode(repeat('00',12),'hex'),decode(repeat('00',20),'hex'),32)", [workspaceId, callId, recordingId])
     const tables = (await stores.administrator.query<{ tablename: string }>("SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename")).rows.map(row => row.tablename)
+    const publicationColumns = ['collection_manifest','collection_closed','publication_snapshot','publication_version','declared_publication','declaration_active','publication_token']
     const snapshot = async () => {
       const rows: Record<string, { value: unknown }[]> = {}
       for (const table of tables) {
         if (!/^[a-z_]+$/.test(table)) throw new Error('Unexpected consumer relation')
-        rows[table] = (await stores.administrator.query(`SELECT to_jsonb(t) AS value FROM public."${table}" t ORDER BY to_jsonb(t)::text`)).rows
+        rows[table] = (await stores.administrator.query(`SELECT to_jsonb(t)-$1::text[] AS value FROM public."${table}" t ORDER BY (to_jsonb(t)-$1::text[])::text`, [table === 'sparra_call' ? publicationColumns : []])).rows
       }
       return rows
     }
+    const publication = async () => (await stores.administrator.query('SELECT collection_manifest,collection_closed,publication_snapshot,publication_version,declared_publication,declaration_active,publication_token FROM sparra_call WHERE id=$1', [callId])).rows
     const before = await snapshot()
+    const admittedAt = (await stores.administrator.query<{admitted_at:string}>("SELECT to_jsonb(c)->>'admitted_at' AS admitted_at FROM sparra_call c WHERE id=$1", [callId])).rows[0]!.admitted_at
     const receipts = (await stores.administrator.query('SELECT id,hash,created_at::text FROM drizzle.__drizzle_migrations ORDER BY id')).rows
     await stores.migrate()
     expect(await snapshot()).toEqual(before)
+    const published = await publication()
+    expect(published).toEqual([{
+      collection_manifest:null,collection_closed:false,declaration_active:false,declared_publication:0,publication_version:1,
+      publication_token:expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/),
+      publication_snapshot:{schema_version:1,collection:null,collection_closed:false,status:'pending',configuration_revision:1,
+        from_e164:null,admitted_at:admittedAt,ended_at:null,end_reason:null,disclosure_state:'pending',
+        transcript_loss_count:0,encrypted_turns:{},encrypted_message_result:null,bookings:[],
+        audio:{state:'pending',recording_id:recordingId,total_samples:null,last_sequence:null,finish_reason:null,coverage:'unknown'}},
+    }])
     const installedJournal = (await stores.administrator.query('SELECT id,hash,created_at::text FROM drizzle.__drizzle_migrations ORDER BY id')).rows
     expect(installedJournal).toHaveLength(expectedJournal.length)
     expect(installedJournal.map(row => ({ hash: row.hash, created_at: row.created_at }))).toEqual(expectedJournal)
@@ -48,6 +60,7 @@ test('forward billing migration preserves populated consumer0022 auth, Inbox and
     expect((await stores.administrator.query("SELECT count(*)::int AS n FROM public.billing_operation")).rows[0].n).toBe(0)
     await stores.migrate()
     expect(await snapshot()).toEqual(before)
+    expect(await publication()).toEqual(published)
     expect((await stores.administrator.query('SELECT id,hash,created_at::text FROM drizzle.__drizzle_migrations ORDER BY id')).rows).toEqual(installedJournal)
     expect((await stores.administrator.query("SELECT count(*)::int AS n FROM public.billing_operation")).rows[0].n).toBe(0)
   } finally {
