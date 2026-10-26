@@ -307,3 +307,72 @@ test('compiled current publication, provisional revocation and old response pres
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=320)).toBe(true)
  }finally{await cleanup(context)}
 })
+
+
+function audioRecoveryDetail():RequestDetailDto{
+ return {...row,status:'closed',summary:'Audio recovery fixture',configuration:null,transcript:[],transcriptAvailability:'available',unavailableTurnCount:0,moreTurns:false,transcriptLossCount:0,erasureState:null,evidence:[],callerPhone:null,collectionGaps:['audio_partial'],audioCoverage:'unknown',audio:{state:'partial',durationSeconds:2,expiresAt:'2026-11-01T10:00:00.000Z',partialReason:'interrupted',available:true}}
+}
+
+test('compiled audio error recovers only after successful same-ID reread without retiring playback on treatment',async()=>{
+ const {context,page}=await mounted()
+ try{
+  const calls=await page.evaluateHandle(()=>{
+   const counts={pause:0,load:0},originalPause=HTMLMediaElement.prototype.pause,originalLoad=HTMLMediaElement.prototype.load
+   HTMLMediaElement.prototype.pause=function(){counts.pause++;return originalPause.call(this)}
+   HTMLMediaElement.prototype.load=function(){counts.load++;return originalLoad.call(this)}
+   return counts
+  })
+  const detail=audioRecoveryDetail()
+  await page.evaluate(detail=>window.inboxFixture.detailPublish({detail,receipt:null}),detail)
+  await page.locator('audio').waitFor()
+  const audio=await page.locator('audio').elementHandle(),summary=await page.locator('.sparra-request-summary').elementHandle()
+  await page.getByRole('button',{name:'Marquer comme traité',exact:true}).click();await treatmentCount(page,1)
+  await treated(page,{requestId:detail.id,treatedAt:stamp})
+  expect(await audio!.evaluate(node=>node.isConnected)).toBe(true)
+  expect(await calls.jsonValue()).toEqual({pause:0,load:0})
+  await page.locator('audio').dispatchEvent('error')
+  await expect.poll(()=>page.locator('audio').count()).toBe(0)
+  await expect.poll(()=>audio!.getAttribute('src')).toBeNull()
+  expect(await calls.jsonValue()).toEqual({pause:1,load:1})
+  await page.getByRole('button',{name:'Actualiser les appels',exact:true}).click()
+  await expect.poll(()=>page.evaluate(()=>window.inboxFixture.detailSnapshot().length)).toBe(1)
+  await page.evaluate(()=>window.inboxFixture.detailResolve(0,503))
+  await page.getByRole('alert').waitFor()
+  expect(await page.locator('audio').count()).toBe(0)
+  await page.getByRole('button',{name:'Actualiser les appels',exact:true}).click()
+  await expect.poll(()=>page.evaluate(()=>window.inboxFixture.detailSnapshot().length)).toBe(2)
+  const next={...detail,followUp:{...detail.followUp,publicationRevision:2,decisionToken:'dddddddd-dddd-4ddd-8ddd-dddddddddddd',reviewedRevision:1,declarationActive:true,firstDeclaredAt:stamp},audio:{...detail.audio!,durationSeconds:3}}
+  await page.evaluate(detail=>window.inboxFixture.detailResolve(1,{detail,receipt:null}),next)
+  await expect.poll(()=>page.locator('audio').count()).toBe(1)
+  expect(await page.locator('audio').getAttribute('src')).toBe('/api/sparra/audio/'+detail.id)
+  expect(await page.locator('audio').getAttribute('preload')).toBe('none')
+  expect(await page.locator('audio').evaluate(node=>node instanceof HTMLAudioElement&&node.paused)).toBe(true)
+  expect(await summary!.evaluate(node=>node.isConnected)).toBe(true)
+  expect(await page.getByRole('alert').count()).toBe(0)
+  const recovered=await page.locator('audio').elementHandle()
+  await page.evaluate(()=>window.inboxFixture.unmount())
+  expect(await page.locator('audio').count()).toBe(0)
+  await expect.poll(()=>recovered!.getAttribute('src')).toBeNull()
+  expect(await calls.jsonValue()).toEqual({pause:2,load:2})
+ }finally{await cleanup(context)}
+})
+
+test('compiled queued erasure reread failure announces its error while retaining the receipt and private 401 path',async()=>{
+ const {context,page}=await mounted()
+ try{
+  await page.evaluate(requestId=>window.inboxFixture.detailPublish({detail:null,receipt:{requestId,state:'queued'}}),row.id)
+  await page.getByText('Effacement en attente. Les autres copies restent à supprimer.',{exact:true}).waitFor()
+  await page.getByRole('button',{name:'Actualiser les appels',exact:true}).click()
+  await expect.poll(()=>page.evaluate(()=>window.inboxFixture.detailSnapshot().length)).toBe(1)
+  await page.evaluate(()=>window.inboxFixture.detailResolve(0,503))
+  await page.getByRole('alert').waitFor()
+  expect(await page.getByRole('alert').textContent()).toBe('Données indisponibles. Rechargez la page ou reconnectez-vous.')
+  expect(await page.getByText('Effacement en attente. Les autres copies restent à supprimer.',{exact:true}).count()).toBe(1)
+  await page.getByRole('button',{name:'Actualiser les appels',exact:true}).click()
+  await expect.poll(()=>page.evaluate(()=>window.inboxFixture.detailSnapshot().length)).toBe(2)
+  await page.evaluate(()=>window.inboxFixture.detailResolve(1,401))
+  await page.getByRole('link',{name:'Aller à la connexion',exact:true}).waitFor()
+  expect((await page.evaluate(()=>window.inboxFixture.snapshot())).refusals).toBe(1)
+  expect(await page.getByText('Effacement en attente. Les autres copies restent à supprimer.',{exact:true}).count()).toBe(0)
+ }finally{await cleanup(context)}
+})

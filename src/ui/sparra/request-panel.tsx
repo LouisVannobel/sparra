@@ -119,8 +119,11 @@ function RequestAudioDetails({locale,audio}:{locale:Locale;audio:RequestAudioMet
   </>
 }
 
-export function RequestAudio({locale,detail,blocked}:{locale:Locale;detail:Pick<RequestDetailDto,'id'|'audio'>;blocked:boolean}){
+export function RequestAudio({locale,detail,blocked,readGeneration=0}:{locale:Locale;detail:Pick<RequestDetailDto,'id'|'audio'>;blocked:boolean;readGeneration?:number}){
   const element=useRef<HTMLAudioElement>(null),[failed,setFailed]=useState(false),audio=detail.audio
+  // A successful owned reread may recover a local playback error. Follow-up
+  // receipts do not advance this generation or retire an available player.
+  useEffect(()=>setFailed(false),[readGeneration,detail.id])
   const available=audio?.available===true&&!blocked&&!failed
   useEffect(()=>{
     const player=element.current
@@ -165,8 +168,8 @@ function RequestMetadata({locale,detail}:{locale:Locale;detail:Pick<RequestDetai
 export function RequestPanel({locale,loaded,onTreat,onErase,onRefused,onRefresh,view='pending'}:Props){
   const t=appMessages[locale],hydrated=useHydrated(),[current,setCurrent]=useState(loaded),[pending,setPending]=useState(false),[failed,setFailed]=useState(false),[confirm,setConfirm]=useState(false)
   const begin=useRequestAttempt(),lock=useRef(false),actionGeneration=useRef(0)
-  const [failure,setFailure]=useState<FollowUpFailure|null>(null)
-  useLayoutEffect(()=>{begin();actionGeneration.current++;lock.current=false;setCurrent(loaded);setPending(false);setFailed(false);setFailure(null);setConfirm(false);setRefused(false)},[loaded])
+  const [failure,setFailure]=useState<FollowUpFailure|null>(null),[audioReadGeneration,setAudioReadGeneration]=useState(0)
+  useLayoutEffect(()=>{begin();actionGeneration.current++;lock.current=false;setCurrent(loaded);setAudioReadGeneration(value=>value+1);setPending(false);setFailed(false);setFailure(null);setConfirm(false);setRefused(false)},[loaded])
   const [refused,setRefused]=useState(false)
   async function mutate(kind:'treat'|'revoke'|'erase'){
     if(lock.current)return
@@ -177,23 +180,23 @@ export function RequestPanel({locale,loaded,onTreat,onErase,onRefused,onRefresh,
   async function refresh(){
     if(lock.current||!onRefresh)return
     const {signal,live}=begin();setPending(true);setFailed(false);setFailure(null)
-    try{const next=await privateResult(onRefresh(signal));if(live()){setCurrent(next);setConfirm(false)}}
+    try{const next=await privateResult(onRefresh(signal));if(live()){setCurrent(next);setAudioReadGeneration(value=>value+1);setConfirm(false)}}
     catch(error){await settleRequestActionFailure(error,live,{setFailed,setRefused,onRefused})}
     finally{if(live())setPending(false)}
   }
   const detail=current.detail
   if(refused)return <PrivateUnavailable locale={locale} title={t.details}/>
   return <><a className="sparra-back-link" href={`/app?lang=${locale}&view=${view}`}>{t.inbox}</a><div className="sparra-page-heading"><Heading level={1}>{t.details}</Heading>{onRefresh&&<Button label={t.refresh} isDisabled={!hydrated||lock.current} isLoading={pending} isInterruptible onClick={()=>void refresh()}/>}</div>
+    {failed&&<p role="alert">{failure?followUpMessages[locale][failure]:t.unavailable}</p>}
     {current.receipt?<p role="status">{current.receipt.state==='queued'?t.queued:t.completed}</p>:detail&&<>
       <RequestMetadata locale={locale} detail={detail}/>
       <RequestActions locale={locale} detail={detail} hydrated={hydrated} pending={pending} onMutate={mutate}/>
-      {failed&&<p role="alert">{failure?followUpMessages[locale][failure]:t.unavailable}</p>}
       <RequestProvenance locale={locale} detail={detail}/>
       <div className="sparra-call-workspace">
       <RequestSummary locale={locale} detail={detail}/>
       <RequestBookings locale={locale} detail={detail}/>
       <RequestTranscript locale={locale} detail={detail}/>
-      <RequestAudio locale={locale} detail={detail} blocked={pending&&confirm}/>
+      <RequestAudio locale={locale} detail={detail} readGeneration={audioReadGeneration} blocked={pending&&confirm}/>
       <RequestConfigurationSnapshot locale={locale} configuration={detail.configuration}/>
       </div>
       <section className="sparra-request-erasure">{!confirm?<Button variant="secondary" label={t.erase} isDisabled={!hydrated||pending} onClick={()=>setConfirm(true)}/>:<div><p>{t.eraseWarning}</p><Button label={t.confirmErase} isDisabled={pending} onClick={()=>void mutate('erase')}/><Button variant="secondary" label={t.cancel} isDisabled={pending} onClick={()=>setConfirm(false)}/></div>}</section>

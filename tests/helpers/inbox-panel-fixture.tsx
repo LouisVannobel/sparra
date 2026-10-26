@@ -39,7 +39,7 @@ function detailPublish(loaded:RequestLoaded,locale:Locale='fr'){
 }
 const fixture = {
   detailPublish,
-  detailResolve(index:number,value:RequestLoaded){detailReads[index].resolve(value)},
+  detailResolve(index:number,value:RequestLoaded|number){detailReads[index].resolve(typeof value==='number'?new Response(null,{status:value}):value)},
   detailSnapshot(){return detailReads.map(read=>({aborted:read.signal.aborted}))},
 
   publish: render,
