@@ -151,3 +151,17 @@ test('acquisition deadline includes DNS and does not open transport after expiry
     expect(f.seen).toHaveLength(0)
   } finally { vi.useRealTimers() }
 })
+
+test('native pinned lookup returns the shape requested by Node for both address families', async () => {
+  const { pinnedAddressLookup } = await import('../../src/modules/sparra/website-capture.server')
+  for (const [address, family] of [['93.184.215.14', 4], ['2606:4700:4700::1111', 6]] as const) {
+    const pinned = pinnedAddressLookup(address)
+    for (const all of [false, true]) {
+      let result: { error: unknown; address: unknown; family: unknown } | undefined
+      pinned('example.com', { all }, (error, resolved, resolvedFamily) => {
+        result = { error, address: resolved, family: resolvedFamily }
+      })
+      expect(result).toEqual({ error: null, address: all ? [{ address, family }] : address, family: all ? undefined : family })
+    }
+  }
+})

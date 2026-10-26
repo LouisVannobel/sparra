@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { lookup } from 'node:dns/promises'
 import { request } from 'node:https'
+import type { LookupFunction } from 'node:net'
 import ipaddr from 'ipaddr.js'
 import { extractWebsiteText } from './website-text.server'
 
@@ -92,18 +93,25 @@ async function readPage(page: Page, signal: AbortSignal): Promise<Uint8Array> {
   return bytes
 }
 
+export function pinnedAddressLookup(address: string): LookupFunction {
+  const family = address.includes(':') ? 6 : 4
+  return (_hostname, options, done) => {
+    if (options.all) done(null, [{ address, family }])
+    else done(null, address, family)
+  }
+}
+
 const nativeBoundaries: CaptureBoundaries = {
   resolve: async hostname => (await lookup(hostname, { all: true, verbatim: true })).map(result => {
     if (result.family !== 4 && result.family !== 6) return fail('UNSAFE_DESTINATION')
     return { address: result.address, family: result.family }
   }),
   open: (url, address, signal) => new Promise((resolve, reject) => {
-    const family = address.includes(':') ? 6 : 4
     const outgoing = request({
       protocol: 'https:', hostname: url.hostname, port: 443, path: url.pathname + url.search,
       method: 'GET', agent: false, signal, servername: url.hostname,
       headers: { accept: 'text/html', 'accept-encoding': 'identity' },
-      lookup: (_hostname, _options, done) => done(null, address, family),
+      lookup: pinnedAddressLookup(address),
     }, incoming => {
       resolve({ status: incoming.statusCode ?? 0, headers: incoming.headers, body: incoming, close: () => { incoming.destroy(); outgoing.destroy() } })
     })
