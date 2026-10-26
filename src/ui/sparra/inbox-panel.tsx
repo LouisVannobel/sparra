@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useHydrated } from '@tanstack/react-router'
 import { Heading } from '@astryxdesign/core/Heading'
 import { Button } from '@astryxdesign/core/Button'
@@ -61,13 +61,19 @@ export async function treatInboxRequest(current:ListRequestsPage,requestId:strin
 }
 
 type InboxRequest=ListRequestsPage['requests'][number]
+function inboxBookingLabel(request:InboxRequest,locale:Locale){
+  if(request.category!=='appointment_to_confirm')return null
+  if(request.bookingOutcome==='confirmed')return bookingMessages[locale].confirmed
+  if(request.bookingOutcome==='cancelled')return bookingMessages[locale].cancelled
+  return null
+}
 function InboxContact({contact,locale,bookingOutcome}:{contact:InboxRequest['contact'];locale:Locale;bookingOutcome:boolean}){
   if(!contact)return null
   return <>{contact.callback_e164&&<p>{contact.callback_e164}</p>}<p>{requestMessages[locale].callbackSource[contact.callback_source]}</p><p>{bookingOutcome?requestMessages[locale].numberUnconfirmed:appMessages[locale].unconfirmed}</p></>
 }
 function InboxResult({request,locale}:{request:InboxRequest;locale:Locale}){
   const t=appMessages[locale],labels=requestMessages[locale]
-  const bookingLabel=request.category==='appointment_to_confirm'?(request.bookingOutcome==='confirmed'?bookingMessages[locale].confirmed:request.bookingOutcome==='cancelled'?bookingMessages[locale].cancelled:null):null
+  const bookingLabel=inboxBookingLabel(request,locale)
   return <>{request.category&&<><strong>{labels.reason}</strong><p>{bookingLabel??labels.category[request.category]}</p></>}{request.nextAction&&<><strong>{bookingLabel?labels.extractedAction:t.nextAction}</strong><p>{request.nextAction}</p></>}
     <InboxContact contact={request.contact} locale={locale} bookingOutcome={bookingLabel!==null}/>{request.resultAvailability==='available'&&request.resultQuality==='partial'&&<span className="sparra-app-label">{t.partial}</span>}</>
 }
@@ -77,7 +83,7 @@ function InboxTreatment({request,locale,disabled,treating,onTreat}:{request:Inbo
 }
 function InboxRow({request,locale,disabled,treating,onTreat,view='pending'}:{request:InboxRequest;locale:Locale;disabled:boolean;treating:string|null;onTreat(requestId:string):void;view?:'pending'|'all'}){
   const t=appMessages[locale],excerpt=request.summary===null&&request.resultAvailability==='unavailable'?request.conversationExcerpt:null
-  const bookingLabel=request.category==='appointment_to_confirm'?(request.bookingOutcome==='confirmed'?bookingMessages[locale].confirmed:request.bookingOutcome==='cancelled'?bookingMessages[locale].cancelled:null):null
+  const bookingLabel=inboxBookingLabel(request,locale)
   return <li><div className="sparra-inbox-row-heading" id={`inbox-call-${request.id}`}><a href={`/app/demandes/${request.id}?lang=${locale}&view=${view}`}>{bookingLabel??request.summary??(excerpt?t.conversationExcerpt:t.summaryUnavailable)}</a><p><time dateTime={request.admittedAt}>{observedDate(request.admittedAt,locale)}</time></p></div>
     {excerpt&&<p><q>{excerpt}</q></p>}
     <div className="sparra-app-label sparra-inbox-operator">{requiresReview(request.followUp)?(request.followUp.declarationActive?followUpMessages[locale].newPublication:t.untreated):t.treated}</div><p className="sparra-inbox-status">{t.status[request.status]}</p>
@@ -87,17 +93,15 @@ function InboxRows({requests,locale,disabled,treating,onTreat,view}:{requests:In
   if(requests.length===0)return <div className="sparra-inbox-empty"><span className="sparra-empty-icon"><Icon icon="microphone" aria-hidden="true"/></span><p>{appMessages[locale].noCalls}</p></div>
   return <ul className="sparra-inbox">{requests.map(request=><InboxRow key={request.id} view={view} request={request} locale={locale} disabled={disabled} treating={treating} onTreat={onTreat}/>)}</ul>
 }
-function InboxProgress({locale,pending,treating}:{locale:Locale;pending:'more'|'refresh'|null;treating:string|null}){
+function InboxFeedback({locale,pending,treating,failed,treatmentFailed,failure}:{locale:Locale;pending:'more'|'refresh'|null;treating:string|null;failed:boolean;treatmentFailed:boolean;failure:FollowUpFailure|null}){
   const t=appMessages[locale]
-  return <>{pending&&<p role="status">{t.loading}</p>}{treating&&<p role="status">{t.pending}</p>}</>
+  return <>{failure&&<p role="alert">{followUpMessages[locale][failure]}</p>}{pending&&<p role="status">{t.loading}</p>}{treating&&<p role="status">{t.pending}</p>}{failed&&<p role="alert">{t.unavailable}</p>}{treatmentFailed&&!failure&&<p role="alert">{t.treatmentUnknown}</p>}</>
 }
-function InboxFailures({locale,failed,treatmentFailed}:{locale:Locale;failed:boolean;treatmentFailed:boolean}){
+function InboxFrame({locale,configuration,disabled,pending,onRefresh,view,refused,children}:{locale:Locale;configuration:ActivityState['configuration'];disabled:boolean;pending:'more'|'refresh'|null;onRefresh():void;view:'pending'|'all';refused:boolean;children:ReactNode}){
   const t=appMessages[locale]
-  return <>{failed&&<p role="alert">{t.unavailable}</p>}{treatmentFailed&&<p role="alert">{t.treatmentUnknown}</p>}</>
-}
-function InboxHeading({locale,configuration,disabled,pending,onRefresh}:{locale:Locale;configuration:ActivityState['configuration'];disabled:boolean;pending:'more'|'refresh'|null;onRefresh():void}){
-  const t=appMessages[locale]
-  return <><div className="sparra-page-heading"><Heading level={1}>{t.inbox}</Heading><p>{descriptions[locale]}</p><Button label={t.refresh} isDisabled={disabled} isLoading={pending==='refresh'} isInterruptible onClick={onRefresh}/></div>{!configuration&&<p className="sparra-setup-note"><a href={`/app/entreprise?lang=${locale}`}>{t.configure}</a></p>}</>
+  if(refused)return <PrivateUnavailable locale={locale}/>
+  return <><div className="sparra-page-heading"><Heading level={1}>{t.inbox}</Heading><p>{descriptions[locale]}</p><Button label={t.refresh} isDisabled={disabled} isLoading={pending==='refresh'} isInterruptible onClick={onRefresh}/></div>{!configuration&&<p className="sparra-setup-note"><a href={`/app/entreprise?lang=${locale}`}>{t.configure}</a></p>}
+    <nav className="sparra-inbox-views" aria-label={followUpMessages[locale].views}>{(['pending','all'] as const).map(value=><a key={value} href={`/app?lang=${locale}&view=${value}`} aria-current={view===value?'page':undefined}>{followUpMessages[locale][value]}</a>)}</nav>{children}</>
 }
 function InboxMore({locale,cursor,disabled,pending,onMore}:{locale:Locale;cursor:ListRequestsPage['nextCursor'];disabled:boolean;pending:'more'|'refresh'|null;onMore():void}){
   if(!cursor)return null
@@ -119,12 +123,10 @@ export function InboxPanel({locale,state,page,onMore,onTreat,onRefused,view='pen
     return loadInboxPage(current,begin,onMore,{setCurrent,setPending:value=>setPending(value?kind:null),setFailed,setRefused,onRefused},kind,view)
   }
   const treat=(requestId:string)=>void treatInboxRequest(current,requestId,treatmentLock,begin,onTreat,{setCurrent,setPending:()=>setPending(null),setReadFailed:setFailed,setTreating,setFailed:setTreatmentFailed,setFailure,setRefused,onRefused})
-  if(refused)return <PrivateUnavailable locale={locale}/>
   const controlsDisabled=!hydrated||treating!==null
-  return <><InboxHeading locale={locale} configuration={state.configuration} disabled={controlsDisabled} pending={pending} onRefresh={()=>void read('refresh')}/>
-    <nav className="sparra-inbox-views" aria-label={followUpMessages[locale].views}>{(['pending','all'] as const).map(value=><a key={value} href={`/app?lang=${locale}&view=${value}`} aria-current={view===value?'page':undefined}>{followUpMessages[locale][value]}</a>)}</nav>
+  return <InboxFrame locale={locale} configuration={state.configuration} disabled={controlsDisabled} pending={pending} onRefresh={()=>void read('refresh')} view={view} refused={refused}>
     <InboxRows view={view} requests={current.requests} locale={locale} disabled={controlsDisabled} treating={treating} onTreat={treat}/>
     <InboxMore locale={locale} cursor={current.nextCursor} disabled={controlsDisabled} pending={pending} onMore={()=>void read('more')}/>
-    {failure&&<p role="alert">{followUpMessages[locale][failure]}</p>}<InboxProgress locale={locale} pending={pending} treating={treating}/><InboxFailures locale={locale} failed={failed} treatmentFailed={treatmentFailed&&!failure}/>
-  </>
+    <InboxFeedback locale={locale} pending={pending} treating={treating} failed={failed} treatmentFailed={treatmentFailed} failure={failure}/>
+  </InboxFrame>
 }

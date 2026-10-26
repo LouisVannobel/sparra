@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useHydrated } from '@tanstack/react-router'
 import { Heading } from '@astryxdesign/core/Heading'
 import { Button } from '@astryxdesign/core/Button'
@@ -43,6 +43,16 @@ export async function performRequestAction(kind:'treat'|'revoke'|'erase',current
     if(kind!=='erase')await consumeTreatAction(kind==='treat',current,signal,live,onTreat,effects.setCurrent)
     else await consumeEraseAction(signal,live,onErase,effects.setCurrent)
   }catch(error){await settleRequestActionFailure(error,live,effects)}finally{if(live())effects.setPending(false)}
+}
+
+async function refreshRequest(begin:ReturnType<typeof useRequestAttempt>,onRefresh:NonNullable<Props['onRefresh']>,effects:Required<RequestActionEffects>){
+  const {signal,live}=begin()
+  effects.setPending(true);effects.setFailed(false);effects.setFailure(null)
+  try{
+    const next=await privateResult(onRefresh(signal))
+    if(live())effects.setCurrent(next)
+  }catch(error){await settleRequestActionFailure(error,live,{setFailed:effects.setFailed,setRefused:effects.setRefused,onRefused:effects.onRefused})}
+  finally{if(live())effects.setPending(false)}
 }
 
 function RequestSummaryExtraction({locale,detail,bookingLabel}:{locale:Locale;detail:RequestDetailDto;bookingLabel:string|null}){
@@ -167,8 +177,42 @@ function RequestMetadata({locale,detail}:{locale:Locale;detail:Pick<RequestDetai
   return <div className="sparra-request-meta"><p>{t.status[detail.status]}</p><p>{t.admitted}: <time dateTime={detail.admittedAt}>{observedDate(detail.admittedAt,locale)}</time></p><p>{detail.endedAt?`${t.ended}: ${observedDate(detail.endedAt,locale)}`:t.noEnd}</p></div>
 }
 
+function RequestFrame({locale,view,hydrated,locked,pending,canRefresh,onRefresh,refused,failed,failure,children}:{locale:Locale;view:'pending'|'all';hydrated:boolean;locked:boolean;pending:boolean;canRefresh:boolean;onRefresh():Promise<void>;refused:boolean;failed:boolean;failure:FollowUpFailure|null;children:ReactNode}){
+  const t=appMessages[locale]
+  if(refused)return <PrivateUnavailable locale={locale} title={t.details}/>
+  return <><a className="sparra-back-link" href={`/app?lang=${locale}&view=${view}`}>{t.inbox}</a><div className="sparra-page-heading"><Heading level={1}>{t.details}</Heading>{canRefresh&&<Button label={t.refresh} isDisabled={!hydrated||locked} isLoading={pending} isInterruptible onClick={()=>void onRefresh()}/>}</div>
+    {failed&&<p role="alert">{failure?followUpMessages[locale][failure]:t.unavailable}</p>}{children}{pending&&<p role="status">{t.pending}</p>}
+  </>
+}
+
+type RequestContentProps={locale:Locale;current:RequestLoaded;hydrated:boolean;pending:boolean;confirm:boolean;setConfirm(value:boolean):void;onMutate(kind:'treat'|'revoke'|'erase'):Promise<void>;audioReadGeneration:number}
+
+function RequestErasure({locale,hydrated,pending,confirm,setConfirm,onMutate}:Pick<RequestContentProps,'locale'|'hydrated'|'pending'|'confirm'|'setConfirm'|'onMutate'>){
+  const t=appMessages[locale]
+  return <section className="sparra-request-erasure">{!confirm?<Button variant="secondary" label={t.erase} isDisabled={!hydrated||pending} onClick={()=>setConfirm(true)}/>:<div><p>{t.eraseWarning}</p><Button label={t.confirmErase} isDisabled={pending} onClick={()=>void onMutate('erase')}/><Button variant="secondary" label={t.cancel} isDisabled={pending} onClick={()=>setConfirm(false)}/></div>}</section>
+}
+
+function RequestContent({locale,current,hydrated,pending,confirm,setConfirm,onMutate,audioReadGeneration}:RequestContentProps){
+  const t=appMessages[locale],detail=current.detail
+  if(current.receipt)return <p role="status">{current.receipt.state==='queued'?t.queued:t.completed}</p>
+  if(!detail)return null
+  return <>
+    <RequestMetadata locale={locale} detail={detail}/>
+    <RequestActions locale={locale} detail={detail} hydrated={hydrated} pending={pending} onMutate={onMutate}/>
+    <RequestProvenance locale={locale} detail={detail}/>
+    <div className="sparra-call-workspace">
+    <RequestSummary locale={locale} detail={detail}/>
+    <RequestBookings locale={locale} detail={detail}/>
+    <RequestTranscript locale={locale} detail={detail}/>
+    <RequestAudio locale={locale} detail={detail} readGeneration={audioReadGeneration} blocked={pending&&confirm}/>
+    <RequestConfigurationSnapshot locale={locale} configuration={detail.configuration}/>
+    </div>
+    <RequestErasure locale={locale} hydrated={hydrated} pending={pending} confirm={confirm} setConfirm={setConfirm} onMutate={onMutate}/>
+  </>
+}
+
 export function RequestPanel({locale,loaded,onTreat,onErase,onRefused,onRefresh,view='pending'}:Props){
-  const t=appMessages[locale],hydrated=useHydrated(),[current,setCurrent]=useState(loaded),[pending,setPending]=useState(false),[failed,setFailed]=useState(false),[confirm,setConfirm]=useState(false)
+  const hydrated=useHydrated(),[current,setCurrent]=useState(loaded),[pending,setPending]=useState(false),[failed,setFailed]=useState(false),[confirm,setConfirm]=useState(false)
   const begin=useRequestAttempt(),lock=useRef(false),actionGeneration=useRef(0)
   const [failure,setFailure]=useState<FollowUpFailure|null>(null),[audioReadGeneration,setAudioReadGeneration]=useState(0)
   useLayoutEffect(()=>{begin();actionGeneration.current++;lock.current=false;setCurrent(loaded);setAudioReadGeneration(value=>value+1);setPending(false);setFailed(false);setFailure(null);setConfirm(false);setRefused(false)},[loaded])
@@ -181,27 +225,9 @@ export function RequestPanel({locale,loaded,onTreat,onErase,onRefused,onRefresh,
   }
   async function refresh(){
     if(lock.current||!onRefresh)return
-    const {signal,live}=begin();setPending(true);setFailed(false);setFailure(null)
-    try{const next=await privateResult(onRefresh(signal));if(live()){setCurrent(next);setAudioReadGeneration(value=>value+1);setConfirm(false)}}
-    catch(error){await settleRequestActionFailure(error,live,{setFailed,setRefused,onRefused})}
-    finally{if(live())setPending(false)}
+    await refreshRequest(begin,onRefresh,{setCurrent(next){setCurrent(next);setAudioReadGeneration(value=>value+1);setConfirm(false)},setPending,setFailed,setFailure,setRefused,onRefused})
   }
-  const detail=current.detail
-  if(refused)return <PrivateUnavailable locale={locale} title={t.details}/>
-  return <><a className="sparra-back-link" href={`/app?lang=${locale}&view=${view}`}>{t.inbox}</a><div className="sparra-page-heading"><Heading level={1}>{t.details}</Heading>{onRefresh&&<Button label={t.refresh} isDisabled={!hydrated||lock.current} isLoading={pending} isInterruptible onClick={()=>void refresh()}/>}</div>
-    {failed&&<p role="alert">{failure?followUpMessages[locale][failure]:t.unavailable}</p>}
-    {current.receipt?<p role="status">{current.receipt.state==='queued'?t.queued:t.completed}</p>:detail&&<>
-      <RequestMetadata locale={locale} detail={detail}/>
-      <RequestActions locale={locale} detail={detail} hydrated={hydrated} pending={pending} onMutate={mutate}/>
-      <RequestProvenance locale={locale} detail={detail}/>
-      <div className="sparra-call-workspace">
-      <RequestSummary locale={locale} detail={detail}/>
-      <RequestBookings locale={locale} detail={detail}/>
-      <RequestTranscript locale={locale} detail={detail}/>
-      <RequestAudio locale={locale} detail={detail} readGeneration={audioReadGeneration} blocked={pending&&confirm}/>
-      <RequestConfigurationSnapshot locale={locale} configuration={detail.configuration}/>
-      </div>
-      <section className="sparra-request-erasure">{!confirm?<Button variant="secondary" label={t.erase} isDisabled={!hydrated||pending} onClick={()=>setConfirm(true)}/>:<div><p>{t.eraseWarning}</p><Button label={t.confirmErase} isDisabled={pending} onClick={()=>void mutate('erase')}/><Button variant="secondary" label={t.cancel} isDisabled={pending} onClick={()=>setConfirm(false)}/></div>}</section>
-    </>}{pending&&<p role="status">{t.pending}</p>}
-  </>
+  return <RequestFrame locale={locale} view={view} hydrated={hydrated} locked={lock.current} pending={pending} canRefresh={Boolean(onRefresh)} onRefresh={refresh} refused={refused} failed={failed} failure={failure}>
+    <RequestContent locale={locale} current={current} hydrated={hydrated} pending={pending} confirm={confirm} setConfirm={setConfirm} onMutate={mutate} audioReadGeneration={audioReadGeneration}/>
+  </RequestFrame>
 }
