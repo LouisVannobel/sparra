@@ -23,3 +23,9 @@
 - Deux tests comportementaux ajoutés avant les changements : un conteneur `<div>Uniquement sur rendez-vous <p>Diagnostic</p></div>` doit garder condition et fait dans le même passage ; un `Content-Type` avec `charset=iso-8859-1; charset=utf-8` doit être refusé. RED observé sur les deux : `33 tests | 2 failed`, avec sortie `['Diagnostic']` et capture résolue malgré l'en-tête contradictoire.
 - Correctifs limités à l'extracteur et au contrôle `Content-Type` : lorsque du texte direct entoure un passage enfant, le conteneur fournit le passage complet ; les paramètres d'en-tête sont analysés et tout charset non UTF-8, répété ou ambigu est refusé.
 - GREEN : `pnpm exec vitest run tests/sparra/website-capture.test.ts --maxWorkers=1` → `33 passed`; `pnpm run typecheck` → code 0. Aucune suite globale ni nouveau contrôle de transport natif exécuté.
+
+## Correctif de relecture 2/5
+
+- RED : deux variantes d'une seule structure ont été ajoutées avant correction : `<span>condition</span><p>Diagnostic</p>` et `<span><em>condition</em></span><p>Diagnostic</p>` dans un même `div`. `pnpm exec vitest run tests/sparra/website-capture.test.ts --maxWorkers=1` → `35 tests | 2 failed` ; dans les deux cas seul `Diagnostic` ressortait.
+- L'extracteur reconnaît désormais comme contexte le texte visible des enfants non blocs, y compris les éléments inline imbriqués, et le garde avec le bloc associé. Le contrôle `Content-Type` reste inchangé.
+- GREEN : même commande ciblée → `35 passed`; `pnpm run typecheck` → code 0. Aucune suite globale exécutée.

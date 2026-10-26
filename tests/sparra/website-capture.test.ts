@@ -58,6 +58,15 @@ test('keeps a direct parent condition with its nested passage', async () => {
   expect(result.passages.map(passage => passage.text)).toContain('Uniquement sur rendez-vous Diagnostic')
 })
 
+test.each([
+  '<div><span>Uniquement sur rendez-vous</span><p>Diagnostic</p></div>',
+  '<div><span><em>Uniquement sur rendez-vous</em></span><p>Diagnostic</p></div>',
+])('keeps inline parent context with a nested passage: %s', async html => {
+  const f = fixture({ body: (async function* () { yield new TextEncoder().encode(html) })() })
+  const result = await captureWebsiteWithBoundaries('https://example.com/', {}, f.boundaries)
+  expect(result.passages.map(passage => passage.text)).toContain('Uniquement sur rendez-vous Diagnostic')
+})
+
 test('drops a fragment from the captured URL', async () => {
   const f = fixture()
   const result = await captureWebsiteWithBoundaries('https://example.com/hours#opening', {}, f.boundaries)

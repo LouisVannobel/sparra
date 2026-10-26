@@ -46,12 +46,15 @@ export function extractWebsiteText(html: string): { title: string; passages: Rea
         if (text) passages.push({ id: `p${passages.length + 1}`, text })
         return
       }
-      const hasPassageChild = children(node).some(child => isElement(child) && (passageTags.has(child.tagName) || fallbackTags.has(child.tagName)))
-      const hasDirectText = children(node).some(child => child.nodeName === '#text' && 'value' in child && clean(child.value) !== '')
-      if (fallbackTags.has(node.tagName) && (!hasPassageChild || hasDirectText)) {
-        const text = clean(visibleText(node))
-        if (text) passages.push({ id: `p${passages.length + 1}`, text })
-        return
+      if (fallbackTags.has(node.tagName)) {
+        const isPassageChild = (child: Node) => isElement(child) && (passageTags.has(child.tagName) || fallbackTags.has(child.tagName))
+        const hasPassageChild = children(node).some(isPassageChild)
+        const hasInlineContext = children(node).some(child => !isPassageChild(child) && clean(visibleText(child)) !== '')
+        if (!hasPassageChild || hasInlineContext) {
+          const text = clean(visibleText(node))
+          if (text) passages.push({ id: `p${passages.length + 1}`, text })
+          return
+        }
       }
     }
     for (const child of children(node)) visit(child)
