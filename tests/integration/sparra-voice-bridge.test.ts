@@ -44,6 +44,7 @@ beforeAll(async()=>{
   await writeFile(join(prefix,'meta/_journal.json'),JSON.stringify({...journal,entries}));await migrate(drizzle(stores.administrator),{migrationsFolder:prefix})
   // Retention is exactly relative to admission; capture the volatile clock once.
   await admin(`INSERT INTO "user"(id,name,email) VALUES('voice-prefix','Before','voice-prefix@example.test'); INSERT INTO workspace(id,owner_user_id) VALUES('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','voice-prefix'); INSERT INTO sparra_knowledge_revision(workspace_id,revision,business_name,sector,opening_hours,services,prices,faq,instructions) VALUES('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',1,'Before','garage','','','','',''); WITH fixture_admission AS MATERIALIZED (SELECT date_trunc('milliseconds',clock_timestamp()) AS admitted_at) INSERT INTO sparra_call(id,workspace_id,deployment_id,provider_call_control_id,admitted_at,retention_until,configuration_revision) SELECT 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','prefix','prefix',admitted_at,admitted_at+interval '2592000 seconds',1 FROM fixture_admission`)
+  await admin("UPDATE sparra_call SET treated_at=admitted_at WHERE deployment_id='prefix'")
   const snapshot=async()=>(await admin(`SELECT (SELECT jsonb_agg(u) FROM "user" u) users,(SELECT jsonb_agg(w) FROM workspace w) workspaces,(SELECT jsonb_agg(k) FROM sparra_knowledge_revision k) revisions,(SELECT jsonb_agg(c) FROM sparra_call c) calls,(SELECT jsonb_agg(m) FROM drizzle.__drizzle_migrations m) journal`)).rows[0]
   const before=await snapshot(),hashes=await Promise.all(entries.map(async e=>createHash('sha256').update(await readFile('drizzle/'+e.tag+'.sql')).digest('hex')))
   await admin(`CREATE SEQUENCE public.fixture_voice_late; CREATE FUNCTION public.fixture_voice_fail() RETURNS event_trigger LANGUAGE plpgsql AS $$ DECLARE cmd record; BEGIN FOR cmd IN SELECT * FROM pg_event_trigger_ddl_commands() LOOP IF cmd.command_tag='ALTER FUNCTION' AND cmd.object_identity LIKE '%ack_call_erasure_v1%' THEN PERFORM nextval('public.fixture_voice_late');RAISE EXCEPTION 'owned late migration failure';END IF;END LOOP;END $$;CREATE EVENT TRIGGER fixture_voice_fail ON ddl_command_end EXECUTE FUNCTION public.fixture_voice_fail()`)
@@ -57,6 +58,7 @@ beforeAll(async()=>{
   await stores.migrate();const after=await snapshot()
   expect(after.users).toEqual(before.users);expect(after.workspaces).toEqual(before.workspaces);expect(after.revisions).toMatchObject(before.revisions)
   expect(after.calls[0]).toMatchObject(before.calls[0]);expect(after.calls[0].transcript_loss_count).toBe(0)
+  expect(after.calls[0]).toMatchObject({collection_closed:false,declared_publication:0,declaration_active:false,publication_version:1,publication_snapshot:{collection:null,collection_closed:false}})
   expect(after.journal.slice(0,16)).toEqual(before.journal)
   expect(await Promise.all(entries.map(async e=>createHash('sha256').update(await readFile('drizzle/'+e.tag+'.sql')).digest('hex')))).toEqual(hashes)
  }finally{await rm(prefix,{recursive:true,force:true})}
@@ -520,4 +522,44 @@ describe('native sector snapshots',()=>{
  // Retain the earlier native automotive/diagnostic revision through this save.
  expect(nativeValue(await nativeVoice({action:'begin_context',url:stores.voiceUrlA,deployment:'fixture-a',call_id:legacy.id,routing:legacy.route},producer))).toEqual(legacyContext)
  })
+})
+
+test('collection waits for retained pieces, freezes agenda and ignores replay and accounting',async()=>{
+ const {id,route}=await begin(),turnId=randomUUID()
+ expect(await row(id)).toMatchObject({publication_version:0,publication_snapshot:null,collection_closed:false})
+ const collection={schema_version:1,episode_id:randomUUID(),expected_turn_ids:[turnId],result_outcome:'absent',audio:{state:'off'},gaps:[]}
+ const terminal={...callOp(id,route,{status:'closed',started_at:route.admitted_at,ended_at:route.admitted_at,end_reason:'closed'}),payload:{...callOp(id,route).payload,status:'closed',started_at:route.admitted_at,ended_at:route.admitted_at,end_reason:'closed',collection}}
+ expect((await ingest(terminal)).status).toBe('applied')
+ expect(await row(id)).toMatchObject({collection_closed:false,collection_manifest:collection,publication_version:1,declaration_active:false,declared_publication:0})
+ const before=await row(id)
+ expect((await ingest(terminal)).status).toBe('duplicate')
+ expect((await ingest({...terminal,payload:{...terminal.payload,collection:{...collection,episode_id:randomUUID()}}})).status).toBe('conflict')
+ expect((await row(id)).publication_token).toBe(before.publication_token)
+ const turn={...crypto.turn,turn_id:turnId,started_at:route.admitted_at,ended_at:route.admitted_at}
+ expect((await ingest(turnOp(id,turn))).status).toBe('applied')
+ const closed=await row(id)
+ expect(closed.collection_closed).toBe(true)
+ expect(closed.publication_version).toBe(2)
+ expect(closed.publication_snapshot).toMatchObject({schema_version:1,collection_closed:true,encrypted_turns:{[turnId]:turn},bookings:[],audio:{coverage:'unknown'}})
+ await admin('UPDATE sparra_call SET audio_reserved_bytes=audio_reserved_bytes WHERE id=$1',[id])
+ expect((await row(id)).publication_token).toBe(closed.publication_token)
+ await expect(ingest({...terminal,operation_id:randomUUID(),payload:{...terminal.payload,collection:null}})).rejects.toMatchObject({code:'PV202'})
+ await expect(ingest({...terminal,operation_id:randomUUID(),payload:{...terminal.payload,collection:{...collection,episode_id:randomUUID()}}})).rejects.toMatchObject({code:'PV202'})
+ const legacy=await begin();await ingest(callOp(legacy.id,legacy.route,{status:'closed',started_at:legacy.route.admitted_at,ended_at:legacy.route.admitted_at,end_reason:'closed'}))
+ expect((await row(legacy.id)).collection_closed).toBe(false)
+ const command=randomUUID()
+ await admin(`INSERT INTO sparra_calendar_command(id,workspace_id,call_id,deployment_id,kind,digest,connection_id,generation,policy_revision,google_subject,calendar_id,policy,service_id,service_name,window_start,window_end,state,first_send_deadline,event_id) VALUES($1,$2,$3,'fixture-a','book_appointment','fixture',$4,1,1,'fixture','fixture','{"timeZone":"Europe/Paris","bufferMinutes":0}','vidange','Vidange',now()+interval '1 day',now()+interval '1 day 30 minutes','unknown',now()+interval '1 minute','fixture-event')`,[command,workspaceA,id,randomUUID()])
+ const unknown=await row(id)
+ expect(unknown.publication_version).toBe(closed.publication_version+1)
+ expect(unknown.publication_snapshot.bookings).toMatchObject([{id:command,state:'unknown'}])
+ await admin("UPDATE sparra_calendar_command SET state='confirmed',observed_state='confirmed' WHERE id=$1",[command])
+ const confirmed=await row(id)
+ expect(confirmed.publication_version).toBe(unknown.publication_version+1)
+ expect(confirmed.publication_token).not.toBe(unknown.publication_token)
+ expect(confirmed.publication_snapshot.bookings).toMatchObject([{id:command,state:'confirmed',event_id:'fixture-event'}])
+ await admin('UPDATE sparra_calendar_command SET fence=fence+1,retry_at=now() WHERE id=$1',[command])
+ expect((await row(id)).publication_token).toBe(confirmed.publication_token)
+ expect((await admin("SELECT has_column_privilege('runtime','sparra_call','publication_snapshot','UPDATE') AS write,has_function_privilege('runtime','app_private.publish_sparra_inbox_v1(uuid,uuid)','EXECUTE') AS publish")).rows[0]).toEqual({write:false,publish:false})
+ await requests.erase(principalA,id)
+ expect(await row(id)).toBeUndefined()
 })

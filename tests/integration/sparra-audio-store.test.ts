@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, test } from 'vitest'
 import { createCipheriv, randomBytes, randomUUID } from 'node:crypto'
 import { Client } from 'pg'
+import type { InboxCollectionManifest } from '../../src/modules/sparra/schema.server'
 import { startDisposableStores } from '../fixtures/db/disposable-stores'
 
 // Real owned PG/PgBouncer store consumers. Synthetic policy/disclosure/PCM facts
@@ -20,7 +21,7 @@ type AudioRow = {
 type AudioIdentity = { schema_version: 2; workspace_id: string; recording_id: string; configuration_revision: number; retention_until: string }
 type CallPayload = { telnyx_call_control_id: string; telnyx_call_leg_id: string | null; telnyx_call_session_id: string | null
   status: 'pending' | 'active' | 'closing' | 'closed' | 'failed'; disclosure_state: 'pending' | 'completed' | 'failed'
-  started_at: string | null; ended_at: string | null; end_reason: string | null; retention_until: string; transcript_loss_count?: number
+  started_at: string | null; ended_at: string | null; end_reason: string | null; retention_until: string; transcript_loss_count?: number; collection?: InboxCollectionManifest
   disclosure_evidence?: { schema_version: 1; started_at: string | null; completed_at: string | null; failed_at: string | null; input_gate_opened_at: string | null } }
 type TurnPayload = { turn_id: string; turn_no: number; role: 'user' | 'assistant'; source: 'stt_final' | 'pipecat_assistant'
   crypto_version: 1; key_version: number; nonce_b64: string; ciphertext_b64: string; started_at: string; ended_at: string; interrupted: boolean }
@@ -182,4 +183,26 @@ test('native audio revoke deletes binary content and rejects late chunks without
     { ended: before.ended_at, status: before.status, retention: before.retention_until })
   await expect(ingest({ ...first.op, operation_id: randomUUID() })).rejects.toMatchObject({ code: 'PV301' })
   expect(await chunkCount(call.id)).toBe(0); expect(await audioRow(call.id)).toEqual(denied)
+})
+
+
+test('collection terminal before audio fragments stays provisional until contiguous payload is present',async()=>{
+ const call=await begin();await disclose(call)
+ const endedAt=new Date().toISOString()
+ const recordingId=identity(call).recording_id
+ const terminal=operation(call,'call.upsert',{
+  telnyx_call_control_id:call.route.telnyx_call_control_id,telnyx_call_leg_id:null,telnyx_call_session_id:null,
+  status:'closed',disclosure_state:'completed',started_at:call.route.admitted_at,ended_at:endedAt,end_reason:'closed',retention_until:call.snapshot.retention_until,
+  collection:{schema_version:1,episode_id:randomUUID(),expected_turn_ids:[],result_outcome:'absent',gaps:[],audio:{state:'terminal',recording_id:recordingId,last_sequence:0,total_samples:8000,reason:'complete'}}})
+ terminal.occurred_at=endedAt
+ expect((await ingest(terminal)).status).toBe('applied')
+ const publication=async()=>(await admin('SELECT collection_closed,publication_version,publication_token,publication_snapshot FROM sparra_call WHERE id=$1',[call.id])).rows[0]
+ expect((await publication()).collection_closed).toBe(false)
+ await ingest(operation(call,'audio.finish',{...identity(call),last_sequence:0,total_samples:8000,reason:'complete'}))
+ expect((await publication()).collection_closed).toBe(false)
+ const part=chunk(call,0).op;await ingest(part)
+ const closed=await publication();expect(closed.collection_closed).toBe(true)
+ expect(closed.publication_snapshot.audio).toMatchObject({state:'ready',coverage:'unknown'})
+ await ingest(part)
+ expect((await publication()).publication_token).toBe(closed.publication_token)
 })
