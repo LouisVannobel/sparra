@@ -46,9 +46,13 @@ function outcome(snapshot:InboxPublicationSnapshot|null):CalendarBookingOutcome|
   return calendarBookingOutcome({total:bookings.length,confirmed:bookings.filter(b=>b.state==='confirmed'&&b.event_id&&(b.observed_state===null||b.observed_state==='confirmed')).length,cancelled:bookings.filter(b=>b.state==='confirmed'&&b.event_id&&b.observed_state==='cancelled').length})
 }
 function summary(row:typeof sparraCall.$inferSelect,content:MessageContent):RequestSummaryDto {
-  const result=content.result
+  const result=content.result??{quality:null,category:null,summary:null,contact:null,next_action:null}
   const snapshot=row.publicationSnapshot,bookingOutcome=outcome(snapshot)
-  return {id:row.id,admittedAt:snapshot?instant(snapshot.admitted_at):row.admittedAt.toISOString(),endedAt:snapshot?.ended_at?instant(snapshot.ended_at):null,status:snapshot?.status??'pending',configurationRevision:snapshot?.configuration_revision??null,treatedAt:row.treatedAt?.toISOString()??null,followUp:followUp(row,content),resultAvailability:result?'available':'unavailable',resultQuality:result?.quality??null,category:result?.category??null,summary:result?.summary??null,conversationExcerpt:result?null:conversationExcerpt(content),contact:result?.contact??null,nextAction:result?.next_action??null,...(bookingOutcome?{bookingOutcome}:{})}
+  return {id:row.id,admittedAt:snapshot?instant(snapshot.admitted_at):row.admittedAt.toISOString(),endedAt:snapshot?.ended_at?instant(snapshot.ended_at):null,status:snapshot?.status??'pending',configurationRevision:snapshot?.configuration_revision??null,treatedAt:row.treatedAt?.toISOString()??null,followUp:followUp(row,content),resultAvailability:content.result?'available':'unavailable',resultQuality:result.quality,category:result.category,summary:result.summary,conversationExcerpt:content.result?null:conversationExcerpt(content),contact:result.contact,nextAction:result.next_action,...(bookingOutcome?{bookingOutcome}:{})}
+}
+function assertDisplayedPublication(row:typeof sparraCall.$inferSelect|undefined,data:typeof followUpInput.Type):asserts row is typeof sparraCall.$inferSelect {
+  if(!row||row.erasureRequestedAt!==null||row.retentionUntil.getTime()<=Date.now())throw new RequestNotFound()
+  if(row.publicationVersion!==data.expectedPublicationRevision||row.publicationToken!==data.expectedDecisionToken)throw new RequestPublicationConflict()
 }
 const hasContent=(row:typeof sparraCall.$inferSelect)=>row.publicationSnapshot!==null&&(row.publicationSnapshot.encrypted_message_result!==null || Object.keys(row.publicationSnapshot.encrypted_turns).length>0)
 const decode=(row:typeof sparraCall.$inferSelect,keys:Awaited<ReturnType<typeof readKeyring>>)=>decodeMessageContent(row.id,row.publicationSnapshot?.encrypted_turns??{},row.publicationSnapshot?.encrypted_message_result??null,keys,row.publicationSnapshot?.transcript_loss_count??0)
@@ -90,8 +94,7 @@ export function createRequestOperations(owner:AuthTransactions){
       // the readable snapshot cannot be replaced between validation and decision.
       if(data.treated){
         const [shown]=await lease.db.select().from(sparraCall).where(owned(lease.workspaceId,data.requestId)).for('update')
-        if(!shown||shown.erasureRequestedAt!==null||shown.retentionUntil.getTime()<=Date.now())throw new RequestNotFound()
-        if(shown.publicationVersion!==data.expectedPublicationRevision||shown.publicationToken!==data.expectedDecisionToken)throw new RequestPublicationConflict()
+        assertDisplayedPublication(shown,data)
         const content=decode(shown,hasContent(shown)?await readKeyring():null),follow=followUp(shown,content)
         if(!follow.collectionClosed||shown.publicationSnapshot?.collection==null)throw new RequestPublicationProvisional()
         if(!follow.contentReadable)throw new RequestPublicationUnreadable()

@@ -6,25 +6,31 @@ import { createActivityOperations, parseSaveActivityInput } from './activity.ser
 export type { ActivityConfigurationDto, ActivityState, SaveActivityInput } from './activity.server'
 import { createRequestOperations, parseListRequestsInput, parseRequestInput, parseUpdateRequestFollowUpInput } from './requests.server'
 export type { ListRequestsInput, ListRequestsPage, RequestDetailDto, EraseReceipt } from './requests.server'
-export type { RequestFollowUp, RequestFollowUpReceipt, UpdateRequestFollowUpInput } from './follow-up'
 
 const failures = {
   activity: { message: 'Activity unavailable', special: 'ActivityRevisionConflict', status: 409, invalid: 'InvalidActivityInput' },
   request: { message: 'Request unavailable', special: 'RequestNotFound', status: 404, invalid: 'InvalidRequestInput' },
 } as const
+const publicationErrors=new Map([
+  ['RequestPublicationConflict','publication-conflict'],
+  ['RequestPublicationProvisional','publication-provisional'],
+  ['RequestPublicationUnreadable','publication-unreadable'],
+])
+function sparraFailure(kind:keyof typeof failures,error:unknown):Response {
+  if(error instanceof Response)return error
+  const failure=failures[kind],name=error instanceof Error?error.name:''
+  const publication=kind==='request'?publicationErrors.get(name):undefined
+  if(publication)return new Response(error instanceof Error?error.message:'Request unavailable',{status:409,headers:{'x-sparra-request-error':publication}})
+  if(kind==='activity'&&name==='ActivityRecordingUnavailable')return new Response('Local audio unavailable',{status:409,headers:{'x-sparra-activity-error':'recording-unavailable'}})
+  if(name===failure.special)return new Response(failure.message,{status:failure.status})
+  if(name===failure.invalid||Schema.isSchemaError(error))return new Response(failure.message,{status:400})
+  return new Response(failure.message,{status:500})
+}
 function sparraErrors(kind: keyof typeof failures) {
-  const failure = failures[kind]
   return createMiddleware({ type: 'function' }).server(async ({ next }) => {
     setResponseHeader('cache-control', 'no-store')
     try { return await next() }
-    catch (error) {
-      if (error instanceof Response) throw error
-      const name = error instanceof Error ? error.name : ''
-      if(kind==='request'&&(name==='RequestPublicationConflict'||name==='RequestPublicationProvisional'||name==='RequestPublicationUnreadable'))throw new Response(error instanceof Error?error.message:'Request unavailable',{status:409,headers:{'x-sparra-request-error':name==='RequestPublicationConflict'?'publication-conflict':name==='RequestPublicationUnreadable'?'publication-unreadable':'publication-provisional'}})
-      if(kind === 'activity' && name === 'ActivityRecordingUnavailable') throw new Response('Local audio unavailable',{status:409,headers:{'x-sparra-activity-error':'recording-unavailable'}})
-      const status = name === failure.special ? failure.status : name === failure.invalid || Schema.isSchemaError(error) ? 400 : 500
-      throw new Response(failure.message, { status })
-    }
+    catch (error) { throw sparraFailure(kind,error) }
   })
 }
 async function admittedRequest() {
@@ -65,6 +71,8 @@ export const updateRequestFollowUp=createServerFn({method:'POST'}).middleware([r
 })
 // Existing callers keep their endpoint name during the UI migration, with the
 // same strict publication-bound command. ID-only payloads are always rejected.
+// Native HTTP consumers: sparra-requests, sparra-browser and sparra-voice-connected integration tests.
+// fallow-ignore-next-line unused-export
 export const markRequestTreated=createServerFn({method:'POST'}).middleware([requestErrors]).validator(parseUpdateRequestFollowUpInput).handler(async({data})=>{
   const {request,resources,principal}=await admittedRequest()
   return createRequestOperations(resources.transactions).updateFollowUp(principal,data,request.signal)

@@ -11,7 +11,7 @@ import { startDisposableStores } from '../fixtures/db/disposable-stores'
 import { createTransactions } from '../../src/platform/db/transactions.server'
 import { createPersonalWorkspaces } from '../../src/modules/workspaces/personal.server'
 import { createActivityOperations } from '../../src/modules/sparra/activity.server'
-import { createRequestOperations } from '../../src/modules/sparra/requests.server'
+import { createRequestOperations, type ListRequestsInput, type parseRequestInput, type parseUpdateRequestFollowUpInput } from '../../src/modules/sparra/requests.server'
 import { startGoogleProtocolPeer } from '../helpers/google-protocol-peer.mjs'
 import { googleCeremony } from '../helpers/google-ceremony'
 import { createAuthRateLimiter, readRateLimitConfig } from '../../src/modules/auth/rate-limit.server'
@@ -374,18 +374,23 @@ test('fence insertion failure and cancellation roll back; recorded COMMIT cancel
   observedPool.on('connect',client=>client.connection.on('commandComplete',(message:unknown)=>{if(typeof message==='object'&&message!==null&&'text'in message&&message.text==='COMMIT'){observed.push('COMMIT');controller.abort()}}))
   try{const owner=createTransactions(observedPool,{maxStatementTimeoutMs:1000,maxCleanupTimeoutMs:1000});await expect(createRequestOperations(owner).erase(principal,id,controller.signal)).rejects.toMatchObject({name:'PgTransactionError',phase:'finalize',outcome:'committed'});expect(observed).toEqual(['COMMIT']);expect(await requests.erasure(principal,id)).toEqual({requestId:id,state:'queued'});expect(await inventory(id)).toEqual({calls:0,fences:1})}finally{await observedPool.end()}
 })
+type RequestRpcInput=ListRequestsInput|ReturnType<typeof parseRequestInput>|ReturnType<typeof parseUpdateRequestFollowUpInput>
+async function assertRequestRpcAccessBoundary(invoke:(data:unknown,headers:Record<string,string>)=>ReturnType<typeof loopbackFetch>,data:RequestRpcInput,cookie:string,workspaceId:string){
+  // SAFETY: Both literal header sets contain only string-valued cookie/origin fields.
+  for(const headers of [{cookie},{cookie,origin:'https://foreign.example'}] as Record<string,string>[]){const denied=await invoke(data,headers);expect(denied.status).toBe(403);expect(denied.headers.get('cache-control')).toBe('no-store')}
+  expect((await invoke(data,{origin})).status).toBe(401)
+  expect((await invoke({...data,workspaceId},{cookie,origin})).status).toBe(400)
+}
 test('built native RPC enforces strict input, auth, missing and foreign Origin, bounded failures and no-store',async()=>{
   const {principal,cookie}=await ceremony(),workspace=await personal.ensurePersonalWorkspace(principal),id=randomUUID()
   await call(workspace!.id,{id,turns:{[crypto.turnId]:crypto.turn},result:{schema_version:1,...crypto.encrypt(JSON.stringify(crypto.inner),'result:'+id)}})
   const displayed=await requests.detail(principal,id)
   const names=['listRequests','getRequestDetail','markRequestTreated','eraseRequest','getRequestErasure'] as const
   for(const name of names){
-    const path=await authRpcPath(name),method=name==='markRequestTreated'||name==='eraseRequest'?'POST':'GET',data=name==='listRequests'?{}:name==='markRequestTreated'?{requestId:id,expectedPublicationRevision:displayed.followUp.publicationRevision,expectedDecisionToken:displayed.followUp.decisionToken,treated:true}:{requestId:id}
+    const path=await authRpcPath(name),method=name==='markRequestTreated'||name==='eraseRequest'?'POST':'GET'
+    const data:RequestRpcInput=name==='listRequests'?{}:name==='markRequestTreated'?{requestId:id,expectedPublicationRevision:displayed.followUp.publicationRevision,expectedDecisionToken:displayed.followUp.decisionToken,treated:true}:{requestId:id}
     const invoke=async(value:unknown,headers:Record<string,string>)=>{const body=await rpcBody(value);return loopbackFetch(origin+path+(method==='GET'?'?payload='+encodeURIComponent(body):''),{method,headers:{'content-type':'application/json','x-tsr-serverFn':'true',...headers},body:method==='POST'?body:undefined})}
-    // SAFETY: Both literal header sets contain only string-valued cookie/origin fields.
-    for(const headers of [{cookie},{cookie,origin:'https://foreign.example'}] as Record<string,string>[]){const denied=await invoke(data,headers);expect(denied.status).toBe(403);expect(denied.headers.get('cache-control')).toBe('no-store')}
-    expect((await invoke(data,{origin})).status).toBe(401)
-    expect((await invoke({...data,workspaceId:workspace!.id},{cookie,origin})).status).toBe(400)
+    await assertRequestRpcAccessBoundary(invoke,data,cookie,workspace!.id)
     if(name==='getRequestErasure')continue
     if(name==='markRequestTreated'){expect((await invoke({requestId:id},{cookie,origin})).status).toBe(400);const provisional=await invoke(data,{cookie,origin});expect(provisional.status).toBe(409);expect(provisional.headers.get('x-sparra-request-error')).toBe('publication-provisional');continue}
     const response=await invoke(data,{cookie,origin});expect(response.status).toBe(200);expect(response.headers.get('cache-control')).toBe('no-store');expect(response.headers.get('x-robots-tag')).toBe('noindex');expect(response.headers.get('content-security-policy')).toContain("default-src 'none'")
