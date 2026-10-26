@@ -1256,11 +1256,17 @@ test('declared_inbox_browser_entry_is_the_exact_HTML_module_mounting_the_runtime
   expect([...html.matchAll(/<script\b[^>]*>/g)].map(match=>match[0])).toEqual(['<script type="module" src="./inbox-panel-fixture.tsx">'])
   const fixture=readFileSync(join(repositoryRoot,'tests/helpers/inbox-panel-fixture.tsx'),'utf8')
   expect(fixture).toContain("import { InboxPanel } from '../../src/ui/sparra/inbox-panel'")
-  expect(fixture).toContain('root.render(<Theme theme={neutralTheme} mode="light"><InboxPanel')
+  expect(fixture).toContain("import { RequestPanel, type RequestLoaded } from '../../src/ui/sparra/request-panel'")
+  const mount='root.render(<Theme theme={neutralTheme} mode="light"><div className="sparra-app"><div className="sparra-app-content" style={{gridColumn:"1 / -1"}}>'
+  expect(fixture).toContain(mount+'<InboxPanel view={view} locale={locale}')
+  expect(fixture).toContain(mount+'<RequestPanel locale={locale} loaded={loaded} view="all"')
+  expect([...fixture.matchAll(/root\.render\(/g)]).toHaveLength(2)
   const consumer=readFileSync(join(repositoryRoot,'tests/ui/inbox-refresh.test.ts'),'utf8')
   expect(consumer).toContain("await page.goto(origin + '/tests/helpers/inbox-panel-fixture.html')")
-  expect(consumer).toContain("configFile: false, envDir: false, envPrefix: 'INBOX_FIXTURE_PUBLIC_'")
-  expect(consumer).toContain("server: { host: '127.0.0.1', port: 0 }")
+  expect(consumer).toContain("configFile:false as const,envDir:false as const,envPrefix:'INBOX_FIXTURE_PUBLIC_'")
+  expect(consumer).toContain("rollupOptions:{input:'tests/helpers/inbox-panel-fixture.html'}")
+  expect(consumer).toContain('await build(config)')
+  expect(consumer).toContain("await preview({...config,preview:{host:'127.0.0.1',port:0}})")
 })
 
 test('fallow_ignores_only_generated_route_tree_clones_and_keeps_handwritten_clones',()=>{
@@ -1433,23 +1439,24 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
   // SSR C heading and six new summary cases independently reviewed on 2026-10-11.
   // Excerpt cases and nullable DTO fixtures re-reviewed on 2026-10-17.
   // Whole-file context re-anchored after the guided-control assertion review on 2026-10-22.
-  // Only A changes callback text; B/C/D retain their approved callback hashes.
+  // A/B/C and whole-file context re-reviewed on 2026-10-26 for publication-bound DTOs,
+  // anchored transcript turns and the active declaration fixture; D remains unchanged.
   const targets=[
     ['detail and inbox preserve the translated native category and observed number source in both locales',
       '// fallow-ignore-next-line complexity -- reviewed SSR A; TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003',
-      '702e3c919a1442eca301cbab9d673d5d7a5d105454c44e6cda26ee2e43f3b643',
-      'b0b66374beaef40478dfbc1664a2f31c72e68b76d844dd509fae802560d90d97',
-      '783c50775db400109334313036d0fc33ff85bcb94f0d2591d6dc8638d21f0cab'],
+      'f4d8e198411e1579e7d9e676d7dce5dedf75d44907fed08e4e91c0a35d0dbfe9',
+      '7d22d879df0ce9bef694f3fa8324d9a2c3b62f3d439285d96212daf039887b9b',
+      '70e3c784e6fee2a7b74173fd6d38d4c3844a407a4e250af8f53f3c840ed5052d'],
     ['request detail keeps observed metadata, ordered partial turns, pinned knowledge and disabled SSR actions in both locales',
       '// fallow-ignore-next-line complexity -- reviewed SSR B; TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003',
-      '919208b5274ee478430e14284d8668f7a229c9fae11d4a86c9fb493131b5436c',
-      'c24e1443f6a3035c4699dc0eefa35bdc27a87311afdad51718caa8f96afb10aa',
-      '40a153934e259d52d0ff2b441047452d5acd6b9abe110dfbcba61e77104da1b5'],
+      'd519c67d951064520e85baa1989a8f89051f04fe48b78913aadb300565d7a405',
+      '70a3a8153530faac8f16bee6d058fbd6905cec6b297183bdab25ae4408dda429',
+      'dff91e089ac98b500fec6f4c0cf33f6f206101dcfd3711a3c3d7bde5a8484acf'],
     ['request detail retains empty contact and absent snapshot fallbacks without treating complete quality as partial',
       '// fallow-ignore-next-line complexity -- reviewed SSR C; TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003',
-      '990b276b8dcc2fcf86817b0936fecbe1a9ac31867b223e033c27623cf914aae6',
-      'cdab1a13235c06e229216cb35381e1a6d47383242faad12f6808c92c156bec1d',
-      'e1d1becf0b0995227f08851464a33e75050022160d7ec3a69f5783aa6d192347'],
+      '3ad6385b8d7354998e0cbe81ac2c269139a2d9819c880ad8cb373e1db54bb73c',
+      '16cd9dc1426a9905e19e6c29ea071276c2bfb464a27bac67f9c01cf474e974b3',
+      'ef79ebd36f5c277b211653fdd8d0e2d527013470afa30429cb51ed580c86cde1'],
     ['queued and completed erasure receipts take precedence over loaded private detail in both locales',
       '// fallow-ignore-next-line complexity -- reviewed SSR D; TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003',
       '992924250fb09143e0bfe0988cd328d0ce854971d0099bb5953b9b2bf2c18247',
@@ -1587,7 +1594,7 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
         expect(source.text.slice(marker.end,marker.end+newlineLength),'Reviewed SSR marker line expired').toMatch(/^\r?\n$/)
         reconstructed=reconstructed.slice(0,marker.start)+reconstructed.slice(marker.end+newlineLength)
       }
-      expect(digest(reconstructed),'Reviewed SSR whole file expired').toBe('2fad03b61d7ed6c4fb2a06e36729acb7cb14a7baa7926620924b790ab971b219')
+      expect(digest(reconstructed),'Reviewed SSR whole file expired').toBe('21453535fedf9a8aa7a04cc850188eab2821b4298856fbc2493ba281896f09b7')
     }
     expect(()=>reviewedCallbacks(sources)).not.toThrow()
     const original=sources.get(ssrFile)!,title=targets[0][0]
@@ -1596,7 +1603,7 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
     expect(blockStart).toBeGreaterThanOrEqual(0);expect(blockEnd).toBeGreaterThan(blockStart)
     const markedBlock=original.slice(blockStart,blockEnd)
     for(const source of [
-      original.replace("configurationRevision:7,treatedAt:null,resultAvailability:'available'","configurationRevision:8,treatedAt:null,resultAvailability:'available'"),
+      original.replace("configurationRevision:7,treatedAt:null,followUp:","configurationRevision:8,treatedAt:null,followUp:"),
       original.replace("from 'react-dom/server'","from 'react-dom/client'"),
       original.replace("const unavailable=async():Promise<never>=>{throw new Error('SSR must not mutate')}","const unavailable=async():Promise<never>=>await new Promise<never>(()=>{})"),
       original.slice(0,blockStart)+original.slice(blockEnd)+'\n'+markedBlock+'\n',
