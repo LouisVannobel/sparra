@@ -58,6 +58,34 @@ test('keeps a direct parent condition with its nested passage', async () => {
   expect(result.passages.map(passage => passage.text)).toContain('Uniquement sur rendez-vous Diagnostic')
 })
 
+test('preserves inline characters and spaces while separating blocks and line breaks', async () => {
+  const f = fixture({ body: (async function* () {
+    yield new TextEncoder().encode('<p>1<span>00</span> euros</p><p><span>Sur</span> <em>rendez-vous</em>.</p><div>Avant<p>Diagnostic<br>sur rendez-vous</p><section>Après</section>Fin</div>')
+  })() })
+  const result = await captureWebsiteWithBoundaries('https://example.com/', {}, f.boundaries)
+  expect(result.passages.map(passage => passage.text)).toEqual([
+    '100 euros',
+    'Sur rendez-vous.',
+    'Avant Diagnostic sur rendez-vous Après Fin',
+  ])
+})
+
+test('accepts all 200 passages without truncation', async () => {
+  const f = fixture({ body: (async function* () { yield new TextEncoder().encode('<p>x</p>'.repeat(199) + '<p>Dernier passage</p>') })() })
+  const result = await captureWebsiteWithBoundaries('https://example.com/', {}, f.boundaries)
+  expect(result.passages).toHaveLength(200)
+  expect(result.passages[199]).toEqual({ id: 'p200', text: 'Dernier passage' })
+  expect(f.closed).toBe(1)
+})
+
+test('rejects 201 passages with no applicable capture', async () => {
+  const f = fixture({ body: (async function* () { yield new TextEncoder().encode('<p>x</p>'.repeat(201)) })() })
+  await expect(captureWebsiteWithBoundaries('https://example.com/', {}, f.boundaries)).rejects.toMatchObject({
+    name: 'WebsiteCaptureError', code: 'TOO_MANY_PASSAGES',
+  })
+  expect(f.closed).toBe(1)
+})
+
 test.each([
   '<div><span>Uniquement sur rendez-vous</span><p>Diagnostic</p></div>',
   '<div><span><em>Uniquement sur rendez-vous</em></span><p>Diagnostic</p></div>',

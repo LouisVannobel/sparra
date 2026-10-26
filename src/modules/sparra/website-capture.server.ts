@@ -160,6 +160,7 @@ export async function captureWebsiteWithBoundaries(input: string, options: { sig
         if (controller.signal.aborted) return fail('ABORTED')
         const extracted = extractWebsiteText(html)
         if (controller.signal.aborted) return fail('ABORTED')
+        if (extracted.passages.length > 200) return fail('TOO_MANY_PASSAGES')
         return { url: current.href, capturedAt: new Date().toISOString(), title: extracted.title, sha256: createHash('sha256').update(bytes).digest('hex'), passages: extracted.passages }
       } finally { page.close() }
     }

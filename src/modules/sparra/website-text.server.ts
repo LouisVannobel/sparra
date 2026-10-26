@@ -6,6 +6,7 @@ type Element = DefaultTreeAdapterTypes.Element
 const hidden = new Set(['script', 'style', 'noscript', 'template', 'svg', 'canvas', 'iframe', 'object', 'form'])
 const passageTags = new Set(['p', 'li', 'td', 'th', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'address', 'dt', 'dd'])
 const fallbackTags = new Set(['div', 'section', 'article', 'main'])
+const separatorTags = new Set([...passageTags, ...fallbackTags, 'br', 'hr', 'ul', 'ol', 'dl', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'header', 'footer', 'nav', 'aside', 'figure', 'figcaption', 'pre', 'details', 'summary'])
 
 function isElement(node: Node): node is Element {
   return 'tagName' in node
@@ -18,7 +19,8 @@ function children(node: Node): Node[] {
 function visibleText(node: Node): string {
   if (node.nodeName === '#text' && 'value' in node) return node.value
   if (isElement(node) && hidden.has(node.tagName)) return ''
-  return children(node).map(visibleText).join(' ')
+  const text = children(node).map(visibleText).join('')
+  return isElement(node) && separatorTags.has(node.tagName) ? ` ${text} ` : text
 }
 
 function clean(text: string): string {
@@ -34,7 +36,7 @@ function findFirst(node: Node, tag: string): Element | undefined {
   return undefined
 }
 
-export function extractWebsiteText(html: string): { title: string; passages: ReadonlyArray<Readonly<{ id: string; text: string }>> } {
+export function extractWebsiteText(html: string) {
   const document = parse(html)
   const title = clean(visibleText(findFirst(document, 'title') ?? findFirst(document, 'h1') ?? document))
   const passages: Array<{ id: string; text: string }> = []
