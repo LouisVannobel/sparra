@@ -3,6 +3,8 @@ import { bigint, boolean, check, customType, foreignKey, index, integer, jsonb, 
 import { workspace } from '../workspaces/schema.server'
 import { sectorIds } from './sectors'
 import type { NativeEncryptedTurn, EncryptedMessageResult } from './message-crypto.server'
+import type { WebsiteCapture } from './website-capture.server'
+import type { KnowledgeProvenance } from './knowledge-confirmation.server'
 
 // PostgreSQL stores Unicode scalars; add supplementary scalars once to match
 // the public input's UTF16 string.length limit.
@@ -38,6 +40,34 @@ export const sparraKnowledgeRevision = pgTable('sparra_knowledge_revision', {
 
 const scoped = (column:SQLWrapper) => sql`${column}::text = current_setting('app.tenant_id',true) and current_setting('app.tenant_id',true) <> '00000000-0000-0000-0000-000000000000'`
 const active = (column:SQLWrapper) => sql`${scoped(column)} and exists (select 1 from public.workspace where workspace.id = ${column} and workspace.lifecycle = 'active')`
+export const sparraKnowledgeCapture = pgTable('sparra_knowledge_capture', {
+  workspaceId: uuid('workspace_id').primaryKey().references(() => workspace.id, { onDelete: 'cascade' }),
+  captureId: uuid('capture_id').notNull(),
+  source: jsonb('source').$type<WebsiteCapture>(),
+  expiresAt: timestamp('expires_at', { withTimezone: true, precision: 3 }).notNull(),
+}, table => [
+  check('sparra_capture_bounded', sql`(${table.source} is null or (jsonb_typeof(${table.source}) = 'object' and octet_length(${table.source}::text) <= 400000)) and isfinite(${table.expiresAt})`),
+  pgPolicy('sparra_capture_runtime', { to: 'runtime', for: 'all', using: active(table.workspaceId), withCheck: active(table.workspaceId) }),
+  pgPolicy('sparra_capture_cleanup', { to: 'workspace_owner', for: 'all', using: scoped(table.workspaceId), withCheck: scoped(table.workspaceId) }),
+  pgPolicy('sparra_capture_voice', { to: 'sparra_voice_definer', for: 'all', using: sql`workspace_id = voice_private.bound_workspace()`, withCheck: sql`workspace_id = voice_private.bound_workspace()` }),
+]).enableRLS()
+export const sparraKnowledgeConfirmation = pgTable('sparra_knowledge_confirmation', {
+  workspaceId: uuid('workspace_id').notNull().references(() => workspace.id, { onDelete: 'cascade' }),
+  draftId: uuid('draft_id').notNull(), draftVersion: integer('draft_version').notNull(),
+  revision: integer('revision').notNull(), inputHash: text('input_hash').notNull(),
+  provenance: jsonb('provenance').$type<KnowledgeProvenance>().notNull(),
+  savedAt: timestamp('saved_at', { withTimezone: true, precision: 3 }).notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true, precision: 3 }).notNull(),
+}, table => [
+  primaryKey({columns:[table.workspaceId,table.draftId,table.draftVersion]}),
+  check('sparra_confirmation_identity', sql`${table.draftVersion} > 0 and ${table.revision} > 0 and ${table.inputHash} ~ '^[a-f0-9]{64}$'`),
+  check('sparra_confirmation_bounded', sql`jsonb_typeof(${table.provenance}) = 'object' and octet_length(${table.provenance}::text) <= 400000`),
+  check('sparra_confirmation_retention', sql`isfinite(${table.savedAt}) and ${table.expiresAt} = ${table.savedAt} + interval '604800 seconds'`),
+  pgPolicy('sparra_confirmation_read', { to:'runtime',for:'select',using:active(table.workspaceId) }),
+  pgPolicy('sparra_confirmation_insert', { to:'runtime',for:'insert',withCheck:active(table.workspaceId) }),
+  pgPolicy('sparra_confirmation_cleanup', { to:'workspace_owner',for:'all',using:scoped(table.workspaceId),withCheck:scoped(table.workspaceId) }),
+  pgPolicy('sparra_confirmation_voice', { to:'sparra_voice_definer',for:'all',using:sql`workspace_id = voice_private.bound_workspace()`,withCheck:sql`workspace_id = voice_private.bound_workspace()` }),
+]).enableRLS()
 export const sparraAudioReader = pgTable('sparra_audio_reader', {
   workspaceId: uuid('workspace_id').primaryKey().references(() => workspace.id, { onDelete: 'restrict' }),
   callId: uuid('call_id').notNull(), recordingId: uuid('recording_id').notNull(),

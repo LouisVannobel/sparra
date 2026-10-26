@@ -3,6 +3,9 @@ import { getRequest, setResponseHeader } from '@tanstack/react-start/server'
 import { Schema } from 'effect'
 import { requestResources } from '../../platform/resources.server'
 import { createActivityOperations, parseSaveActivityInput } from './activity.server'
+import { createKnowledgeConfirmationOperations, parseActivityConfirmationKey, parseConfirmActivityInput, parseKnowledgeImportInput } from './knowledge-confirmation.server'
+export type { ActivityConfirmationDto, ActivityConfirmationKey, ActivityConfirmationLookup, ConfirmActivityInput, KnowledgeDecision, KnowledgeImportDto, KnowledgeImportInput } from './knowledge-confirmation.server'
+export type { WebsiteCapture } from './website-capture.server'
 export type { ActivityConfigurationDto, ActivityState, SaveActivityInput } from './activity.server'
 import { createRequestOperations, parseListRequestsInput, parseRequestInput } from './requests.server'
 export type { ListRequestsInput, ListRequestsPage, RequestDetailDto, EraseReceipt } from './requests.server'
@@ -20,6 +23,10 @@ function sparraErrors(kind: keyof typeof failures) {
       if (error instanceof Response) throw error
       const name = error instanceof Error ? error.name : ''
       if(kind === 'activity' && name === 'ActivityRecordingUnavailable') throw new Response('Local audio unavailable',{status:409,headers:{'x-sparra-activity-error':'recording-unavailable'}})
+      if(kind === 'activity' && (name.startsWith('Knowledge') || name === 'InvalidKnowledgeInput' || name === 'WebsiteCaptureError')) {
+        const status = name === 'InvalidKnowledgeInput' || name === 'WebsiteCaptureError' ? 400 : name === 'KnowledgeWorkspaceUnavailable' ? 404 : 409
+        throw new Response('Knowledge operation unavailable',{status,headers:{'x-sparra-knowledge-error':name}})
+      }
       const status = name === failure.special ? failure.status : name === failure.invalid || Schema.isSchemaError(error) ? 400 : 500
       throw new Response(failure.message, { status })
     }
@@ -46,6 +53,19 @@ export const saveActivity = createServerFn({method:'POST'}).middleware([activity
     if(!result) throw new Response('Activity unavailable',{status:404})
     return result
   })
+
+export const importKnowledgePage = createServerFn({method:'POST'}).middleware([activityErrors]).validator(parseKnowledgeImportInput).handler(async({data})=>{
+  const {request,resources,principal}=await admittedRequest()
+  return createKnowledgeConfirmationOperations(resources.transactions).importPage(principal,data,new URL(request.url).origin,request.signal)
+})
+export const confirmActivity = createServerFn({method:'POST'}).middleware([activityErrors]).validator(parseConfirmActivityInput).handler(async({data})=>{
+  const {request,resources,principal}=await admittedRequest()
+  return createKnowledgeConfirmationOperations(resources.transactions).confirm(principal,data,request.signal)
+})
+export const getActivityConfirmation = createServerFn({method:'GET'}).middleware([activityErrors]).validator(parseActivityConfirmationKey).handler(async({data})=>{
+  const {request,resources,principal}=await admittedRequest()
+  return createKnowledgeConfirmationOperations(resources.transactions).lookup(principal,data,request.signal)
+})
 
 const requestErrors=sparraErrors('request')
 export const listRequests=createServerFn({method:'GET'}).middleware([requestErrors]).validator(parseListRequestsInput).handler(async({data})=>{

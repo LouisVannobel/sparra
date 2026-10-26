@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { desc, eq, sql } from 'drizzle-orm'
 import { Schema, SchemaGetter } from 'effect'
+import type { PersonalWorkspaceLease } from '../../platform/db/auth-pg-lease.server'
 import type { AuthTransactions } from '../../platform/db/transactions.server'
 import type { AdmittedPrincipal } from '../auth/session.server'
 import type { WorkspaceDto } from '../workspaces/personal.server'
@@ -69,18 +70,22 @@ export function createActivityOperations(owner: AuthTransactions) {
     const value=parseSaveActivityInput(input)
     return owner.withPersonalWorkspacePromise(options(signal),principal,false,async lease=>{
       if(!lease) return null
-      // The native personal lease already holds the active Workspace FOR UPDATE.
-      const [latest]=await lease.db.select({revision:sparraKnowledgeRevision.revision,recordingPolicy:sparraKnowledgeRevision.recordingPolicy,recordingContactPhone:sparraKnowledgeRevision.recordingContactPhone}).from(sparraKnowledgeRevision).where(eq(sparraKnowledgeRevision.workspaceId,lease.workspaceId)).orderBy(desc(sparraKnowledgeRevision.revision)).limit(1)
-      if((latest?.revision ?? 0)!==value.expectedRevision) throw new ActivityRevisionConflict()
-      if(value.recordingPolicy === undefined && latest?.recordingPolicy === 'local_30d') throw new ActivityRecordingUnavailable()
-      if(value.recordingPolicy === 'local_30d') {
-        const [capability]=await lease.db.select({available:sql<boolean>`public.sparra_local_audio_available_v1()`}).from(sql`(select 1) AS local_audio_call`)
-        if(capability?.available !== true) throw new ActivityRecordingUnavailable()
-      }
-      const [saved]=await lease.db.insert(sparraKnowledgeRevision).values({workspaceId:lease.workspaceId,revision:value.expectedRevision+1,businessName:value.businessName,sector:value.sector,...value.knowledge,transferDestination:value.transferDestination,recordingEnabled:value.recordingPolicy === undefined ? value.recordingEnabled : false,recordingPolicy:value.recordingPolicy ?? 'off',recordingContactPhone:Object.hasOwn(value,'recordingContactPhone') ? value.recordingContactPhone ?? null : latest?.recordingContactPhone ?? null}).returning()
-      if(!saved) throw new Error('Activity unavailable')
-      return configuration(saved)
+      return saveActivityInLease(lease,value)
     })
   }
   return {read,save}
+}
+
+export async function saveActivityInLease(lease: PersonalWorkspaceLease, value: ReturnType<typeof parseSaveActivityInput>): Promise<ActivityConfigurationDto> {
+  // The native personal lease already holds the active Workspace FOR UPDATE.
+  const [latest]=await lease.db.select({revision:sparraKnowledgeRevision.revision,recordingPolicy:sparraKnowledgeRevision.recordingPolicy,recordingContactPhone:sparraKnowledgeRevision.recordingContactPhone}).from(sparraKnowledgeRevision).where(eq(sparraKnowledgeRevision.workspaceId,lease.workspaceId)).orderBy(desc(sparraKnowledgeRevision.revision)).limit(1)
+  if((latest?.revision ?? 0)!==value.expectedRevision) throw new ActivityRevisionConflict()
+  if(value.recordingPolicy === undefined && latest?.recordingPolicy === 'local_30d') throw new ActivityRecordingUnavailable()
+  if(value.recordingPolicy === 'local_30d') {
+    const [capability]=await lease.db.select({available:sql<boolean>`public.sparra_local_audio_available_v1()`}).from(sql`(select 1) AS local_audio_call`)
+    if(capability?.available !== true) throw new ActivityRecordingUnavailable()
+  }
+  const [saved]=await lease.db.insert(sparraKnowledgeRevision).values({workspaceId:lease.workspaceId,revision:value.expectedRevision+1,businessName:value.businessName,sector:value.sector,...value.knowledge,transferDestination:value.transferDestination,recordingEnabled:value.recordingPolicy === undefined ? value.recordingEnabled : false,recordingPolicy:value.recordingPolicy ?? 'off',recordingContactPhone:Object.hasOwn(value,'recordingContactPhone') ? value.recordingContactPhone ?? null : latest?.recordingContactPhone ?? null}).returning()
+  if(!saved) throw new Error('Activity unavailable')
+  return configuration(saved)
 }
