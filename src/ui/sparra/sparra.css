@@ -101,6 +101,10 @@
 .sparra-request-knowledge { grid-column:2; grid-row:1 / span 2; padding:24px; background:var(--sp-paper); border:1px solid #e5e4e2; border-radius:var(--sp-radius); font-size:13px; }
 .sparra-request-knowledge h2 { font-size:20px; }
 .sparra-request-knowledge > p { color:var(--sp-muted); }
+.sparra-request-correction { grid-column:1 / -1; border-top:1px solid #e5e4e2; padding-top:24px; }
+.sparra-request-correction .sparra-helper-choices { grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr)); margin-block:16px; }
+.sparra-request-correction button[aria-pressed=true] { background:var(--sp-accent); color:var(--sp-ink); }
+.sparra-correction-text { white-space:pre-wrap; overflow-wrap:anywhere; }
 @media(max-width:1050px) { .sparra-call-workspace { display:block; } .sparra-call-workspace > section { margin-bottom:32px; } }
 .sparra-business-form .astryx-text-input,.sparra-business-form .astryx-selector { min-height:44px; }
 .sparra-business-form .astryx-text-input:not([data-status=error]),.sparra-business-form .astryx-selector:not([data-status=error]),.sparra-business-form .astryx-text-area:not([data-status=error]) { border-color:#949494; }

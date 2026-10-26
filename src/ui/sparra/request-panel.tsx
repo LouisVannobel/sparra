@@ -8,9 +8,10 @@ import type { Locale } from '../auth/messages'
 import { observedDate, privateResult, PrivateUnavailable } from './app-shell'
 import { useRequestAttempt } from './use-request-attempt'
 import { bookingMessages } from './calendar-messages'
+import { RequestCorrection,type RequestCorrectionOperations } from './request-correction'
 
 export type RequestLoaded={detail:RequestDetailDto|null;receipt:EraseReceipt|null}
-type Props={locale:Locale;loaded:RequestLoaded;onTreat(signal:AbortSignal):Promise<{requestId:string;treatedAt:string}|Response>;onErase(signal:AbortSignal):Promise<EraseReceipt|Response>;onRefused():Promise<void>}
+type Props={locale:Locale;loaded:RequestLoaded;onTreat(signal:AbortSignal):Promise<{requestId:string;treatedAt:string}|Response>;onErase(signal:AbortSignal):Promise<EraseReceipt|Response>;onRefused():Promise<void>}&Partial<RequestCorrectionOperations>
 type RequestActionEffects={setCurrent(loaded:RequestLoaded):void;setPending(value:boolean):void;setFailed(value:boolean):void;setRefused(value:boolean):void;onRefused():Promise<void>}
 
 async function consumeTreatAction(current:RequestLoaded,signal:AbortSignal,live:()=>boolean,onTreat:Props['onTreat'],setCurrent:RequestActionEffects['setCurrent']){
@@ -144,11 +145,17 @@ function RequestMetadata({locale,detail}:{locale:Locale;detail:Pick<RequestDetai
   return <div className="sparra-request-meta"><p>{t.status[detail.status]}</p><p>{t.admitted}: <time dateTime={detail.admittedAt}>{observedDate(detail.admittedAt,locale)}</time></p><p>{detail.endedAt?`${t.ended}: ${observedDate(detail.endedAt,locale)}`:t.noEnd}</p></div>
 }
 
-export function RequestPanel({locale,loaded,onTreat,onErase,onRefused}:Props){
+export function RequestPanel({locale,loaded,onTreat,onErase,onRefused,onReadActivity,onSaveActivity}:Props){
   const t=appMessages[locale],hydrated=useHydrated(),[current,setCurrent]=useState(loaded),[pending,setPending]=useState(false),[failed,setFailed]=useState(false),[confirm,setConfirm]=useState(false)
   const begin=useRequestAttempt()
   const [refused,setRefused]=useState(false)
-  function mutate(kind:'treat'|'erase'){return performRequestAction(kind,current,begin,onTreat,onErase,{setCurrent,setPending,setFailed,setRefused,onRefused})}
+  const actionLock=useRef(false),[correctionPending,setCorrectionPending]=useState(false)
+  async function mutate(kind:'treat'|'erase'){
+    if(actionLock.current)return
+    actionLock.current=true
+    try{await performRequestAction(kind,current,begin,onTreat,onErase,{setCurrent,setPending,setFailed,setRefused,onRefused})}
+    finally{actionLock.current=false}
+  }
   const detail=current.detail
   if(refused)return <PrivateUnavailable locale={locale} title={t.details}/>
   return <><a className="sparra-back-link" href={`/app?lang=${locale}`}>{t.inbox}</a><div className="sparra-page-heading"><Heading level={1}>{t.details}</Heading></div>
@@ -160,8 +167,9 @@ export function RequestPanel({locale,loaded,onTreat,onErase,onRefused}:Props){
       <RequestTranscript locale={locale} detail={detail}/>
       <RequestAudio locale={locale} detail={detail} blocked={pending&&confirm}/>
       <RequestConfigurationSnapshot locale={locale} configuration={detail.configuration}/>
+      {onReadActivity&&onSaveActivity&&<RequestCorrection locale={locale} callConfiguration={detail.configuration} callRevision={detail.configurationRevision} blocked={pending} actionLock={actionLock} onPendingChange={setCorrectionPending} onRead={onReadActivity} onSave={onSaveActivity} onRefused={async()=>{setRefused(true);await onRefused()}}/>}
       </div>
-      <RequestActions locale={locale} treatedAt={detail.treatedAt} hydrated={hydrated} pending={pending} confirm={confirm} onMutate={mutate} onConfirm={setConfirm}/>
+      <RequestActions locale={locale} treatedAt={detail.treatedAt} hydrated={hydrated} pending={pending||correctionPending} confirm={confirm} onMutate={mutate} onConfirm={setConfirm}/>
     </>}{pending&&<p role="status">{t.pending}</p>}{failed&&<p role="alert">{t.unavailable}</p>}
   </>
 }

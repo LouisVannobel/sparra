@@ -17,6 +17,7 @@ const section = (limit: number) => scalar.check(Schema.isPattern(/^[^\u0000-\u00
 ).check(Schema.isMaxLength(limit))
 const saveInput = Schema.Struct({
   expectedRevision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(2147483646)),
+  expectedWorkspaceId: Schema.optionalKey(Schema.String.check(Schema.isUUID())),
   businessName: name, sector: Schema.Literals(sectorIds),
   knowledge: Schema.Struct({ openingHours: section(1000), services: section(2000), prices: section(1500), faq: section(3000), instructions: section(2000) }),
   transferDestination: Schema.optional(Schema.NullOr(Schema.String.check(Schema.isPattern(/^\+[1-9][0-9]{1,14}$/)))),
@@ -30,18 +31,22 @@ export class InvalidActivityInput extends Error {
 class ActivityRevisionConflict extends Error {
   constructor() { super('Activity revision conflict'); this.name = 'ActivityRevisionConflict' }
 }
+class ActivityWorkspaceChanged extends Error {
+  constructor() { super('Activity Workspace changed'); this.name = 'ActivityWorkspaceChanged' }
+}
 class ActivityRecordingUnavailable extends Error {
   constructor() { super('Local audio unavailable'); this.name = 'ActivityRecordingUnavailable' }
 }
 export type SaveActivityInput = Readonly<{
   expectedRevision: number; businessName: string; sector: SectorId
+  expectedWorkspaceId?: string
   knowledge: Readonly<{ openingHours: string; services: string; prices: string; faq: string; instructions: string }>
   transferDestination?: string | null
   recordingEnabled?: boolean
   recordingPolicy?: 'off' | 'local_30d'
   recordingContactPhone?: string | null
 }>
-export type ActivityConfigurationDto = Readonly<Omit<SaveActivityInput,'expectedRevision' | 'transferDestination' | 'recordingPolicy' | 'recordingContactPhone'> & { workspaceId: string; revision: number; savedAt: string; transferDestination: string | null; recordingPolicy: 'off' | 'local_30d'; recordingContactPhone: string | null }>
+export type ActivityConfigurationDto = Readonly<Omit<SaveActivityInput,'expectedRevision' | 'expectedWorkspaceId' | 'transferDestination' | 'recordingPolicy' | 'recordingContactPhone'> & { workspaceId: string; revision: number; savedAt: string; transferDestination: string | null; recordingPolicy: 'off' | 'local_30d'; recordingContactPhone: string | null }>
 export type ActivityState = Readonly<{ workspace: WorkspaceDto | null; configuration: ActivityConfigurationDto | null; localAudioAvailable: boolean }>
 export function parseSaveActivityInput(input: unknown) {
   try {
@@ -70,6 +75,8 @@ export function createActivityOperations(owner: AuthTransactions) {
     return owner.withPersonalWorkspacePromise(options(signal),principal,false,async lease=>{
       if(!lease) return null
       // The native personal lease already holds the active Workspace FOR UPDATE.
+      // The supplied id is a precondition; only the admitted lease authorizes the write.
+      if(value.expectedWorkspaceId!==undefined&&value.expectedWorkspaceId.toLowerCase()!==lease.workspaceId.toLowerCase())throw new ActivityWorkspaceChanged()
       const [latest]=await lease.db.select({revision:sparraKnowledgeRevision.revision,recordingPolicy:sparraKnowledgeRevision.recordingPolicy,recordingContactPhone:sparraKnowledgeRevision.recordingContactPhone}).from(sparraKnowledgeRevision).where(eq(sparraKnowledgeRevision.workspaceId,lease.workspaceId)).orderBy(desc(sparraKnowledgeRevision.revision)).limit(1)
       if((latest?.revision ?? 0)!==value.expectedRevision) throw new ActivityRevisionConflict()
       if(value.recordingPolicy === undefined && latest?.recordingPolicy === 'local_30d') throw new ActivityRecordingUnavailable()

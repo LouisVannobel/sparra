@@ -1,6 +1,6 @@
 import { createFileRoute, redirect, useRouter } from '@tanstack/react-router'
 import { useServerFn } from '@tanstack/react-start'
-import { getRequestDetail, getRequestErasure, markRequestTreated, eraseRequest } from '../modules/sparra/sparra.functions'
+import { getRequestDetail, getRequestErasure, markRequestTreated, eraseRequest, getActivity, saveActivity } from '../modules/sparra/sparra.functions'
 import { RequestPanel, type RequestLoaded } from '../ui/sparra/request-panel'
 import { privateResult, PrivateUnavailable } from '../ui/sparra/app-shell'
 import { appMessages } from '../modules/sparra/messages'
@@ -20,6 +20,6 @@ export const Route=createFileRoute('/app/demandes/$requestId')({
   component:Request,
   errorComponent:function RequestUnavailable(){const {lang}=Route.useSearch();return <PrivateUnavailable locale={lang} title={appMessages[lang].details}/>},
 })
-function Request(){const {lang}=Route.useSearch(),{requestId}=Route.useParams(),loaded=Route.useLoaderData(),router=useRouter(),treat=useServerFn(markRequestTreated),erase=useServerFn(eraseRequest)
-  return <RequestPanel key={requestId+lang+JSON.stringify(loaded)} locale={lang} loaded={loaded} onTreat={signal=>treat({data:{requestId},signal})} onErase={signal=>erase({data:{requestId},signal})} onRefused={async()=>{await router.navigate({to:'/login',search:{lang,error:undefined}})}}/>
+function Request(){const {lang}=Route.useSearch(),{requestId}=Route.useParams(),loaded=Route.useLoaderData(),router=useRouter(),treat=useServerFn(markRequestTreated),erase=useServerFn(eraseRequest),readActivity=useServerFn(getActivity),save=useServerFn(saveActivity)
+  return <RequestPanel key={requestId+lang+JSON.stringify(loaded)} locale={lang} loaded={loaded} onReadActivity={signal=>readActivity({data:{},signal})} onSaveActivity={(data,signal)=>save({data,signal})} onTreat={signal=>treat({data:{requestId},signal})} onErase={signal=>erase({data:{requestId},signal})} onRefused={async()=>{await router.navigate({to:'/login',search:{lang,error:undefined}})}}/>
 }

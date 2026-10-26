@@ -1,9 +1,28 @@
 import { expect, test } from 'vitest'
 import { getTableConfig, PgDialect } from 'drizzle-orm/pg-core'
-import { InvalidActivityInput, parseSaveActivityInput } from '../../src/modules/sparra/activity.server'
+import { createActivityOperations, InvalidActivityInput, parseSaveActivityInput } from '../../src/modules/sparra/activity.server'
 import { sparraKnowledgeRevision } from '../../src/modules/sparra/schema.server'
+import { createTransactions } from '../../src/platform/db/transactions.server'
+import type { PersonalWorkspaceLease } from '../../src/platform/db/auth-pg-lease.server'
 
 const input = () => ({ expectedRevision: 0, businessName: ' Garage Dupont ', sector: 'garage', knowledge: { openingHours: '', services: '', prices: '', faq: '', instructions: '' }, transferDestination: null, recordingEnabled: false })
+test('save rejects a different expected Workspace before any leased database access',async()=>{
+  const databaseAccess:string[]=[]
+  const lease:PersonalWorkspaceLease={workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',db:{
+    select(){databaseAccess.push('select');throw new Error('Unexpected database read')},
+    insert(){databaseAccess.push('insert');throw new Error('Unexpected database insert')},
+    update(){databaseAccess.push('update');throw new Error('Unexpected database update')},
+  }}
+  // Control only the admitted lease boundary; the real save and parser run below.
+  const owner=createTransactions({connect:async()=>{throw new Error('Unexpected connection')}},{maxStatementTimeoutMs:1000,maxCleanupTimeoutMs:1000})
+  const admitted={userId:'owner-b',sessionId:'session-b',name:'B',email:'b@example.test'}
+  owner.withPersonalWorkspacePromise=async(_options,principal,createIfMissing,call)=>{
+    expect(principal).toBe(admitted);expect(createIfMissing).toBe(false)
+    return call(lease)
+  }
+  await expect(createActivityOperations(owner).save(admitted,{...input(),expectedRevision:7,expectedWorkspaceId:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'})).rejects.toMatchObject({name:'ActivityWorkspaceChanged'})
+  expect(databaseAccess).toEqual([])
+})
 test('company recording defaults OFF for legacy input and accepts only explicit Boolean policy', () => {
   const { recordingEnabled: _, ...legacy } = input()
   expect(parseSaveActivityInput(legacy)).toMatchObject({ recordingEnabled: false })
@@ -29,7 +48,7 @@ test('strict editable input trims the greeting and normalizes line endings', () 
 test.each([
   { expectedRevision: -1 }, { expectedRevision: 2147483647 }, { expectedRevision: 0.5 },
   { businessName: ' ' }, { businessName: 'x'.repeat(81) }, { businessName: 'line\nbreak' }, { businessName: '\ud800' },
-  { sector: 'restaurant' }, { workspaceId: 'forged' }, { sessionId: 'forged' }, { transferDestination: '0123456789' },
+  { sector: 'restaurant' }, { workspaceId: 'forged' }, { sessionId: 'forged' }, { expectedWorkspaceId:'forged' }, { expectedWorkspaceId:null }, { transferDestination: '0123456789' },
   { knowledge: { ...input().knowledge, extra: 'ignored' } },
   ...Object.entries({ openingHours: 1000, services: 2000, prices: 1500, faq: 3000, instructions: 2000 }).map(([field,limit]) => ({ knowledge: { ...input().knowledge, [field]: 'x'.repeat(limit+1) } })),
   ...['\u0000', '\u0001', '\u007f', '\u0085', '\ud800', '\udc00'].map(value => ({ knowledge: { ...input().knowledge, faq: value } })),
