@@ -127,10 +127,12 @@ test('real native begin pin is committed, stable on retry, and read through the 
  expect(Object.keys(result).sort()).toEqual(['schema_version','call_id','configuration_revision','knowledge','transfer_destination','retention_until','recording_enabled'].sort())
  await activity.save(principalA,{...configuration,expectedRevision:1,businessName:'Updated'})
  expect(nativeValue(await nativeVoice({action:'begin',url:stores.voiceUrlA,deployment:'fixture-a',call_id:id,routing:route}))).toEqual(result)
- expect(await requests.detail(principalA,id)).toMatchObject({configurationRevision:1,configuration:{businessName:'Garage'},transcriptLossCount:0})
+ expect(await row(id)).toMatchObject({configuration_revision:1,publication_version:0,publication_snapshot:null})
+ expect(await requests.detail(principalA,id)).toMatchObject({configurationRevision:null,configuration:null,summary:null,transcript:[],transcriptLossCount:0,followUp:{publicationRevision:0,collectionClosed:false}})
  await expect(requests.detail(principalB,id)).rejects.toMatchObject({name:'RequestNotFound'})
  const nativeTurn={...crypto.turn,started_at:route.admitted_at,ended_at:route.admitted_at}
  expect(await nativeVoice({action:'ingest',url:stores.voiceUrlA,operation:turnOp(id,nativeTurn)})).toEqual({ok:{ack:true}})
+ expect(await requests.detail(principalA,id)).toMatchObject({configurationRevision:1,configuration:{businessName:'Garage'},followUp:{publicationRevision:1}})
  const terminal=callOp(id,route,{status:'closed',started_at:route.admitted_at,ended_at:route.admitted_at,end_reason:'hangup',message_result:crypto.result(),transcript_loss_count:3})
  expect(await nativeVoice({action:'ingest',url:stores.voiceUrlA,operation:terminal})).toEqual({ok:{ack:true}})
  expect(await requests.detail(principalA,id)).toMatchObject({resultAvailability:'available',resultQuality:'partial',summary:'Demande de rappel',transcriptAvailability:'partial',transcriptLossCount:3,unavailableTurnCount:0,transcript:[{text:'Rappelez-moi'}]})
@@ -509,11 +511,15 @@ describe('native sector snapshots',()=>{
   if(retried.snapshot.schema_version!==2||retried.snapshot.recording_id===null)throw new Error('Native V2 recording reservation missing on retry')
   expect(await row(id)).toMatchObject({configuration_revision:saved!.revision,recording_id:retried.snapshot.recording_id,audio_state:'pending'})
  }
- expect((await requests.detail(principalA,id)).configuration).toMatchObject({revision:saved!.revision,businessName,sector})
- expect((await requests.detail(principalA,legacy.id)).configuration!.sector).toBe(legacy.snapshot.knowledge.sector)
+ expect(await row(id)).toMatchObject({configuration_revision:saved!.revision,publication_version:0,publication_snapshot:null})
+ expect(await row(legacy.id)).toMatchObject({configuration_revision:legacy.snapshot.configuration_revision,publication_version:0,publication_snapshot:null})
+ for(const callId of [id,legacy.id])expect(await requests.detail(principalA,callId)).toMatchObject({configurationRevision:null,configuration:null,summary:null,transcript:[],followUp:{publicationRevision:0,collectionClosed:false}})
  const turnId=randomUUID(),turn={...crypto.turn,turn_id:turnId,...crypto.encrypt(text,'turn:'+turnId),started_at:route.admitted_at,ended_at:route.admitted_at}
  expect(await nativeVoice({action:'ingest',url,operation:{...turnOp(id,turn),schema_version:version,deployment_id:deployment}},producer)).toEqual({ok:{ack:true}})
- expect((await requests.detail(principalA,id)).transcript).toMatchObject([{text}])
+ expect(await requests.detail(principalA,id)).toMatchObject({configurationRevision:saved!.revision,configuration:{revision:saved!.revision,businessName,sector},transcript:[{text}],followUp:{publicationRevision:1}})
+ // This legacy-protocol call was begun after migration, so it has no backfill.
+ expect((await ingest(callOp(legacy.id,legacy.route))).status).toBe('applied')
+ expect(await requests.detail(principalA,legacy.id)).toMatchObject({configurationRevision:legacy.snapshot.configuration_revision,configuration:{revision:legacy.snapshot.configuration_revision,businessName:legacy.snapshot.knowledge.business_name,sector:legacy.snapshot.knowledge.sector},followUp:{publicationRevision:1}})
  expect((await requests.list(principalA,{})).requests.some(call=>call.id===id)).toBe(true)
  expect((await requests.list(principalB,{})).requests.some(call=>call.id===id)).toBe(false)
  await expect(requests.detail(principalB,id)).rejects.toMatchObject({name:'RequestNotFound'})
