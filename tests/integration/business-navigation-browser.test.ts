@@ -1,3 +1,4 @@
+import { reviewActivity } from '../helpers/activity-navigation'
 import { afterAll,beforeAll,expect,test } from 'vitest'
 import { type Page } from 'playwright'
 import { activityMessages } from '../../src/modules/sparra/messages'
@@ -8,7 +9,7 @@ let origin:string
 beforeAll(async()=>{await fixture.start();origin=fixture.origin})
 afterAll(async()=>{await fixture.close()})
 async function open(mode='',lang:'fr'|'en'='fr'){
-  const {context,page}=await fixture.newPage();page.setDefaultTimeout(5000)
+  const {context,page}=await fixture.newPage();page.setDefaultTimeout(5000);page.setDefaultNavigationTimeout(30000)
   await context.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort())
   await page.goto(origin+'/tests/helpers/business-navigation.html?lang='+lang+'&mode='+mode)
   await page.getByRole('textbox',{name:new RegExp('^'+activityMessages[lang].businessName)}).waitFor()
@@ -34,7 +35,7 @@ test('all prepared FAQ answers survive sections, old sector and saved enterprise
     await page.getByRole('button',{name:question,exact:true}).click();await page.getByRole('textbox',{name:activityMessages.fr.ownerAnswer,exact:true}).fill('Prepared garage answer')
     await section(page,0);await page.getByRole('combobox',{name:/^Secteur/}).click();await page.getByRole('option',{name:getSectorPreset('controle-technique','fr').label,exact:true}).click()
     await section(page,1);await page.getByRole('button',{name:getSectorPreset('controle-technique','fr').faqQuestions[0]!,exact:true}).click()
-    await page.locator('.sparra-business-form').getByRole('button',{name:'Enregistrer',exact:true}).click();await page.getByText('Configuration enregistrée.',{exact:true}).waitFor()
+    await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByText('Configuration enregistrée.',{exact:true}).waitFor()
     await declineLanguage(page);await section(page,0);await page.getByRole('combobox',{name:/^Secteur/}).click();await page.getByRole('option',{name:'Garage',exact:true}).click();await section(page,1);await page.getByRole('button',{name:question,exact:true}).click()
     expect(await page.getByRole('textbox',{name:activityMessages.fr.ownerAnswer,exact:true}).inputValue()).toBe('Prepared garage answer')
     expect(await page.getByLabel('Fixture events').textContent()).toBe('activity-save')
@@ -44,7 +45,7 @@ test.each(['pristine','restored','saved','empty'])('%s enterprise form leaves wi
   const {context,page}=await open(mode);try{
     const name=page.getByRole('textbox',{name:/^Nom de l’établissement/})
     if(mode==='restored'){await name.fill('Edit');await name.fill('Garage known')}
-    if(mode==='saved'){await name.fill('Saved');await page.locator('.sparra-business-form').getByRole('button',{name:'Enregistrer',exact:true}).click();await page.getByText('Configuration enregistrée.',{exact:true}).waitFor()}
+    if(mode==='saved'){await name.fill('Saved');await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByText('Configuration enregistrée.',{exact:true}).waitFor()}
     let dialogs=0;page.on('dialog',async dialog=>{dialogs++;await dialog.dismiss()});await page.getByRole('link',{name:'Language'}).click();await page.waitForURL(/lang=en/);expect(dialogs).toBe(0)
   }finally{await fixture.closePage(context,page)}
 })
@@ -60,7 +61,7 @@ test('Calendar-only edits survive read until explicit replacement and protect la
 test.each(['activity-pending','uncertain','calendar-read-held'])('%s refuses OAuth before disconnect or consent',async mode=>{
   const {context,page}=await open(mode);try{
     if(mode==='calendar-read-held'){await section(page,2);await page.getByRole('button',{name:'Actualiser',exact:true}).click()}
-    else{await page.getByRole('textbox',{name:/^Nom de l’établissement/}).fill('Draft');await page.locator('.sparra-business-form').getByRole('button',{name:'Enregistrer',exact:true}).click();if(mode==='uncertain')await page.getByRole('alert').filter({hasText:'Le résultat'}).waitFor();await section(page,2)}
+    else{await page.getByRole('textbox',{name:/^Nom de l’établissement/}).fill('Draft');await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();if(mode==='uncertain')await page.getByRole('alert').filter({hasText:'Le résultat'}).waitFor();await section(page,2)}
     if(mode==='calendar-read-held')expect(await page.getByRole('button',{name:'Reconnecter Google',exact:true}).isDisabled()).toBe(true)
     else{await page.getByRole('button',{name:'Reconnecter Google',exact:true}).click();await page.getByRole('alert').filter({hasText:'Google'}).waitFor()}
     expect(await page.getByLabel('Fixture events').textContent()).toBe(mode==='calendar-read-held'?'calendar-read':'activity-save')
@@ -70,7 +71,7 @@ test.each(['connect-held','connect-reject'])('%s locks enterprise edits only dur
   const {context,page}=await open(mode);try{
     const name=page.getByRole('textbox',{includeHidden:true,name:/^Nom de l’établissement/});await name.fill('Kept work');await section(page,2)
     let prompts=0;page.on('dialog',async dialog=>{prompts++;await dialog.accept()});await page.getByRole('button',{name:'Reconnecter Google',exact:true}).click()
-    await expect.poll(()=>page.getByLabel('Fixture events').textContent()).toBe('disconnect\nconnect');await section(page,0);expect(await name.isDisabled()).toBe(true);expect(await page.locator('.sparra-business-form').getByRole('button',{name:'Enregistrer',exact:true}).isDisabled()).toBe(true)
+    await expect.poll(()=>page.getByLabel('Fixture events').textContent()).toBe('disconnect\nconnect');await section(page,0);expect(await name.isDisabled()).toBe(true);expect(await page.locator('.sparra-business-form .sparra-form-submit').isDisabled()).toBe(true)
     await page.getByRole('button',{name:'Release operation'}).click()
     if(mode==='connect-held'){await page.waitForURL(/mode=arrived/);expect(prompts).toBe(1)}
     else{await expect.poll(()=>name.isEnabled()).toBe(true);expect(await name.inputValue()).toBe('Kept work');page.removeAllListeners('dialog');await declineLanguage(page)}
@@ -81,7 +82,7 @@ test('OAuth decline makes zero effects; ordinary login is guarded and explicit a
     await page.getByRole('textbox',{name:/^Nom de l’établissement/}).fill('Private draft');await section(page,2)
     page.once('dialog',dialog=>dialog.dismiss());await page.getByRole('button',{name:'Reconnecter Google',exact:true}).click();expect(await page.getByLabel('Fixture events').textContent()).toBe('')
     let prompts=0;page.once('dialog',async dialog=>{prompts++;await dialog.dismiss()});await page.getByRole('link',{name:'Ordinary login'}).click();expect(prompts).toBe(1);expect(new URL(page.url()).pathname).toContain('business-navigation')
-    page.on('dialog',async dialog=>{prompts++;await dialog.dismiss()});await page.locator('.sparra-business-form').getByRole('button',{name:'Enregistrer',exact:true}).click();await page.getByRole('heading',{name:'Login recovery'}).waitFor();expect(prompts).toBe(1)
+    page.on('dialog',async dialog=>{prompts++;await dialog.dismiss()});await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByRole('heading',{name:'Login recovery'}).waitFor();expect(prompts).toBe(1)
   }finally{await fixture.closePage(context,page)}
   const calendar=await open();try{
     await section(calendar.page,2)
@@ -122,7 +123,7 @@ test('Calendar uncertainty refuses OAuth; ordinary Calendar read and save keep e
         expect(await page.getByLabel('Fixture events').textContent()).toBe('calendar-save')
       }
       await section(page,0);const name=page.getByRole('textbox',{name:/^Nom de l’établissement/});expect(await name.isEnabled()).toBe(true);await name.fill('Independent enterprise save')
-      await page.locator('.sparra-business-form').getByRole('button',{name:'Enregistrer',exact:true}).click();await page.getByText('Configuration enregistrée.',{exact:true}).waitFor()
+      await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByText('Configuration enregistrée.',{exact:true}).waitFor()
       expect(await page.getByLabel('Fixture events').textContent()).toBe((mode==='calendar-read-held'?'calendar-read':'calendar-save')+'\nactivity-save')
       if(mode!=='calendar-uncertain')await page.getByRole('button',{name:'Release operation'}).click()
     }finally{await fixture.closePage(context,page)}
@@ -147,5 +148,50 @@ test('pending OAuth retains beforeunload guard and SPA departure remains guarded
     let native=0;page.once('dialog',async dialog=>{native++;expect(dialog.type()).toBe('beforeunload');await dialog.dismiss()});await page.getByRole('link',{name:'Document',exact:true}).click();expect(native).toBe(1)
     await page.getByRole('button',{name:'Release operation'}).click();await expect.poll(()=>page.getByRole('button',{name:'Reconnecter Google',exact:true}).isEnabled()).toBe(true)
     let spa=0;page.once('dialog',async dialog=>{spa++;await dialog.dismiss()});await page.getByRole('link',{name:'Other page',exact:true}).click();expect(spa).toBe(1);expect(new URL(page.url()).pathname).toContain('business-navigation')
+  }finally{await fixture.closePage(context,page)}
+})
+
+test('knowledge import prepares editable facts and requires all five texts before confirmation',async()=>{
+  const {context,page}=await open('knowledge');try{
+    await section(page,1)
+    await page.getByRole('textbox',{name:'Adresse de la page HTTPS',exact:true}).fill('https://example.org/services')
+    await page.getByRole('button',{name:'Lire cette page',exact:true}).click()
+    const passage=page.getByRole('group',{name:'Passage p1',exact:true})
+    await passage.getByRole('combobox').selectOption('services')
+    await passage.getByRole('textbox').fill('Vidange corrigée par le gérant')
+    await passage.getByRole('button',{name:'Utiliser',exact:true}).click()
+    expect(await page.getByRole('textbox',{name:'Prestations',exact:true}).inputValue()).toBe('Vidange corrigée par le gérant')
+    const save=page.locator('.sparra-business-form .sparra-form-submit')
+    await save.click()
+    expect(await page.locator('[data-knowledge-preview]').count()).toBe(5)
+    expect(await page.locator('[data-knowledge-preview="services"]').textContent()).toBe('Vidange corrigée par le gérant')
+    expect(await page.getByLabel('Fixture events').textContent()).toBe('import')
+    await page.getByRole('checkbox',{name:/Je confirme avoir relu les cinq textes/}).check()
+    await section(page,1);await page.getByRole('textbox',{name:'Prestations',exact:true}).fill('Correction finale')
+    await save.click();expect(await page.getByRole('checkbox',{name:/Je confirme avoir relu les cinq textes/}).isChecked()).toBe(false)
+    await page.getByRole('checkbox',{name:/Je confirme avoir relu les cinq textes/}).check();await save.focus();await page.keyboard.press('Enter')
+    await page.getByText('Configuration enregistrée.',{exact:true}).waitFor()
+    expect(await page.getByLabel('Fixture events').textContent()).toBe('import\nactivity-save')
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+  }finally{await fixture.closePage(context,page)}
+})
+
+test('cancelled late capture preserves manual text and lost confirmation looks up exact receipt before current state',async()=>{
+  const {context,page}=await open('knowledge-lost');try{
+    await section(page,1);await page.getByRole('textbox',{name:'Adresse de la page HTTPS',exact:true}).fill('https://example.org/services')
+    await page.getByRole('button',{name:'Lire cette page',exact:true}).click();await page.getByRole('button',{name:'Annuler la lecture',exact:true}).click()
+    await page.getByRole('textbox',{name:'Prestations',exact:true}).fill('Texte manuel')
+    await page.getByRole('button',{name:'Release operation',exact:true}).click()
+    expect(await page.getByRole('group',{name:'Passage p1',exact:true}).count()).toBe(0)
+    const save=page.locator('.sparra-business-form .sparra-form-submit');await save.click()
+    await page.getByRole('checkbox',{name:/Je confirme avoir relu les cinq textes/}).check();await save.click()
+    await page.getByRole('alert').filter({hasText:'Le résultat'}).waitFor()
+    await section(page,1);await page.getByRole('textbox',{name:'Prestations',exact:true}).fill('Texte corrigé après accusé perdu')
+    await page.getByRole('button',{name:'Vérifier la dernière version',exact:true}).click()
+    await page.getByText(/Reçu historique : version 2/).waitFor()
+    expect(await page.getByRole('alert').filter({hasText:'Le résultat'}).count()).toBe(0)
+    expect(await page.getByLabel('Fixture events').textContent()).toBe('import\nactivity-save\nlookup-exact\nread-current')
+    expect(await save.isDisabled()).toBe(true)
+    await section(page,1);expect(await page.getByRole('textbox',{name:'Prestations',exact:true}).inputValue()).toBe('Texte corrigé après accusé perdu')
   }finally{await fixture.closePage(context,page)}
 })

@@ -1,3 +1,4 @@
+import { reviewActivity } from '../helpers/activity-navigation'
 import { expect, test, vi } from 'vitest'
 import { Effect } from 'effect'
 import { spawn } from 'node:child_process'
@@ -43,7 +44,7 @@ type ConfirmedCalendarFixture = {
 async function verifyEnterpriseCalendarIndependence({page,panel,rpc,stores,workspace,existingActivity,firstPolicy}:ConfirmedCalendarFixture):Promise<SaveActivityInput['knowledge']> {
   const originalKnowledge=existingActivity.knowledge
   const editedKnowledge={...originalKnowledge,services:'Owner edited garage service'}
-  const activityPath=await authRpcPath('saveActivity'),calendarPath=await authRpcPath('saveCalendarPolicy')
+  const activityPath=await authRpcPath('confirmActivity'),calendarPath=await authRpcPath('saveCalendarPolicy')
   let activityPosts=0,calendarPosts=0
   page.on('request',request=>{if(request.method()!=='POST')return;const path=new URL(request.url()).pathname;if(path===activityPath)activityPosts++;if(path===calendarPath)calendarPosts++})
   // First edit one field on an existing garage. An unrelated Calendar draft
@@ -53,8 +54,8 @@ async function verifyEnterpriseCalendarIndependence({page,panel,rpc,stores,works
   await page.getByRole('textbox',{name:'Services',exact:true}).fill(editedKnowledge.services)
   await showActivitySection(page,'handling');expect(await panel.getByLabel('Duration (minutes) 1',{exact:true}).inputValue()).toBe('40')
   await showActivitySection(page,'recap')
-  const enterpriseSave=page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true})
-  await enterpriseSave.focus();await page.keyboard.press('Enter');await page.getByText('Configuration saved.',{exact:true}).waitFor()
+  const enterpriseSave=page.locator('.sparra-business-form .sparra-form-submit')
+  await reviewActivity(page);await enterpriseSave.focus();await page.keyboard.press('Enter');await page.getByText('Configuration saved.',{exact:true}).waitFor()
   expect(await panel.getByLabel('Duration (minutes) 1',{exact:true}).inputValue()).toBe('40')
   // A real concurrent native Calendar revision produces a protected 409.
   expect((await rpc('saveCalendarPolicy',{...firstPolicy,expectedRevision:1})).status()).toBe(200)
@@ -76,7 +77,7 @@ async function verifyEnterpriseCalendarIndependence({page,panel,rpc,stores,works
   await showActivitySection(page,'knowledge')
   await page.getByRole('textbox',{name:'Frequently asked questions',exact:true}).fill('Retained unsaved owner FAQ')
   expect((await rpc('saveActivity',{...existingActivity,knowledge:editedKnowledge,expectedRevision:2})).status()).toBe(200)
-  await showActivitySection(page,'recap');await enterpriseSave.click()
+  await showActivitySection(page,'recap');await reviewActivity(page);await enterpriseSave.click()
   const conflict=page.getByRole('alert').filter({hasText:'The configuration changed.'});await conflict.waitFor()
   await panel.getByLabel('Duration (minutes) 1',{exact:true}).fill('35')
   await panel.getByRole('button',{name:'Save',exact:true}).click();await panel.getByText('Settings saved.',{exact:true}).waitFor()

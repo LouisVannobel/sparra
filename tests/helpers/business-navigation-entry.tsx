@@ -18,13 +18,16 @@ function FixtureLink({href,children}:{href:string;children:import('react').React
 function Business(){
   const {lang,mode}=business.useSearch(),router=useRouter(),guard=useBusinessNavigation(lang)
   const [events,setEvents]=useState<string[]>([]),release=useRef<(()=>void)|null>(null)
+  const savedActivity=useRef(activity),submissionKey=useRef('')
   const log=(event:string)=>setEvents(value=>[...value,event])
   return <><FixtureLink href={'/tests/helpers/business-navigation.html?lang='+(lang==='fr'?'en':'fr')+'&mode='+mode}>Language</FixtureLink><FixtureLink href="/other">Other page</FixtureLink><FixtureLink href="/login">Ordinary login</FixtureLink><a href="/document">Document</a>
     <ActivityPanel key={'fixture-workspace:1:'+lang} locale={lang} state={mode==='empty'?{...activity,configuration:null}:activity}
       onNavigationStateChange={guard.onActivityNavigationStateChange}
       externalNavigationPending={guard.externalNavigationPending}
-      onEnsure={async()=>workspace} onRead={async()=>activity}
-      onSave={async data=>{log('activity-save');if(mode==='activity-pending')await new Promise<void>(resolve=>{release.current=resolve});if(mode==='refused')throw new Response('refused',{status:401});if(mode==='uncertain')throw new Error('unknown');return {...configuration,...data,revision:2}}}
+      onEnsure={async()=>workspace} onRead={async()=>{if(mode==='knowledge-lost')log('read-current');return mode==='knowledge-lost'?{...activity,configuration:{...configuration,revision:3}}:savedActivity.current}}
+      onImport={async()=>{log('import');if(mode==='knowledge-lost')await new Promise<void>(resolve=>{release.current=resolve});return {captureId:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',source:{url:'https://example.org/services',capturedAt:'2026-10-26T10:00:00Z',title:'Services',sha256:'a'.repeat(64),passages:[{id:'p1',text:'Vidange 80 €'}]}}}}
+      onLookup={async key=>{log(JSON.stringify(key)===submissionKey.current?'lookup-exact':'lookup-wrong');return {status:'confirmed',revision:2,savedAt:configuration.savedAt}}}
+      onConfirm={async input=>{const data=input.activity;submissionKey.current=JSON.stringify({draftId:input.draftId,draftVersion:input.draftVersion});log('activity-save');if(mode==='activity-pending')await new Promise<void>(resolve=>{release.current=resolve});if(mode==='refused')throw new Response('refused',{status:401});if(mode==='uncertain'||mode==='knowledge-lost')throw new Error('unknown');savedActivity.current={...activity,configuration:{...configuration,...data,revision:2}};return {status:'confirmed',revision:2,savedAt:configuration.savedAt}}}
       onRefused={()=>router.navigate({href:'/login',ignoreBlocker:true})}
       calendarSlot={<CalendarPanel key={lang+':connected:3'} locale={lang} state={calendar}
         onNavigationStateChange={guard.onCalendarNavigationStateChange} onBeforeConnect={guard.onBeforeConnect}

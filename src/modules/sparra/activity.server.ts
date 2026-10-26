@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto'
-import { desc, eq, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, sql } from 'drizzle-orm'
 import { Schema, SchemaGetter } from 'effect'
 import type { PersonalWorkspaceLease } from '../../platform/db/auth-pg-lease.server'
 import type { AuthTransactions } from '../../platform/db/transactions.server'
 import type { AdmittedPrincipal } from '../auth/session.server'
 import type { WorkspaceDto } from '../workspaces/personal.server'
 import { workspace } from '../workspaces/schema.server'
-import { sparraKnowledgeRevision } from './schema.server'
+import type { KnowledgeProvenance } from './knowledge-confirmation.server'
+import { sparraKnowledgeRevision, sparraKnowledgeConfirmation } from './schema.server'
 import { sectorIds, type SectorId } from './sectors'
 
 const scalar = Schema.String.check(Schema.isPattern(/^[^\ud800-\udfff]*$/u))
@@ -43,7 +44,7 @@ export type SaveActivityInput = Readonly<{
   recordingContactPhone?: string | null
 }>
 export type ActivityConfigurationDto = Readonly<Omit<SaveActivityInput,'expectedRevision' | 'transferDestination' | 'recordingPolicy' | 'recordingContactPhone'> & { workspaceId: string; revision: number; savedAt: string; transferDestination: string | null; recordingPolicy: 'off' | 'local_30d'; recordingContactPhone: string | null }>
-export type ActivityState = Readonly<{ workspace: WorkspaceDto | null; configuration: ActivityConfigurationDto | null; localAudioAvailable: boolean }>
+export type ActivityState = Readonly<{ workspace: WorkspaceDto | null; configuration: ActivityConfigurationDto | null; localAudioAvailable: boolean; confirmation?:{savedAt:string;expiresAt:string;provenance:KnowledgeProvenance}|null }>
 export function parseSaveActivityInput(input: unknown) {
   try {
     const value = Schema.decodeUnknownSync(saveInput,{ onExcessProperty: 'error' })(input)
@@ -63,7 +64,8 @@ export function createActivityOperations(owner: AuthTransactions) {
       if(!current) return {workspace:null,configuration:null,localAudioAvailable:false}
       const [row] = await lease.db.select().from(sparraKnowledgeRevision).where(eq(sparraKnowledgeRevision.workspaceId,lease.workspaceId)).orderBy(desc(sparraKnowledgeRevision.revision)).limit(1)
       const [capability]=await lease.db.select({available:sql<boolean>`public.sparra_local_audio_available_v1()`}).from(sql`(select 1) AS local_audio_call`)
-      return {workspace:current,configuration:row ? configuration(row) : null,localAudioAvailable:capability?.available===true}
+      const [receipt]=row?await lease.db.select({savedAt:sparraKnowledgeConfirmation.savedAt,expiresAt:sparraKnowledgeConfirmation.expiresAt,provenance:sparraKnowledgeConfirmation.provenance}).from(sparraKnowledgeConfirmation).where(and(eq(sparraKnowledgeConfirmation.workspaceId,lease.workspaceId),eq(sparraKnowledgeConfirmation.revision,row.revision),gt(sparraKnowledgeConfirmation.expiresAt,sql`clock_timestamp()`))).limit(1):[]
+      return {workspace:current,configuration:row ? configuration(row) : null,localAudioAvailable:capability?.available===true,confirmation:receipt?{...receipt,savedAt:receipt.savedAt.toISOString(),expiresAt:receipt.expiresAt.toISOString()}:null}
     })
   }
   async function save(principal: AdmittedPrincipal,input: unknown,signal?: AbortSignal): Promise<ActivityConfigurationDto | null> {

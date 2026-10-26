@@ -147,10 +147,10 @@ test('absent reads and saves never create a workspace; native ensure enables rev
   expect(await activity.save(principal,input())).toBeNull()
   expect((await stores.administrator.query('SELECT count(*)::int AS n FROM workspace WHERE owner_user_id=$1',[principal.userId])).rows[0].n).toBe(0)
   const workspace=await personal.ensurePersonalWorkspace(principal)
-  expect(await activity.read(principal)).toEqual({workspace,configuration:null,localAudioAvailable:false})
+  expect(await activity.read(principal)).toEqual({workspace,configuration:null,localAudioAvailable:false,confirmation:null})
   const saved=await activity.save(principal,input())
   expect(saved).toEqual({sector:input().sector,transferDestination:null,recordingEnabled:false,recordingPolicy:'off',recordingContactPhone:null,workspaceId:workspace!.id,revision:1,savedAt:expect.any(String),businessName:'Garage Dupont',knowledge:{...input().knowledge,openingHours:'Lundi\nVendredi'}})
-  expect(await activity.read(principal)).toEqual({workspace,configuration:saved,localAudioAvailable:false})
+  expect(await activity.read(principal)).toEqual({workspace,configuration:saved,localAudioAvailable:false,confirmation:null})
 })
 test('native company audio policy saves and reloads immutable ON then OFF revisions with strict validation',async()=>{
   const a=await ceremony(),b=await ceremony(),workspace=await personal.ensurePersonalWorkspace(a.principal)

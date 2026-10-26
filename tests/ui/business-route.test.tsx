@@ -12,7 +12,7 @@ import { resolveLocale } from '../../src/ui/auth/messages'
 
 // Keep the actual route hierarchy, panels, hooks and Router. Only request RPCs
 // are replaced; rendering must never provision, save or prepare Google consent.
-const rpc = vi.hoisted(() => ({ getWorkspace: vi.fn(), ensurePersonalWorkspace: vi.fn(), getActivity: vi.fn(), saveActivity: vi.fn(),
+const rpc = vi.hoisted(() => ({ getWorkspace: vi.fn(), ensurePersonalWorkspace: vi.fn(), getActivity: vi.fn(), saveActivity: vi.fn(), confirmActivity: vi.fn(), getActivityConfirmation: vi.fn(), importKnowledgePage: vi.fn(),
   getCalendar: vi.fn(), beginCalendarConnection: vi.fn(), saveCalendarPolicy: vi.fn(), disconnectCalendar: vi.fn() }))
 vi.mock('../../src/modules/workspaces/workspace.functions', () => rpc)
 vi.mock('../../src/modules/sparra/sparra.functions', () => rpc)
