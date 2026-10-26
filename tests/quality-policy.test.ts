@@ -6,7 +6,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 import { API, type Snapshot } from 'typescript/unstable/sync'
 import type { FileChangeSummary } from 'typescript/unstable/proto'
-import { createScanner, getLeadingCommentRanges, getTokenAtPosition, getTrailingCommentRanges, isArrowFunction, isBlock, isCallExpression, isExpressionStatement, isFunctionDeclaration, isIdentifier, isImportDeclaration, isNamedImports, isStringLiteral, LanguageVariant, SyntaxKind } from 'typescript/unstable/ast'
+import { createScanner, getLeadingCommentRanges, getTokenAtPosition, getTrailingCommentRanges, isArrowFunction, isBlock, isCallExpression, isExpressionStatement, isFunctionDeclaration, isIdentifier, isImportDeclaration, isNamedImports, isStringLiteral, isVariableStatement, LanguageVariant, SyntaxKind } from 'typescript/unstable/ast'
 import type { CallExpression, Node, SourceFile } from 'typescript/unstable/ast'
 import { afterAll, beforeAll, expect, test } from 'vitest'
 import { admitCommonGeometry, assertCalendarReport, assertCalendarQualification, assertBillingQualification, assertBillingReport, assertDirectory, assertRunTree, assertRecordingReceiptQualification, assertRecordingReceiptReport, assertRequestsQualification, assertRequestsReport, assertVoiceBridgeReport, readNativeBlob, sourceIdentity } from '../scripts/native-coverage-inputs.mjs'
@@ -1465,6 +1465,7 @@ test('native_complexity_comment_is_function_scoped_and_expires_on_content_or_cou
 
 test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_change',()=>{
   const ssrFile='tests/ui/sparra-panels.test.tsx',path=join(repositoryRoot,ssrFile)
+  const rpcFile='src/modules/sparra/sparra.functions.ts',rpcDirective='// fallow-ignore-next-line unused-export'
   // Fixed candidates from TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003; hashes are literal review anchors.
   // SSR C heading and six new summary cases independently reviewed on 2026-10-11.
   // Excerpt cases and nullable DTO fixtures re-reviewed on 2026-10-17.
@@ -1564,6 +1565,20 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
   function actualComments(candidate:Map<string,string>) {
     return parsedCommentSources(candidate).markers
   }
+  function reviewedLegacyRpc(snapshot:Snapshot,candidate:Map<string,string>,marker:ReturnType<typeof collectCommentMarkers>[number]) {
+    expect(marker.file,'Reviewed legacy RPC marker file expired').toBe(rpcFile)
+    const rpcPath=join(repositoryRoot,rpcFile),source=snapshot.getDefaultProjectForFile(rpcPath)?.program?.getSourceFile(rpcPath)
+    if(!source)throw new Error('Reviewed legacy RPC source was not parsed')
+    expect(source.text,'Reviewed legacy RPC source overlay expired').toBe(candidate.get(rpcFile))
+    const statements=source.statements.filter(isVariableStatement).filter(statement=>statement.declarationList.declarations.some(declaration=>isIdentifier(declaration.name)&&declaration.name.text==='markRequestTreated'))
+    expect(statements,'Reviewed legacy RPC declaration count expired').toHaveLength(1)
+    const statement=statements[0]!,start=statement.getStart(source)
+    // The native HTTP compatibility endpoint retains POST, strict C/T parsing and admitted Workspace authority.
+    expect(createHash('sha256').update(statement.getText(source),'utf8').digest('hex'),'Reviewed legacy RPC declaration expired').toBe('048836ebc4931b27266cee3d7553e82335747ebd6aaae70d6cfc8edf8dd08fde')
+    expect(marker.start,'Reviewed legacy RPC marker placement expired').toBeLessThan(start)
+    expect(source.text.slice(marker.end,start),'Reviewed legacy RPC marker placement expired').toMatch(/^\r?\n[ \t]*$/)
+    expect(marker.start===0||source.text[marker.start-1]==='\n','Reviewed legacy RPC marker line expired').toBe(true)
+  }
   try {
     const directive=targets[0][1]
     const textOnly=[
@@ -1581,7 +1596,12 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
       '// fallow-ignore complexity -- unknown EOF',
     ])expect(actualComments(new Map([[ssrFile,source]]))).toHaveLength(1)
     function reviewedCallbacks(candidate:Map<string,string>) {
-      const {snapshot,markers}=parsedCommentSources(candidate)
+      const {snapshot,markers:allMarkers}=parsedCommentSources(candidate)
+      expect(allMarkers,'Reviewed SSR marker count expired').toHaveLength(5)
+      const rpcMarkers=allMarkers.filter(marker=>marker.text===rpcDirective)
+      expect(rpcMarkers,'Reviewed legacy RPC marker count expired').toHaveLength(1)
+      reviewedLegacyRpc(snapshot,candidate,rpcMarkers[0]!)
+      const markers=allMarkers.filter(marker=>marker.text!==rpcDirective)
       expect(markers,'Reviewed SSR marker count expired').toHaveLength(4)
       expect(markers.every(marker=>marker.file===ssrFile),'Reviewed SSR marker file expired').toBe(true)
       expect(markers.map(marker=>marker.text).sort(),'Reviewed SSR canonical markers expired').toEqual(targets.map(target=>target[1]).sort())
@@ -1672,6 +1692,21 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
     expect(actualComments(virtualCreated).filter(marker=>marker.file===virtualFile).map(marker=>marker.text)).toEqual(['// fallow-ignore complexity -- virtual initial'])
     const virtualChanged=new Map(virtualCreated);virtualChanged.set(virtualFile,'// fallow-ignore complexity -- virtual revised\nvoid 0\n')
     expect(actualComments(virtualChanged).filter(marker=>marker.file===virtualFile).map(marker=>marker.text)).toEqual(['// fallow-ignore complexity -- virtual revised'])
+    expect(()=>reviewedCallbacks(sources)).not.toThrow()
+    const rpcOriginal=sources.get(rpcFile)!
+    for(const [source,message] of [
+      [rpcOriginal.replace("export const markRequestTreated=createServerFn({method:'POST'})","export const markRequestTreated=createServerFn({method:'GET'})"),'Reviewed legacy RPC declaration expired'],
+      [rpcOriginal.replace(rpcDirective+'\n',rpcDirective+'\n\n'),'Reviewed legacy RPC marker placement expired'],
+      [rpcOriginal.replace(rpcDirective,rpcDirective+' complexity'),'Reviewed legacy RPC marker count expired'],
+      [rpcOriginal.replace(rpcDirective,rpcDirective.replace('next-line','file')),'Reviewed legacy RPC marker count expired'],
+      [rpcOriginal+'\n'+rpcDirective+'\nexport const unreviewedRpc=1\n','Reviewed SSR marker count expired'],
+    ]) {
+      expect(source,'Legacy RPC mutation must change the reviewed source').not.toBe(rpcOriginal)
+      const candidate=new Map(sources);candidate.set(rpcFile,source)
+      expect(()=>reviewedCallbacks(candidate)).toThrow(message)
+    }
+    const movedRpc=new Map(sources);movedRpc.set(rpcFile,rpcOriginal.replace(rpcDirective+'\n',''));movedRpc.set('tests/unreviewed-legacy-rpc.ts',rpcDirective+'\nexport const markRequestTreated=1\n')
+    expect(()=>reviewedCallbacks(movedRpc)).toThrow('Reviewed legacy RPC marker file expired')
     expect(()=>reviewedCallbacks(sources)).not.toThrow()
   } finally {try {latestSnapshot?.dispose()} finally {api.close()}}
 },50000)
