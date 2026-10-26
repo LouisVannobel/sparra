@@ -38,6 +38,8 @@
     "better-auth": "1.7.4",
     "drizzle-orm": "0.45.2",
     "effect": "4.0.0",
+    "ipaddr.js": "2.5.0",
+    "parse5": "8.0.1",
     "pg": "8.23.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
