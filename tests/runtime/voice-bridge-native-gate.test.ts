@@ -26,6 +26,8 @@ const names=[
   'native sector snapshots V2 garage preserves native snapshots, concurrent revisions and Inbox ownership',
   'native sector snapshots V2 controle-technique preserves native snapshots, concurrent revisions and Inbox ownership',
   'native sector snapshots V2 diagnostic-immobilier preserves native snapshots, concurrent revisions and Inbox ownership',
+  'collection waits for retained pieces, freezes agenda and ignores replay and accounting',
+  'current publication can revoke a declaration after a native extra turn makes collection provisional',
 ]
 async function gate(){
   const source:unknown=await import(modulePath)
@@ -36,7 +38,7 @@ async function gate(){
 function fixture(){
   const root=mkdtempSync(join(tmpdir(),'sparra-voice-bridge-gate-'));roots.push(root)
   const startedAt=Date.UTC(2026,0,1),path=join(root,'voice-bridge-qualification.json')
-  const report={success:true,startTime:startedAt,numTotalTests:19,numPassedTests:19,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0,
+  const report={success:true,startTime:startedAt,numTotalTests:21,numPassedTests:21,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0,
     testResults:[{name:join(root,'tests/integration/sparra-voice-bridge.test.ts').replaceAll('\\','/'),startTime:startedAt,status:'passed',message:'',assertionResults:names.map((fullName):BridgeReportLeaf=>({fullName,status:'passed',failureMessages:[]}))}]}
   writeFileSync(path,JSON.stringify(report))
   // Explicit synthetic phase/file times avoid racing Linux filesystem mtime
@@ -52,28 +54,37 @@ afterEach(()=>{
   }
 })
 
-test('bridge admission accepts exactly the retained native security leaves and six current V1/V2 sector consumers',async()=>{
+test('bridge admission accepts exactly the retained native security leaves, six current V1/V2 sector consumers and two Inbox publication leaves',async()=>{
   const item=fixture(),admit=await gate()
   expect(()=>admit.report(item.report,item.root,item.startedAt)).not.toThrow()
   expect(()=>admit.qualification(item.path,item.root,item.startedAt)).not.toThrow()
 })
 
+test('bridge admission refuses the pre-Inbox nineteen-pass report without either publication leaf',async()=>{
+  const item=fixture(),admit=await gate()
+  item.report.numTotalTests=19;item.report.numPassedTests=19
+  item.report.testResults[0].assertionResults.splice(19,2)
+  writeFileSync(item.path,JSON.stringify(item.report))
+  expect(()=>admit.report(item.report,item.root,item.startedAt)).toThrow('Native Voice bridge requires its exact twenty-one passing leaves')
+  expect(()=>admit.qualification(item.path,item.root,item.startedAt)).toThrow('Native Voice bridge requires its exact twenty-one passing leaves')
+})
+
 test.each(['success','numTotalTests','numPassedTests','numPendingTests','numTodoTests','numFailedTests','numFailedTestSuites','numPendingTestSuites'] as const)('bridge admission refuses inconsistent %s even with all named leaves present',async field=>{
   const item=fixture(),admit=await gate()
   Object.assign(item.report,{[field]:field==='success'?false:item.report[field]+1})
-  expect(()=>admit.report(item.report,item.root,item.startedAt)).toThrow('Native Voice bridge requires its exact nineteen passing leaves')
+  expect(()=>admit.report(item.report,item.root,item.startedAt)).toThrow('Native Voice bridge requires its exact twenty-one passing leaves')
 })
 
-test.each(['missing','extra','duplicate','renamed','reordered','skipped','todo','failed','message'] as const)('bridge admission refuses %s leaves despite a successful nineteen-pass summary',async kind=>{
+test.each(['missing','extra','duplicate','renamed','reordered','skipped','todo','failed','message'] as const)('bridge admission refuses %s leaves despite a successful twenty-one-pass summary',async kind=>{
   const item=fixture(),admit=await gate(),leaves=item.report.testResults[0].assertionResults
-  if(kind==='missing')leaves.pop()
+  if(kind==='missing')leaves.splice(18,1)
   else if(kind==='extra')leaves.push(structuredClone(leaves[0]))
   else if(kind==='duplicate')leaves[18]=structuredClone(leaves[17])
   else if(kind==='renamed')leaves[18].fullName='V2 diagnostic consumer omitted'
   else if(kind==='reordered')leaves.reverse()
   else if(kind==='message')leaves[18].failureMessages=['Owned native failure']
   else leaves[18].status=kind
-  expect(()=>admit.report(item.report,item.root,item.startedAt)).toThrow('Native Voice bridge requires its exact nineteen passing leaves')
+  expect(()=>admit.report(item.report,item.root,item.startedAt)).toThrow('Native Voice bridge requires its exact twenty-one passing leaves')
 })
 
 test.each(['missing','extra','duplicate','foreign','failed','message'] as const)('bridge admission refuses %s file identity despite retained passing leaf totals',async kind=>{
@@ -84,7 +95,7 @@ test.each(['missing','extra','duplicate','foreign','failed','message'] as const)
   else if(kind==='foreign')files[0].name=join(item.root,'foreign/tests/integration/sparra-voice-bridge.test.ts').replaceAll('\\','/')
   else if(kind==='message')files[0].message='Owned afterAll failure'
   else files[0].status=kind
-  expect(()=>admit.report(item.report,item.root,item.startedAt)).toThrow('Native Voice bridge requires its exact nineteen passing leaves')
+  expect(()=>admit.report(item.report,item.root,item.startedAt)).toThrow('Native Voice bridge requires its exact twenty-one passing leaves')
 })
 
 test.each(['stale-report','stale-file','missing-report-time','missing-file-time','invalid-report-time','invalid-file-time'] as const)('bridge admission refuses %s within a freshly written successful report',async kind=>{
@@ -95,7 +106,7 @@ test.each(['stale-report','stale-file','missing-report-time','missing-file-time'
   else if(kind==='missing-file-time')Reflect.deleteProperty(file,'startTime')
   else if(kind==='invalid-report-time')Object.assign(item.report,{startTime:null})
   else Object.assign(file,{startTime:null})
-  expect(()=>admit.report(item.report,item.root,item.startedAt)).toThrow('Native Voice bridge requires its exact nineteen passing leaves')
+  expect(()=>admit.report(item.report,item.root,item.startedAt)).toThrow('Native Voice bridge requires its exact twenty-one passing leaves')
 })
 
 test.each(['absent','empty','oversized','stale','directory','link','malformed'] as const)('bridge qualification refuses %s report bytes before publication',async kind=>{
@@ -113,5 +124,5 @@ test.each(['absent','empty','oversized','stale','directory','link','malformed'] 
 
 test('bridge admission binds the exact owned App root even when all security and V2 cases pass',async()=>{
   const item=fixture(),admit=await gate()
-  expect(()=>admit.report(item.report,join(item.root,'other-app'),item.startedAt)).toThrow('Native Voice bridge requires its exact nineteen passing leaves')
+  expect(()=>admit.report(item.report,join(item.root,'other-app'),item.startedAt)).toThrow('Native Voice bridge requires its exact twenty-one passing leaves')
 })
