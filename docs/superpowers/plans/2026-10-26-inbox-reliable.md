@@ -1,6 +1,6 @@
 # Inbox fiable — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Livrer une inbox simple dont le classement se rapporte à une fiche réellement publiée et résiste aux résultats tardifs et aux anciens clics.
 
@@ -39,11 +39,11 @@
 - Consumes: call.upsert V1/V2 et freeze_call_publication_v2, enveloppes/tours/audio/quota/fences existants ; calendar_command existante.
 - Produces: extension collection optionnelle stricte, persistée dans freeze/outbox ; marqueur reçu et instantané décisionnel courant, C/A/déclaration/T/première date, clôture explicite ; fonction SQL interne de publication transactionnelle à nommer clairement dans le rapport pour tâche2. Aucun port public nouveau si existants suffisants.
 
-- [ ] Écrire puis observer RED sur le nouveau champ/omission ancienne et clôture avant fragments, replay, résultat agenda tardif.
-- [ ] Implémenter le minimum de la spec : marker après preuve de quiescence, manifest vérifiable, instantané chiffré courant et verrou commun. Pas closed→close et pas trigger comptabilité→nouvelle revue.
-- [ ] Vérifier les mêmes cas GREEN, guards tenant/effacement utiles, Python ruff/mypy ciblés si fichiers changés ; pas intégration provider.
-- [ ] Mettre à jour la fixture Voice par le script existant depuis commit qualifié, ou documenter le consumer explicitRoot utilisé et préparer la mise à jour avant fermeture globale ; ne pas appeler fixture ancienne une preuve nouvelle.
-- [ ] Commit(s) locaux explicites dans les deux repos ; rapport interfaces réelles, tests, limites. Revue indépendante spec/qualité.
+- [x] Écrire puis observer RED sur le nouveau champ/omission ancienne et clôture avant fragments, replay, résultat agenda tardif.
+- [x] Implémenter le minimum de la spec : marker après preuve de quiescence, manifest vérifiable, instantané chiffré courant et verrou commun. Pas closed→close et pas trigger comptabilité→nouvelle revue.
+- [x] Vérifier les mêmes cas GREEN, guards tenant/effacement utiles, Python ruff/mypy ciblés si fichiers changés ; pas intégration provider.
+- [x] Mettre à jour la fixture Voice par le script existant depuis commit qualifié, ou documenter le consumer explicitRoot utilisé et préparer la mise à jour avant fermeture globale ; ne pas appeler fixture ancienne une preuve nouvelle.
+- [x] Commit(s) locaux explicites dans les deux repos ; rapport interfaces réelles, tests, limites. Revue indépendante spec/qualité.
 
 ### Task 2: DTO, filtre et décisions conditionnelles
 
@@ -55,10 +55,10 @@
 - Consumes: publication atomique tâche1, transactions R1 et marqueur/clôture.
 - Produces: list input view='pending'|'all' (pending par défaut), pagination50 filtrée avant limite ; followUp DTO {publicationRevision,decisionToken,reviewedRevision,declarationActive,collectionClosed,firstDeclaredAt} avec types exacts choisis tâche1 ; evidence au détail ; updateRequestFollowUp input {requestId,expectedPublicationRevision,expectedDecisionToken,treated:boolean}, réponse instantané/état courant cohérent ; erreurs métier de conflit409 et provisoire409 bornées.
 
-- [ ] Tests RED : payload strict/cross-tenant ; déclaration valide puis remise et vieux jeton refusé ; nouvelle publication avant/après déclaration ; accusé perdu suivi d'un conflit sans histoire inventée ; filtre ancien appel à revoir et pagination.
-- [ ] Implémenter dans les opérations verticales existantes sans repository/service ; consommer le bundle, pas les tables vives pour contenu décisionnel. Runtime n'obtient pas d'écriture libre sur preuves/publication.
-- [ ] GREEN ciblé, adaptations de fixtures exigées par vrais types ; aucun test miroir ni simulation de réservation présentée comme réelle.
-- [ ] Commit local et revue indépendante ; interfaces et erreurs exactes transmises tâche3.
+- [x] Tests RED : payload strict/cross-tenant ; déclaration valide puis remise et vieux jeton refusé ; nouvelle publication avant/après déclaration ; accusé perdu suivi d'un conflit sans histoire inventée ; filtre ancien appel à revoir et pagination.
+- [x] Implémenter dans les opérations verticales existantes sans repository/service ; consommer le bundle, pas les tables vives pour contenu décisionnel. Runtime n'obtient pas d'écriture libre sur preuves/publication.
+- [x] GREEN ciblé, adaptations de fixtures exigées par vrais types ; aucun test miroir ni simulation de réservation présentée comme réelle.
+- [x] Commit local et revue indépendante ; interfaces et erreurs exactes transmises tâche3.
 
 ### Task 3: Fiche courte, deux vues et commandes cohérentes
 
@@ -70,8 +70,12 @@
 - Consumes: DTO/suivi/erreurs tâche2 ; Astryx et useRequestAttempt existants.
 - Produces: navigation À traiter/Tous ; actualisation explicite indivisible ; contact/provenance/demandes/suite/action avant transcription ; liens vers tours ; traiter aprèsclôture, remettre àtraiter secondaire, effacement distinct, première date exacte ; conflit ou résultat réseau inconnu expliqué et relecture.
 
-- [ ] RED sur même ID/nouvellepublication, clic avec contenu/jeton de la même réponse, filtre resetcurseur, remise suivie réponse ancienne, preuves et classement provisoire indisponible.
-- [ ] Implémenter sans nouveau design system ni diffusion tempsréel, sans réordonner sousle doigt ; conserver statuts/résultatsagendaexistants, aucun succès déduit d'un résumé.
-- [ ] GREEN UI ciblé ; une vérification compilée clavier/320px avec fixtures existantes si possible. Rapporter ce qui est réellement observé.
-- [ ] Une fois lot assemblé : typecheck normatif, lint, build web/worker, suites ciblées pertinentes ; Oracle revue standard du diff/résultats et avis indépendant global. Corriger les constats concrets puis revérifier seulement leurs consommateurs.
-- [ ] Commits locaux et remise du travail avec chemins, résultats et limites ; aucun push/déploiement.
+- [x] RED sur même ID/nouvellepublication, clic avec contenu/jeton de la même réponse, filtre resetcurseur, remise suivie réponse ancienne, preuves et classement provisoire indisponible.
+- [x] Implémenter sans nouveau design system ni diffusion tempsréel, sans réordonner sousle doigt ; conserver statuts/résultatsagendaexistants, aucun succès déduit d'un résumé.
+- [x] GREEN UI ciblé ; une vérification compilée clavier/320px avec fixtures existantes si possible. Rapporter ce qui est réellement observé.
+- [x] Une fois lot assemblé : typecheck normatif, lint, build web/worker, suites ciblées pertinentes ; Oracle revue standard du diff/résultats et avis indépendant global. Corriger les constats concrets puis revérifier seulement leurs consommateurs.
+- [x] Commits locaux et remise du travail avec chemins, résultats et limites ; aucun push/déploiement.
+
+## Remise du 26 octobre
+
+Lot exécuté et revu. Qualification et arbitrages : `docs/qa/2026-10-26-inbox-reliable.md`. Le DTO final ajoute `contentReadable:boolean` à l'interface de tâche2 : le classement exige la restitution des pièces présentes, et un reçu seul ne peut pas promouvoir celle du corps affiché. Ce complément corrige le P2 de la revue globale, clôturé à `aa9af81`. Oracle : APPROVE_SCOPED sur le backend fourni à `cdfd21d`, portée distincte de la revue finale. Les détails d'exécution, limites et preuves font autorité dans le compte rendu QA ; les cases closes ne prétendent pas une campagne globale ou une qualification déployée.
