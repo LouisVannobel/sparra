@@ -1,0 +1,29 @@
+[
+  [
+    "sparra-activity.test.ts",
+    [
+      "absent reads and saves never create a workspace; native ensure enables revision one and persistent reload",
+      "native company audio policy saves and reloads immutable ON then OFF revisions with strict validation",
+      "same expected revision has exactly one winner; old snapshot remains immutable",
+      "native revoked state denies reads and saves",
+      "native deleting state denies reads and saves",
+      "direct runtime SQL denies the matching tenant after Workspace becomes deleting",
+      "direct runtime SQL denies the matching tenant after Workspace becomes provisioning",
+      "RLS denies absent/zero/invalid/foreign tenants and guessed IDs, runtime has SELECT/INSERT only",
+      "SQL independently bounds revision, sector, UTF16 text, typed destination and finite timestamp",
+      "failed insertion and caller cancellation produce no committed saved feedback",
+      "cancellation after recorded native COMMIT rejects saved completion and fresh native read reconciles it",
+      "built native RPC validates input, authentication, CSRF, conflict and private errors"
+    ]
+  ],
+  [
+    "sparra-knowledge-confirmation.test.ts",
+    [
+      "changed Workspace refuses confirmation and recovery before touching expired foreign proof or configuration",
+      "native confirmation is atomic, owner scoped, normalized and serialized",
+      "seven day historical receipt survives K9 and actual maintenance purge of K8 and capture",
+      "server acquisition owns one pending import, refuses cancellation/replacement and foreign captures",
+      "expiry is fixed, cleanup is bounded and Workspace cleanup preserves its contract and activity settings"
+    ]
+  ]
+]

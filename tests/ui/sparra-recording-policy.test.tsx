@@ -11,7 +11,7 @@ test('company audio control renders OFF initially and the saved policy in both l
   const { ActivityPanel }=await import('../../src/ui/sparra/activity-panel')
   for(const locale of ['fr','en'] as const) for(const recordingEnabled of [undefined,false,true]){
     const state:ActivityState={workspace:{id:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',displayName:'Company'},localAudioAvailable:false,configuration:recordingEnabled===undefined?null:{workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',revision:1,savedAt:'2026-10-04T10:00:00.000Z',businessName:'Garage',sector:'garage',knowledge:{openingHours:'',services:'',prices:'',faq:'',instructions:''},transferDestination:null,recordingPolicy:'off',recordingContactPhone:null,...{recordingEnabled}}}
-    const html=renderToStaticMarkup(<ActivityPanel locale={locale} state={state} onEnsure={unavailable} onSave={unavailable} onRead={unavailable} onRefused={unavailable}/>)
+    const html=renderToStaticMarkup(<ActivityPanel locale={locale} state={state} onEnsure={unavailable} onConfirm={unavailable} onLookup={unavailable} onImport={unavailable} onRead={unavailable} onRefused={unavailable}/>)
     expect(html).toContain(locale==='fr'?'Conserver l’audio des prochains appels pendant 30 jours':'Keep audio from future calls for 30 days')
     expect(html).toContain(locale==='fr'?'n’est pas disponible pour votre entreprise':'unavailable for your business')
     expect(html).toContain(locale==='fr'?'Les transcriptions sont conservées 30 jours.':'Call transcripts are kept for 30 days.')
@@ -27,7 +27,7 @@ test.each(['off','local_30d'] as const)('native unavailable audio guard preserve
   const {ActivityPanel}=await import('../../src/ui/sparra/activity-panel')
   for(const locale of ['fr','en'] as const){
     const state=localState(recordingPolicy,false)
-    const html=renderToStaticMarkup(<ActivityPanel locale={locale} state={state} onEnsure={unavailable} onSave={unavailable} onRead={unavailable} onRefused={unavailable}/>)
+    const html=renderToStaticMarkup(<ActivityPanel locale={locale} state={state} onEnsure={unavailable} onConfirm={unavailable} onLookup={unavailable} onImport={unavailable} onRead={unavailable} onRefused={unavailable}/>)
     const checkbox=[...html.matchAll(/<input\b([^>]*)>/g)].find(input=>input[1]?.includes('type="checkbox"'))?.[1]
     expect(checkbox).toBeDefined()
     expect(checkbox?.includes('checked=""')).toBe(recordingPolicy==='local_30d')
@@ -40,7 +40,7 @@ test('retained historical audio blocks submit with local OFF visible and an expl
   const {ActivityPanel}=await import('../../src/ui/sparra/activity-panel')
   const state:ActivityState={workspace:{id:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',displayName:'Company'},localAudioAvailable:false,configuration:{workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',revision:1,savedAt:'2026-10-04T10:00:00.000Z',businessName:'Garage',sector:'garage',knowledge:{openingHours:'',services:'',prices:'',faq:'',instructions:''},transferDestination:null,recordingPolicy:'off',recordingContactPhone:null,recordingEnabled:true}}
   for(const locale of ['fr','en'] as const){
-    const html=renderToStaticMarkup(<ActivityPanel locale={locale} state={state} onEnsure={unavailable} onSave={unavailable} onRead={unavailable} onRefused={unavailable}/>)
+    const html=renderToStaticMarkup(<ActivityPanel locale={locale} state={state} onEnsure={unavailable} onConfirm={unavailable} onLookup={unavailable} onImport={unavailable} onRead={unavailable} onRefused={unavailable}/>)
     const submit=[...html.matchAll(/<button\b([^>]*)>/g)].find(button=>button[1]?.includes('type="submit"'))?.[1]
     expect(submit).toContain('disabled=""')
     const checkbox=[...html.matchAll(/<input\b([^>]*)>/g)].find(input=>input[1]?.includes('type="checkbox"'))?.[1]
@@ -59,7 +59,7 @@ function localState(recordingPolicy:'off'|'local_30d',localAudioAvailable:boolea
 test.each(['off','local_30d'] as const)('native available capability renders local %s distinctly from historical provider recording',async recordingPolicy=>{
   hydration.value=true
   const {ActivityPanel}=await import('../../src/ui/sparra/activity-panel')
-  const html=renderToStaticMarkup(<ActivityPanel locale="en" state={localState(recordingPolicy,true)} onEnsure={unavailable} onSave={unavailable} onRead={unavailable} onRefused={unavailable}/>)
+  const html=renderToStaticMarkup(<ActivityPanel locale="en" state={localState(recordingPolicy,true)} onEnsure={unavailable} onConfirm={unavailable} onLookup={unavailable} onImport={unavailable} onRead={unavailable} onRefused={unavailable}/>)
   const checkbox=[...html.matchAll(/<input\b([^>]*)>/g)].find(input=>input[1]?.includes('type="checkbox"'))?.[1]
   expect(checkbox?.includes('checked=""')).toBe(recordingPolicy==='local_30d')
   expect(checkbox).not.toContain('disabled=""')
@@ -75,7 +75,7 @@ test.each(['fr','en'] as const)('saved local ON without a contact renders an opt
   hydration.value=true
   const {ActivityPanel}=await import('../../src/ui/sparra/activity-panel')
   const current=localState('local_30d',true),state:ActivityState={...current,configuration:current.configuration?{...current.configuration,recordingContactPhone:null}:null}
-  const html=renderToStaticMarkup(<ActivityPanel locale={locale} state={state} onEnsure={unavailable} onSave={unavailable} onRead={unavailable} onRefused={unavailable}/>)
+  const html=renderToStaticMarkup(<ActivityPanel locale={locale} state={state} onEnsure={unavailable} onConfirm={unavailable} onLookup={unavailable} onImport={unavailable} onRead={unavailable} onRefused={unavailable}/>)
   const phone=[...html.matchAll(/<input\b([^>]*)>/g)].find(input=>input[1]?.includes('name="recordingContactPhone"'))?.[1]
   expect(phone).toContain('value=""')
   expect(phone).not.toContain('required=""')
@@ -87,7 +87,7 @@ test.each(['fr','en'] as const)('saved local ON without a contact renders an opt
 test('saved local ON remains checked and permits explicit OFF when native capability is unavailable',async()=>{
   hydration.value=true
   const {ActivityPanel}=await import('../../src/ui/sparra/activity-panel')
-  const html=renderToStaticMarkup(<ActivityPanel locale="en" state={localState('local_30d',false)} onEnsure={unavailable} onSave={unavailable} onRead={unavailable} onRefused={unavailable}/>)
+  const html=renderToStaticMarkup(<ActivityPanel locale="en" state={localState('local_30d',false)} onEnsure={unavailable} onConfirm={unavailable} onLookup={unavailable} onImport={unavailable} onRead={unavailable} onRefused={unavailable}/>)
   const checkbox=[...html.matchAll(/<input\b([^>]*)>/g)].find(input=>input[1]?.includes('type="checkbox"'))?.[1]
   expect(checkbox).toContain('checked=""')
   expect(checkbox).not.toContain('disabled=""')
@@ -100,7 +100,7 @@ test('historical provider recording ON is never presented as local recording ON 
   hydration.value=true
   const {ActivityPanel}=await import('../../src/ui/sparra/activity-panel')
   const current=localState('off',true),state:ActivityState={...current,configuration:current.configuration?{...current.configuration,recordingEnabled:true}:null}
-  const html=renderToStaticMarkup(<ActivityPanel locale="en" state={state} onEnsure={unavailable} onSave={unavailable} onRead={unavailable} onRefused={unavailable}/>)
+  const html=renderToStaticMarkup(<ActivityPanel locale="en" state={state} onEnsure={unavailable} onConfirm={unavailable} onLookup={unavailable} onImport={unavailable} onRead={unavailable} onRefused={unavailable}/>)
   const checkbox=[...html.matchAll(/<input\b([^>]*)>/g)].find(input=>input[1]?.includes('type="checkbox"'))?.[1]
   expect(checkbox).not.toContain('checked=""')
   const submit=[...html.matchAll(/<button\b([^>]*)>/g)].find(button=>button[1]?.includes('type="submit"'))?.[1]

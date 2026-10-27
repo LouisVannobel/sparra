@@ -146,10 +146,18 @@ function passedLeafNames(table,file,expectedNames,refusal) {
   return count
 }
 
+function activityBlobFile(table,file,fileCount,root,seen) {
+  const filepath=resolve(blobValue(table,file.filepath))
+  const consumer=activityConsumers.find(([path])=>filepath===join(root,path))
+  if(fileCount!==2||!consumer||seen.has(filepath))throw new Error('Native activity blob has an unexpected consumer')
+  seen.add(filepath)
+  return passedLeafNames(table,file,consumer[1],'Native activity blob has unexpected leaves')
+}
+
 function requestsBlobFile(table,file,fileCount,root,seen) {
   const filepath=resolve(blobValue(table,file.filepath))
   const consumer=requestConsumers.find(([path])=>filepath===join(root,path))
-  if(fileCount!==5||!consumer||seen.has(filepath))throw new Error('Native requests blob has an unexpected consumer')
+  if(fileCount!==6||!consumer||seen.has(filepath))throw new Error('Native requests blob has an unexpected consumer')
   seen.add(filepath)
   return passedLeafNames(table,file,consumer[1],'Native requests blob has unexpected leaves')
 }
@@ -167,9 +175,7 @@ function admitTestFile(table, file, name, fileCount, root, startedAt, seen) {
   const result = blobValue(table, file.result), project = blobValue(table, file.projectName)
   assertSourcePath(filepath, root)
   if ((project ?? '') !== '' || !result || !Number.isFinite(result.startTime) || result.startTime < startedAt) throw new Error('Native blob source root mismatch')
-  if (name === 'activity' && (fileCount !== 1 || resolve(filepath) !== join(root, 'tests/integration/sparra-activity.test.ts'))) {
-    throw new Error('Native activity blob has an unexpected consumer')
-  }
+  if (name === 'activity') return activityBlobFile(table,file,fileCount,root,seen)
   if (name === 'requests') return requestsBlobFile(table,file,fileCount,root,seen)
   if (name === 'billing') return billingBlobFile(table,file,fileCount,root,seen)
   if (name === 'calendar') return calendarBlobFile(table,file,fileCount,root,seen)
@@ -185,8 +191,8 @@ export function readNativeBlob(filePath, name, root, startedAt, version) {
   for (const reference of files) {
     count += admitTestFile(table, blobValue(table, reference), name, files.length, root, startedAt, seen)
   }
-  if (!count || (name === 'activity' && count !== 12) || (name === 'requests' && count !== 40)
-    || (name === 'billing' && count !== 91) || (name === 'calendar' && count !== 96)) throw new Error('Native coverage test cardinality mismatch')
+  if (!count || (name === 'activity' && count !== 17) || (name === 'requests' && count !== 63)
+    || (name === 'billing' && count !== 91) || (name === 'calendar' && count !== 105)) throw new Error('Native coverage test cardinality mismatch')
   const coverage = blobValue(table, envelope[3])
   admitCoverageEntries(table, coverage, root)
   return { table, coverage, digest }
@@ -217,7 +223,41 @@ export function admitCommonGeometry(ordinary, activity) {
 }
 
 
+const activityConsumers=[
+  [
+    "tests/integration/sparra-activity.test.ts",
+    [
+      "absent reads and saves never create a workspace; native ensure enables revision one and persistent reload",
+      "native company audio policy saves and reloads immutable ON then OFF revisions with strict validation",
+      "same expected revision has exactly one winner; old snapshot remains immutable",
+      "native revoked state denies reads and saves",
+      "native deleting state denies reads and saves",
+      "direct runtime SQL denies the matching tenant after Workspace becomes deleting",
+      "direct runtime SQL denies the matching tenant after Workspace becomes provisioning",
+      "RLS denies absent/zero/invalid/foreign tenants and guessed IDs, runtime has SELECT/INSERT only",
+      "SQL independently bounds revision, sector, UTF16 text, typed destination and finite timestamp",
+      "failed insertion and caller cancellation produce no committed saved feedback",
+      "cancellation after recorded native COMMIT rejects saved completion and fresh native read reconciles it",
+      "built native RPC validates input, authentication, CSRF, conflict and private errors"
+    ]
+  ],
+  [
+    "tests/integration/sparra-knowledge-confirmation.test.ts",
+    [
+      "changed Workspace refuses confirmation and recovery before touching expired foreign proof or configuration",
+      "native confirmation is atomic, owner scoped, normalized and serialized",
+      "seven day historical receipt survives K9 and actual maintenance purge of K8 and capture",
+      "server acquisition owns one pending import, refuses cancellation/replacement and foreign captures",
+      "expiry is fixed, cleanup is bounded and Workspace cleanup preserves its contract and activity settings"
+    ]
+  ]
+]
+
 const requestsLeafNames = [
+    'inbox publication DTO never mixes live content with displayed C/T and keeps C0 provisional',
+    'unreadable published pieces refuse declaration without mutating A/T; restoration stays pending and revocation and real gaps remain allowed',
+    'inbox publication CAS handles revoke ABA, later publications, cross tenant and lost commit acknowledgement',
+    'inbox publication pending filter precedes pagination and late content reopens old declarations',
     'native owner reads absent state, actual Voice ciphertext and pinned configuration without inventing pending results',
     'native owner lists only the first authenticated nonblank caller excerpt without inventing result fields',
     'native caller excerpt preserves the exact bound without inventing a summary',
@@ -227,8 +267,8 @@ const requestsLeafNames = [
     'invalid result may expose a valid caller excerpt but missing keys and unauthenticated turns cannot',
     'an assistant turn without a caller never supplies an Inbox excerpt',
     'equal-millisecond pagination returns all 103 calls exactly once in tuple order',
-    'treat active preserves inventory and stamp, erase deletes native content and survives retention',
-    'treat closed preserves inventory and stamp, erase deletes native content and survives retention',
+    'provisional active cannot be declared; erase deletes native content and survives retention',
+    'provisional closed cannot be declared; erase deletes native content and survives retention',
     'expired content stays unreadable including a Workspace lock held across retention; queued receipt outlives fence deadline',
     'native runtime UPDATE RETURNING cooperates with narrow definer, FORCE RLS and column grants',
     'fence insertion failure and cancellation roll back; recorded COMMIT cancellation rejects completion and reload resolves',
@@ -270,10 +310,31 @@ const requestConsumers=[
     'native candidate CLI refuses stopped success after post-close fixture failure (protocol only)',
     'native accepted local capture joins before real request_human transfer intent and SDK dispatch',
   ]],
+  ['tests/integration/request-correction-browser.test.ts',[
+  "preparation writes nothing and explicit double confirmation saves only the chosen field from the current base",
+  "returning a field to its call value preserves every other current setting",
+  "a conflict retains the candidate and rereading requires a fresh comparison with the new base",
+  "an unknown result blocks writes through a failed reread and requires the exact next revision",
+  "an unknown save reread observes a matching next revision without attributing the write",
+  "stopping a save retires its response and keeps reread mandatory before any retry",
+  "a current unauthorized operation masks call and correction data and uses the existing refusal path",
+  "a current base cannot move to another Workspace when the call has no configuration snapshot",
+  "the first activity read cannot choose another Workspace when the loaded call has no snapshot",
+  "a loaded call without a snapshot can correct its own pinned Workspace",
+  "confirmation binds the compared Workspace and a changed authority masks the whole call without rebasing",
+  "other symptoms guide diagnosis without reads, writes or a pretend test in French and English",
+  "missing current configuration stays read-only, and unmount retires a pending private response",
+  "editing or changing the target field invalidates the five-text attestation",
+  "a durable receipt and exact current head establish a lost response without another write",
+  "a historical receipt never establishes a superseding head after a successful confirmation",
+  "a failed head read after a durable confirmation preserves the exact operation for reconciliation",
+  "replacement loaded retires correction state and cannot release the lock of a newer action",
+  "refresh, treatment and revocation share correction ownership and retain the publication command"
+]],
 ]
 
 function requestsSummaryPassed(report) {
-  const counters = {numTotalTests:40,numPassedTests:40,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
+  const counters = {numTotalTests:63,numPassedTests:63,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
   return report?.success === true && Object.entries(counters).every(([key,wanted])=>report[key]===wanted)
 }
 
@@ -293,9 +354,9 @@ function requestsConsumerPassed(report,path,names,root) {
 }
 
 export function assertRequestsReport(report,root) {
-  if(!requestsSummaryPassed(report) || !Array.isArray(report.testResults) || report.testResults.length!==5
+  if(!requestsSummaryPassed(report) || !Array.isArray(report.testResults) || report.testResults.length!==6
     || !requestConsumers.every(([path,names])=>requestsConsumerPassed(report,path,names,root))) {
-    throw new Error('Native Requests requires its exact five consumers and 40 passing leaves')
+    throw new Error('Native Requests requires its exact six consumers and 63 passing leaves')
   }
 }
 
@@ -325,12 +386,14 @@ const voiceBridgeLeafNames = [
   'native sector snapshots V2 garage preserves native snapshots, concurrent revisions and Inbox ownership',
   'native sector snapshots V2 controle-technique preserves native snapshots, concurrent revisions and Inbox ownership',
   'native sector snapshots V2 diagnostic-immobilier preserves native snapshots, concurrent revisions and Inbox ownership',
+  'collection waits for retained pieces, freezes agenda and ignores replay and accounting',
+  'current publication can revoke a declaration after a native extra turn makes collection provisional',
 ]
 
 function voiceBridgeFilePassed(file,root,startedAt) {
   return file?.name===join(root,'tests/integration/sparra-voice-bridge.test.ts').replaceAll('\\','/')
     && file.status==='passed' && file.message==='' && Number.isFinite(file.startTime) && file.startTime>=startedAt
-    && Array.isArray(file.assertionResults) && file.assertionResults.length===19
+    && Array.isArray(file.assertionResults) && file.assertionResults.length===21
     && voiceBridgeLeafNames.every((name,index)=>{
       const leaf=file.assertionResults[index]
       return leaf?.status==='passed' && leaf.fullName===name && Array.isArray(leaf.failureMessages) && leaf.failureMessages.length===0
@@ -338,12 +401,12 @@ function voiceBridgeFilePassed(file,root,startedAt) {
 }
 
 export function assertVoiceBridgeReport(report,root,startedAt) {
-  const counters={numTotalTests:19,numPassedTests:19,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
+  const counters={numTotalTests:21,numPassedTests:21,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
   if(report?.success!==true || !Object.entries(counters).every(([key,wanted])=>report[key]===wanted)
     || !Number.isFinite(startedAt) || !Number.isFinite(report.startTime) || report.startTime<startedAt
     || !Array.isArray(report.testResults) || report.testResults.length!==1
     || !voiceBridgeFilePassed(report.testResults[0],root,startedAt)) {
-    throw new Error('Native Voice bridge requires its exact nineteen passing leaves')
+    throw new Error('Native Voice bridge requires its exact twenty-one passing leaves')
   }
 }
 
@@ -601,7 +664,7 @@ export function assertBillingQualification(path,root,startedAt) {
   assertBillingReport(JSON.parse(readFileSync(path,'utf8')),root)
 }
 
-const calendarConsumers=[
+const calendarConsumers = [
   [
     "tests/integration/calendar-owner.test.ts",
     [
@@ -707,7 +770,16 @@ const calendarConsumers=[
       "document departure uses native beforeunload and declining retains work",
       "Calendar uncertainty refuses OAuth; ordinary Calendar read and save keep enterprise independently editable",
       "whitespace FAQ work and added answers remain protected, while guided sections never request abandonment",
-      "pending OAuth retains beforeunload guard and SPA departure remains guarded after rejection"
+      "pending OAuth retains beforeunload guard and SPA departure remains guarded after rejection",
+      "knowledge import prepares editable facts and requires all five texts before confirmation",
+      "cancelled late capture preserves manual text and lost confirmation looks up exact receipt before current state",
+      "activity confirmation knowledge-foreign refuses a foreign current state before exposing or adopting it",
+      "activity confirmation knowledge-foreign-configuration refuses a foreign current state before exposing or adopting it",
+      "activity confirmation knowledge-lost-foreign refuses a foreign current state before exposing or adopting it",
+      "activity confirmation knowledge-head-different requires exact content and saved time before claiming the current head",
+      "activity confirmation knowledge-head-time requires exact content and saved time before claiming the current head",
+      "activity final preview fr displays all confirmed settings as read-only before attestation",
+      "activity final preview en displays all confirmed settings as read-only before attestation"
     ]
   ],
   [
@@ -733,10 +805,10 @@ function calendarBlobFile(table,file,fileCount,root,seen) {
   return passedLeafNames(table,file,consumer[1],'Native Calendar blob has unexpected leaves')
 }
 export function assertCalendarReport(report,root) {
-  const counters={numTotalTests:96,numPassedTests:96,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
+  const counters={numTotalTests:105,numPassedTests:105,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
   if(report?.success!==true||Object.entries(counters).some(([key,value])=>report[key]!==value)
     ||!Array.isArray(report.testResults)||report.testResults.length!==5
-    ||!calendarConsumers.every(([path,names])=>consumerReportPassed(report,root,path,names))) throw new Error('Native Calendar requires its exact five consumers and 96 passing leaves')
+    ||!calendarConsumers.every(([path,names])=>consumerReportPassed(report,root,path,names))) throw new Error('Native Calendar requires its exact five consumers and 105 passing leaves')
 }
 export function assertCalendarQualification(path,root,startedAt) {
   const stat=lstatSync(path)

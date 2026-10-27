@@ -8,13 +8,13 @@ const unavailable = async (): Promise<never> => {
   throw new Error('No mutation')
 }
 test('verified appointment remains visible independently from absent or partial model summary', () => {
-  const detail = {
+  const detail = {workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
     id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     admittedAt: '2026-10-01T10:00:00.000Z',
     endedAt: null,
     status: 'closed' as const,
     configurationRevision: null,
-    treatedAt: null,
+    treatedAt:null,followUp:{publicationRevision:1,decisionToken:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',reviewedRevision:0,declarationActive:false,collectionClosed:true,contentReadable:true,firstDeclaredAt:null},
     resultAvailability: 'unavailable' as const,
     resultQuality: null,
     category: null,
@@ -28,7 +28,7 @@ test('verified appointment remains visible independently from absent or partial 
     unavailableTurnCount: 0,
     moreTurns: false,
     transcriptLossCount: 0,
-    erasureState: null,
+    erasureState:null,evidence:[],callerPhone:null,collectionGaps:[],audioCoverage:'unknown' as const,
     bookings: [
       {
         state: 'confirmed' as const,
@@ -70,13 +70,13 @@ test('verified appointment remains visible independently from absent or partial 
   expect(changed).not.toContain('Rendez-vous confirmé')
 })
 
-const appointment: RequestDetailDto = {
+const appointment: RequestDetailDto = {workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
   id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', admittedAt: '2026-10-01T10:00:00.000Z', endedAt: '2026-10-01T10:03:00.000Z',
-  status: 'closed', configurationRevision: null, treatedAt: null, resultAvailability: 'available', resultQuality: 'partial',
+  status: 'closed', configurationRevision: null, treatedAt:null,followUp:{publicationRevision:1,decisionToken:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',reviewedRevision:0,declarationActive:false,collectionClosed:true,contentReadable:true,firstDeclaredAt:null}, resultAvailability: 'available', resultQuality: 'partial',
   category: 'appointment_to_confirm', summary: 'Vidange demandée', conversationExcerpt: null,
   contact: { name: 'Camille', callback_e164: '+33123456789', preference: null, callback_source: 'caller', callback_confirmed: false },
   nextAction: 'Appeler Camille pour le devis', configuration: null, transcript: [], transcriptAvailability: 'unavailable',
-  unavailableTurnCount: 0, moreTurns: false, transcriptLossCount: 0, erasureState: null,
+  unavailableTurnCount: 0, moreTurns: false, transcriptLossCount: 0, erasureState:null,evidence:[],callerPhone:null,collectionGaps:[],audioCoverage:'unknown' as const,
   bookings: [{ state: 'confirmed', serviceName: 'Vidange', start: '2026-10-26T08:00:00.000Z', end: '2026-10-26T08:30:00.000Z', timezone: 'Europe/Paris', providerReference: 'sparra123', observedState: 'confirmed' }],
 }
 
@@ -154,7 +154,7 @@ test.each(['fr', 'en'] as const)('model-only confirmation and mixed booking evid
 
 test('confirmed booking does not mark the request treated or remove a prior treatment', () => {
   const open = { ...appointment, bookingOutcome: 'confirmed' as const }
-  const treated = { ...open, treatedAt: '2026-10-01T11:00:00.000Z' }
+  const treated = { ...open, treatedAt: '2026-10-01T11:00:00.000Z',followUp:{...open.followUp,reviewedRevision:1,declarationActive:true,firstDeclaredAt:'2026-10-01T11:00:00.000Z'} }
   const render = (detail: typeof open) => renderToStaticMarkup(<InboxPanel locale="en" state={{ workspace: null, configuration: null, localAudioAvailable: false }} page={{ requests: [detail], nextCursor: null }} onMore={unavailable} onTreat={unavailable} onRefused={unavailable} />)
   expect(render(open)).toContain('To treat')
   expect(render(treated)).toContain('Treated')

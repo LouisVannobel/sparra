@@ -6,9 +6,9 @@ import type { ActivityState, RequestDetailDto } from '../../src/modules/sparra/s
 const unavailable=async():Promise<never>=>{throw new Error('SSR must not mutate')}
 test.each(['fr','en'] as const)('inbox %s shows an escaped caller excerpt linked to the conversation when no result exists',async locale=>{
   const {InboxPanel}=await import('../../src/ui/sparra/inbox-panel')
-  const row={id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',admittedAt:'2026-10-01T10:00:00.000Z',endedAt:null,status:'closed',configurationRevision:null,treatedAt:null,resultAvailability:'unavailable',resultQuality:null,category:null,summary:null,conversationExcerpt:'Je souhaite un devis <script>alert(1)</script> & un rappel.',contact:null,nextAction:null} satisfies import('../../src/modules/sparra/sparra.functions').ListRequestsPage['requests'][number]
+  const row={id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',admittedAt:'2026-10-01T10:00:00.000Z',endedAt:null,status:'closed',configurationRevision:null,treatedAt:null,followUp:{publicationRevision:1,decisionToken:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',reviewedRevision:0,declarationActive:false,collectionClosed:true,contentReadable:true,firstDeclaredAt:null},resultAvailability:'unavailable',resultQuality:null,category:null,summary:null,conversationExcerpt:'Je souhaite un devis <script>alert(1)</script> & un rappel.',contact:null,nextAction:null} satisfies import('../../src/modules/sparra/sparra.functions').ListRequestsPage['requests'][number]
   const html=renderToStaticMarkup(<InboxPanel locale={locale} state={{workspace:null,configuration:null,localAudioAvailable:false}} page={{requests:[row],nextCursor:null}} onMore={unavailable} onTreat={unavailable} onRefused={unavailable}/> )
-  expect(html).toContain(`<a href="/app/demandes/${row.id}?lang=${locale}">${locale==='fr'?'Extrait de la conversation':'Conversation excerpt'}</a>`)
+  expect(html).toContain(`<a href="/app/demandes/${row.id}?lang=${locale}&amp;view=pending">${locale==='fr'?'Extrait de la conversation':'Conversation excerpt'}</a>`)
   expect(html).toContain('<q>Je souhaite un devis &lt;script&gt;alert(1)&lt;/script&gt; &amp; un rappel.</q>')
   expect(html).not.toContain('<script>')
   expect(html).not.toContain(locale==='fr'?'Résumé indisponible':'Summary unavailable')
@@ -16,7 +16,7 @@ test.each(['fr','en'] as const)('inbox %s shows an escaped caller excerpt linked
 
 test.each(['fr','en'] as const)('inbox %s prefers a real result over an excerpt and preserves unavailable content',async locale=>{
   const {InboxPanel}=await import('../../src/ui/sparra/inbox-panel')
-  const row={id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',admittedAt:'2026-10-01T10:00:00.000Z',endedAt:null,status:'closed',configurationRevision:null,treatedAt:null,resultAvailability:'available',resultQuality:'partial',category:null,summary:'Observed summary',conversationExcerpt:'Earlier caller words',contact:null,nextAction:null} satisfies import('../../src/modules/sparra/sparra.functions').ListRequestsPage['requests'][number]
+  const row={id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',admittedAt:'2026-10-01T10:00:00.000Z',endedAt:null,status:'closed',configurationRevision:null,treatedAt:null,followUp:{publicationRevision:1,decisionToken:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',reviewedRevision:0,declarationActive:false,collectionClosed:true,contentReadable:true,firstDeclaredAt:null},resultAvailability:'available',resultQuality:'partial',category:null,summary:'Observed summary',conversationExcerpt:'Earlier caller words',contact:null,nextAction:null} satisfies import('../../src/modules/sparra/sparra.functions').ListRequestsPage['requests'][number]
   const render=(request:import('../../src/modules/sparra/sparra.functions').ListRequestsPage['requests'][number])=>renderToStaticMarkup(<InboxPanel locale={locale} state={{workspace:null,configuration:null,localAudioAvailable:false}} page={{requests:[request],nextCursor:null}} onMore={unavailable} onTreat={unavailable} onRefused={unavailable}/> )
   const result=render(row)
   expect(result).toContain('Observed summary')
@@ -36,7 +36,7 @@ test.each([
   ['en', 'unavailable', null, 'Summary unavailable'],
 ] as const)('request summary heading reflects %s %s/%s', async (locale, resultAvailability, resultQuality, heading) => {
   const { RequestPanel } = await import('../../src/ui/sparra/request-panel')
-  const detail: RequestDetailDto = { id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', admittedAt:'2026-10-01T10:00:00.000Z', endedAt:'2026-10-01T10:01:00.000Z', status:'closed', configurationRevision:null, treatedAt:null, resultAvailability, resultQuality, category:null, conversationExcerpt:null,summary:resultAvailability==='available'?'Test-only summary':null, contact:null, nextAction:null, configuration:null, transcript:[], transcriptAvailability:'unavailable', unavailableTurnCount:0, moreTurns:false, transcriptLossCount:0, erasureState:null }
+  const detail: RequestDetailDto = {workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', admittedAt:'2026-10-01T10:00:00.000Z', endedAt:'2026-10-01T10:01:00.000Z', status:'closed', configurationRevision:null, treatedAt:null,followUp:{publicationRevision:1,decisionToken:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',reviewedRevision:0,declarationActive:false,collectionClosed:true,contentReadable:true,firstDeclaredAt:null}, resultAvailability, resultQuality, category:null, conversationExcerpt:null,summary:resultAvailability==='available'?'Test-only summary':null, contact:null, nextAction:null, configuration:null, transcript:[], transcriptAvailability:'unavailable', unavailableTurnCount:0, moreTurns:false, transcriptLossCount:0, erasureState:null,evidence:[],callerPhone:null,collectionGaps:[],audioCoverage:'unknown'}
   const html = renderToStaticMarkup(<RequestPanel locale={locale} loaded={{detail,receipt:null}} onTreat={unavailable} onErase={unavailable} onRefused={unavailable} />)
   const summarySection = html.match(/<section class="sparra-request-summary"[^>]*>([\s\S]*?)<\/section>/)?.[1]
   expect(summarySection).toBeDefined()
@@ -47,12 +47,12 @@ test('configured activity SSR preserves the observed revision, editor values and
   const {ActivityPanel}=await import('../../src/ui/sparra/activity-panel')
   const state:ActivityState={workspace:{id:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',displayName:'Observed workspace'},localAudioAvailable:false,configuration:{workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',revision:7,savedAt:'2026-10-01T10:00:00.000Z',businessName:'Observed inspection centre',sector:'controle-technique',knowledge:{openingHours:'09:00–17:00',services:'Vehicle inspection',prices:'80 euros',faq:'Bring the vehicle papers',instructions:'Ask before proceeding'},transferDestination:null,recordingPolicy:'off',recordingContactPhone:null}}
   for(const locale of ['fr','en'] as const){
-    const html=renderToStaticMarkup(<ActivityPanel locale={locale} state={state} onEnsure={unavailable} onSave={unavailable} onRead={unavailable} onRefused={unavailable}/> )
+    const html=renderToStaticMarkup(<ActivityPanel locale={locale} state={state} onEnsure={unavailable} onConfirm={unavailable} onLookup={unavailable} onImport={unavailable} onRead={unavailable} onRefused={unavailable}/> )
     expect(html).toMatch(new RegExp('<p\\b[^>]*>'+(locale==='fr'?'Version enregistrée':'Saved version')+': 7</p>'))
     expect(html).toContain('value="Observed inspection centre"')
     expect(html).toContain(locale==='fr'?'Contrôle technique':'Vehicle inspection')
     const inputs=[...html.matchAll(/<input\b([^>]*)>/g)]
-    expect(inputs).toHaveLength(3)
+    expect(inputs).toHaveLength(4)
     expect(inputs[0]?.[1]).toContain('aria-required="true"')
     expect(inputs[1]?.[1]).toContain('value=""')
     const areas=[...html.matchAll(/<textarea\b([^>]*)>([\s\S]*?)<\/textarea>/g)]
@@ -61,7 +61,7 @@ test('configured activity SSR preserves the observed revision, editor values and
     for(const label of labels)expect(html).toContain(label)
     const controls=[...html.matchAll(/<(?:input|textarea|button)\b([^>]*)>/g)]
     const originalControls=controls.filter(control=>!control[0].startsWith('<button')||/role="combobox"|type="submit"/.test(control[1]!))
-    expect(originalControls).toHaveLength(10)
+    expect(originalControls).toHaveLength(11)
     for(const control of controls)expect(control[1]).toContain('disabled=""')
     expect(html).not.toContain(locale==='fr'?'Configuration enregistrée.':'Configuration saved.')
     expect(html).not.toContain(locale==='fr'?'Créer mon espace':'Create my workspace')
@@ -73,9 +73,9 @@ test('private panels render truthful empty and partial states in FR/EN without i
   const {ActivityPanel}=await import('../../src/ui/sparra/activity-panel')
   const {InboxPanel}=await import('../../src/ui/sparra/inbox-panel')
   const {RequestPanel}=await import('../../src/ui/sparra/request-panel')
-  const detail:RequestDetailDto={id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',admittedAt:'2026-10-01T10:00:00.000Z',endedAt:null,status:'pending',configurationRevision:null,treatedAt:null,resultAvailability:'unavailable',resultQuality:null,category:null,conversationExcerpt:null,summary:null,contact:null,nextAction:null,configuration:null,transcript:[],transcriptAvailability:'unavailable',unavailableTurnCount:0,moreTurns:false,transcriptLossCount:0,erasureState:null}
+  const detail:RequestDetailDto={workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',admittedAt:'2026-10-01T10:00:00.000Z',endedAt:null,status:'pending',configurationRevision:null,treatedAt:null,followUp:{publicationRevision:1,decisionToken:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',reviewedRevision:0,declarationActive:false,collectionClosed:true,contentReadable:true,firstDeclaredAt:null},resultAvailability:'unavailable',resultQuality:null,category:null,conversationExcerpt:null,summary:null,contact:null,nextAction:null,configuration:null,transcript:[],transcriptAvailability:'unavailable',unavailableTurnCount:0,moreTurns:false,transcriptLossCount:0,erasureState:null,evidence:[],callerPhone:null,collectionGaps:[],audioCoverage:'unknown'}
   for(const locale of ['fr','en'] as const){
-    const activity=renderToStaticMarkup(<ActivityPanel locale={locale} state={{workspace:null,configuration:null,localAudioAvailable:false}} onEnsure={unavailable} onSave={unavailable} onRead={unavailable} onRefused={unavailable}/> )
+    const activity=renderToStaticMarkup(<ActivityPanel locale={locale} state={{workspace:null,configuration:null,localAudioAvailable:false}} onEnsure={unavailable} onConfirm={unavailable} onLookup={unavailable} onImport={unavailable} onRead={unavailable} onRefused={unavailable}/> )
     expect(activity).toContain(locale==='fr'?'Créer mon espace':'Create my workspace')
     expect(activity).not.toContain('textarea')
     const inbox=renderToStaticMarkup(<InboxPanel locale={locale} state={{workspace:null,configuration:null,localAudioAvailable:false}} page={{requests:[],nextCursor:null}} onMore={unavailable} onTreat={unavailable} onRefused={unavailable}/> )
@@ -100,7 +100,7 @@ test('detail and inbox preserve the translated native category and observed numb
   const categories=[['callback','Demande de rappel','Callback request'],['information','Demande d’information','Information request'],['appointment_to_confirm','Rendez-vous à confirmer','Appointment to confirm'],['declared_urgent','Urgence déclarée','Declared urgent request']] as const
   const sources=[['caller','+33123456789','Numéro déclaré par l’appelant','Number stated by the caller'],['provider','+33234567890','Numéro fourni par le fournisseur téléphonique','Number supplied by the phone provider'],['missing',null,'Aucun numéro disponible','No number available']] as const
   for(const locale of ['fr','en'] as const)for(const [category,frCategory,enCategory] of categories)for(const [source,number,frSource,enSource] of sources){
-    const detail:RequestDetailDto={id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',admittedAt:'2026-10-01T10:00:00.000Z',endedAt:null,status:'closing',configurationRevision:null,treatedAt:null,resultAvailability:'available',resultQuality:'partial',category,conversationExcerpt:null,summary:'Demande fictive',contact:{name:null,callback_e164:number,preference:null,callback_source:source,callback_confirmed:false},nextAction:'Vérifier la demande',configuration:null,transcript:[],transcriptAvailability:'unavailable',unavailableTurnCount:0,moreTurns:false,transcriptLossCount:0,erasureState:null}
+    const detail:RequestDetailDto={workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',admittedAt:'2026-10-01T10:00:00.000Z',endedAt:null,status:'closing',configurationRevision:null,treatedAt:null,followUp:{publicationRevision:1,decisionToken:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',reviewedRevision:0,declarationActive:false,collectionClosed:true,contentReadable:true,firstDeclaredAt:null},resultAvailability:'available',resultQuality:'partial',category,conversationExcerpt:null,summary:'Demande fictive',contact:{name:null,callback_e164:number,preference:null,callback_source:source,callback_confirmed:false},nextAction:'Vérifier la demande',configuration:null,transcript:[],transcriptAvailability:'unavailable',unavailableTurnCount:0,moreTurns:false,transcriptLossCount:0,erasureState:null,evidence:[],callerPhone:null,collectionGaps:[],audioCoverage:'unknown'}
     const request=renderToStaticMarkup(<RequestPanel locale={locale} loaded={{detail,receipt:null}} onTreat={unavailable} onErase={unavailable} onRefused={unavailable}/> )
     const inbox=renderToStaticMarkup(<InboxPanel locale={locale} state={{workspace:null,configuration:null,localAudioAvailable:false}} page={{requests:[detail],nextCursor:null}} onMore={unavailable} onTreat={unavailable} onRefused={unavailable}/> )
     for(const html of [request,inbox]){
@@ -116,14 +116,14 @@ test('detail and inbox preserve the translated native category and observed numb
 
 test.each(['fr','en'] as const)('inbox %s SSR keeps all read and treatment controls disabled',async locale=>{
   const {InboxPanel}=await import('../../src/ui/sparra/inbox-panel')
-  const row={id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',admittedAt:'2026-10-01T10:00:00.000Z',endedAt:null,status:'pending',configurationRevision:null,treatedAt:null,resultAvailability:'unavailable',resultQuality:null,category:null,conversationExcerpt:null,summary:null,contact:null,nextAction:null} satisfies import('../../src/modules/sparra/sparra.functions').ListRequestsPage['requests'][number]
+  const row={id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',admittedAt:'2026-10-01T10:00:00.000Z',endedAt:null,status:'pending',configurationRevision:null,treatedAt:null,followUp:{publicationRevision:1,decisionToken:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',reviewedRevision:0,declarationActive:false,collectionClosed:true,contentReadable:true,firstDeclaredAt:null},resultAvailability:'unavailable',resultQuality:null,category:null,conversationExcerpt:null,summary:null,contact:null,nextAction:null} satisfies import('../../src/modules/sparra/sparra.functions').ListRequestsPage['requests'][number]
   const html=renderToStaticMarkup(<InboxPanel locale={locale} state={{workspace:null,configuration:null,localAudioAvailable:false}} page={{requests:[row],nextCursor:{id:row.id,admittedAt:row.admittedAt}}} onMore={unavailable} onTreat={unavailable} onRefused={unavailable}/> )
   const buttons=[...html.matchAll(/<button\b([^>]*)>/g)]
   expect(buttons).toHaveLength(3)
   for(const button of buttons)expect(button[1]).toContain('disabled=""')
 })
 
-const requestDetail:RequestDetailDto={id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',admittedAt:'2026-10-01T10:00:00.000Z',endedAt:'2026-10-01T10:03:00.000Z',status:'closed',configurationRevision:7,treatedAt:null,resultAvailability:'available',resultQuality:'partial',category:'information',conversationExcerpt:null,summary:'Observed request text',contact:{name:'Camille',callback_e164:'+33123456789',preference:'Afternoon',callback_source:'caller',callback_confirmed:false},nextAction:'Check the request',configuration:{workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',revision:7,savedAt:'2026-09-30T10:00:00.000Z',businessName:'Pinned garage',sector:'garage',knowledge:{openingHours:'09:00–17:00',services:'Oil change',prices:'',faq:'Bring the vehicle papers',instructions:'Ask before proceeding'},transferDestination:null,recordingPolicy:'off',recordingContactPhone:null},transcript:[{id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc',ordinal:1,role:'user',text:'Caller turn',interrupted:false,startedAt:'2026-10-01T10:00:00.000Z'},{id:'dddddddd-dddd-4ddd-8ddd-dddddddddddd',ordinal:2,role:'assistant',text:'Assistant turn',interrupted:true,startedAt:'2026-10-01T10:01:00.000Z'}],transcriptAvailability:'partial',unavailableTurnCount:2,moreTurns:true,transcriptLossCount:3,erasureState:null}
+const requestDetail:RequestDetailDto={workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',admittedAt:'2026-10-01T10:00:00.000Z',endedAt:'2026-10-01T10:03:00.000Z',status:'closed',configurationRevision:7,treatedAt:null,followUp:{publicationRevision:1,decisionToken:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',reviewedRevision:0,declarationActive:false,collectionClosed:true,contentReadable:true,firstDeclaredAt:null},resultAvailability:'available',resultQuality:'partial',category:'information',conversationExcerpt:null,summary:'Observed request text',contact:{name:'Camille',callback_e164:'+33123456789',preference:'Afternoon',callback_source:'caller',callback_confirmed:false},nextAction:'Check the request',configuration:{workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',revision:7,savedAt:'2026-09-30T10:00:00.000Z',businessName:'Pinned garage',sector:'garage',knowledge:{openingHours:'09:00–17:00',services:'Oil change',prices:'',faq:'Bring the vehicle papers',instructions:'Ask before proceeding'},transferDestination:null,recordingPolicy:'off',recordingContactPhone:null},transcript:[{id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc',ordinal:1,role:'user',text:'Caller turn',interrupted:false,startedAt:'2026-10-01T10:00:00.000Z'},{id:'dddddddd-dddd-4ddd-8ddd-dddddddddddd',ordinal:2,role:'assistant',text:'Assistant turn',interrupted:true,startedAt:'2026-10-01T10:01:00.000Z'}],transcriptAvailability:'partial',unavailableTurnCount:2,moreTurns:true,transcriptLossCount:3,erasureState:null,evidence:[],callerPhone:null,collectionGaps:[],audioCoverage:'unknown'}
 
 // fallow-ignore-next-line complexity -- reviewed SSR B; TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003
 test('request detail keeps observed metadata, ordered partial turns, pinned knowledge and disabled SSR actions in both locales',async()=>{
@@ -137,7 +137,7 @@ test('request detail keeps observed metadata, ordered partial turns, pinned know
     expect(html).toContain(locale==='fr'?'Transcription partielle: 2 tours indisponibles.':'Partial transcript: 2 unavailable turns.')
     expect(html).toContain(locale==='fr'?'3 tours capturés perdus.':'3 captured turns lost.')
     expect(html).toContain(locale==='fr'?'La transcription affichée est limitée aux 200 premiers tours.':'The displayed transcript is limited to the first 200 turns.')
-    expect(html).toContain('<ol class="sparra-call-transcript"><li><p><strong>'+(locale==='fr'?'Appelant':'Caller')+'</strong></p><p>Caller turn</p></li><li><p><strong>Sparra</strong> — '+(locale==='fr'?'Interrompu':'Interrupted')+'</p><p>Assistant turn</p></li></ol>')
+    expect(html).toContain('<ol class="sparra-call-transcript"><li id="turn-cccccccc-cccc-4ccc-8ccc-cccccccccccc" tabindex="-1"><p><strong>'+(locale==='fr'?'Appelant':'Caller')+'</strong></p><p>Caller turn</p></li><li id="turn-dddddddd-dddd-4ddd-8ddd-dddddddddddd" tabindex="-1"><p><strong>Sparra</strong> — '+(locale==='fr'?'Interrompu':'Interrupted')+'</p><p>Assistant turn</p></li></ol>')
     expect(html).toContain(locale==='fr'?'Pinned garage — Version enregistrée 7':'Pinned garage — Saved version 7')
     expect(html.match(/<dt>/g)).toHaveLength(5)
     for(const text of ['09:00–17:00','Oil change','Bring the vehicle papers','Ask before proceeding'])expect(html).toContain('<dd>'+text+'</dd>')
@@ -152,7 +152,7 @@ test('request detail keeps observed metadata, ordered partial turns, pinned know
 test('request detail retains empty contact and absent snapshot fallbacks without treating complete quality as partial',async()=>{
   const {RequestPanel}=await import('../../src/ui/sparra/request-panel')
   for(const locale of ['fr','en'] as const){
-    const detail:RequestDetailDto={...requestDetail,resultQuality:'complete',summary:null,category:null,nextAction:null,contact:{name:null,callback_e164:null,preference:null,callback_source:'missing',callback_confirmed:false},configuration:null,transcript:[],transcriptAvailability:'available',unavailableTurnCount:0,moreTurns:false,transcriptLossCount:0,treatedAt:'2026-10-01T11:00:00.000Z'}
+    const detail:RequestDetailDto={...requestDetail,resultQuality:'complete',summary:null,category:null,nextAction:null,contact:{name:null,callback_e164:null,preference:null,callback_source:'missing',callback_confirmed:false},configuration:null,transcript:[],transcriptAvailability:'available',unavailableTurnCount:0,moreTurns:false,transcriptLossCount:0,treatedAt:'2026-10-01T11:00:00.000Z',followUp:{...requestDetail.followUp,reviewedRevision:1,declarationActive:true,firstDeclaredAt:'2026-10-01T11:00:00.000Z'}}
     const html=renderToStaticMarkup(<RequestPanel locale={locale} loaded={{detail,receipt:null}} onTreat={unavailable} onErase={unavailable} onRefused={unavailable}/> )
     expect(html).toMatch(new RegExp('<h2[^>]*>'+(locale==='fr'?'Résumé':'Summary')+'</h2>'))
     expect(html).not.toContain(locale==='fr'?'Résumé partiel':'Partial summary')

@@ -114,6 +114,15 @@ test.each([
   expect(observed.header).toHaveBeenCalledExactlyOnceWith('cache-control','no-store')
 })
 
+test('registered activity mapper distinguishes a changed Workspace from a revision conflict',async()=>{
+  const rejection=(await mapping('activity',namedFailure('ActivityWorkspaceChanged'))).error
+  if(!(rejection instanceof Response))throw new Error('Expected a bounded Workspace refusal')
+  expect(rejection.status).toBe(409)
+  expect(rejection.headers.get('x-sparra-activity-error')).toBe('workspace-changed')
+  expect(await rejection.text()).toBe('Activity unavailable')
+  expect(observed.header).toHaveBeenCalledExactlyOnceWith('cache-control','no-store')
+})
+
 test('registered Calendar middleware preserves a native Response and sets no-store',async()=>{
   expect((await mapping('calendar')).context).toEqual({unitResult:true})
   const refusal=new Response('owned-refusal',{status:401})

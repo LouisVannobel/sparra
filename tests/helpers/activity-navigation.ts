@@ -18,3 +18,14 @@ export async function showActivitySection(page:Page,section:'establishment'|'kno
   const button=page.getByRole('navigation',{name:activityMessages[locale].guidedNavigation,exact:true}).getByRole('button',{name:activityMessages[locale].guidedSections[index],exact:true})
   if(await button.getAttribute('aria-current')!=='step')await button.click()
 }
+
+/** Follow the real full-preview and human-attestation step before a test saves. */
+export async function reviewActivity(page:Page){
+  const save=page.locator('.sparra-business-form .sparra-form-submit')
+  const attestation=page.locator('input[name="knowledgeAttestation"]')
+  if(!await attestation.isVisible()){
+    if(!await save.isEnabled())return
+    await save.click()
+  }
+  if(await attestation.isVisible()&&await attestation.isEnabled())await attestation.check()
+}

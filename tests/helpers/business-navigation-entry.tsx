@@ -10,7 +10,7 @@ import type { ActivityState,ActivityConfigurationDto } from '../../src/modules/s
 import type { CalendarState } from '../../src/modules/calendar/connection.server'
 import '../../src/ui/auth/auth.css'
 import '../../src/ui/sparra/sparra.css'
-const workspace={id:'fixture-workspace',displayName:'Fixture'}
+const workspace={id:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',displayName:'Fixture'}
 const configuration:ActivityConfigurationDto={workspaceId:workspace.id,revision:1,savedAt:'2026-10-22T00:00:00Z',businessName:'Garage known',sector:'garage',knowledge:{openingHours:'',services:'',prices:'',faq:'',instructions:''},transferDestination:null,recordingEnabled:false,recordingPolicy:'off',recordingContactPhone:null}
 const activity:ActivityState={workspace,configuration,localAudioAvailable:true}
 const calendar:CalendarState={available:true,status:'connected',accountEmail:'fixture@example.test',selectedCalendar:{id:'calendar',summary:'Observed calendar'},calendars:[{id:'calendar',summary:'Observed calendar',timeZone:'Europe/Paris',accessRole:'writer'}],enabled:false,revision:3,policy:{version:1,timeZone:'Europe/Paris',services:[{id:'service',name:'Known service',durationMinutes:30}],weeklyHours:[{day:1,ranges:[{start:'09:00',end:'12:00'}]}],bufferMinutes:0,noticeMinutes:0}}
@@ -18,13 +18,25 @@ function FixtureLink({href,children}:{href:string;children:import('react').React
 function Business(){
   const {lang,mode}=business.useSearch(),router=useRouter(),guard=useBusinessNavigation(lang)
   const [events,setEvents]=useState<string[]>([]),release=useRef<(()=>void)|null>(null)
+  const initialActivity:ActivityState=mode==='knowledge-settings'?{...activity,configuration:{...configuration,transferDestination:'+33123456789',recordingPolicy:'local_30d',recordingContactPhone:'+33234567890'}}:activity
+  const savedActivity=useRef(initialActivity),submissionKey=useRef('')
   const log=(event:string)=>setEvents(value=>[...value,event])
   return <><FixtureLink href={'/tests/helpers/business-navigation.html?lang='+(lang==='fr'?'en':'fr')+'&mode='+mode}>Language</FixtureLink><FixtureLink href="/other">Other page</FixtureLink><FixtureLink href="/login">Ordinary login</FixtureLink><a href="/document">Document</a>
-    <ActivityPanel key={'fixture-workspace:1:'+lang} locale={lang} state={mode==='empty'?{...activity,configuration:null}:activity}
+    <ActivityPanel key={'fixture-workspace:1:'+lang} locale={lang} state={mode==='empty'?{...activity,configuration:null}:initialActivity}
       onNavigationStateChange={guard.onActivityNavigationStateChange}
       externalNavigationPending={guard.externalNavigationPending}
-      onEnsure={async()=>workspace} onRead={async()=>activity}
-      onSave={async data=>{log('activity-save');if(mode==='activity-pending')await new Promise<void>(resolve=>{release.current=resolve});if(mode==='refused')throw new Response('refused',{status:401});if(mode==='uncertain')throw new Error('unknown');return {...configuration,...data,revision:2}}}
+      onEnsure={async()=>workspace} onRead={async()=>{
+        if(mode==='knowledge-lost'||mode==='knowledge-lost-foreign')log('read-current')
+        if(mode==='knowledge-lost')return {...activity,configuration:{...configuration,revision:3}}
+        if(mode==='knowledge-foreign'||mode==='knowledge-lost-foreign')return {...savedActivity.current,workspace:{id:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',displayName:'Foreign Workspace'}}
+        if(mode==='knowledge-foreign-configuration')return {...savedActivity.current,configuration:{...configuration,workspaceId:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',revision:2}}
+        if(mode==='knowledge-head-different')return {...savedActivity.current,configuration:{...savedActivity.current.configuration!,businessName:'Unexpected current content'}}
+        if(mode==='knowledge-head-time')return {...savedActivity.current,configuration:{...savedActivity.current.configuration!,savedAt:'2026-10-23T00:00:00Z'}}
+        return savedActivity.current
+      }}
+      onImport={async()=>{log('import');if(mode==='knowledge-lost')await new Promise<void>(resolve=>{release.current=resolve});return {captureId:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',source:{url:'https://example.org/services',capturedAt:'2026-10-26T10:00:00Z',title:'Services',sha256:'a'.repeat(64),passages:[{id:'p1',text:'Vidange 80 €'}]}}}}
+      onLookup={async key=>{log(JSON.stringify(key)===submissionKey.current?'lookup-exact':'lookup-wrong');return {status:'confirmed',revision:2,savedAt:configuration.savedAt}}}
+      onConfirm={async input=>{const data=input.activity;submissionKey.current=JSON.stringify({draftId:input.draftId,draftVersion:input.draftVersion,expectedWorkspaceId:input.expectedWorkspaceId});log('activity-save');if(mode==='activity-pending')await new Promise<void>(resolve=>{release.current=resolve});if(mode==='refused')throw new Response('refused',{status:401});if(mode==='uncertain'||mode==='knowledge-lost'||mode==='knowledge-lost-foreign')throw new Error('unknown');savedActivity.current={...initialActivity,configuration:{...configuration,...data,revision:2}};return {status:'confirmed',revision:2,savedAt:configuration.savedAt}}}
       onRefused={()=>router.navigate({href:'/login',ignoreBlocker:true})}
       calendarSlot={<CalendarPanel key={lang+':connected:3'} locale={lang} state={calendar}
         onNavigationStateChange={guard.onCalendarNavigationStateChange} onBeforeConnect={guard.onBeforeConnect}

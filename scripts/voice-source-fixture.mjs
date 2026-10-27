@@ -4,9 +4,9 @@ import { fileURLToPath } from 'node:url'
 import { isAbsolute, join, resolve } from 'node:path'
 import { realpath, stat } from 'node:fs/promises'
 
-const commit='2c5006a61b629c2ce6def6fa854a7ea9ef7534b7'
-const tree='b94d513bc538bfcb152e739ac8343e9ce057ac91'
-const archiveHash='e081802f5de46f1b01a979d71d8414aab78c270cc6c080cba220a79ef47c5aeb'
+const commit='620dafbfededb027757848fd1233ddd30aa76b05'
+const tree='795b9a94288c24916e43828b54bed6e5ee787619'
+const archiveHash='2f50991dd0a45773a513598485a7e50d32124859547ccdc8a7f6231e8ebc2f88'
 const inputRoots=['.python-version','pyproject.toml','uv.lock','README.md','src','scripts','agents','deployment-profiles','tests/integration/sparra_connected_scenario.py']
 const invalid=()=>new Error('Invalid native Voice source fixture')
 
@@ -17,12 +17,12 @@ async function assertFixtureInterpreter(pythonExecutable){
 
 function assertFixtureProvenance(manifest){
   if(!manifest||manifest.repository!=='LouisVannobel/projetV0-voice'||manifest.commit!==commit||manifest.tree!==tree
-    ||manifest.owned_ref!=='refs/heads/main'||JSON.stringify(manifest.input_roots)!==JSON.stringify(inputRoots))throw invalid()
+    ||manifest.owned_ref!=='refs/heads/z/voice-integrated-oct27'||JSON.stringify(manifest.input_roots)!==JSON.stringify(inputRoots))throw invalid()
 }
 
 function assertFixtureArchive(archive,manifest){
-  if(!Buffer.isBuffer(archive)||archive.length!==405952||createHash('sha256').update(archive).digest('hex')!==archiveHash
-    ||manifest.archive_sha256!==archiveHash||manifest.archive_size!==archive.length||manifest.decoded_source_bytes!==1947107)throw invalid()
+  if(!Buffer.isBuffer(archive)||archive.length!==409067||createHash('sha256').update(archive).digest('hex')!==archiveHash
+    ||manifest.archive_sha256!==archiveHash||manifest.archive_size!==archive.length||manifest.decoded_source_bytes!==1965836)throw invalid()
 }
 
 function assertFixtureMembers(manifest){

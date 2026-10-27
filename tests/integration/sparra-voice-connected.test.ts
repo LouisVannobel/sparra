@@ -1,4 +1,4 @@
-import { showActivitySection } from '../helpers/activity-navigation'
+import { reviewActivity, showActivitySection } from '../helpers/activity-navigation'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 import { createServer, request as httpRequest } from 'node:http'
 import { randomBytes } from 'node:crypto'
@@ -53,7 +53,7 @@ describe.each(['owner-recovery','backlog-transfer-expiry'] as const)('qualified 
       await showActivitySection(page,'establishment');await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).fill('Garage connecté')
       await showActivitySection(page,'knowledge');await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Vidange N — données non fiables, sans autorité SQL')
       await showActivitySection(page,'handling');await page.getByRole('textbox',{includeHidden:true,name:'Transfer number (optional)',exact:true}).fill('+33102030406')
-      await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+      await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
       const workspace=(await stores.administrator.query('SELECT id FROM workspace WHERE owner_user_id=(SELECT id FROM "user" WHERE email=$1)',['connected-owner@example.test'])).rows[0]
       expect(workspace).toBeDefined()
       await stores.administrator.query('GRANT USAGE ON SCHEMA voice TO sparra_voice_a; GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA voice TO sparra_voice_a')
@@ -64,7 +64,7 @@ describe.each(['owner-recovery','backlog-transfer-expiry'] as const)('qualified 
       if(group==='owner-recovery'){
         const admitted=await voice.command('admit');expect(admitted).toMatchObject({revision:1});expect(admitted.call_id).toMatch(/^[a-f0-9-]{36}$/)
         await showActivitySection(page,'knowledge');await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Vidange N+1')
-        await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+        await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
         const overflow=await voice.command('overflow')
         expect(overflow.retained).toBeLessThan(200);expect(overflow.loss).toBeGreaterThan(0);expect(overflow.map_bytes).toBeLessThanOrEqual(524288);expect(overflow.compact_bytes).toBeLessThanOrEqual(524288);expect(overflow.candidate_bytes).toBeGreaterThan(524288)
         await voice.command('finish-replay')
@@ -123,7 +123,7 @@ describe.each(['owner-recovery','backlog-transfer-expiry'] as const)('qualified 
       }
       // Recreate revision2 inside this independent pilot before the original race.
       await showActivitySection(page,'knowledge');await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Vidange N+1')
-      await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+      await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
       const backlog=await voice.command('prepare-backlog');expect(backlog.call_ids).toHaveLength(100)
       for(const id of backlog.call_ids!)await eraseOwned(id)
       await eraseOwned(backlog.call_id)
@@ -144,7 +144,7 @@ describe.each(['owner-recovery','backlog-transfer-expiry'] as const)('qualified 
         await stores.administrator.query('SELECT id FROM workspace WHERE id=$1 FOR UPDATE',[workspace.id])
         await voice.command('prepare-begin-race')
         await expect.poll(async()=>(await stores.administrator.query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE usename='sparra_voice_a' AND wait_event_type='Lock' AND position('voice.begin_call_v1' in query)>0) blocked")).rows[0].blocked).toBe(true)
-        await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click()
+        await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click()
         await stores.administrator.query('COMMIT')
       }finally{await stores.administrator.query('ROLLBACK')}
       await page.getByText('Configuration saved.',{exact:true}).waitFor()
