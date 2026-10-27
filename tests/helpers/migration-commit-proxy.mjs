@@ -6,10 +6,12 @@ export function startMigrationCommitProxy({targetHost,targetPort,host,port}) {
   let connections=0,commits=0,upstreamCompletions=0,accepting=false,stopping
   const sockets=new Set()
   const server=net.createServer(client=>{
+    // Split PostgreSQL frames must not wait for Nagle/delayed-ACK exchanges.
+    client.setNoDelay(true)
     connections++;sockets.add(client)
     client.on('close',()=>sockets.delete(client))
     if(!accepting){client.destroy();return}
-    const upstream=net.connect({host:targetHost,port:targetPort});sockets.add(upstream)
+    const upstream=net.connect({host:targetHost,port:targetPort}).setNoDelay(true);sockets.add(upstream)
     upstream.on('close',()=>sockets.delete(upstream))
     let startup=true,clientBuffer=Buffer.alloc(0),serverBuffer=Buffer.alloc(0)
     client.on('data',chunk=>{
