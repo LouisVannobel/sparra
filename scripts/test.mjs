@@ -40,7 +40,7 @@ async function runPhase(name, args, timeout) {
   assertFrozenIdentity()
   await voice?.assertIdentity()
   process.stdout.write('[tests] ' + name + '\n')
-  const env = { ...process.env, SPARRA_GUIDED_BROWSER_COVERAGE_REQUIRED: String(name === 'calendar qualification'), SPARRA_PLAYBACK_SCREENSHOT_DIR: playbackScreenshots,
+  const env = { ...process.env, SPARRA_GUIDED_BROWSER_COVERAGE_REQUIRED: String(name === 'calendar qualification' || name === 'requests qualification'), SPARRA_PLAYBACK_SCREENSHOT_DIR: playbackScreenshots,
     SPARRA_MAIL_RETRY_BUILD_DIR: mailRetryBuild, SPARRA_MAIL_RETRY_EVIDENCE_DIR: mailRetryEvidence,
     ...(voice ? { SPARRA_VOICE_TEST_ROOT: voice.root, SPARRA_VOICE_FIXTURE_PYTHON: voice.fixturePython, SPARRA_VOICE_TEST_HOME: voice.testEnvironment.HOME } : {}) }
   const result = await runNativePhase(process.execPath, args, { cwd: root, env, timeout })
@@ -109,7 +109,7 @@ try {
   await runPhase('ordinary', [vitestCli, 'run', '--config', 'vitest.config.ts', '--maxWorkers=2', '--coverage', '--reporter=default', '--reporter=blob',
     '--outputFile.blob=' + join(blobs, 'ordinary.json'), '--coverage.reportsDirectory=' + join(runDirectory, 'ordinary')], 600000)
   admitBlob('ordinary')
-  await runPhase('activity', [vitestCli, 'run', '--config', 'vitest.integration.config.ts', 'tests/integration/sparra-activity.test.ts', '--maxWorkers=1', '--coverage', '--reporter=default', '--reporter=blob',
+  await runPhase('activity', [vitestCli, 'run', '--config', 'vitest.integration.config.ts', 'tests/integration/sparra-activity.test.ts', 'tests/integration/sparra-knowledge-confirmation.test.ts', '--maxWorkers=1', '--coverage', '--reporter=default', '--reporter=blob',
     '--outputFile.blob=' + join(blobs, 'activity.json'), '--coverage.reportsDirectory=' + join(runDirectory, 'activity')], 600000)
   admitBlob('activity')
   await runPhase('voice-crypto qualification', [vitestCli, 'run', '--config', 'vitest.integration.config.ts', 'tests/integration/sparra-voice-crypto.test.ts', '--maxWorkers=1'], 180000)
@@ -137,6 +137,7 @@ try {
     'tests/integration/sparra-requests.test.ts','tests/integration/sparra-audio-reader-store.test.ts',
     'tests/integration/sparra-audio-playback.test.ts','tests/integration/sparra-audio-reader-retirement.test.ts',
     'tests/integration/sparra-audio-connected.test.ts',
+    'tests/integration/request-correction-browser.test.ts',
     '--maxWorkers=1', '--coverage', '--reporter=default', '--reporter=json', '--reporter=blob', '--outputFile.json=' + requestsReport,
     '--outputFile.blob='+join(blobs,'requests.json'),'--coverage.reportsDirectory='+join(runDirectory,'requests')], 600000)
   assertRequestsQualification(requestsReport,root,startedAt)

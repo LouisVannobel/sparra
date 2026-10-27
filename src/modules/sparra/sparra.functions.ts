@@ -4,7 +4,7 @@ import { Schema } from 'effect'
 import { requestResources } from '../../platform/resources.server'
 import { createActivityOperations } from './activity.server'
 import { createKnowledgeConfirmationOperations, parseActivityConfirmationKey, parseConfirmActivityInput, parseKnowledgeImportInput } from './knowledge-confirmation.server'
-export type { ActivityConfirmationDto, ActivityConfirmationKey, ActivityConfirmationLookup, ConfirmActivityInput, KnowledgeDecision, KnowledgeImportDto, KnowledgeImportInput } from './knowledge-confirmation.server'
+export type { ActivityConfirmationDto, ActivityConfirmationKey, ActivityConfirmationLookup, ConfirmActivityInput, KnowledgeDecision, KnowledgeImportDto } from './knowledge-confirmation.server'
 export type { WebsiteCapture } from './website-capture.server'
 export type { ActivityConfigurationDto, ActivityState, SaveActivityInput } from './activity.server'
 import { createRequestOperations, parseListRequestsInput, parseRequestInput, parseUpdateRequestFollowUpInput } from './requests.server'
@@ -19,17 +19,30 @@ const publicationErrors=new Map([
   ['RequestPublicationProvisional','publication-provisional'],
   ['RequestPublicationUnreadable','publication-unreadable'],
 ])
+const activityConflicts=new Map([
+  ['ActivityWorkspaceChanged',{message:'Activity unavailable',code:'workspace-changed'}],
+  ['ActivityRecordingUnavailable',{message:'Local audio unavailable',code:'recording-unavailable'}],
+])
+function knowledgeFailure(name:string):Response|undefined {
+  if(!name.startsWith('Knowledge')&&name!=='InvalidKnowledgeInput'&&name!=='WebsiteCaptureError')return undefined
+  const status=name==='InvalidKnowledgeInput'||name==='WebsiteCaptureError'?400:name==='KnowledgeWorkspaceUnavailable'?404:409
+  return new Response('Knowledge operation unavailable',{status,headers:{'x-sparra-knowledge-error':name}})
+}
+function activityFailure(name:string):Response|undefined {
+  const conflict=activityConflicts.get(name)
+  if(conflict)return new Response(conflict.message,{status:409,headers:{'x-sparra-activity-error':conflict.code}})
+  return knowledgeFailure(name)
+}
+function requestPublicationFailure(name:string,error:unknown):Response|undefined {
+  const publication=publicationErrors.get(name)
+  if(publication)return new Response(error instanceof Error?error.message:'Request unavailable',{status:409,headers:{'x-sparra-request-error':publication}})
+  return undefined
+}
 function sparraFailure(kind:keyof typeof failures,error:unknown):Response {
   if(error instanceof Response)return error
   const failure=failures[kind],name=error instanceof Error?error.name:''
-  const publication=kind==='request'?publicationErrors.get(name):undefined
-  if(publication)return new Response(error instanceof Error?error.message:'Request unavailable',{status:409,headers:{'x-sparra-request-error':publication}})
-  if(kind==='activity'&&name==='ActivityWorkspaceChanged')return new Response('Activity unavailable',{status:409,headers:{'x-sparra-activity-error':'workspace-changed'}})
-  if(kind==='activity'&&name==='ActivityRecordingUnavailable')return new Response('Local audio unavailable',{status:409,headers:{'x-sparra-activity-error':'recording-unavailable'}})
-  if(kind==='activity'&&(name.startsWith('Knowledge')||name==='InvalidKnowledgeInput'||name==='WebsiteCaptureError')){
-    const status=name==='InvalidKnowledgeInput'||name==='WebsiteCaptureError'?400:name==='KnowledgeWorkspaceUnavailable'?404:409
-    return new Response('Knowledge operation unavailable',{status,headers:{'x-sparra-knowledge-error':name}})
-  }
+  const specific=kind==='activity'?activityFailure(name):requestPublicationFailure(name,error)
+  if(specific)return specific
   if(name===failure.special)return new Response(failure.message,{status:failure.status})
   if(name===failure.invalid||Schema.isSchemaError(error))return new Response(failure.message,{status:400})
   return new Response(failure.message,{status:500})

@@ -17,6 +17,12 @@ import { webSourceManifest } from '../../scripts/web-source-manifest.mjs'
 let image: string
 let stores: Awaited<ReturnType<typeof startDisposableStores>>
 const qualifiedPorts:number[]=[]
+async function waitForImageReadiness(url:string){
+  for(let attempt=0;attempt<50;attempt++){
+    try{if((await fetch(url+'/health/ready')).status===200)break}catch{}
+    await new Promise(resolve=>setTimeout(resolve,100))
+  }
+}
 beforeAll(async () => { image = await nativeImage('web'); stores=await startDisposableStores(); await stores.migrate() }, 600000)
 afterAll(async()=>{if(stores){await stores.cleanup();expect(stores.evidence.unrelatedUnchanged).toBe(true);expect(stores.evidence.inventoryDelta).toEqual([])}})
 test('failed_limiter_setup_after_actual_peer_acquisition_retires_all_handles',async()=>{
@@ -94,14 +100,14 @@ test('native_voice_envelope_decrypts_in_image_and_restart_rereads_credentials',a
     await stores.signalWeb(app.id,'SIGTERM');expect(await stores.waitWeb(app.id)).toBe(0)
     await stores.replaceWebCredentials(app.id,authInput,'{}')
     await stores.restartWebImage(app.id)
-    for(let attempt=0;attempt<50;attempt++){try{if((await fetch(app.url+'/health/ready')).status===200)break}catch{}await new Promise(resolve=>setTimeout(resolve,100))}
+    await waitForImageReadiness(app.url)
     const unavailable=await fetch(app.url+'/app/demandes/'+fixture.call_id,{headers:{cookie:account.cookie},redirect:'manual'})
     expect(unavailable.status).toBe(200);expect(await unavailable.text()).not.toContain('Rappelez-moi')
     await stores.signalWeb(app.id,'SIGTERM');expect(await stores.waitWeb(app.id)).toBe(0)
     const rotatedSecret=randomBytes(48).toString('hex')
     await stores.replaceWebCredentials(app.id,{...authInput,secret:rotatedSecret})
     await stores.restartWebImage(app.id)
-    for(let attempt=0;attempt<50;attempt++){try{if((await fetch(app.url+'/health/ready')).status===200)break}catch{}await new Promise(resolve=>setTimeout(resolve,100))}
+    await waitForImageReadiness(app.url)
     const after=await fetch(app.url+'/app/demandes/'+fixture.call_id,{headers:{cookie:account.cookie},redirect:'manual'})
     expect(after.status).toBe(307);expect(after.headers.get('location')).toContain('/login')
     rotatedAuth=createApplicationAuth(owner,readAuthConfig({APP_ORIGIN:'http://localhost:3000',NODE_ENV:'test',AUTH_SECRET:rotatedSecret,GOOGLE_CLIENT_ID:authInput.googleClientId,GOOGLE_CLIENT_SECRET:authInput.googleClientSecret})!,limiter)

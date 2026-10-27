@@ -23,7 +23,11 @@ type Executed = Awaited<ReturnType<Page['coverage']['stopJSCoverage']>>
 type BrowserSnapshot = { nonce: unknown; coverage: unknown }
 type CoordinateSpace = 'instrumented' | 'remapped'
 const coverageVariable = '__VITEST_COVERAGE__'
-const uiSources = ['src/ui/sparra/activity-panel.tsx', 'src/ui/sparra/calendar-panel.tsx', 'src/ui/sparra/use-business-navigation.ts']
+const guidedSources = {
+  'calendar-panel': ['src/ui/sparra/calendar-panel.tsx', 'tests/helpers/calendar-panel-entry.tsx'],
+  'business-navigation': ['src/ui/sparra/activity-panel.tsx', 'src/ui/sparra/calendar-panel.tsx', 'src/ui/sparra/use-business-navigation.ts', 'src/ui/sparra/knowledge-import-panel.tsx', 'tests/helpers/business-navigation-entry.tsx'],
+  'request-correction': ['src/ui/sparra/request-correction.tsx', 'src/ui/sparra/request-panel.tsx', 'src/ui/sparra/use-request-attempt.ts', 'tests/helpers/request-correction-fixture.tsx'],
+} as const
 const sha = (value: string) => createHash('sha256').update(value).digest('hex')
 const object = (value: unknown): value is object => !!value && typeof value === 'object' && !Array.isArray(value)
 const geometry = (value: CoverageRecord) => ({ statementMap: value.statementMap, fnMap: value.fnMap, branchMap: value.branchMap })
@@ -130,11 +134,11 @@ export function assertGuidedSourceMap(value: unknown, path: string, source: stri
   if (value.sources[0] !== identity || (executedURL && new URL(identity, executedURL).href !== executedURL)) throw new Error(`Guided browser source-map URL identity mismatch: ${path}`)
 }
 
-/** Only the two static guided UI fixtures consume this bridge. Destroyed documents
+/** Only these static guided UI fixtures consume this bridge. Destroyed documents
  * are not captured retroactively: their earlier hits are conservatively lost. */
-export function createGuidedBrowserFixture(consumer: 'calendar-panel' | 'business-navigation') {
+export function createGuidedBrowserFixture(consumer: keyof typeof guidedSources) {
   const root = normalizePath(resolve('.'))
-  const relatives = consumer === 'calendar-panel' ? [uiSources[1]!, 'tests/helpers/calendar-panel-entry.tsx'] : [...uiSources, 'tests/helpers/business-navigation-entry.tsx']
+  const relatives = [...guidedSources[consumer]]
   const paths = relatives.map(path => `${root}/${path}`)
   const required = process.env.SPARRA_GUIDED_BROWSER_COVERAGE_REQUIRED === 'true'
   const sources = new Map<string, string>()

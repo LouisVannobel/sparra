@@ -21,7 +21,7 @@ export type CaptureBoundaries = {
   open(url: URL, address: string, signal: AbortSignal): Promise<Page>
 }
 
-export class WebsiteCaptureError extends Error {
+class WebsiteCaptureError extends Error {
   constructor(readonly code: string) {
     super(`Website capture failed: ${code}`)
     this.name = 'WebsiteCaptureError'
@@ -124,6 +124,42 @@ export function captureWebsite(input: string, options: { signal?: AbortSignal; b
   return captureWebsiteWithBoundaries(input, options, nativeBoundaries)
 }
 
+async function openPublicPage(url: URL, signal: AbortSignal, boundaries: CaptureBoundaries): Promise<Page> {
+  if (signal.aborted) return fail('ABORTED')
+  const answers = await abortable(boundaries.resolve(url.hostname), signal)
+  if (answers.length === 0 || answers.some(answer => !publicAddress(answer.address) || (answer.family === 4 ? answer.address.includes(':') : !answer.address.includes(':')))) return fail('UNSAFE_DESTINATION')
+  return abortable(boundaries.open(url, answers[0].address, signal), signal)
+}
+
+function redirectTarget(page: Page, current: URL, origin: string, redirects: number, blockedHosts: readonly string[]): URL {
+  const location = header(page.headers, 'location')
+  if (!location || redirects === 3) return fail('REDIRECT')
+  let next: URL
+  try { next = new URL(location, current) } catch { return fail('REDIRECT') }
+  if (next.origin !== origin) return fail('REDIRECT')
+  return parseUrl(next.href, blockedHosts)
+}
+
+function validateHtmlResponse(page: Page): void {
+  if (page.status !== 200) return fail('HTTP_STATUS')
+  const encoding = header(page.headers, 'content-encoding')?.toLowerCase()
+  if (encoding && encoding !== 'identity') return fail('ENCODING')
+  if (!isHtmlUtf8(header(page.headers, 'content-type') ?? '')) return fail('CONTENT_TYPE')
+}
+
+async function capturePage(page: Page, url: URL, signal: AbortSignal): Promise<WebsiteCapture> {
+  validateHtmlResponse(page)
+  const bytes = await readPage(page, signal)
+  let html: string
+  try { html = new TextDecoder('utf-8', { fatal: true }).decode(bytes) } catch { return fail('ENCODING') }
+  if (html.length > 50_000) return fail('TOO_LARGE')
+  if (signal.aborted) return fail('ABORTED')
+  const extracted = extractWebsiteText(html)
+  if (signal.aborted) return fail('ABORTED')
+  if (extracted.passages.length > 200) return fail('TOO_MANY_PASSAGES')
+  return { url: url.href, capturedAt: new Date().toISOString(), title: extracted.title, sha256: createHash('sha256').update(bytes).digest('hex'), passages: extracted.passages }
+}
+
 export async function captureWebsiteWithBoundaries(input: string, options: { signal?: AbortSignal; blockedHosts?: readonly string[] }, boundaries: CaptureBoundaries): Promise<WebsiteCapture> {
   const url = parseUrl(input, options.blockedHosts ?? [])
   const controller = new AbortController()
@@ -134,34 +170,13 @@ export async function captureWebsiteWithBoundaries(input: string, options: { sig
   try {
     let current = url
     for (let redirects = 0; redirects <= 3; redirects++) {
-      if (controller.signal.aborted) return fail('ABORTED')
-      const answers = await abortable(boundaries.resolve(current.hostname), controller.signal)
-      if (answers.length === 0 || answers.some(answer => !publicAddress(answer.address) || (answer.family === 4 ? answer.address.includes(':') : !answer.address.includes(':')))) return fail('UNSAFE_DESTINATION')
-      const page = await abortable(boundaries.open(current, answers[0].address, controller.signal), controller.signal)
+      const page = await openPublicPage(current, controller.signal, boundaries)
       try {
         if (page.status >= 300 && page.status < 400) {
-          const location = header(page.headers, 'location')
-          if (!location || redirects === 3) return fail('REDIRECT')
-          let next: URL
-          try { next = new URL(location, current) } catch { return fail('REDIRECT') }
-          if (next.origin !== url.origin) return fail('REDIRECT')
-          current = parseUrl(next.href, options.blockedHosts ?? [])
+          current = redirectTarget(page, current, url.origin, redirects, options.blockedHosts ?? [])
           continue
         }
-        if (page.status !== 200) return fail('HTTP_STATUS')
-        const encoding = header(page.headers, 'content-encoding')?.toLowerCase()
-        if (encoding && encoding !== 'identity') return fail('ENCODING')
-        const contentType = header(page.headers, 'content-type') ?? ''
-        if (!isHtmlUtf8(contentType)) return fail('CONTENT_TYPE')
-        const bytes = await readPage(page, controller.signal)
-        let html: string
-        try { html = new TextDecoder('utf-8', { fatal: true }).decode(bytes) } catch { return fail('ENCODING') }
-        if (html.length > 50_000) return fail('TOO_LARGE')
-        if (controller.signal.aborted) return fail('ABORTED')
-        const extracted = extractWebsiteText(html)
-        if (controller.signal.aborted) return fail('ABORTED')
-        if (extracted.passages.length > 200) return fail('TOO_MANY_PASSAGES')
-        return { url: current.href, capturedAt: new Date().toISOString(), title: extracted.title, sha256: createHash('sha256').update(bytes).digest('hex'), passages: extracted.passages }
+        return await capturePage(page, current, controller.signal)
       } finally { page.close() }
     }
     return fail('REDIRECT')

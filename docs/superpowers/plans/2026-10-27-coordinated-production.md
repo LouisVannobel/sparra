@@ -7,7 +7,7 @@ Autorisation explicite : regrouper import, inbox et correction, vérifier les au
 1. Combiner les erreurs HTTP et conserver tous les endpoints/contrats de l'inbox et de l'import. Adapter la correction au circuit confirmActivity existant, pas à saveActivity direct. Garder la précondition expectedWorkspaceId dans l'intention canonique/hash, et la vérifier contre l'autorité native avant lecture du reçu ou nettoyage SQL. La garder aussi dans saveActivityInLease avant toute lecture de configuration.
 2. Conserver le RequestPanel inbox (publication, jeton, classement/révocation, actualisation). Insérer la correction et partager le verrou existant ; invalider la correction quand le contexte chargé change. Le candidat comparé doit être exactement confirmé ; après ambiguïté, retrouver la même draftId/version puis relire le courant. Pas d'héritage après changement de champ/base.
 3. Conserver0027 inbox et produire0028 knowledge avec horodatage strictement croissant et snapshot cumulatif correct. Aucun ancien SQL déployé modifié. Le migrateur applique le suffixe manquant atomiquement ; préflight de journal complet obligatoire.
-4. Unir les styles et les tests, sans supprimer les cas adverses. Mettre à jour seulement les cardinalités réellement changées (Calendar98/19 Business au lieu de96/17), et faire relire les callbacks/canaries dont le contexte change.
+4. Unir les styles et les tests, sans supprimer les cas adverses. Mettre à jour seulement les cardinalités réellement changées (Calendar105/Business26 au lieu de96/17), et faire relire les callbacks/canaries dont le contexte change.
 
 ## Qualification et publication
 
@@ -28,3 +28,7 @@ Au dernier gelUI, les sept scénarios adverses ajoutés portent Business à26 et
 ### Amendement de l'intégration relevé par Oracle
 
 Le détail de demande porte désormais `workspaceId` issu du même lease natif que la lecture, indépendamment du snapshot de configuration. Le correcteur garde ce pin pour les lectures, l'intention et le reçu ; il ne choisit pas son espace depuis la première lecture d'activité. Le cas sans snapshot A→sessionB est refusé, tandis que le même cas sous A fonctionne. Les quatre fixtures SSR enrichies ont été relues intégralement avant le réancrage borné de A et du contexte global. Les plans du26octobre restent les documents du lot isolé ; ce plan du27fait autorité pour la livraison regroupée.
+
+### Gel qualité après intégration
+
+Le contrôle Fallow impose un découpage local des callbacks et états existants, sans dépendance ni comportement nouveau. Les19cas navigateur correction sont déplacés vers Requests63 (44+19), avec couverture Istanbul du script réellement chargé ; les5cas natifs de confirmation existants entrent dans Activity17 (12+5). Calendar105/Business26 restent inchangés. Les cinq blobs, géométries, noms/ordre, retraite et délais gardent leurs gardes ; les anciennes cohortes12/44 sont refusées. Les rapports partiels locaux ne qualifient pas le gate global : seule la CI exacte avec couverture fusionnée peut le faire.

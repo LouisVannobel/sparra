@@ -1,0 +1,21 @@
+[
+  "preparation writes nothing and explicit double confirmation saves only the chosen field from the current base",
+  "returning a field to its call value preserves every other current setting",
+  "a conflict retains the candidate and rereading requires a fresh comparison with the new base",
+  "an unknown result blocks writes through a failed reread and requires the exact next revision",
+  "an unknown save reread observes a matching next revision without attributing the write",
+  "stopping a save retires its response and keeps reread mandatory before any retry",
+  "a current unauthorized operation masks call and correction data and uses the existing refusal path",
+  "a current base cannot move to another Workspace when the call has no configuration snapshot",
+  "the first activity read cannot choose another Workspace when the loaded call has no snapshot",
+  "a loaded call without a snapshot can correct its own pinned Workspace",
+  "confirmation binds the compared Workspace and a changed authority masks the whole call without rebasing",
+  "other symptoms guide diagnosis without reads, writes or a pretend test in French and English",
+  "missing current configuration stays read-only, and unmount retires a pending private response",
+  "editing or changing the target field invalidates the five-text attestation",
+  "a durable receipt and exact current head establish a lost response without another write",
+  "a historical receipt never establishes a superseding head after a successful confirmation",
+  "a failed head read after a durable confirmation preserves the exact operation for reconciliation",
+  "replacement loaded retires correction state and cannot release the lock of a newer action",
+  "refresh, treatment and revocation share correction ownership and retain the publication command"
+]

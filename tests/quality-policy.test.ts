@@ -11,12 +11,19 @@ import type { CallExpression, Node, SourceFile } from 'typescript/unstable/ast'
 import { afterAll, beforeAll, expect, test } from 'vitest'
 import { admitCommonGeometry, assertCalendarReport, assertCalendarQualification, assertBillingQualification, assertBillingReport, assertDirectory, assertRunTree, assertRecordingReceiptQualification, assertRecordingReceiptReport, assertRequestsQualification, assertRequestsReport, assertVoiceBridgeReport, readNativeBlob, sourceIdentity } from '../scripts/native-coverage-inputs.mjs'
 import calendarNames from './fixtures/calendar-consumer-names.json' with { type: 'json' }
+import activityNames from './fixtures/activity-consumer-names.json' with { type: 'json' }
+import correctionNames from './fixtures/request-correction-consumer-names.json' with { type: 'json' }
 import { createLintFixture } from './helpers/ordinary-fixture-isolation'
 import { createOwnedFixtureDependencies } from './helpers/owned-fixture-dependencies.mjs'
 const calendarConsumerNames: [string, string[]][] = calendarNames.map(([file,names]) => {
   if(typeof file!=='string'||!Array.isArray(names)||names.some(name=>typeof name!=='string'))throw new Error('Invalid Calendar reporter canary')
   return [file,names]
 })
+const activityConsumerNames: [string, string[]][] = activityNames.map(([file,names]) => {
+  if(typeof file!=='string'||!Array.isArray(names)||names.some(name=>typeof name!=='string'))throw new Error('Invalid Activity reporter canary')
+  return [file,names]
+})
+const activityConsumerPaths=activityConsumerNames.map(([file])=>'tests/integration/'+file)
 
 const repositoryRoot = process.cwd()
 const oxlint = join(repositoryRoot, 'node_modules', 'oxlint', 'bin', 'oxlint')
@@ -194,6 +201,7 @@ const requestConsumerNames=[
     'native candidate CLI refuses stopped success after post-close fixture failure (protocol only)',
     'native accepted local capture joins before real request_human transfer intent and SDK dispatch',
   ]],
+  ['request-correction-browser.test.ts',correctionNames],
 ] as const
 const requestConsumerPaths=requestConsumerNames.map(([file])=>'tests/integration/'+file)
 
@@ -311,18 +319,20 @@ const billingConsumerNames=[
 ] as const
 const billingConsumerPaths=billingConsumerNames.map(([file])=>'tests/integration/'+file)
 
-test('native_requests_requires_inbox_publication_and_all_seven_adopted_excerpt_leaves_in_its_exact_44_case_report',()=>{
+test('native_requests_requires_inbox_publication_and_all_seven_adopted_excerpt_leaves_in_its_exact_63_case_report',()=>{
   // Synthetic reporter records qualify admission only, not native SQL behavior.
-  const report={success:true,numTotalTests:44,numPassedTests:44,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0,
+  const report={success:true,numTotalTests:63,numPassedTests:63,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0,
     testResults:requestConsumerNames.map(([file,names])=>({name:join(repositoryRoot,'tests/integration',file).replaceAll('\\','/'),status:'passed',message:'',
       assertionResults:names.map((fullName:string)=>({fullName,status:'passed',failureMessages:[]}))}))}
   expect(()=>assertRequestsReport(report,repositoryRoot)).not.toThrow()
+  const previous=structuredClone(report);previous.numTotalTests=44;previous.numPassedTests=44;previous.testResults.pop()
+  expect(()=>assertRequestsReport(previous,repositoryRoot)).toThrow('Native Requests requires its exact six consumers and 63 passing leaves')
   const old=structuredClone(report)
-  old.numTotalTests=33;old.numPassedTests=33;old.testResults[0]!.assertionResults.splice(0,4);old.testResults[0]!.assertionResults.splice(1,7)
-  const refusal='Native Requests requires its exact five consumers and 44 passing leaves'
+  old.numTotalTests=33;old.numPassedTests=33;old.testResults.pop();old.testResults[0]!.assertionResults.splice(0,4);old.testResults[0]!.assertionResults.splice(1,7)
+  const refusal='Native Requests requires its exact six consumers and 63 passing leaves'
   expect(()=>assertRequestsReport(old,repositoryRoot)).toThrow(refusal)
   const preInbox=structuredClone(report)
-  preInbox.numTotalTests=40;preInbox.numPassedTests=40;preInbox.testResults[0]!.assertionResults.splice(0,4)
+  preInbox.numTotalTests=40;preInbox.numPassedTests=40;preInbox.testResults.pop();preInbox.testResults[0]!.assertionResults.splice(0,4)
   preInbox.testResults[0]!.assertionResults[9]!.fullName='treat active preserves inventory and stamp, erase deletes native content and survives retention'
   preInbox.testResults[0]!.assertionResults[10]!.fullName='treat closed preserves inventory and stamp, erase deletes native content and survives retention'
   expect(()=>assertRequestsReport(preInbox,repositoryRoot)).toThrow(refusal)
@@ -404,7 +414,7 @@ test('I3 one owned native retry fixture: retained A/B, transient C, expired E, e
   writeFileSync(join(root,'tests/integration/sparra-requests.test.ts'),"import {expect,test} from 'vitest';import {selectBranch} from '../../src/covered';// Synthetic runner selection canary only.\n"+requestConsumerNames[0][1].map(name=>'test('+JSON.stringify(name)+",()=>{expect(process.env.SPARRA_VOICE_TEST_ROOT).toContain('canary-voice-owner');expect(selectBranch(true)).toBe(7)});\n").join(''))
   // Exact audio consumer paths exercise the native runner and owned environment,
   // not browser, R1, SQL or process-retirement behavior.
-  for(const [file,names] of requestConsumerNames.slice(1))writeFileSync(join(root,'tests/integration',file),`import {beforeAll,expect,test} from 'vitest';import {appendFileSync,existsSync,lstatSync,realpathSync,writeFileSync} from 'node:fs';import {basename,dirname,isAbsolute,join} from 'node:path';import {coveredAudioBranch} from '../../src/audio-covered';
+  for(const [file,names] of requestConsumerNames.slice(1).filter(([file])=>file!=='request-correction-browser.test.ts'))writeFileSync(join(root,'tests/integration',file),`import {beforeAll,expect,test} from 'vitest';import {appendFileSync,existsSync,lstatSync,realpathSync,writeFileSync} from 'node:fs';import {basename,dirname,isAbsolute,join} from 'node:path';import {coveredAudioBranch} from '../../src/audio-covered';
 beforeAll(()=>{
   const root=process.env.SPARRA_VOICE_TEST_ROOT!,screenshots=process.env.SPARRA_PLAYBACK_SCREENSHOT_DIR!,log=join(process.cwd(),'canary-audio-consumers.jsonl');
   expect(root).toBe(join(process.cwd(),'coverage/canary-voice-owner'));expect(existsSync(root)).toBe(true);expect(existsSync('canary-voice-retired.txt')).toBe(false);
@@ -418,6 +428,11 @@ ${names.map(name=>'test('+JSON.stringify(name)+',()=>expect(coveredAudioBranch(t
   writeFileSync(join(root,'src/covered.ts'),'export function selectBranch(value: boolean): number {\n  if (value) return 7\n  return 9\n}\n')
   writeFileSync(join(root,'src/unexecuted.ts'),'export function unexecuted(): number {\n  return 13\n}\n')
   writeFileSync(join(root,'src/audio-covered.ts'),'export function coveredAudioBranch(value: boolean): number {\n  if (value) return 3\n  return 5\n}\n')
+  writeFileSync(join(root,'src/correction-covered.ts'),'export function correctionBranch(value: boolean): number {\n  if (value) return 31\n  return 37\n}\n')
+  writeFileSync(join(root,'tests/integration/request-correction-browser.test.ts'),
+    "import {beforeAll,expect,test} from 'vitest';import {existsSync} from 'node:fs';import {correctionBranch} from '../../src/correction-covered';\n"
+    +"beforeAll(()=>{expect(process.env.SPARRA_GUIDED_BROWSER_COVERAGE_REQUIRED).toBe('true');expect(existsSync(process.env.SPARRA_VOICE_TEST_ROOT!)).toBe(true);expect(existsSync('canary-voice-retired.txt')).toBe(false)});\n"
+    +correctionNames.map(name=>'test('+JSON.stringify(name)+',()=>expect(correctionBranch(true)).toBe(31));\n').join(''))
   writeFileSync(join(root,'src/billing-covered.ts'),'export function coveredBillingBranch(value: boolean): number {\n  if (value) return 17\n  return 19\n}\n')
   for(const [file,names] of billingConsumerNames)writeFileSync(join(root,'tests/integration',file),
     "import {expect,test} from 'vitest';import {coveredBillingBranch} from '../../src/billing-covered';\n"
@@ -427,7 +442,10 @@ ${names.map(name=>'test('+JSON.stringify(name)+',()=>expect(coveredAudioBranch(t
     "import {expect,test} from 'vitest';import {calendarBranch} from '../../src/calendar-covered';\n"
     +names.map(name=>'test('+JSON.stringify(name)+',()=>expect(calendarBranch(true)).toBe(23));\n').join(''))
   writeFileSync(join(root,'tests/ordinary.test.ts'),"import {expect,test} from 'vitest';import {selectBranch} from '../src/covered';test('ordinary true branch',()=>expect(selectBranch(true)).toBe(7));\n")
-  writeFileSync(join(root,'tests/integration/sparra-activity.test.ts'),"import {afterAll,expect,test} from 'vitest';import {selectBranch} from '../../src/covered';import {appendFileSync,readFileSync,readdirSync,rmSync,symlinkSync,writeFileSync} from 'node:fs';import {join} from 'node:path';test.each(Array.from({length:12},(_,index)=>index))('activity false branch %i',()=>expect(selectBranch(false)).toBe(9));afterAll(()=>{"+activityAfterAll+'});\n')
+  for(const [file,names] of activityConsumerNames)writeFileSync(join(root,'tests/integration',file),
+    "import {afterAll,expect,test} from 'vitest';import {selectBranch} from '../../src/covered';import {appendFileSync,readFileSync,readdirSync,rmSync,symlinkSync,writeFileSync} from 'node:fs';import {join} from 'node:path';\n"
+    +names.map(name=>'test('+JSON.stringify(name)+',()=>expect(selectBranch(false)).toBe(9));\n').join('')
+    +'afterAll(()=>{'+(file==='sparra-activity.test.ts'?activityAfterAll:'')+'});\n')
   return root
 }
 
@@ -438,35 +456,53 @@ function runNativeCoverage(root:string,args:string[],env=process.env) {
 function requestCanaryEnvironment(root:string){
   const voice=join(root,'coverage/canary-voice-owner'),screenshots=join(root,'coverage','.native-'+randomUUID(),'playback-screenshots')
   mkdirSync(voice);mkdirSync(screenshots,{recursive:true})
-  return {...process.env,SPARRA_VOICE_TEST_ROOT:voice,SPARRA_VOICE_FIXTURE_PYTHON:process.execPath,
+  return {...process.env,SPARRA_GUIDED_BROWSER_COVERAGE_REQUIRED:'true',SPARRA_VOICE_TEST_ROOT:voice,SPARRA_VOICE_FIXTURE_PYTHON:process.execPath,
     SPARRA_VOICE_TEST_HOME:voice,SPARRA_PLAYBACK_SCREENSHOT_DIR:screenshots}
 }
 
-test('native_activity_blob_admits_twelve_complete_pass_cases_and_refuses_missing_or_extra',()=>{
+test('native_activity_blob_admits_exact_two_consumers_and_17_leaves_and_refuses_previous_twelve',()=>{
   const root=nativeCoverageFixture(),blob=join(root,'coverage/activity.json'),startedAt=Date.now()
-  const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts','tests/integration/sparra-activity.test.ts','--maxWorkers=1','--coverage','--reporter=default','--reporter=blob','--outputFile.blob='+blob,'--coverage.reportsDirectory='+join(root,'coverage/activity')])
+  const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...activityConsumerPaths,'--maxWorkers=1','--coverage','--reporter=blob','--outputFile.blob='+blob,'--coverage.reportsDirectory='+join(root,'coverage/activity')])
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   const bytes=readFileSync(blob),table=JSON.parse(bytes.toString('utf8')),files=table[Number(table[0][1])]
-  expect(files).toHaveLength(1)
-  const file=table[Number(files[0])],tasksIndex=Number(file.tasks),tasks=table[tasksIndex]
-  expect(table[Number(file.filepath)]).toBe(join(root,'tests/integration/sparra-activity.test.ts').replaceAll('\\','/'))
-  expect(tasks).toHaveLength(12)
-  for(const reference of tasks) {
-    const task=table[Number(reference)]
-    expect(table[Number(task.type)]).toBe('test')
-    expect(table[Number(table[Number(task.result)].state)]).toBe('pass')
-  }
+  expect(files).toHaveLength(2)
+  expect(activityConsumerNames.map(([,names])=>names.length)).toEqual([12,5])
   expect(()=>readNativeBlob(blob,'activity',root,startedAt,'4.1.12')).not.toThrow()
-  for(const count of [11,13]) {
-    const changed=JSON.parse(bytes.toString('utf8')),cases=changed[tasksIndex]
-    if(count===11)cases.pop()
-    else cases.push(cases[0])
-    expect(cases).toHaveLength(count)
-    expect(changed.filter((_:unknown,index:number)=>index!==tasksIndex)).toEqual(table.filter((_:unknown,index:number)=>index!==tasksIndex))
-    const refusal=join(root,'coverage/activity-'+count+'.json')
-    writeFileSync(refusal,JSON.stringify(changed))
-    expect(()=>readNativeBlob(refusal,'activity',root,startedAt,'4.1.12'),String(count)+' complete PASS cases').toThrow('Native coverage test cardinality mismatch')
+  function refusedLeaves(tasksIndex:number,kind:string){
+    const changed=structuredClone(table),cases=changed[tasksIndex]
+    switch(kind){
+      case 'missing':cases.pop();break
+      case 'extra':cases.push(cases[0]);break
+      case 'duplicate':cases[1]=cases[0];break
+      case 'renamed':changed[Number(table[Number(cases[0])].name)]='Unreviewed Activity leaf';break
+      case 'reordered':cases.reverse();break
+      case 'skipped':changed[Number(table[Number(table[Number(cases[0])].result)].state)]='skip';break
+      case 'failed':changed[Number(table[Number(table[Number(cases[0])].result)].state)]='fail';break
+    }
+    return changed
   }
+  const refused=join(root,'coverage/activity-refused.json')
+  for(const [file,names] of activityConsumerNames){
+    const consumer=table[Number(files.find((reference:string)=>table[Number(table[Number(reference)].filepath)]===join(root,'tests/integration',file).replaceAll('\\','/')))]
+    const tasks=table[Number(consumer.tasks)]
+    expect(tasks.map((reference:string)=>table[Number(table[Number(reference)].name)])).toEqual(names)
+    for(const kind of ['missing','extra','duplicate','renamed','reordered','skipped','failed']){
+      writeFileSync(refused,JSON.stringify(refusedLeaves(Number(consumer.tasks),kind)))
+      expect(()=>readNativeBlob(refused,'activity',root,startedAt,'4.1.12'),file+':'+kind).toThrow()
+    }
+  }
+  for(const kind of ['missing','duplicate','foreign']){
+    const changed=structuredClone(table),consumers=changed[Number(table[0][1])]
+    if(kind==='missing')consumers.pop()
+    else if(kind==='duplicate')consumers[1]=consumers[0]
+    else changed[Number(table[Number(consumers[0])].filepath)]=join(root,'tests/integration/foreign.test.ts').replaceAll('\\','/')
+    writeFileSync(refused,JSON.stringify(changed))
+    expect(()=>readNativeBlob(refused,'activity',root,startedAt,'4.1.12'),kind).toThrow('Native activity blob has an unexpected consumer')
+  }
+  const previousBlob=join(root,'coverage/previous-activity.json')
+  const previous=runNativeCoverage(root,['run','--config','vitest.integration.config.ts','tests/integration/sparra-activity.test.ts','--maxWorkers=1','--coverage','--reporter=blob','--outputFile.blob='+previousBlob,'--coverage.reportsDirectory='+join(root,'coverage/previous-activity')])
+  expect(previous.error).toBeUndefined();expect(previous.status,previous.stdout+previous.stderr).toBe(0)
+  expect(()=>readNativeBlob(previousBlob,'activity',root,startedAt,'4.1.12')).toThrow('Native activity blob has an unexpected consumer')
   expect(readFileSync(blob)).toEqual(bytes)
 },25000)
 
@@ -648,14 +684,15 @@ test('native_billing_gate_refuses_the_previous_eight_consumer_55_leaf_run',()=>{
   expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.12')).toThrow('Native billing blob has an unexpected consumer')
 },25000)
 
-test('native_requests_blob_admits_exact_five_consumers_and_44_leaves_without_losing_original_eight',()=>{
+test('native_requests_blob_admits_exact_six_consumers_and_63_leaves_without_losing_original_eight',()=>{
   const root=nativeCoverageFixture(),blob=join(root,'coverage/requests.json'),startedAt=Date.now()
-  const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...requestConsumerPaths,'--maxWorkers=1','--coverage','--reporter=blob','--outputFile.blob='+blob,'--coverage.reportsDirectory='+join(root,'coverage/requests')],requestCanaryEnvironment(root))
+  const environment=requestCanaryEnvironment(root)
+  const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...requestConsumerPaths,'--maxWorkers=1','--coverage','--reporter=blob','--outputFile.blob='+blob,'--coverage.reportsDirectory='+join(root,'coverage/requests')],environment)
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   const bytes=readFileSync(blob),table=JSON.parse(bytes.toString('utf8'))
   expect(()=>readNativeBlob(blob,'requests',root,startedAt,'4.1.12')).not.toThrow()
   const files=table[Number(table[0][1])]
-  expect(files).toHaveLength(5)
+  expect(files).toHaveLength(6)
   for(const [filename,names] of requestConsumerNames){
     const file=table[Number(files.find((reference:string)=>table[Number(table[Number(reference)].filepath)]===join(root,'tests/integration',filename).replaceAll('\\','/')))]
     const tasksIndex=Number(file.tasks),tasks=table[tasksIndex]
@@ -671,6 +708,7 @@ test('native_requests_blob_admits_exact_five_consumers_and_44_leaves_without_los
       ['renamed',(changed:typeof table)=>{const cases=changed[tasksIndex];changed[Number(table[Number(cases[0])].name)]='Unreviewed leaf'}],
       ['reordered',(changed:typeof table)=>{changed[tasksIndex].reverse()}],
       ['skipped',(changed:typeof table)=>{const cases=changed[tasksIndex];changed[Number(table[Number(table[Number(cases[0])].result)].state)]='skip'}],
+      ['failed',(changed:typeof table)=>{const cases=changed[tasksIndex];changed[Number(table[Number(table[Number(cases[0])].result)].state)]='fail'}],
     ] as const){
       const changed=JSON.parse(bytes.toString('utf8'))
       mutate(changed)
@@ -686,6 +724,10 @@ test('native_requests_blob_admits_exact_five_consumers_and_44_leaves_without_los
     const path=join(root,'coverage/requests-refused.json');writeFileSync(path,JSON.stringify(changed))
     expect(()=>readNativeBlob(path,'requests',root,startedAt,'4.1.12'),kind).toThrow('Native requests blob has an unexpected consumer')
   }
+  const previousBlob=join(root,'coverage/previous-requests.json')
+  const previous=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...requestConsumerPaths.slice(0,5),'--maxWorkers=1','--coverage','--reporter=blob','--outputFile.blob='+previousBlob,'--coverage.reportsDirectory='+join(root,'coverage/previous-requests')],environment)
+  expect(previous.error).toBeUndefined();expect(previous.status,previous.stdout+previous.stderr).toBe(0)
+  expect(()=>readNativeBlob(previousBlob,'requests',root,startedAt,'4.1.12')).toThrow('Native requests blob has an unexpected consumer')
   expect(readFileSync(blob)).toEqual(bytes)
 },25000)
 
@@ -694,9 +736,9 @@ test('native_requests_report_preserves_exact_summary_consumer_and_leaf_admission
   const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...requestConsumerPaths,'--maxWorkers=1','--reporter=json','--outputFile.json='+reportPath],requestCanaryEnvironment(root))
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   const report=JSON.parse(readFileSync(reportPath,'utf8'))
-  expect(report.numTotalTests).toBe(44);expect(report.numPassedTests).toBe(44)
+  expect(report.numTotalTests).toBe(63);expect(report.numPassedTests).toBe(63)
   expect(()=>assertRequestsReport(report,root)).not.toThrow()
-  const refusal='Native Requests requires its exact five consumers and 44 passing leaves'
+  const refusal='Native Requests requires its exact six consumers and 63 passing leaves'
   for(const field of ['success','numTotalTests','numPassedTests','numPendingTests','numTodoTests','numFailedTests','numFailedTestSuites','numPendingTestSuites']){
     const wrong={...report,[field]:field==='success'?false:report[field]+1}
     expect(()=>assertRequestsReport(wrong,root)).toThrow(refusal)
@@ -744,6 +786,15 @@ test('native_requests_report_preserves_exact_summary_consumer_and_leaf_admission
   }
 },25000)
 
+test('native_requests_correction_consumer_refuses_a_disabled_required_browser_coverage_flag',()=>{
+  const root=nativeCoverageFixture(),reportPath=join(root,'coverage/requests-disabled-bridge.json'),startedAt=Date.now()
+  const environment={...requestCanaryEnvironment(root),SPARRA_GUIDED_BROWSER_COVERAGE_REQUIRED:'false'}
+  const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...requestConsumerPaths,'--maxWorkers=1','--reporter=json','--outputFile.json='+reportPath],environment)
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
+  expect(()=>assertRequestsQualification(reportPath,root,startedAt)).toThrow('Native Requests requires its exact six consumers and 63 passing leaves')
+  expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
+},25000)
+
 test('native_requests_file_admission_requires_a_current_bounded_regular_report_with_exact_leaves',()=>{
   const root=nativeCoverageFixture(),reportPath=join(root,'coverage/native-requests.json'),startedAt=Date.now()
   const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...requestConsumerPaths,'--maxWorkers=1','--reporter=json','--outputFile.json='+reportPath],requestCanaryEnvironment(root))
@@ -765,7 +816,7 @@ test('native_requests_file_admission_requires_a_current_bounded_regular_report_w
   writeFileSync(refused,'{')
   expect(()=>assertRequestsQualification(refused,root,startedAt)).toThrow(SyntaxError)
   for(const [kind,mutate] of [
-    ['summary',(value:typeof report)=>{value.numPassedTests=43}],
+    ['summary',(value:typeof report)=>{value.numPassedTests=62}],
     ['consumer',(value:typeof report)=>{value.testResults[0].name=join(root,'tests/foreign.ts')}],
     ['missing-leaf',(value:typeof report)=>{value.testResults[0].assertionResults.pop()}],
     ['extra-leaf',(value:typeof report)=>{value.testResults[0].assertionResults.push({...value.testResults[0].assertionResults[0],fullName:'extra leaf'})}],
@@ -774,7 +825,7 @@ test('native_requests_file_admission_requires_a_current_bounded_regular_report_w
     const wrong=structuredClone(report)
     mutate(wrong)
     writeFileSync(refused,JSON.stringify(wrong))
-    expect(()=>assertRequestsQualification(refused,root,startedAt),kind).toThrow('Native Requests requires its exact five consumers and 44 passing leaves')
+    expect(()=>assertRequestsQualification(refused,root,startedAt),kind).toThrow('Native Requests requires its exact six consumers and 63 passing leaves')
   }
 },25000)
 
@@ -855,7 +906,7 @@ test('native_blob_coverage_keeps_additive_counts_zero_entries_and_source_geometr
   const first=phase('vitest.config.ts','ordinary.json',ordinary,[])
   expect(first.error).toBeUndefined();expect(first.status,first.stdout+first.stderr).toBe(0)
   expect(existsSync(join(ordinary,'stale.txt'))).toBe(false)
-  const second=phase('vitest.integration.config.ts','activity.json',activity,['tests/integration/sparra-activity.test.ts'])
+  const second=phase('vitest.integration.config.ts','activity.json',activity,activityConsumerPaths)
   expect(second.error).toBeUndefined();expect(second.status,second.stdout+second.stderr).toBe(0)
   expect(readdirSync(blobs).sort()).toEqual(['activity.json','ordinary.json'])
   expect(sourceIdentity(root)).toBe(identity)
@@ -914,8 +965,8 @@ test('native_blob_coverage_keeps_additive_counts_zero_entries_and_source_geometr
   expect(merged.error).toBeUndefined();expect(merged.status,merged.stdout+merged.stderr).toBe(0)
   const coverage=JSON.parse(readFileSync(join(final,'coverage-final.json'),'utf8'))
   const covered=coverage[join(root,'src/covered.ts').replaceAll('\\','/')],unexecuted=coverage[join(root,'src/unexecuted.ts').replaceAll('\\','/')]
-  expect(covered.f).toEqual({'0':13});expect(covered.s).toEqual({'0':13,'1':1,'2':12})
-  expect(covered.b).toEqual({'0':[1,12]})
+  expect(covered.f).toEqual({'0':18});expect(covered.s).toEqual({'0':18,'1':1,'2':17})
+  expect(covered.b).toEqual({'0':[1,17]})
   expect(covered.fnMap['0'].decl.start).toEqual({line:1,column:16})
   expect(covered.statementMap['1']).toEqual({start:{line:2,column:13},end:{line:2,column:null}})
   expect(covered.branchMap['0'].loc.start.line).toBe(2)
@@ -1055,21 +1106,36 @@ test('actual_coverage_runner_publishes_only_native_complete_map_after_retirement
     '[tests] voice-crypto qualification','[tests] voice bridge qualification','[tests] recording receipt qualification','[tests] mail retry qualification','[tests] requests qualification','[tests] billing qualification','[tests] calendar qualification','[tests] merge',
   ])
   const audioConsumers: {file:string;screenshots:string}[]=readFileSync(join(root,'canary-audio-consumers.jsonl'),'utf8').trimEnd().split('\n').map(line=>JSON.parse(line))
-  expect(audioConsumers.map(row=>row.file).sort()).toEqual(requestConsumerNames.slice(1).map(([file])=>file).sort())
+  expect(audioConsumers.map(row=>row.file).sort()).toEqual(requestConsumerNames.slice(1).filter(([file])=>file!=='request-correction-browser.test.ts').map(([file])=>file).sort())
   expect(new Set(audioConsumers.map(row=>row.screenshots)).size).toBe(1)
   expect(existsSync(audioConsumers[0]!.screenshots)).toBe(false)
   const coverage=JSON.parse(readFileSync(join(root,'coverage/coverage-final.json'),'utf8'))
   expect(coverage.stale).toBeUndefined()
-  // Nineteen Requests and one ordinary case take true; twelve Activity cases take false.
+  // Nineteen Requests and one ordinary case take true; seventeen Activity cases take false.
   // These literal totals independently check that all five phases were merged once.
-  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].f).toEqual({'0':32})
-  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].s).toEqual({'0':32,'1':20,'2':12})
-  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].b).toEqual({'0':[20,12]})
+  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].f).toEqual({'0':37})
+  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].s).toEqual({'0':37,'1':20,'2':17})
+  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].b).toEqual({'0':[20,17]})
   expect(coverage[join(root,'src/unexecuted.ts').replaceAll('\\','/')].f).toEqual({'0':0})
   expect(coverage[join(root,'src/audio-covered.ts').replaceAll('\\','/')].f).toEqual({'0':25})
   expect(coverage[join(root,'src/audio-covered.ts').replaceAll('\\','/')].b).toEqual({'0':[25,0]})
+  expect(coverage[join(root,'src/correction-covered.ts').replaceAll('\\','/')].f).toEqual({'0':19})
+  expect(coverage[join(root,'src/correction-covered.ts').replaceAll('\\','/')].b).toEqual({'0':[19,0]})
   expect(coverage[join(root,'src/billing-covered.ts').replaceAll('\\','/')].f).toEqual({'0':91})
   expect(coverage[join(root,'src/billing-covered.ts').replaceAll('\\','/')].b).toEqual({'0':[91,0]})
+},25000)
+
+test('actual_coverage_runner_retains_producer_on_confirmation_cleanup_failure',()=>{
+  const root=nativeCoverageFixture(),path=join(root,'tests/integration/sparra-knowledge-confirmation.test.ts')
+  writeFileSync(path,readFileSync(path,'utf8')+"afterAll(()=>{throw new Error('Owned confirmation cleanup failure')});\n")
+  const result=runCoverageConsumer(root)
+  expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
+  expect(result.stderr).toContain('Native coverage activity failed; consumer cleanup is unconfirmed')
+  expect(result.stderr).toContain('Native Voice scope retained: consumer resource cleanup is unconfirmed')
+  expect(result.stdout).not.toContain('[tests] voice-crypto qualification')
+  expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
+  expect(readdirSync(join(root,'coverage'))).toEqual(['canary-voice-owner'])
+  expect(existsSync(join(root,'canary-voice-retired.txt'))).toBe(false)
 },25000)
 
 test.each([
@@ -1125,7 +1191,7 @@ test('actual_coverage_runner_refuses_requests_missing_or_extra_leaves_before_pub
     writeFileSync(path,lines.join('\n')+'\n')
     const result=runCoverageConsumer(root)
     expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
-    expect(result.stderr).toContain('Native Requests requires its exact five consumers and 44 passing leaves')
+    expect(result.stderr).toContain('Native Requests requires its exact six consumers and 63 passing leaves')
     expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
   }
 },25000)
@@ -1138,7 +1204,7 @@ test.each(['missing','extra'] as const)('actual_coverage_runner_refuses_connecte
   writeFileSync(path,lines.join('\n')+'\n')
   const result=runCoverageConsumer(root)
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
-  expect(result.stderr).toContain('Native Requests requires its exact five consumers and 44 passing leaves')
+  expect(result.stderr).toContain('Native Requests requires its exact six consumers and 63 passing leaves')
   expect(result.stdout).toContain('[tests] requests qualification')
   expect(result.stdout).not.toContain('[tests] merge')
   expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
@@ -1243,6 +1309,8 @@ test('fallow_declares_only_native_subprocess_and_actual_browser_roots_and_exact_
   writeFileSync(join(root,'tests/helpers/undeclared-mail-retry-sibling.ts'),"console.log('synthetic undeclared mail retry sibling');\n")
   writeFileSync(join(root,'tests/helpers/calendar-panel-entry.tsx'),"console.log('synthetic declared Calendar browser entry');\n")
   writeFileSync(join(root,'tests/helpers/business-navigation-entry.tsx'),"console.log('synthetic declared Business browser entry');\n")
+  writeFileSync(join(root,'tests/helpers/request-correction-fixture.tsx'),"console.log('synthetic declared correction browser entry');\n")
+  writeFileSync(join(root,'tests/helpers/undeclared-request-correction-sibling.tsx'),"console.log('synthetic undeclared correction browser sibling');\n")
   writeFileSync(join(root,'tests/helpers/undeclared-business-navigation-sibling.tsx'),"console.log('synthetic undeclared Business browser sibling');\n")
   writeFileSync(join(root,'tests/helpers/undeclared-calendar-panel-sibling.tsx'),"console.log('synthetic undeclared Calendar browser sibling');\n")
   writeFileSync(join(root,'scripts/start-web.mjs'),"await import('../.output/server/index.mjs');\nawait import('../.output/server/genuinely-missing.mjs');\n")
@@ -1264,6 +1332,7 @@ test('fallow_declares_only_native_subprocess_and_actual_browser_roots_and_exact_
   expect(output).toContain('undeclared-mail-retry-sibling.ts')
   expect(output).toContain('undeclared-calendar-panel-sibling.tsx')
   expect(output).toContain('undeclared-business-navigation-sibling.tsx')
+  expect(output).toContain('undeclared-request-correction-sibling.tsx')
   expect(output).toContain('./genuinely-missing')
   expect(output).toContain('./genuinely-missing.yaml')
   expect(output).toContain('../.output/server/genuinely-missing.mjs')
@@ -1275,10 +1344,11 @@ test('fallow_declares_only_native_subprocess_and_actual_browser_roots_and_exact_
   expect(output).not.toMatch(/(?:^|[\\/])mail-retry-entry\.ts/)
   expect(output).not.toMatch(/(?:^|[\\/])calendar-panel-entry\.tsx/)
   expect(output).not.toMatch(/(?:^|[\\/])business-navigation-entry\.tsx/)
+  expect(output).not.toMatch(/(?:^|[\\/])request-correction-fixture\.tsx/)
   expect(output).not.toContain('hatchet-empty.yaml')
   expect(output).not.toMatch(/(?:^|[\\/])test-prerequisites\.mjs/)
   expect(output).not.toContain('../.output/server/index.mjs')
-  expect(fixtureConfig.entry).toEqual(['scripts/start-web.mjs','scripts/test-prerequisites.mjs','tests/helpers/generate-native-voice-envelope.ts','tests/helpers/inbox-panel-fixture.tsx','tests/helpers/mail-retry-entry.ts','tests/helpers/calendar-panel-entry.tsx','tests/helpers/business-navigation-entry.tsx','scripts/assign-billing-terms.ts'])
+  expect(fixtureConfig.entry).toEqual(['scripts/start-web.mjs','scripts/test-prerequisites.mjs','tests/helpers/generate-native-voice-envelope.ts','tests/helpers/inbox-panel-fixture.tsx','tests/helpers/mail-retry-entry.ts','tests/helpers/calendar-panel-entry.tsx','tests/helpers/business-navigation-entry.tsx','scripts/assign-billing-terms.ts','tests/helpers/request-correction-fixture.tsx'])
 },40000)
 
 test('declared_inbox_browser_entry_is_the_exact_HTML_module_mounting_the_runtime_panel',()=>{

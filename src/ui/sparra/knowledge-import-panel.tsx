@@ -10,7 +10,7 @@ import { privateResult } from './app-shell'
 export type KnowledgePreparation={capture:KnowledgeImportDto|null;decisions:readonly KnowledgeDecision[]}
 type Target=Extract<KnowledgeDecision,{action:'use'}>['target']
 const targets:readonly Target[]=['openingHours','services','prices','faq']
-export function KnowledgeSource({source,locale}:{source:WebsiteCapture;locale:Locale}){
+function KnowledgeSource({source,locale}:{source:WebsiteCapture;locale:Locale}){
   const t=knowledgeMessages[locale]
   // Only server-validated HTTPS links are interactive, including retained receipts.
   const safe=(()=>{try{const url=new URL(source.url);return url.protocol==='https:'&&!url.username&&!url.password}catch{return false}})()

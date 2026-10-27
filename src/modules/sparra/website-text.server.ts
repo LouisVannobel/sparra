@@ -36,28 +36,29 @@ function findFirst(node: Node, tag: string): Element | undefined {
   return undefined
 }
 
+function isPassageChild(node: Node): boolean {
+  return isElement(node) && (passageTags.has(node.tagName) || fallbackTags.has(node.tagName))
+}
+
+function isWholePassage(node: Element): boolean {
+  if (passageTags.has(node.tagName)) return true
+  if (!fallbackTags.has(node.tagName)) return false
+  const nodes = children(node)
+  const hasPassageChild = nodes.some(isPassageChild)
+  const hasInlineContext = nodes.some(child => !isPassageChild(child) && clean(visibleText(child)) !== '')
+  return !hasPassageChild || hasInlineContext
+}
+
 export function extractWebsiteText(html: string) {
   const document = parse(html)
   const title = clean(visibleText(findFirst(document, 'title') ?? findFirst(document, 'h1') ?? document))
   const passages: Array<{ id: string; text: string }> = []
   function visit(node: Node): void {
-    if (isElement(node)) {
-      if (hidden.has(node.tagName) || node.tagName === 'head') return
-      if (passageTags.has(node.tagName)) {
-        const text = clean(visibleText(node))
-        if (text) passages.push({ id: `p${passages.length + 1}`, text })
-        return
-      }
-      if (fallbackTags.has(node.tagName)) {
-        const isPassageChild = (child: Node) => isElement(child) && (passageTags.has(child.tagName) || fallbackTags.has(child.tagName))
-        const hasPassageChild = children(node).some(isPassageChild)
-        const hasInlineContext = children(node).some(child => !isPassageChild(child) && clean(visibleText(child)) !== '')
-        if (!hasPassageChild || hasInlineContext) {
-          const text = clean(visibleText(node))
-          if (text) passages.push({ id: `p${passages.length + 1}`, text })
-          return
-        }
-      }
+    if (isElement(node) && (hidden.has(node.tagName) || node.tagName === 'head')) return
+    if (isElement(node) && isWholePassage(node)) {
+      const text = clean(visibleText(node))
+      if (text) passages.push({ id: `p${passages.length + 1}`, text })
+      return
     }
     for (const child of children(node)) visit(child)
   }

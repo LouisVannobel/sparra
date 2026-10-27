@@ -213,34 +213,44 @@ function RequestContent({locale,current,hydrated,pending,confirm,setConfirm,onMu
   </>
 }
 
-export function RequestPanel({locale,loaded,onTreat,onErase,onRefused,onRefresh,onReadActivity,onConfirmActivity,onLookupActivityConfirmation,view='pending'}:Props){
-  const hydrated=useHydrated(),[current,setCurrent]=useState(loaded),[pending,setPending]=useState(false),[failed,setFailed]=useState(false),[confirm,setConfirm]=useState(false)
+function useRequestPanelLifecycle({loaded,onTreat,onErase,onRefused,onRefresh}:Pick<Props,'loaded'|'onTreat'|'onErase'|'onRefused'|'onRefresh'>){
+  const [current,setCurrent]=useState(loaded),[pending,setPending]=useState(false),[failed,setFailed]=useState(false),[confirm,setConfirm]=useState(false)
   const begin=useRequestAttempt(),lock=useRef(false),actionGeneration=useRef(0)
   const [failure,setFailure]=useState<FollowUpFailure|null>(null),[audioReadGeneration,setAudioReadGeneration]=useState(0)
-  const [correctionPending,setCorrectionPending]=useState(false),[correctionGeneration,setCorrectionGeneration]=useState(0)
+  const [correctionPending,setCorrectionPending]=useState(false),[correctionGeneration,setCorrectionGeneration]=useState(0),[refused,setRefused]=useState(false)
   useLayoutEffect(()=>{begin();actionGeneration.current++;lock.current=false;setCurrent(loaded);setAudioReadGeneration(value=>value+1);setCorrectionGeneration(value=>value+1);setCorrectionPending(false);setPending(false);setFailed(false);setFailure(null);setConfirm(false);setRefused(false)},[loaded])
-  const [refused,setRefused]=useState(false)
+  function acquire(){if(lock.current)return null;lock.current=true;return ++actionGeneration.current}
+  function release(generation:number){if(actionGeneration.current===generation)lock.current=false}
+  function replaceCurrent(next:RequestLoaded){setCurrent(next);setAudioReadGeneration(value=>value+1);setCorrectionGeneration(value=>value+1);setConfirm(false)}
   async function mutate(kind:'treat'|'revoke'|'erase'){
-    if(lock.current)return
-    lock.current=true
-    const generation=++actionGeneration.current
-    try{await performRequestAction(kind,current,begin,onTreat,onErase,{setCurrent,setPending,setFailed,setFailure,setRefused,onRefused})}finally{if(actionGeneration.current===generation)lock.current=false}
+    const generation=acquire();if(generation===null)return
+    try{await performRequestAction(kind,current,begin,onTreat,onErase,{setCurrent,setPending,setFailed,setFailure,setRefused,onRefused})}finally{release(generation)}
   }
   async function refresh(){
-    if(lock.current||!onRefresh)return
-    lock.current=true
-    const generation=++actionGeneration.current
-    try{await refreshRequest(begin,onRefresh,{setCurrent(next){setCurrent(next);setAudioReadGeneration(value=>value+1);setCorrectionGeneration(value=>value+1);setConfirm(false)},setPending,setFailed,setFailure,setRefused,onRefused})}finally{if(actionGeneration.current===generation)lock.current=false}
+    if(!onRefresh)return
+    const generation=acquire();if(generation===null)return
+    try{await refreshRequest(begin,onRefresh,{setCurrent:replaceCurrent,setPending,setFailed,setFailure,setRefused,onRefused})}finally{release(generation)}
   }
+  function cancelCorrection(generation:number){if(actionGeneration.current===generation)begin()}
+  function releaseCorrection(generation:number){if(actionGeneration.current!==generation)return;release(generation);setCorrectionPending(false)}
   function beginCorrection():CorrectionAttempt|null{
-    if(lock.current)return null
-    lock.current=true
-    const generation=++actionGeneration.current,attempt=begin()
-    setCorrectionPending(true)
-    return {...attempt,cancel(){if(actionGeneration.current===generation)begin()},release(){if(actionGeneration.current===generation){lock.current=false;setCorrectionPending(false)}}}
+    const generation=acquire();if(generation===null)return null
+    const attempt=begin();setCorrectionPending(true)
+    return {...attempt,cancel:()=>cancelCorrection(generation),release:()=>releaseCorrection(generation)}
   }
-  const detail=current.detail,correction=detail&&onReadActivity&&onConfirmActivity&&onLookupActivityConfirmation?<RequestCorrection key={correctionGeneration} locale={locale} workspaceId={detail.workspaceId} callConfiguration={detail.configuration} callRevision={detail.configurationRevision} blocked={pending} onBegin={beginCorrection} onRead={onReadActivity} onConfirm={onConfirmActivity} onLookup={onLookupActivityConfirmation} onRefused={async()=>{setRefused(true);await onRefused()}}/>:undefined
-  return <RequestFrame locale={locale} view={view} hydrated={hydrated} locked={lock.current} pending={pending} canRefresh={Boolean(onRefresh)} onRefresh={refresh} refused={refused} failed={failed} failure={failure}>
-    <RequestContent locale={locale} current={current} hydrated={hydrated} pending={pending||correctionPending} confirm={confirm} setConfirm={setConfirm} onMutate={mutate} audioReadGeneration={audioReadGeneration} audioBlocked={pending&&confirm} correction={correction}/>
+  async function refuse(){setRefused(true);await onRefused()}
+  return {current,pending,failed,confirm,setConfirm,failure,audioReadGeneration,correctionPending,correctionGeneration,refused,lock,mutate,refresh,beginCorrection,refuse}
+}
+function RequestCorrectionSlot({locale,detail,blocked,generation,operations,onBegin,onRefused}:{locale:Locale;detail:RequestDetailDto|null;blocked:boolean;generation:number;operations:Partial<RequestCorrectionOperations>;onBegin():CorrectionAttempt|null;onRefused():Promise<void>}){
+  if(!detail)return null
+  const {onReadActivity,onConfirmActivity,onLookupActivityConfirmation}=operations
+  if(!onReadActivity||!onConfirmActivity||!onLookupActivityConfirmation)return null
+  return <RequestCorrection key={generation} locale={locale} workspaceId={detail.workspaceId} callConfiguration={detail.configuration} callRevision={detail.configurationRevision} blocked={blocked} onBegin={onBegin} onRead={onReadActivity} onConfirm={onConfirmActivity} onLookup={onLookupActivityConfirmation} onRefused={onRefused}/>
+}
+export function RequestPanel(props:Props){
+  const hydrated=useHydrated(),state=useRequestPanelLifecycle(props),{locale,view='pending'}=props
+  const correction=<RequestCorrectionSlot locale={locale} detail={state.current.detail} blocked={state.pending} generation={state.correctionGeneration} operations={props} onBegin={state.beginCorrection} onRefused={state.refuse}/>
+  return <RequestFrame locale={locale} view={view} hydrated={hydrated} locked={state.lock.current} pending={state.pending} canRefresh={Boolean(props.onRefresh)} onRefresh={state.refresh} refused={state.refused} failed={state.failed} failure={state.failure}>
+    <RequestContent locale={locale} current={state.current} hydrated={hydrated} pending={state.pending||state.correctionPending} confirm={state.confirm} setConfirm={state.setConfirm} onMutate={state.mutate} audioReadGeneration={state.audioReadGeneration} audioBlocked={state.pending&&state.confirm} correction={correction}/>
   </RequestFrame>
 }
