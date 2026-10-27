@@ -1,8 +1,8 @@
 {
   "repository": "LouisVannobel/projetV0-voice",
-  "commit": "5fd3149314ebecc40af44c59118e8bfd2b1fd674",
-  "tree": "384fe724ca445a2acbf4959c60ca5c3615a7b95d",
-  "owned_ref": "refs/heads/z/voice-inbox-reliable-oct26",
+  "commit": "620dafbfededb027757848fd1233ddd30aa76b05",
+  "tree": "795b9a94288c24916e43828b54bed6e5ee787619",
+  "owned_ref": "refs/heads/z/voice-integrated-oct27",
   "input_roots": [
     ".python-version",
     "pyproject.toml",
@@ -14,9 +14,9 @@
     "deployment-profiles",
     "tests/integration/sparra_connected_scenario.py"
   ],
-  "archive_sha256": "d5b5f4e7ef68055b92ca1f1358cc8f611fd770ee1277791853b71efd1d766afb",
-  "archive_size": 408149,
-  "decoded_source_bytes": 1958308,
+  "archive_sha256": "2f50991dd0a45773a513598485a7e50d32124859547ccdc8a7f6231e8ebc2f88",
+  "archive_size": 409067,
+  "decoded_source_bytes": 1965836,
   "members": [
     {
       "path": ".python-version",
@@ -218,9 +218,9 @@
     },
     {
       "path": "src/projetv0_voice/owned_pilot_budget_cli.py",
-      "size": 7621,
-      "git_blob": "9d166ad4c8f0612a3e6c8c2d33bfb5f89429d645",
-      "sha256": "edc69d0a3d2b4e9a6fa0c1aa8394ce7a75e3e89bfd0231ad793569919cd59175"
+      "size": 11273,
+      "git_blob": "83a6d54a677a4aa656c03ea69da9ca2a15d8ce5b",
+      "sha256": "8deeb7e81d6567ba2439e16c00285fbdb5ee58b93bf13f42d3be1f45dc051343"
     },
     {
       "path": "src/projetv0_voice/persistence/__init__.py",
@@ -266,9 +266,9 @@
     },
     {
       "path": "src/projetv0_voice/persistence/writer.py",
-      "size": 252759,
-      "git_blob": "c04b676aac4e634ce5cc8820ab429464494cc97c",
-      "sha256": "e966a3888a73b88c9d81824b89cf101e2ff0e628589785b034b472a15e36e30e"
+      "size": 256635,
+      "git_blob": "29d9474fa0ade71cb041cfc69620b498cae67767",
+      "sha256": "4f72bdde59ddafd16225e0f04d3ff0c518ebf20d0758675234d76efda5f25dab"
     },
     {
       "path": "src/projetv0_voice/pipeline.py",
