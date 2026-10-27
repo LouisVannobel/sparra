@@ -20,6 +20,7 @@ import { Route as AppIndexRouteImport } from './routes/app.index'
 import { Route as AppEntrepriseRouteImport } from './routes/app.entreprise'
 import { Route as HealthLiveRouteImport } from './routes/health.live'
 import { Route as HealthReadyRouteImport } from './routes/health.ready'
+import { Route as MetiersDiagnosticImmobilierRouteImport } from './routes/metiers.diagnostic-immobilier'
 import { Route as WebhooksStripeRouteImport } from './routes/webhooks.stripe'
 import { Route as AppDemandesRequestIdRouteImport } from './routes/app.demandes.$requestId'
 import { Route as AuthMagicConfirmRouteImport } from './routes/auth.magic.confirm'
@@ -86,6 +87,12 @@ const HealthReadyRoute = HealthReadyRouteImport.update({
   path: '/health/ready',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MetiersDiagnosticImmobilierRoute =
+  MetiersDiagnosticImmobilierRouteImport.update({
+    id: '/metiers/diagnostic-immobilier',
+    path: '/metiers/diagnostic-immobilier',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const WebhooksStripeRoute = WebhooksStripeRouteImport.update({
   id: '/webhooks/stripe',
   path: '/webhooks/stripe',
@@ -151,6 +158,7 @@ export interface FileRoutesByFullPath {
   '/app/entreprise': typeof AppEntrepriseRoute
   '/health/live': typeof HealthLiveRoute
   '/health/ready': typeof HealthReadyRoute
+  '/metiers/diagnostic-immobilier': typeof MetiersDiagnosticImmobilierRoute
   '/webhooks/stripe': typeof WebhooksStripeRoute
   '/app/': typeof AppIndexRoute
   '/app/demandes/$requestId': typeof AppDemandesRequestIdRoute
@@ -173,6 +181,7 @@ export interface FileRoutesByTo {
   '/app/entreprise': typeof AppEntrepriseRoute
   '/health/live': typeof HealthLiveRoute
   '/health/ready': typeof HealthReadyRoute
+  '/metiers/diagnostic-immobilier': typeof MetiersDiagnosticImmobilierRoute
   '/webhooks/stripe': typeof WebhooksStripeRoute
   '/app': typeof AppIndexRoute
   '/app/demandes/$requestId': typeof AppDemandesRequestIdRoute
@@ -197,6 +206,7 @@ export interface FileRoutesById {
   '/app/entreprise': typeof AppEntrepriseRoute
   '/health/live': typeof HealthLiveRoute
   '/health/ready': typeof HealthReadyRoute
+  '/metiers/diagnostic-immobilier': typeof MetiersDiagnosticImmobilierRoute
   '/webhooks/stripe': typeof WebhooksStripeRoute
   '/app/': typeof AppIndexRoute
   '/app/demandes/$requestId': typeof AppDemandesRequestIdRoute
@@ -222,6 +232,7 @@ export interface FileRouteTypes {
     | '/app/entreprise'
     | '/health/live'
     | '/health/ready'
+    | '/metiers/diagnostic-immobilier'
     | '/webhooks/stripe'
     | '/app/'
     | '/app/demandes/$requestId'
@@ -244,6 +255,7 @@ export interface FileRouteTypes {
     | '/app/entreprise'
     | '/health/live'
     | '/health/ready'
+    | '/metiers/diagnostic-immobilier'
     | '/webhooks/stripe'
     | '/app'
     | '/app/demandes/$requestId'
@@ -267,6 +279,7 @@ export interface FileRouteTypes {
     | '/app/entreprise'
     | '/health/live'
     | '/health/ready'
+    | '/metiers/diagnostic-immobilier'
     | '/webhooks/stripe'
     | '/app/'
     | '/app/demandes/$requestId'
@@ -290,6 +303,7 @@ export interface RootRouteChildren {
   WorkspaceRoute: typeof WorkspaceRoute
   HealthLiveRoute: typeof HealthLiveRoute
   HealthReadyRoute: typeof HealthReadyRoute
+  MetiersDiagnosticImmobilierRoute: typeof MetiersDiagnosticImmobilierRoute
   WebhooksStripeRoute: typeof WebhooksStripeRoute
   AuthMagicConfirmRoute: typeof AuthMagicConfirmRoute
   AuthMagicConsumeRoute: typeof AuthMagicConsumeRoute
@@ -378,6 +392,13 @@ declare module '@tanstack/react-router' {
       path: '/health/ready'
       fullPath: '/health/ready'
       preLoaderRoute: typeof HealthReadyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/metiers/diagnostic-immobilier': {
+      id: '/metiers/diagnostic-immobilier'
+      path: '/metiers/diagnostic-immobilier'
+      fullPath: '/metiers/diagnostic-immobilier'
+      preLoaderRoute: typeof MetiersDiagnosticImmobilierRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/webhooks/stripe': {
@@ -477,6 +498,7 @@ const rootRouteChildren: RootRouteChildren = {
   WorkspaceRoute: WorkspaceRoute,
   HealthLiveRoute: HealthLiveRoute,
   HealthReadyRoute: HealthReadyRoute,
+  MetiersDiagnosticImmobilierRoute: MetiersDiagnosticImmobilierRoute,
   WebhooksStripeRoute: WebhooksStripeRoute,
   AuthMagicConfirmRoute: AuthMagicConfirmRoute,
   AuthMagicConsumeRoute: AuthMagicConsumeRoute,

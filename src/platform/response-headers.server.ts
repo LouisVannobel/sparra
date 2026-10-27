@@ -1,6 +1,6 @@
 export function responseWithSecurityHeaders(request: Request, response: Response, nonce: string): Response {
   const headers = new Headers(response.headers)
-  const publicDocument = new URL(request.url).pathname === '/'
+  const publicDocument = ['/', '/metiers/diagnostic-immobilier'].includes(new URL(request.url).pathname)
     && (request.method === 'GET' || request.method === 'HEAD')
     && response.status >= 200 && response.status < 300
     && /^text\/html(?:\s*;|$)/i.test(headers.get('content-type') ?? '')
