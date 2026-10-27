@@ -5,6 +5,7 @@ import type { ActivityConfigurationDto, SaveActivityInput } from '../../src/modu
 test.each(['ensure','save','latest'] as const)('activity %s keeps native refusal, conflict and validation outcomes distinct',async mode=>{
   expect(classifyActivityFailure,'activity failure classification is required before applying UI effects').toBeTypeOf('function')
   expect(classifyActivityFailure(mode,new Response(null,{status:401}))).toEqual({kind:'refused'})
+  expect(classifyActivityFailure(mode,new Response(null,{status:409,headers:{'x-sparra-activity-error':'workspace-changed'}}))).toEqual({kind:'refused'})
   expect(classifyActivityFailure(mode,new Response(null,{status:409}))).toEqual({kind:'error',reason:'conflict'})
   expect(classifyActivityFailure(mode,new Response(null,{status:400}))).toEqual({kind:'error',reason:'invalid'})
 })

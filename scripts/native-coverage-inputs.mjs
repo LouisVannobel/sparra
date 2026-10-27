@@ -186,7 +186,7 @@ export function readNativeBlob(filePath, name, root, startedAt, version) {
     count += admitTestFile(table, blobValue(table, reference), name, files.length, root, startedAt, seen)
   }
   if (!count || (name === 'activity' && count !== 12) || (name === 'requests' && count !== 44)
-    || (name === 'billing' && count !== 91) || (name === 'calendar' && count !== 96)) throw new Error('Native coverage test cardinality mismatch')
+    || (name === 'billing' && count !== 91) || (name === 'calendar' && count !== 105)) throw new Error('Native coverage test cardinality mismatch')
   const coverage = blobValue(table, envelope[3])
   admitCoverageEntries(table, coverage, root)
   return { table, coverage, digest }
@@ -607,7 +607,7 @@ export function assertBillingQualification(path,root,startedAt) {
   assertBillingReport(JSON.parse(readFileSync(path,'utf8')),root)
 }
 
-const calendarConsumers=[
+const calendarConsumers = [
   [
     "tests/integration/calendar-owner.test.ts",
     [
@@ -713,7 +713,16 @@ const calendarConsumers=[
       "document departure uses native beforeunload and declining retains work",
       "Calendar uncertainty refuses OAuth; ordinary Calendar read and save keep enterprise independently editable",
       "whitespace FAQ work and added answers remain protected, while guided sections never request abandonment",
-      "pending OAuth retains beforeunload guard and SPA departure remains guarded after rejection"
+      "pending OAuth retains beforeunload guard and SPA departure remains guarded after rejection",
+      "knowledge import prepares editable facts and requires all five texts before confirmation",
+      "cancelled late capture preserves manual text and lost confirmation looks up exact receipt before current state",
+      "activity confirmation knowledge-foreign refuses a foreign current state before exposing or adopting it",
+      "activity confirmation knowledge-foreign-configuration refuses a foreign current state before exposing or adopting it",
+      "activity confirmation knowledge-lost-foreign refuses a foreign current state before exposing or adopting it",
+      "activity confirmation knowledge-head-different requires exact content and saved time before claiming the current head",
+      "activity confirmation knowledge-head-time requires exact content and saved time before claiming the current head",
+      "activity final preview fr displays all confirmed settings as read-only before attestation",
+      "activity final preview en displays all confirmed settings as read-only before attestation"
     ]
   ],
   [
@@ -739,10 +748,10 @@ function calendarBlobFile(table,file,fileCount,root,seen) {
   return passedLeafNames(table,file,consumer[1],'Native Calendar blob has unexpected leaves')
 }
 export function assertCalendarReport(report,root) {
-  const counters={numTotalTests:96,numPassedTests:96,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
+  const counters={numTotalTests:105,numPassedTests:105,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0}
   if(report?.success!==true||Object.entries(counters).some(([key,value])=>report[key]!==value)
     ||!Array.isArray(report.testResults)||report.testResults.length!==5
-    ||!calendarConsumers.every(([path,names])=>consumerReportPassed(report,root,path,names))) throw new Error('Native Calendar requires its exact five consumers and 96 passing leaves')
+    ||!calendarConsumers.every(([path,names])=>consumerReportPassed(report,root,path,names))) throw new Error('Native Calendar requires its exact five consumers and 105 passing leaves')
 }
 export function assertCalendarQualification(path,root,startedAt) {
   const stat=lstatSync(path)

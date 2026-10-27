@@ -1,4 +1,4 @@
-import { showActivitySection, waitForActivityNavigation } from '../helpers/activity-navigation'
+import { reviewActivity, showActivitySection, waitForActivityNavigation } from '../helpers/activity-navigation'
 import { activityMessages, appMessages } from '../../src/modules/sparra/messages'
 import { getSectorPreset } from '../../src/modules/sparra/sectors'
 import { afterAll, beforeAll, expect, test } from 'vitest'
@@ -7,10 +7,12 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { chromium, type Browser, type BrowserContext, type Page, type Request } from 'playwright'
 import AxeBuilder from '@axe-core/playwright'
-import { Client } from 'pg'
+import { Client, Pool } from 'pg'
 import { startDisposableStores } from '../fixtures/db/disposable-stores'
 import { startWeb, bounded, unusedLoopbackPort } from '../helpers/web-process'
-import { authRpcPath, rpcBody } from '../helpers/auth-rpc'
+import { authRpcPath, manualActivityConfirmation, rpcBody } from '../helpers/auth-rpc'
+import { createTransactions } from '../../src/platform/db/transactions.server'
+import { createActivityOperations, type SaveActivityInput } from '../../src/modules/sparra/activity.server'
 import { cryptoFixture, nativeVoiceTurn } from '../helpers/sparra-crypto-fixture'
 import { observePrivateLoginBootstrap, capturePrivateLoginBootstrapFailure } from '../helpers/private-login-bootstrap-diagnostic'
 import { startPrivateNetworkEventProbe } from '../helpers/private-network-event-probe'
@@ -86,6 +88,21 @@ async function signedIn(subject:string,observeBootstrap=false) {
 async function rpc(context:BrowserContext,name:Parameters<typeof authRpcPath>[0],data:unknown) {
   return context.request.post(origin+await authRpcPath(name),{headers:{origin,'content-type':'application/json','x-tsr-serverFn':'true'},data:await rpcBody(data)})
 }
+async function fixtureWorkspace(subject:string):Promise<string>{
+  const rows=(await stores.administrator.query('SELECT w.id FROM workspace w JOIN "user" u ON u.id=w.owner_user_id WHERE u.email=$1',[subject+'@example.test'])).rows
+  expect(rows).toHaveLength(1)
+  return rows[0].id
+}
+async function confirmConfiguration(context:BrowserContext,workspaceId:string,activity:SaveActivityInput){
+  return rpc(context,'confirmActivity',manualActivityConfirmation(workspaceId,activity))
+}
+async function seedHistoricalProviderSetting(subject:string,input:unknown){
+  const principals=(await stores.administrator.query('SELECT u.id AS "userId",s.id AS "sessionId",u.name,u.email FROM "user" u JOIN session s ON s.user_id=u.id WHERE u.email=$1 AND s.auth_state=\'ACTIVE\'',[subject+'@example.test'])).rows
+  expect(principals).toHaveLength(1)
+  const pool=new Pool({connectionString:stores.directRuntimeUrl,max:1})
+  try{return await createActivityOperations(createTransactions(pool,{maxStatementTimeoutMs:1000,maxCleanupTimeoutMs:1000})).save(principals[0],input)}
+  finally{await pool.end()}
+}
 // Explicit fixture collection, published by the same SQL authority as ingress.
 // Never write the decision snapshot or its C/T directly.
 async function publishCall(id:string,workspaceId:string){
@@ -113,9 +130,9 @@ test('compiled private inbox creates only by POST, saves knowledge across restar
     const recording=page.getByRole('checkbox',{includeHidden:true,name:'Keep audio from future calls for 30 days',exact:true})
     expect(await recording.isChecked()).toBe(false)
     expect(await recording.isDisabled()).toBe(true)
-    // Historical provider settings are seeded through the native owner RPC;
+    // Historical provider settings are seeded through the internal native owner;
     // the local policy remains OFF until explicit owner configuration.
-    expect((await rpc(context,'saveActivity',{expectedRevision:0,businessName:'Garage persisted',sector:'garage',knowledge:{openingHours:'',services:'Vidange sur rendez-vous',prices:'',faq:'',instructions:''},transferDestination:null,recordingEnabled:true})).status()).toBe(200)
+    expect(await seedHistoricalProviderSetting('sparra-owner',{expectedRevision:0,businessName:'Garage persisted',sector:'garage',knowledge:{openingHours:'',services:'Vidange sur rendez-vous',prices:'',faq:'',instructions:''},transferDestination:null,recordingEnabled:true})).toMatchObject({revision:1,recordingEnabled:true})
     const historicalSeedReload=page.waitForEvent('dialog')
     await Promise.all([page.reload(),historicalSeedReload.then(async dialog=>{expect(dialog.type()).toBe('beforeunload');await dialog.accept()})]);expect(await recording.isChecked()).toBe(false);expect(await recording.isDisabled()).toBe(true)
     await page.getByRole('alert').filter({hasText:'An old audio setting is saved.'}).waitFor()
@@ -131,15 +148,15 @@ test('compiled private inbox creates only by POST, saves knowledge across restar
     await page.screenshot({path:'.output/test-evidence/sparra/business-en-320.png',fullPage:true})
     await showActivitySection(page,'handling');await correction.click()
     await showActivitySection(page,'knowledge');await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Vidange sur rendez-vous')
-    await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).focus();await page.keyboard.press('Enter')
+    await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').focus();await page.keyboard.press('Enter')
     await page.getByText('Configuration saved.',{exact:true}).waitFor()
     await page.reload();expect(await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).inputValue()).toBe('Garage persisted');expect(await recording.isChecked()).toBe(false)
     const tab=await context.newPage();await tab.goto(origin+'/app/entreprise?lang=en')
     await showActivitySection(page,'knowledge');await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Draft retained')
     expect(await tab.getByRole('checkbox',{includeHidden:true,name:'Keep audio from future calls for 30 days',exact:true}).isDisabled()).toBe(true)
-    await showActivitySection(tab,'knowledge');await tab.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Latest services');await tab.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await tab.getByText('Configuration saved.',{exact:true}).waitFor()
+    await showActivitySection(tab,'knowledge');await tab.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Latest services');await reviewActivity(tab);await tab.locator('.sparra-business-form .sparra-form-submit').click();await tab.getByText('Configuration saved.',{exact:true}).waitFor()
     const configurationConflict=page.getByRole('alert').filter({hasText:'The configuration changed.'})
-    await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await configurationConflict.waitFor()
+    await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await configurationConflict.waitFor()
     expect(await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).inputValue()).toBe('Draft retained')
     expect(await recording.isChecked()).toBe(false)
     expect(await configurationConflict.textContent()).toContain('configuration changed')
@@ -200,7 +217,7 @@ test('compiled private inbox creates only by POST, saves knowledge across restar
     releaseMutation()
     await page.getByText('Erasure queued. Other copies are awaiting deletion.',{exact:true}).waitFor();expect(await page.getByText('Rappelez-moi',{exact:true}).count()).toBe(0)
     await page.reload();await page.getByText('Erasure queued. Other copies are awaiting deletion.',{exact:true}).waitFor()
-    for(const name of ['getActivity','saveActivity','listRequests','getRequestDetail','updateRequestFollowUp','eraseRequest','getRequestErasure'] as const)expect(await authRpcPath(name)).toMatch(/^\/_serverFn\/[a-f0-9]{64}$/)
+    for(const name of ['getActivity','confirmActivity','getActivityConfirmation','importKnowledgePage','listRequests','getRequestDetail','updateRequestFollowUp','eraseRequest','getRequestErasure'] as const)expect(await authRpcPath(name)).toMatch(/^\/_serverFn\/[a-f0-9]{64}$/)
     expect((await stores.administrator.query('SELECT count(*)::int n FROM sparra_call WHERE id=$1',[crypto.callId])).rows[0].n).toBe(0)
     const axe=await new AxeBuilder({page}).analyze();expect(axe.violations).toEqual([])
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
@@ -217,7 +234,7 @@ test('request unmount aborts held native delivery, failure retains confirmation 
   let releaseLogin=()=>{},releaseTreatment=()=>{},cleanupRefusal=async()=>{}
   try{
     await page.goto(origin+'/app/entreprise?lang=en');await page.getByRole('button',{name:'Create my workspace'}).click()
-    await showActivitySection(page,'establishment');await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).fill('Request refusal fixture');await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    await showActivitySection(page,'establishment');await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).fill('Request refusal fixture');await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
     const workspace=(await stores.administrator.query('SELECT id FROM workspace WHERE owner_user_id=(SELECT id FROM "user" WHERE email=$1)',['sparra-request-refusal@example.test'])).rows[0]
     const result={schema_version:1,...crypto.encrypt(JSON.stringify({...crypto.inner,summary:'Private refusal request'}),'result:'+id)}
     await stores.administrator.query(`INSERT INTO sparra_call(id,workspace_id,deployment_id,provider_call_control_id,admitted_at,retention_until,status,configuration_revision,encrypted_turns,encrypted_message_result) VALUES($1::uuid,$2::uuid,'fixture',$1::text,clock_timestamp(),clock_timestamp()+interval '30 days','closing',1,$3,$4)`,[id,workspace.id,{[crypto.turnId]:crypto.turn},result])
@@ -269,13 +286,13 @@ test('request unmount aborts held native delivery, failure retains confirmation 
 },30000)
 
 test('activity native mutation refusal renders private unavailable before login navigation completes',async()=>{
-  const {context,page}=await signedIn('sparra-activity-refusal'),savePath=await authRpcPath('saveActivity'),loginPath=await authRpcPath('getLoginAvailability')
+  const {context,page}=await signedIn('sparra-activity-refusal'),savePath=await authRpcPath('confirmActivity'),loginPath=await authRpcPath('getLoginAvailability')
   let releaseLogin=()=>{},cleanupRefusal=async()=>{}
   try{
     await page.goto(origin+'/app/entreprise?lang=en');await page.getByRole('button',{name:'Create my workspace'}).click()
     await showActivitySection(page,'establishment');await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).fill('Private activity refusal fixture')
     await showActivitySection(page,'knowledge');await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Private activity knowledge')
-    await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
     const workspace=(await stores.administrator.query('SELECT id FROM workspace WHERE owner_user_id=(SELECT id FROM "user" WHERE email=$1)',['sparra-activity-refusal@example.test'])).rows[0]
     await stores.administrator.query('DELETE FROM session WHERE user_id=(SELECT id FROM "user" WHERE email=$1)',['sparra-activity-refusal@example.test'])
     const loginHeld=new Promise<void>(done=>{releaseLogin=done}),loginStarted=new Promise<void>(done=>{
@@ -298,7 +315,7 @@ test('activity native mutation refusal renders private unavailable before login 
     cleanupRefusal=async()=>{try{await refusalRender.evaluate(({dispose})=>dispose())}finally{await refusalRender.dispose()}}
     await showActivitySection(page,'knowledge');await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Private activity knowledge pending edit')
     const refusal=page.waitForResponse(response=>new URL(response.url()).pathname===savePath)
-    await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();expect((await refusal).status()).toBe(401);await bounded(loginStarted)
+    await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();expect((await refusal).status()).toBe(401);await bounded(loginStarted)
     expect(await refusalRender.evaluate(({observed})=>observed)).toBe(true)
     expect(await page.locator('.sparra-business-form').count()).toBe(0)
     expect(await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).count()).toBe(0)
@@ -318,7 +335,7 @@ test('unknown and foreign receipts reveal no private data; revoked native sessio
     expect((await rpc(context,'markRequestTreated',{requestId:crypto.callId})).status()).toBe(400)
     for(const name of ['markRequestTreated','updateRequestFollowUp'] as const)expect((await rpc(context,name,{requestId:crypto.callId,expectedPublicationRevision:0,expectedDecisionToken:randomUUID(),treated:true})).status()).toBe(404)
     expect((await rpc(context,'eraseRequest',{requestId:crypto.callId})).status()).toBe(404)
-    const denied=await context.request.post(origin+await authRpcPath('saveActivity'),{headers:{origin:'https://foreign.example','content-type':'application/json','x-tsr-serverFn':'true'},data:await rpcBody({})});expect(denied.status()).toBe(403)
+    const denied=await context.request.post(origin+await authRpcPath('confirmActivity'),{headers:{origin:'https://foreign.example','content-type':'application/json','x-tsr-serverFn':'true'},data:await rpcBody({})});expect(denied.status()).toBe(403)
     await stores.administrator.query('DELETE FROM session WHERE user_id=(SELECT id FROM "user" WHERE email=$1)',['sparra-other@example.test'])
     await page.goto(origin+'/app/entreprise?lang=en');await page.waitForURL(origin+'/login?lang=en')
     expect(await page.content()).not.toContain('Garage persisted')
@@ -330,10 +347,10 @@ test('native loader and mutation cancellation witness blocked Workspace and reco
   const {context,page}=await signedIn('sparra-cancellation-owner'),blocker=new Client({connectionString:stores.directRuntimeUrl})
   await page.goto(origin+'/app/entreprise?lang=en')
   if(await page.getByRole('button',{name:'Create my workspace'}).count()){
-    await page.getByRole('button',{name:'Create my workspace'}).click();await showActivitySection(page,'establishment');await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).fill('Cancellation fixture');await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    await page.getByRole('button',{name:'Create my workspace'}).click();await showActivitySection(page,'establishment');await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).fill('Cancellation fixture');await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
   }
   const workspace=(await stores.administrator.query('SELECT id FROM workspace WHERE owner_user_id=(SELECT id FROM "user" WHERE email=$1)',['sparra-cancellation-owner@example.test'])).rows[0]
-  const savePath=await authRpcPath('saveActivity'),readPath=await authRpcPath('getActivity'),cancelled:string[]=[]
+  const savePath=await authRpcPath('confirmActivity'),readPath=await authRpcPath('getActivity'),cancelled:string[]=[]
   page.on('requestfailed',r=>{if(r.url().includes('/_serverFn/'))cancelled.push(new URL(r.url()).pathname)})
   const blocked=()=>stores.administrator.query("SELECT pid FROM pg_stat_activity WHERE wait_event_type='Lock' AND (query LIKE 'SELECT app_private.resolve_personal_workspace%' OR query LIKE '%from \"workspace\"%for update')")
   async function lock(){await blocker.query('BEGIN');await blocker.query("SELECT set_config('app.tenant_id',$1,true)",[workspace.id]);await blocker.query('SELECT id FROM workspace WHERE id=$1 FOR UPDATE',[workspace.id])}
@@ -347,18 +364,18 @@ test('native loader and mutation cancellation witness blocked Workspace and reco
     await blocker.query('ROLLBACK');await page.getByRole('heading',{name:'Your account',exact:true}).waitFor()
     await page.goto(origin+'/app/entreprise?lang=en');await showActivitySection(page,'knowledge');await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Must not commit')
     let before=(await stores.administrator.query('SELECT max(revision)::int revision FROM sparra_knowledge_revision WHERE workspace_id=$1',[workspace.id])).rows[0].revision
-    await lock();await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click()
+    await lock();await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click()
     await expect.poll(async()=>(await blocked()).rowCount,{timeout:750,interval:10}).toBeGreaterThan(0)
     await page.getByRole('button',{name:'Stop waiting',exact:true}).click()
     await expect.poll(()=>cancelled.includes(savePath),{timeout:750,interval:10}).toBe(true)
     await page.getByRole('alert').filter({hasText:'The save outcome is unknown.'}).waitFor()
     expect(await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).inputValue()).toBe('Must not commit')
-    expect(await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).isDisabled()).toBe(true)
+    expect(await page.locator('.sparra-business-form .sparra-form-submit').isDisabled()).toBe(true)
     const cancelledSaveDeparture=page.waitForEvent('dialog')
     await Promise.all([page.getByRole('link',{name:'Account',exact:true}).click(),cancelledSaveDeparture.then(async dialog=>{expect(dialog.type()).toBe('confirm');await dialog.accept()})])
     await blocker.query('ROLLBACK');await page.getByRole('heading',{name:'Your account',exact:true}).waitFor()
     expect((await stores.administrator.query('SELECT max(revision)::int revision FROM sparra_knowledge_revision WHERE workspace_id=$1',[workspace.id])).rows[0].revision).toBe(before)
-    expect((await rpc(context,'saveActivity',{expectedRevision:before,businessName:'Cancellation fixture',sector:'garage',knowledge:{openingHours:'',services:'',prices:'',faq:'',instructions:''},transferDestination:null,recordingEnabled:true})).status()).toBe(200)
+    expect(await seedHistoricalProviderSetting('sparra-cancellation-owner',{expectedRevision:before,businessName:'Cancellation fixture',sector:'garage',knowledge:{openingHours:'',services:'',prices:'',faq:'',instructions:''},transferDestination:null,recordingEnabled:true})).toMatchObject({revision:before+1,recordingEnabled:true})
     before++
     await page.goto(origin+'/app/entreprise?lang=en')
     const held=new Promise<void>(done=>{release=done}),committed=new Promise<void>(done=>{
@@ -367,7 +384,7 @@ test('native loader and mutation cancellation witness blocked Workspace and reco
     const recording=page.getByRole('checkbox',{includeHidden:true,name:'Keep audio from future calls for 30 days',exact:true})
     expect(await recording.isChecked()).toBe(false)
     await showActivitySection(page,'handling');await page.getByRole('button',{name:'Use local recording settings',exact:true}).click()
-    await showActivitySection(page,'knowledge');await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Committed old attempt');await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await bounded(committed)
+    await showActivitySection(page,'knowledge');await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Committed old attempt');await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await bounded(committed)
     expect(await recording.isDisabled()).toBe(true)
     expect(await page.getByText('Configuration saved.',{exact:true}).count()).toBe(0)
     expect((await stores.administrator.query('SELECT max(revision)::int revision FROM sparra_knowledge_revision WHERE workspace_id=$1',[workspace.id])).rows[0].revision).toBe(before+1)
@@ -376,21 +393,21 @@ test('native loader and mutation cancellation witness blocked Workspace and reco
     expect(page.url()).toBe(origin+'/app/entreprise?lang=en')
     expect(await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).inputValue()).toBe('Committed old attempt')
     expect(await recording.isChecked()).toBe(false)
-    expect(await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).isDisabled()).toBe(true)
+    expect(await page.locator('.sparra-business-form .sparra-form-submit').isDisabled()).toBe(true)
     await showActivitySection(page,'knowledge');await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Retained reconciliation draft')
     release()
     await page.getByRole('button',{name:'Check latest version',exact:true}).click();await page.getByText('Latest saved version: '+(before+1),{exact:true}).waitFor()
     expect(await page.getByText('Configuration saved.',{exact:true}).count()).toBe(0)
     expect(await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).inputValue()).toBe('Retained reconciliation draft')
-    expect(await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).isDisabled()).toBe(true)
+    expect(await page.locator('.sparra-business-form .sparra-form-submit').isDisabled()).toBe(true)
     expect((await stores.administrator.query('SELECT max(revision)::int revision FROM sparra_knowledge_revision WHERE workspace_id=$1',[workspace.id])).rows[0].revision).toBe(before+1)
     await page.getByRole('button',{name:'Replace draft with latest version',exact:true}).click()
     await expect.poll(()=>page.getByRole('alert',{includeHidden:true}).allTextContents()).toEqual(['Audio recording is unavailable for your business. You can turn off a previously saved setting.'])
     expect(await recording.isChecked()).toBe(false)
     expect(await recording.isDisabled()).toBe(true)
-    expect(await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).isDisabled()).toBe(true)
+    expect(await page.locator('.sparra-business-form .sparra-form-submit').isDisabled()).toBe(true)
     expect(await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).inputValue()).toBe('Committed old attempt')
-    await showActivitySection(page,'knowledge');await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Newest attempt');await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    await showActivitySection(page,'knowledge');await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Newest attempt');await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
     release();await page.reload();expect(await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).inputValue()).toBe('Newest attempt')
     expect((await stores.administrator.query('SELECT max(revision)::int revision FROM sparra_knowledge_revision WHERE workspace_id=$1',[workspace.id])).rows[0].revision).toBe(before+2)
   }finally{release();await blocker.query('ROLLBACK').catch(()=>{});await blocker.end();await context.close()}
@@ -404,11 +421,11 @@ test('native unavailable audio prevents enabling OFF and lets a historical provi
     expect(await recording.isChecked()).toBe(false)
     expect(await recording.isDisabled()).toBe(true)
     const initial={expectedRevision:0,businessName:'Audio policy fixture',sector:'garage',knowledge:{openingHours:'',services:'',prices:'',faq:'',instructions:''},transferDestination:null,recordingEnabled:true}
-    expect((await rpc(context,'saveActivity',initial)).status()).toBe(200)
+    expect(await seedHistoricalProviderSetting('sparra-audio-presentation-guard',initial)).toMatchObject({revision:1,recordingEnabled:true})
     await page.reload()
     expect(await recording.isChecked()).toBe(false)
     expect(await recording.isDisabled()).toBe(true)
-    expect(await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).isDisabled()).toBe(true)
+    expect(await page.locator('.sparra-business-form .sparra-form-submit').isDisabled()).toBe(true)
     await showActivitySection(page,'handling');await page.getByRole('alert').filter({hasText:'An old audio setting is saved.'}).waitFor()
     const before=(await stores.administrator.query('SELECT max(revision)::int revision FROM sparra_knowledge_revision WHERE workspace_id=(SELECT id FROM workspace WHERE owner_user_id=(SELECT id FROM "user" WHERE email=$1))',['sparra-audio-presentation-guard@example.test'])).rows[0].revision
     await showActivitySection(page,'establishment');await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).press('Enter')
@@ -418,8 +435,8 @@ test('native unavailable audio prevents enabling OFF and lets a historical provi
     expect(await recording.isChecked()).toBe(false)
     expect(await recording.isDisabled()).toBe(true)
     await page.getByRole('status').filter({hasText:'Existing recordings keep their original expiry.'}).waitFor()
-    expect(await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).isDisabled()).toBe(false)
-    await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    expect(await page.locator('.sparra-business-form .sparra-form-submit').isDisabled()).toBe(false)
+    await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
     await page.reload()
     expect(await recording.isChecked()).toBe(false)
     expect(await recording.isDisabled()).toBe(true)
@@ -454,12 +471,12 @@ test('setup clarity hides empty OFF contact, retains draft and saved values thro
     expect(await recording.isChecked()).toBe(false)
     expect(await phone.inputValue()).toBe('+33123456789')
     await showActivitySection(page,'handling');await recording.check();expect(await phone.inputValue()).toBe('+33123456789');await showActivitySection(page,'handling');await recording.uncheck()
-    await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
     await page.reload();expect(await recording.isChecked()).toBe(false);expect(await phone.inputValue()).toBe('+33123456789')
-    await showActivitySection(page,'handling');await phone.fill('+33102030405');await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    await showActivitySection(page,'handling');await phone.fill('+33102030405');await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
     await showActivitySection(page,'handling');await phone.fill('');expect(await phone.isVisible()).toBe(true)
     await showActivitySection(page,'handling');await recording.check();await showActivitySection(page,'handling');await recording.uncheck();expect(await phone.isVisible()).toBe(true)
-    await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
     expect(await phone.count()).toBe(0)
     await page.reload();expect(await phone.count()).toBe(0)
     await waitForActivityNavigation(page)
@@ -468,20 +485,20 @@ test('setup clarity hides empty OFF contact, retains draft and saved values thro
 },30000)
 
 test('setup clarity unchanged saved draft blocks keyboard and direct form submit while exact edits and initial save remain possible',async()=>{
-  const {context,page}=await signedIn('sparra-setup-noop'),savePath=await authRpcPath('saveActivity')
+  const {context,page}=await signedIn('sparra-setup-noop'),savePath=await authRpcPath('confirmActivity')
   let saves=0
   page.on('request',request=>{if(new URL(request.url()).pathname===savePath)saves++})
   try{
     await page.goto(origin+'/app/entreprise?lang=en');await page.getByRole('button',{name:'Create my workspace'}).click()
-    const name=page.getByRole('textbox',{includeHidden:true,name:/^Business name/}),save=page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true})
+    const name=page.getByRole('textbox',{includeHidden:true,name:/^Business name/}),save=page.locator('.sparra-business-form .sparra-form-submit')
     expect(await save.isDisabled()).toBe(false)
-    await showActivitySection(page,'establishment');await name.fill('Setup no-op fixture');await save.click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    await showActivitySection(page,'establishment');await name.fill('Setup no-op fixture');await reviewActivity(page);await save.click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
     expect(saves).toBe(1);expect(await save.isDisabled()).toBe(true)
     await showActivitySection(page,'establishment');await name.press('Enter');await page.locator('.sparra-business-form').evaluate((form:HTMLFormElement)=>form.requestSubmit())
     await showActivitySection(page,'establishment');await name.fill('Setup no-op fixture ');expect(await save.isDisabled()).toBe(false)
     await showActivitySection(page,'establishment');await name.fill('Setup no-op fixture');expect(await save.isDisabled()).toBe(true)
     await showActivitySection(page,'knowledge');await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Explicit later edit')
-    expect(await save.isDisabled()).toBe(false);await save.focus();await page.keyboard.press('Enter');await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    expect(await save.isDisabled()).toBe(false);await reviewActivity(page);await save.focus();await page.keyboard.press('Enter');await page.getByText('Configuration saved.',{exact:true}).waitFor()
     expect(saves).toBe(2);expect(await save.isDisabled()).toBe(true)
     await page.reload();expect(await save.isDisabled()).toBe(true)
     expect((await stores.administrator.query('SELECT count(*)::int n FROM sparra_knowledge_revision WHERE workspace_id=(SELECT id FROM workspace WHERE owner_user_id=(SELECT id FROM "user" WHERE email=$1))',['sparra-setup-noop@example.test'])).rows[0].n).toBe(2)
@@ -489,7 +506,7 @@ test('setup clarity unchanged saved draft blocks keyboard and direct form submit
 },30000)
 
 test('setup clarity clearing a stored OFF contact preserves the field and recovery until known latest replacement',async()=>{
-  const subject='sparra-setup-clear-unknown',{context,page}=await signedIn(subject),savePath=await authRpcPath('saveActivity')
+  const subject='sparra-setup-clear-unknown',{context,page}=await signedIn(subject),savePath=await authRpcPath('confirmActivity')
   let release=()=>{}
   try{
     await page.goto(origin+'/app/entreprise?lang=en');await page.getByRole('button',{name:'Create my workspace'}).click()
@@ -497,26 +514,26 @@ test('setup clarity clearing a stored OFF contact preserves the field and recove
     await showActivitySection(page,'establishment');await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).fill('Clear contact recovery')
     const recording=page.getByRole('checkbox',{includeHidden:true,name:'Keep audio from future calls for 30 days',exact:true}),phone=page.getByRole('textbox',{includeHidden:true,name:/^Recording contact phone/})
     await showActivitySection(page,'handling');await recording.check();await showActivitySection(page,'handling');await phone.fill('+33123456789');await showActivitySection(page,'handling');await recording.uncheck()
-    await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
     await showActivitySection(page,'handling');await phone.fill('')
     const held=new Promise<void>(done=>{release=done}),committed=new Promise<void>(done=>{
       void page.route('**'+savePath,async route=>{const response=await route.fetch();expect(response.status()).toBe(200);done();await held;await route.fulfill({response}).catch(()=>{})},{times:1})
     })
-    await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await bounded(committed)
+    await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await bounded(committed)
     await page.getByRole('button',{name:'Stop waiting',exact:true}).click();release()
     await page.getByRole('alert').filter({hasText:'The save outcome is unknown.'}).waitFor()
-    expect(await phone.isVisible()).toBe(true);expect(await phone.inputValue()).toBe('')
-    expect(await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).isDisabled()).toBe(true)
+    await showActivitySection(page,'handling');expect(await phone.isVisible()).toBe(true);expect(await phone.inputValue()).toBe('')
+    expect(await page.locator('.sparra-business-form .sparra-form-submit').isDisabled()).toBe(true)
     await page.getByRole('button',{name:'Check latest version',exact:true}).click();await page.getByRole('status').filter({hasText:'Your draft matches the saved information.'}).waitFor()
     expect(await phone.isVisible()).toBe(true)
     await page.getByRole('button',{name:'Replace draft with latest version',exact:true}).click()
-    expect(await phone.count()).toBe(0);expect(await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).isDisabled()).toBe(true)
+    expect(await phone.count()).toBe(0);expect(await page.locator('.sparra-business-form .sparra-form-submit').isDisabled()).toBe(true)
     expect((await stores.administrator.query('SELECT revision,recording_policy,recording_contact_phone FROM sparra_knowledge_revision WHERE workspace_id=$1 ORDER BY revision',[binding.workspaceId])).rows).toEqual([{revision:1,recording_policy:'off',recording_contact_phone:'+33123456789'},{revision:2,recording_policy:'off',recording_contact_phone:null}])
   }finally{release();await context.close()}
 },30000)
 
 test('compiled local recording accepts empty contact, validates supplied phones and permits OFF after capability withdrawal without history rewrite',async()=>{
-  const subject='sparra-local-recording-config',{context,page}=await signedIn(subject),savePath=await authRpcPath('saveActivity')
+  const subject='sparra-local-recording-config',{context,page}=await signedIn(subject),savePath=await authRpcPath('confirmActivity')
   let saves=0
   page.on('request',request=>{if(new URL(request.url()).pathname===savePath)saves++})
   try{
@@ -527,15 +544,15 @@ test('compiled local recording accepts empty contact, validates supplied phones 
     const recording=page.getByRole('checkbox',{includeHidden:true,name:'Keep audio from future calls for 30 days',exact:true}),phone=page.getByRole('textbox',{includeHidden:true,name:/^Recording contact phone/})
     await expect.poll(()=>recording.isDisabled()).toBe(false)
     await showActivitySection(page,'establishment');await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).fill('Native recording configuration')
-    await showActivitySection(page,'handling');await recording.check();await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    await showActivitySection(page,'handling');await recording.check();await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
     expect(await phone.getAttribute('aria-required')).toBeNull()
     expect(await phone.inputValue()).toBe('')
     expect(saves).toBe(1)
-    await showActivitySection(page,'handling');await phone.fill('0612345678');await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click()
+    await showActivitySection(page,'handling');await phone.fill('0612345678');await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click()
     expect(await phone.inputValue()).toBe('0612345678')
     expect(await phone.getAttribute('aria-invalid')).toBe('true')
     expect(saves).toBe(1)
-    await showActivitySection(page,'handling');await phone.fill('+33123456789');await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    await showActivitySection(page,'handling');await phone.fill('+33123456789');await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
     expect(saves).toBe(2)
     await page.reload()
     expect(await recording.isChecked()).toBe(true)
@@ -549,7 +566,7 @@ test('compiled local recording accepts empty contact, validates supplied phones 
     expect(previous).toEqual([{revision:1,recording_policy:'local_30d',recording_contact_phone:null,recording_enabled:false},{revision:2,recording_policy:'local_30d',recording_contact_phone:'+33123456789',recording_enabled:false}])
     await showActivitySection(page,'handling');await phone.fill('+33102030405');await page.getByRole('status').filter({hasText:'Unsaved changes.'}).waitFor()
     await stores.administrator.query('UPDATE voice_private.deployment_binding SET admission_enabled=false WHERE service_login=$1',[binding.role])
-    await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click()
+    await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click()
     await page.getByRole('alert').filter({hasText:'Audio recording is unavailable for your business'}).first().waitFor()
     expect(await page.getByRole('alert').filter({hasText:'Audio recording is unavailable for your business'}).count()).toBe(1)
     expect(await page.getByText('The configuration changed.',{exact:false}).count()).toBe(0)
@@ -558,7 +575,7 @@ test('compiled local recording accepts empty contact, validates supplied phones 
     expect(await recording.isChecked()).toBe(true)
     expect((await stores.administrator.query('SELECT revision,recording_policy,recording_contact_phone,recording_enabled FROM sparra_knowledge_revision WHERE workspace_id=$1 ORDER BY revision',[binding.workspaceId])).rows).toEqual(previous)
     await showActivitySection(page,'handling');await recording.uncheck();await page.getByRole('status').filter({hasText:'Existing recordings keep their original expiry.'}).waitFor()
-    await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
     await page.reload();expect(await recording.isChecked()).toBe(false);expect(await recording.isDisabled()).toBe(true)
     expect((await stores.administrator.query('SELECT recording_policy,recording_contact_phone,recording_enabled FROM sparra_knowledge_revision WHERE workspace_id=$1 AND revision=3',[binding.workspaceId])).rows).toEqual([{recording_policy:'off',recording_contact_phone:'+33102030405',recording_enabled:false}])
     expect((await stores.administrator.query('SELECT revision,recording_policy,recording_contact_phone,recording_enabled FROM sparra_knowledge_revision WHERE workspace_id=$1 AND revision<=2 ORDER BY revision',[binding.workspaceId])).rows).toEqual(previous)
@@ -566,7 +583,7 @@ test('compiled local recording accepts empty contact, validates supplied phones 
 },30000)
 
 test('compiled recording contact-only save with a lost reply remains unknown until deliberate latest read and draft replacement',async()=>{
-  const subject='sparra-local-recording-unknown',{context,page}=await signedIn(subject),savePath=await authRpcPath('saveActivity')
+  const subject='sparra-local-recording-unknown',{context,page}=await signedIn(subject),savePath=await authRpcPath('confirmActivity')
   let release=()=>{}
   try{
     await page.goto(origin+'/app/entreprise?lang=en');await page.getByRole('button',{name:'Create my workspace'}).click()
@@ -576,28 +593,28 @@ test('compiled recording contact-only save with a lost reply remains unknown unt
     await showActivitySection(page,'establishment');await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).fill('Recording reconciliation')
     await showActivitySection(page,'handling');await page.getByRole('checkbox',{includeHidden:true,name:'Keep audio from future calls for 30 days',exact:true}).check()
     const phone=page.getByRole('textbox',{includeHidden:true,name:/^Recording contact phone/})
-    await showActivitySection(page,'handling');await phone.fill('+33123456789');await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    await showActivitySection(page,'handling');await phone.fill('+33123456789');await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
     await showActivitySection(page,'handling');await phone.fill('+33102030405');await page.getByRole('status').filter({hasText:'Unsaved changes.'}).waitFor()
     const held=new Promise<void>(done=>{release=done}),committed=new Promise<void>(done=>{
       void page.route('**'+savePath,async route=>{const response=await route.fetch();expect(response.status()).toBe(200);done();await held;await route.fulfill({response}).catch(()=>{})},{times:1})
     })
-    await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await bounded(committed)
+    await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await bounded(committed)
     await page.getByRole('button',{name:'Stop waiting',exact:true}).click();await page.getByRole('alert').filter({hasText:'The save outcome is unknown.'}).waitFor()
     release()
     expect(await phone.inputValue()).toBe('+33102030405')
-    expect(await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).isDisabled()).toBe(true)
+    expect(await page.locator('.sparra-business-form .sparra-form-submit').isDisabled()).toBe(true)
     expect((await stores.administrator.query('SELECT revision,recording_contact_phone FROM sparra_knowledge_revision WHERE workspace_id=$1 ORDER BY revision DESC LIMIT 1',[binding.workspaceId])).rows).toEqual([{revision:2,recording_contact_phone:'+33102030405'}])
     await page.getByRole('button',{name:'Check latest version',exact:true}).click();await page.getByRole('status').filter({hasText:'Your draft matches the saved information.'}).waitFor()
     await showActivitySection(page,'handling');await phone.fill('+33123456789');await page.getByRole('status').filter({hasText:'The saved information is different from your draft.'}).waitFor()
     expect(await phone.inputValue()).toBe('+33123456789')
     await page.getByRole('button',{name:'Replace draft with latest version',exact:true}).click()
     expect(await phone.inputValue()).toBe('+33102030405')
-    expect(await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).isDisabled()).toBe(true)
+    expect(await page.locator('.sparra-business-form .sparra-form-submit').isDisabled()).toBe(true)
   }finally{release();await context.close()}
 },30000)
 
 test('business operation waits explain their mode and uncertain latest reads compare actual draft values without automatic replacement',async()=>{
-  const {context,page}=await signedIn('sparra-operation-feedback'),readPath=await authRpcPath('getActivity'),savePath=await authRpcPath('saveActivity')
+  const {context,page}=await signedIn('sparra-operation-feedback'),readPath=await authRpcPath('getActivity'),savePath=await authRpcPath('confirmActivity')
   let release=()=>{}
   try{
     await page.goto(origin+'/app/entreprise?lang=en')
@@ -611,7 +628,7 @@ test('business operation waits explain their mode and uncertain latest reads com
     const committed=new Promise<void>(done=>{
       void page.route('**'+savePath,async route=>{const response=await route.fetch();expect(response.status()).toBe(200);done();await held;await route.fulfill({response}).catch(()=>{})},{times:1})
     })
-    await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await bounded(committed)
+    await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await bounded(committed)
     await page.getByRole('status').filter({hasText:'Saving…'}).waitFor()
     await page.getByText('Saving may still complete if you stop waiting.',{exact:true}).waitFor()
     await page.getByRole('button',{name:'Stop waiting',exact:true}).click()
@@ -621,9 +638,9 @@ test('business operation waits explain their mode and uncertain latest reads com
     await page.route('**'+readPath+'*',async route=>{await held;await route.continue()},{times:1})
     await page.getByRole('button',{name:'Check latest version',exact:true}).click()
     await page.getByRole('status').filter({hasText:'Checking saved information…'}).waitFor()
-    expect(await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).isDisabled()).toBe(true)
+    expect(await page.locator('.sparra-business-form .sparra-form-submit').isDisabled()).toBe(true)
     release();await page.getByRole('status').filter({hasText:'Your draft matches the saved information.'}).waitFor()
-    expect(await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).isDisabled()).toBe(true)
+    expect(await page.locator('.sparra-business-form .sparra-form-submit').isDisabled()).toBe(true)
     expect(await page.getByText('Configuration saved.',{exact:true}).count()).toBe(0)
     await showActivitySection(page,'establishment');await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).fill('Locally changed after verification')
     await page.getByRole('status').filter({hasText:'The saved information is different from your draft.'}).waitFor()
@@ -631,29 +648,29 @@ test('business operation waits explain their mode and uncertain latest reads com
     expect(await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).inputValue()).toBe('Locally changed after verification')
     await page.getByRole('button',{name:'Replace draft with latest version',exact:true}).click()
     expect(await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).inputValue()).toBe('Operation feedback fixture')
-    expect(await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).isDisabled()).toBe(true)
+    expect(await page.locator('.sparra-business-form .sparra-form-submit').isDisabled()).toBe(true)
   }finally{release();await context.close()}
 },40000)
 
 test('business local validation keeps invalid input, focuses the first affected field and avoids native saves for common errors',async()=>{
-  const {context,page}=await signedIn('sparra-local-validation'),savePath=await authRpcPath('saveActivity')
+  const {context,page}=await signedIn('sparra-local-validation'),savePath=await authRpcPath('confirmActivity')
   let saves=0
   page.on('request',request=>{if(new URL(request.url()).pathname===savePath)saves++})
   try{
     await page.goto(origin+'/app/entreprise?lang=en');await page.getByRole('button',{name:'Create my workspace'}).click()
     const name=page.getByRole('textbox',{includeHidden:true,name:/^Business name/}),hours=page.getByRole('textbox',{includeHidden:true,name:'Opening hours',exact:true}),services=page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}),phone=page.getByRole('textbox',{includeHidden:true,name:/^Transfer number/})
-    await showActivitySection(page,'establishment');await name.fill('   ');await showActivitySection(page,'recap');await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click()
+    await showActivitySection(page,'establishment');await name.fill('   ');await showActivitySection(page,'recap');await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click()
     expect(await name.getAttribute('aria-invalid')).toBe('true')
     expect(await name.evaluate(element=>document.activeElement===element)).toBe(true)
     expect(await page.locator('#activity-establishment').isVisible()).toBe(true)
     expect(await name.inputValue()).toBe('   ')
     expect(saves).toBe(0)
-    await showActivitySection(page,'establishment');await name.fill('x'.repeat(81));await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click()
+    await showActivitySection(page,'establishment');await name.fill('x'.repeat(81));await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click()
     expect(await name.getAttribute('aria-invalid')).toBe('true')
     expect(await name.inputValue()).toBe('x'.repeat(81))
     expect(saves).toBe(0)
     await showActivitySection(page,'establishment');await name.fill('Validation fixture');await showActivitySection(page,'knowledge');await hours.fill('x'.repeat(1001));await showActivitySection(page,'knowledge');await services.fill('x'.repeat(2001));await showActivitySection(page,'handling');await phone.fill('0612345678')
-    await showActivitySection(page,'recap');await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click()
+    await showActivitySection(page,'recap');await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click()
     expect(await hours.getAttribute('aria-invalid')).toBe('true')
     expect(await services.getAttribute('aria-invalid')).toBe('true')
     expect(await phone.getAttribute('aria-invalid')).toBe('true')
@@ -663,12 +680,12 @@ test('business local validation keeps invalid input, focuses the first affected 
     expect(await hours.inputValue()).toBe('x'.repeat(1001))
     expect(saves).toBe(0)
     await showActivitySection(page,'knowledge');await hours.fill('Weekdays');await services.fill('Observed service');await showActivitySection(page,'recap')
-    await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click()
+    await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click()
     expect(await page.locator('#activity-handling').isVisible()).toBe(true)
     expect(await phone.evaluate(element=>document.activeElement===element)).toBe(true)
     expect(saves).toBe(0)
     await phone.fill('+33123456789')
-    await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
     expect(saves).toBe(1)
     expect(await name.getAttribute('aria-invalid')).toBeNull()
     expect(await hours.getAttribute('aria-invalid')).toBeNull()
@@ -682,7 +699,7 @@ test('business draft status returns to saved when all edited values match the pe
     await page.goto(origin+'/app/entreprise?lang=en');await page.getByRole('button',{name:'Create my workspace'}).click()
     const name=page.getByRole('textbox',{includeHidden:true,name:/^Business name/}),services=page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true})
     await showActivitySection(page,'establishment');await name.fill('Draft status fixture');await showActivitySection(page,'knowledge');await services.fill('Observed service')
-    await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
     await page.reload()
     await page.getByRole('status').filter({hasText:'No unsaved changes.'}).waitFor()
     await showActivitySection(page,'establishment');await name.fill('Changed name');await showActivitySection(page,'knowledge');await services.fill('Changed service')
@@ -702,7 +719,7 @@ test('saved feedback clears after every editable business information field chan
     await showActivitySection(page,'establishment');await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).fill('Saved feedback fixture')
     const edits=[()=>page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).fill('Edited feedback fixture'),()=>page.getByRole('combobox',{name:/^Sector/}).click(),...['Opening hours','Services','Prices','Frequently asked questions','Response instructions','Transfer number (optional)'].map(name=>()=>page.getByRole('textbox',{includeHidden:true,name,exact:true}).fill(name==='Transfer number (optional)'?'+33123456789':'Edited '+name))]
     for(const [index,edit] of edits.entries()){
-      await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+      await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
       await showActivitySection(page,index<2?'establishment':index===7?'handling':'knowledge')
       await edit()
       if(index===1)await page.getByRole('option',{name:'Vehicle inspection',exact:true}).click()
@@ -727,7 +744,7 @@ async function joinSaveDeliveryObservers(
 }
 
 test('native committed save delivery failure retains draft and requires reconciliation while validation and read failures stay distinct',async()=>{
-  const {context,page}=await signedIn('sparra-save-delivery'),savePath=await authRpcPath('saveActivity'),readPath=await authRpcPath('getActivity')
+  const {context,page}=await signedIn('sparra-save-delivery'),savePath=await authRpcPath('confirmActivity'),readPath=await authRpcPath('getActivity')
   let release=()=>{}
   let routeOutcome:Promise<PromiseSettledResult<void>[]>|undefined
   let deliveryOutcome:Promise<PromiseSettledResult<Request>[]>|undefined
@@ -747,16 +764,16 @@ test('native committed save delivery failure retains draft and requires reconcil
     expect(await page.getByRole('button',{name:'Check latest version',exact:true}).count()).toBe(0)
     expect(await page.getByRole('button',{name:'Create my workspace'}).isDisabled()).toBe(false)
     await page.getByRole('button',{name:'Create my workspace'}).click()
-    await showActivitySection(page,'establishment');await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).fill('Delivery fixture');await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    await showActivitySection(page,'establishment');await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).fill('Delivery fixture');await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
     const workspace=(await stores.administrator.query('SELECT id FROM workspace WHERE owner_user_id=(SELECT id FROM "user" WHERE email=$1)',['sparra-save-delivery@example.test'])).rows[0]
     const revision=async()=>(await stores.administrator.query('SELECT max(revision)::int revision FROM sparra_knowledge_revision WHERE workspace_id=$1',[workspace.id])).rows[0].revision
     expect(await revision()).toBe(1)
     // An invalid control character remains a native-validator concern beyond common UI bounds.
     const invalidResponse=page.waitForResponse(response=>new URL(response.url()).pathname===savePath)
-    await showActivitySection(page,'establishment');await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).fill('Invalid\u0001name');await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();expect((await invalidResponse).status()).toBe(400)
+    await showActivitySection(page,'establishment');await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).fill('Invalid\u0001name');await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();expect((await invalidResponse).status()).toBe(400)
     await page.getByText('Some information could not be saved. Check the fields and try again.',{exact:true}).waitFor()
     expect(await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).inputValue()).toBe('Invalid\u0001name')
-    expect(await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).isDisabled()).toBe(false)
+    expect(await page.locator('.sparra-business-form .sparra-form-submit').isDisabled()).toBe(false)
     expect(await page.getByRole('button',{name:'Check latest version',exact:true}).count()).toBe(0)
     expect(await revision()).toBe(1)
     await showActivitySection(page,'establishment');await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).fill('Delivery fixture')
@@ -779,7 +796,7 @@ test('native committed save delivery failure retains draft and requires reconcil
       },{times:1})
     }catch(error){const failure=nativeFailure('registration',error);rejectCommitted(failure);throw failure}
     deliveryOutcome=Promise.allSettled([page.waitForEvent('requestfailed',{predicate:request=>new URL(request.url()).pathname===savePath})])
-    await showActivitySection(page,'knowledge');await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Committed before lost delivery');await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click()
+    await showActivitySection(page,'knowledge');await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Committed before lost delivery');await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click()
     const [commitResult]=await bounded(committedOutcome)
     if(commitResult.status==='rejected')throw commitResult.reason
     expect(await revision()).toBe(2)
@@ -792,16 +809,16 @@ test('native committed save delivery failure retains draft and requires reconcil
     await page.getByRole('alert').filter({hasText:'The save outcome is unknown. Check the latest version before saving again.'}).waitFor()
     expect(await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).inputValue()).toBe('Committed before lost delivery')
     expect(await page.getByText('Configuration saved.',{exact:true}).count()).toBe(0)
-    expect(await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).isDisabled()).toBe(true)
+    expect(await page.locator('.sparra-business-form .sparra-form-submit').isDisabled()).toBe(true)
     await showActivitySection(page,'knowledge');await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Draft retained after delivery failure')
     await page.getByRole('button',{name:'Check latest version',exact:true}).click();await page.getByText('Latest saved version: 2',{exact:true}).waitFor()
     expect(await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).inputValue()).toBe('Draft retained after delivery failure')
-    expect(await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).isDisabled()).toBe(true)
+    expect(await page.locator('.sparra-business-form .sparra-form-submit').isDisabled()).toBe(true)
     expect(await revision()).toBe(2)
     await page.getByRole('button',{name:'Replace draft with latest version',exact:true}).click()
     expect(await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).inputValue()).toBe('Committed before lost delivery')
-    expect(await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).isDisabled()).toBe(true)
-    await showActivitySection(page,'knowledge');await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Explicit reconciled save');await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    expect(await page.locator('.sparra-business-form .sparra-form-submit').isDisabled()).toBe(true)
+    await showActivitySection(page,'knowledge');await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Explicit reconciled save');await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
     await page.reload();expect(await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).inputValue()).toBe('Explicit reconciled save');expect(await revision()).toBe(3)
   }catch(error){failures.push(error)}finally{
     release()
@@ -887,7 +904,7 @@ test('compiled native result DTO shows category and caller/provider/missing call
   const {context,page}=await signedIn('sparra-provenance-owner')
   try{
     await page.goto(origin+'/app/entreprise?lang=en');await page.getByRole('button',{name:'Create my workspace'}).click()
-    await showActivitySection(page,'establishment');await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).fill('Provenance fixture garage');await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    await showActivitySection(page,'establishment');await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).fill('Provenance fixture garage');await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
     const workspace=(await stores.administrator.query('SELECT id FROM workspace WHERE owner_user_id=(SELECT id FROM "user" WHERE email=$1)',['sparra-provenance-owner@example.test'])).rows[0]
     const native=await nativeVoiceTurn(crypto)
     const calls:ProvenanceCall[]=[]
@@ -922,14 +939,15 @@ test('current-sector owner saves explicit questions and reloads unchanged after 
     expect(await page.getByRole('textbox',{includeHidden:true,name:'Frequently asked questions',exact:true}).inputValue()).toBe('')
     await page.getByRole('button',{name:'Add to instructions : What type of vehicle is concerned?',exact:true}).click()
     expect(await instructions.inputValue()).toBe('What type of vehicle is concerned?')
-    await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
     const workspace=(await stores.administrator.query('SELECT workspace_id FROM sparra_knowledge_revision WHERE business_name=$1',['Centre guided boundary'])).rows[0]
     expect(workspace).toBeDefined()
     const persisted=async()=>(await stores.administrator.query('SELECT to_jsonb(k) AS value FROM sparra_knowledge_revision k WHERE workspace_id=$1 ORDER BY revision',[workspace.workspace_id])).rows
     const before=await persisted()
     expect(before).toHaveLength(1)
     expect(before[0].value).toMatchObject({revision:1,sector:'controle-technique',instructions:'What type of vehicle is concerned?'})
-    const refused=await rpc(context,'saveActivity',{expectedRevision:1,businessName:'Unsupported sector',sector:'unknown-sector',knowledge:{openingHours:'',services:'',prices:'',faq:'',instructions:''},transferDestination:null,recordingEnabled:false})
+    const valid=manualActivityConfirmation(workspace.workspace_id,{expectedRevision:1,businessName:'Unsupported sector',sector:'garage',knowledge:{openingHours:'',services:'',prices:'',faq:'',instructions:''},transferDestination:null,recordingEnabled:false})
+    const refused=await rpc(context,'confirmActivity',{...valid,activity:{...valid.activity,sector:'unknown-sector'}})
     expect(refused.status()).toBe(400)
     expect(await persisted()).toEqual(before)
     await page.reload();expect(await instructions.inputValue()).toBe('What type of vehicle is concerned?')
@@ -982,12 +1000,13 @@ test.each(['fr','en'] as const)('diagnostic owner in %s explicitly adds prepared
 
 test.each(['fr','en'] as const)('guided sections in %s preserve draft and question identity across sectors without saving or changing tools',async locale=>{
   const {context,page}=await signedIn('sparra-guided-'+locale),t=activityMessages[locale]
-  const savePath=await authRpcPath('saveActivity');let saves=0
+  const savePath=await authRpcPath('confirmActivity');let saves=0
   page.on('request',request=>{if(new URL(request.url()).pathname===savePath&&request.method()==='POST')saves++})
   try{
     expect((await rpc(context,'ensurePersonalWorkspace',{})).status()).toBe(200)
     const knowledge={openingHours:'09:00–17:00',services:'Oil changes',prices:'Quote after inspection',faq:'Original owner FAQ',instructions:'Original instructions'}
-    expect((await rpc(context,'saveActivity',{expectedRevision:0,businessName:'Existing garage',sector:'garage',knowledge,transferDestination:'+33102030406',recordingEnabled:false,recordingPolicy:'off',recordingContactPhone:'+33102030405'})).status()).toBe(200)
+    expect((await confirmConfiguration(context,await fixtureWorkspace('sparra-guided-'+locale),{expectedRevision:0,businessName:'Existing garage',sector:'garage',knowledge,transferDestination:'+33102030406',recordingEnabled:false,recordingPolicy:'off',recordingContactPhone:'+33102030405'})).status()).toBe(200)
+    saves=0 // The explicit native seed precedes the no-save guided interaction.
     await page.goto(origin+'/app/entreprise?lang='+locale)
     const nav=page.getByRole('navigation',{name:t.guidedNavigation,exact:true})
     const knowledgeButton=nav.getByRole('button',{name:t.guidedSections[1],exact:true})
@@ -1060,7 +1079,7 @@ test.each(['fr','en'] as const)('guided sections in %s preserve draft and questi
 
 test.each(['fr','en'] as const)('private FAQ and intake additions in %s announce only draft changes and retain keyboard focus',async locale=>{
   const {context,page}=await signedIn('sparra-helper-accessibility-'+locale),t=activityMessages[locale],preset=getSectorPreset('garage',locale)
-  const savePath=await authRpcPath('saveActivity'),requests:string[]=[]
+  const savePath=await authRpcPath('confirmActivity'),requests:string[]=[]
   try{
     await page.goto(origin+'/app/entreprise?lang='+locale);await page.getByRole('button',{name:appMessages[locale].create,exact:true}).click()
     await showActivitySection(page,'knowledge')
@@ -1117,7 +1136,7 @@ test.each(['enterprise','prepared-faq'] as const)('compiled Business %s declines
   try{
     await page.goto(origin+'/app/entreprise?lang=en');await page.getByRole('button',{name:'Create my workspace'}).click();await waitForActivityNavigation(page)
     const knowledge={openingHours:'',services:'Known service',prices:'',faq:'',instructions:''}
-    expect((await rpc(context,'saveActivity',{expectedRevision:0,businessName:'Native known',sector:'garage',knowledge,transferDestination:null,recordingEnabled:false,recordingPolicy:'off',recordingContactPhone:null})).status()).toBe(200)
+    expect((await confirmConfiguration(context,await fixtureWorkspace('sparra-guided-navigation-'+kind),{expectedRevision:0,businessName:'Native known',sector:'garage',knowledge,transferDestination:null,recordingEnabled:false,recordingPolicy:'off',recordingContactPhone:null})).status()).toBe(200)
     await page.goto(origin+'/app/entreprise?lang=fr');await waitForActivityNavigation(page)
     const t=activityMessages.fr
     if(kind==='enterprise')await page.getByRole('textbox',{name:new RegExp('^'+t.businessName)}).fill('Native unsaved')
@@ -1143,3 +1162,54 @@ test.each(['enterprise','prepared-faq'] as const)('compiled Business %s declines
     expect(persisted.rows[0]).toMatchObject({business_name:'Native known',faq:''})
   }finally{await context.close()}
 },30000)
+
+
+test('compiled knowledge import and confirmation preserve source and exact reviewed texts after reload',async()=>{
+  const {context,page}=await signedIn('knowledge-import-owner')
+  try{
+    // Retire the OAuth protocol peer's global network confinement after real fixture login.
+    // Keep the same native session/DB/build; acquisition now uses unmodified DNS and HTTPS.
+    await app.shutdown();expect(await bounded(app.exit)).toBe(0);await app.cleanup()
+    app=startWeb({...appEnv,FIXTURE_GOOGLE_PROTOCOL:undefined});upstreamPort=(await bounded(app.ready)).port
+    await page.goto(origin+'/app/entreprise?lang=fr')
+    await page.getByRole('button',{name:'Créer mon espace',exact:true}).click()
+    await page.getByRole('textbox',{name:/^Nom de l’établissement/}).fill('Établissement de démonstration')
+    await showActivitySection(page,'knowledge')
+    await page.getByRole('textbox',{name:'Adresse de la page HTTPS',exact:true}).fill('https://example.com/')
+    const imported=page.waitForResponse(async response=>response.url().endsWith(await authRpcPath('importKnowledgePage')))
+    await page.getByRole('button',{name:'Lire cette page',exact:true}).click()
+    expect((await imported).status()).toBe(200)
+    const passage=page.getByRole('group',{name:'Passage p1',exact:true})
+    await page.screenshot({path:'.superpowers/sdd/2026-10-26-knowledge-import/knowledge-compiled-import.png',fullPage:true})
+    await passage.getByRole('combobox').selectOption('services')
+    await passage.getByRole('textbox').fill('Texte corrigé par le gérant')
+    await passage.getByRole('button',{name:'Utiliser',exact:true}).click()
+    await page.getByRole('textbox',{name:'Consignes de réponse',exact:true}).fill('Consigne ajoutée manuellement')
+    await page.getByRole('button',{name:'Vérifier avant d’enregistrer',exact:true}).click()
+    await page.getByRole('checkbox',{name:/Je confirme avoir relu les cinq textes affichés/}).check()
+    expect(await page.locator('[data-knowledge-preview]').count()).toBe(5)
+    expect(await page.locator('[data-knowledge-preview="services"]').textContent()).toBe('Texte corrigé par le gérant')
+    expect(await page.locator('[data-knowledge-preview="instructions"]').textContent()).toBe('Consigne ajoutée manuellement')
+    expect(await page.locator('[data-knowledge-preview="prices"]').textContent()).toContain('information inconnue')
+    await page.screenshot({path:'.superpowers/sdd/2026-10-26-knowledge-import/knowledge-compiled-recap.png',fullPage:true})
+    const confirmed=page.waitForResponse(async response=>response.url().endsWith(await authRpcPath('confirmActivity')))
+    await page.getByRole('button',{name:'Confirmer pour les prochains appels',exact:true}).focus();await page.keyboard.press('Enter')
+    expect((await confirmed).status()).toBe(200)
+    await page.getByText('Configuration enregistrée.',{exact:true}).waitFor()
+    await page.reload();await page.getByText('Origine de la version courante',{exact:true}).click()
+    expect(await page.locator('.sparra-knowledge-origin').textContent()).toContain('https://example.com/')
+    expect(await page.locator('.sparra-knowledge-origin blockquote').first().textContent()).not.toBe('Texte corrigé par le gérant')
+    expect(await page.getByRole('textbox',{name:'Prestations',exact:true,includeHidden:true}).inputValue()).toBe('Texte corrigé par le gérant')
+    const receipt=(await stores.administrator.query('SELECT r.* FROM sparra_knowledge_confirmation r JOIN workspace w ON w.id=r.workspace_id JOIN sparra_knowledge_revision k ON k.workspace_id=w.id AND k.revision=r.revision WHERE k.business_name=$1',['Établissement de démonstration'])).rows[0]
+    expect(receipt.provenance.decisions).toEqual([{action:'use',passageId:'p1',target:'services'}])
+    expect(receipt.provenance.source.url).toBe('https://example.com/')
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+    // Advance only this disposable receipt's clock, as in the native persistence fixture.
+    await stores.administrator.query('ALTER TABLE sparra_knowledge_confirmation DISABLE TRIGGER sparra_confirmation_immutable')
+    try{await stores.administrator.query("UPDATE sparra_knowledge_confirmation SET saved_at=saved_at-interval '8 days',expires_at=expires_at-interval '8 days' WHERE workspace_id=$1",[receipt.workspace_id])}
+    finally{await stores.administrator.query('ALTER TABLE sparra_knowledge_confirmation ENABLE TRIGGER sparra_confirmation_immutable')}
+    await page.reload();await page.getByText('Origine de la version courante',{exact:true}).click()
+    await page.getByText('Origine non disponible. Les justificatifs sont conservés sept jours après confirmation.',{exact:true}).waitFor()
+    expect(await page.locator('.sparra-knowledge-origin blockquote').count()).toBe(0)
+  }finally{await context.close()}
+})

@@ -14,7 +14,7 @@ import { startConnectedVoice } from '../helpers/sparra-voice-driver'
 import { bounded, unusedLoopbackPort, startWeb } from '../helpers/web-process'
 import { nativeImage } from '../helpers/native-image'
 import { googleRpcNode } from '../helpers/google-rpc-node'
-import { authRpcPath, rpcBody } from '../helpers/auth-rpc'
+import { authRpcPath, manualActivityConfirmation, rpcBody } from '../helpers/auth-rpc'
 import { preparePairedAudioFixture, startPairedAudioFixture, type AudioFixtureOwners } from '../helpers/paired-audio-startup'
 
 let stores: Awaited<ReturnType<typeof startDisposableStores>>
@@ -87,9 +87,9 @@ async function prepareAudioFixture(transferFixture: boolean, owners: AudioFixtur
   workspaceId = workspace.id
   await stores.administrator.query("INSERT INTO voice_private.deployment_binding(service_login,service_role_oid,deployment_id,workspace_id,connection_id,to_e164,admission_enabled,audio_enabled,contract_version,local_audio_enabled) SELECT 'sparra_voice_a',oid,'fixture-a',$1,'connection-a','+33123456789',true,false,2,true FROM pg_roles WHERE rolname='sparra_voice_a'", [workspaceId])
   await stores.administrator.query('GRANT USAGE ON SCHEMA voice TO sparra_voice_a; GRANT EXECUTE ON FUNCTION voice.begin_call_v2(text,uuid,jsonb),voice.ingest_operation_v2(jsonb),voice.lease_call_erasure_v1(text,integer,integer),voice.ack_call_erasure_v1(uuid,uuid,timestamptz),voice.lease_recording_purge_v1(text,integer,integer),voice.ack_recording_purge_v1(uuid,uuid,text,timestamptz) TO sparra_voice_a')
-  const saved = await nativeRpc('saveActivity', { expectedRevision: 0,
+  const saved = await nativeRpc('confirmActivity',manualActivityConfirmation(workspaceId,{ expectedRevision: 0,
     businessName: 'Native capture fixture', sector: 'garage', knowledge: { openingHours: '', services: '', prices: '', faq: '', instructions: '' },
-    transferDestination: transferFixture ? '+33102030406' : null, recordingEnabled: false, recordingPolicy: 'local_30d', recordingContactPhone: '+33123456789' })
+    transferDestination: transferFixture ? '+33102030406' : null, recordingEnabled: false, recordingPolicy: 'local_30d', recordingContactPhone: '+33123456789' }))
   expect(saved.status).toBe(200); await saved.body?.cancel()
   phase('policy-ready')
   expect(await issuer.googleEvidence()).toMatchObject({ activeClientSockets: 0, activeRequests: 0, disallowed: 0 })
@@ -153,10 +153,10 @@ async function pausedPrivateReader(callId: string) {
 }
 
 async function saveRecordingPolicy(policy: 'off' | 'local_30d', expectedRevision: number) {
-  const saved = await nativeRpc('saveActivity', { expectedRevision,
+  const saved = await nativeRpc('confirmActivity',manualActivityConfirmation(workspaceId,{ expectedRevision,
     businessName: 'Native capture fixture', sector: 'garage', knowledge: { openingHours: '', services: '', prices: '', faq: '', instructions: '' },
     transferDestination: null, recordingEnabled: false, recordingPolicy: policy,
-    recordingContactPhone: policy === 'local_30d' ? '+33123456789' : null })
+    recordingContactPhone: policy === 'local_30d' ? '+33123456789' : null }))
   expect(saved.status).toBe(200); await saved.body?.cancel()
   const revision = (await stores.administrator.query<{ revision: number; recording_policy: string }>(
     'SELECT revision,recording_policy FROM sparra_knowledge_revision WHERE workspace_id=$1 ORDER BY revision DESC LIMIT 1',

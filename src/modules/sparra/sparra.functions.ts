@@ -2,7 +2,10 @@ import { createMiddleware, createServerFn } from '@tanstack/react-start'
 import { getRequest, setResponseHeader } from '@tanstack/react-start/server'
 import { Schema } from 'effect'
 import { requestResources } from '../../platform/resources.server'
-import { createActivityOperations, parseSaveActivityInput } from './activity.server'
+import { createActivityOperations } from './activity.server'
+import { createKnowledgeConfirmationOperations, parseActivityConfirmationKey, parseConfirmActivityInput, parseKnowledgeImportInput } from './knowledge-confirmation.server'
+export type { ActivityConfirmationDto, ActivityConfirmationKey, ActivityConfirmationLookup, ConfirmActivityInput, KnowledgeDecision, KnowledgeImportDto, KnowledgeImportInput } from './knowledge-confirmation.server'
+export type { WebsiteCapture } from './website-capture.server'
 export type { ActivityConfigurationDto, ActivityState, SaveActivityInput } from './activity.server'
 import { createRequestOperations, parseListRequestsInput, parseRequestInput, parseUpdateRequestFollowUpInput } from './requests.server'
 export type { ListRequestsInput, ListRequestsPage, RequestDetailDto, EraseReceipt } from './requests.server'
@@ -21,7 +24,12 @@ function sparraFailure(kind:keyof typeof failures,error:unknown):Response {
   const failure=failures[kind],name=error instanceof Error?error.name:''
   const publication=kind==='request'?publicationErrors.get(name):undefined
   if(publication)return new Response(error instanceof Error?error.message:'Request unavailable',{status:409,headers:{'x-sparra-request-error':publication}})
+  if(kind==='activity'&&name==='ActivityWorkspaceChanged')return new Response('Activity unavailable',{status:409,headers:{'x-sparra-activity-error':'workspace-changed'}})
   if(kind==='activity'&&name==='ActivityRecordingUnavailable')return new Response('Local audio unavailable',{status:409,headers:{'x-sparra-activity-error':'recording-unavailable'}})
+  if(kind==='activity'&&(name.startsWith('Knowledge')||name==='InvalidKnowledgeInput'||name==='WebsiteCaptureError')){
+    const status=name==='InvalidKnowledgeInput'||name==='WebsiteCaptureError'?400:name==='KnowledgeWorkspaceUnavailable'?404:409
+    return new Response('Knowledge operation unavailable',{status,headers:{'x-sparra-knowledge-error':name}})
+  }
   if(name===failure.special)return new Response(failure.message,{status:failure.status})
   if(name===failure.invalid||Schema.isSchemaError(error))return new Response(failure.message,{status:400})
   return new Response(failure.message,{status:500})
@@ -46,14 +54,18 @@ export const getActivity = createServerFn({method:'GET'}).middleware([activityEr
     const {request,resources,principal}=await admittedRequest()
     return createActivityOperations(resources.transactions).read(principal,request.signal)
   })
-export const saveActivity = createServerFn({method:'POST'}).middleware([activityErrors])
-  .validator(parseSaveActivityInput)
-  .handler(async({data})=>{
-    const {request,resources,principal}=await admittedRequest()
-    const result=await createActivityOperations(resources.transactions).save(principal,data,request.signal)
-    if(!result) throw new Response('Activity unavailable',{status:404})
-    return result
-  })
+export const importKnowledgePage = createServerFn({method:'POST'}).middleware([activityErrors]).validator(parseKnowledgeImportInput).handler(async({data})=>{
+  const {request,resources,principal}=await admittedRequest()
+  return createKnowledgeConfirmationOperations(resources.transactions).importPage(principal,data,new URL(request.url).origin,request.signal)
+})
+export const confirmActivity = createServerFn({method:'POST'}).middleware([activityErrors]).validator(parseConfirmActivityInput).handler(async({data})=>{
+  const {request,resources,principal}=await admittedRequest()
+  return createKnowledgeConfirmationOperations(resources.transactions).confirm(principal,data,request.signal)
+})
+export const getActivityConfirmation = createServerFn({method:'GET'}).middleware([activityErrors]).validator(parseActivityConfirmationKey).handler(async({data})=>{
+  const {request,resources,principal}=await admittedRequest()
+  return createKnowledgeConfirmationOperations(resources.transactions).lookup(principal,data,request.signal)
+})
 
 const requestErrors=sparraErrors('request')
 export const listRequests=createServerFn({method:'GET'}).middleware([requestErrors]).validator(parseListRequestsInput).handler(async({data})=>{

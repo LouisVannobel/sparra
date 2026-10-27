@@ -6,17 +6,18 @@ import { TextInput } from '@astryxdesign/core/TextInput'
 import { TextArea } from '@astryxdesign/core/TextArea'
 import { Selector } from '@astryxdesign/core/Selector'
 import { CheckboxInput } from '@astryxdesign/core/CheckboxInput'
-import type { ActivityConfigurationDto, ActivityState, SaveActivityInput } from '../../modules/sparra/sparra.functions'
+import type { ActivityConfigurationDto, ActivityState, SaveActivityInput, ConfirmActivityInput, ActivityConfirmationDto, ActivityConfirmationKey, ActivityConfirmationLookup, KnowledgeImportDto } from '../../modules/sparra/sparra.functions'
 import type { WorkspaceDto } from '../../modules/workspaces/personal.server'
-import { activityMessages, appMessages } from '../../modules/sparra/messages'
+import { activityMessages, appMessages, knowledgeMessages } from '../../modules/sparra/messages'
 import type { Locale } from '../auth/messages'
 import { getSectorPreset, sectorIds } from '../../modules/sparra/sectors'
 import { privateResult, PrivateUnavailable } from './app-shell'
+import { KnowledgeImportPanel, KnowledgeOrigin, type KnowledgePreparation } from './knowledge-import-panel'
 import { ActivityFaqHelper, ActivityIntakeHelper } from './activity-knowledge-helpers'
 
 export type ActivityNavigationState={dirty:boolean;pending:boolean;reconcile:boolean}
 
-type Props={onNavigationStateChange?:(state:ActivityNavigationState)=>void;externalNavigationPending?:boolean;initialSection?:ActivitySection;calendarSlot?:ReactNode;locale:Locale;state:ActivityState;onEnsure(signal:AbortSignal):Promise<WorkspaceDto|Response>;onSave(data:SaveActivityInput,signal:AbortSignal):Promise<ActivityConfigurationDto|Response>;onRead(signal:AbortSignal):Promise<ActivityState|Response>;onRefused():Promise<void>}
+type Props={onNavigationStateChange?:(state:ActivityNavigationState)=>void;externalNavigationPending?:boolean;initialSection?:ActivitySection;calendarSlot?:ReactNode;locale:Locale;state:ActivityState;onEnsure(signal:AbortSignal):Promise<WorkspaceDto|Response>;onConfirm(data:ConfirmActivityInput,signal:AbortSignal):Promise<ActivityConfirmationDto|Response>;onLookup(key:ActivityConfirmationKey,signal:AbortSignal):Promise<ActivityConfirmationLookup|Response>;onImport(url:string,signal:AbortSignal):Promise<KnowledgeImportDto|Response>;onRead(signal:AbortSignal):Promise<ActivityState|Response>;onRefused():Promise<void>}
 type ActivityOperation='ensure'|'save'|'latest'
 type ActivityErrorReason='conflict'|'invalid'|'unavailable'|'recordingUnavailable'
 type ActivityFailure={kind:'refused'}|{kind:'uncertain'}|{kind:'error';reason:ActivityErrorReason}
@@ -25,7 +26,7 @@ export function classifyActivityFailure(mode:ActivityOperation,failure:unknown):
   if(failure instanceof Response){
     switch(failure.status){
       case 401:return {kind:'refused'}
-      case 409:return {kind:'error',reason:mode==='save'&&failure.headers.get('x-sparra-activity-error')==='recording-unavailable'?'recordingUnavailable':'conflict'}
+      case 409:return failure.headers.get('x-sparra-activity-error')==='workspace-changed'?{kind:'refused'}:{kind:'error',reason:mode==='save'&&failure.headers.get('x-sparra-activity-error')==='recording-unavailable'?'recordingUnavailable':'conflict'}
       case 400:return {kind:'error',reason:'invalid'}
     }
   }
@@ -145,6 +146,12 @@ function ActivityRecap({locale,editable,calendarSlot}:{locale:Locale;editable:Sa
   </fieldset>
 }
 
+function ActivityPreviewSettings({locale,preview}:{locale:Locale;preview:ConfirmActivityInput['activity']}){
+  const t=activityMessages[locale]
+  return <dl className="sparra-recap-details"><dt>{t.businessName}</dt><dd>{preview.businessName}</dd><dt>{t.sector}</dt><dd>{getSectorPreset(preview.sector,locale).label}</dd>
+    <dt>{t.transferDestination}</dt><dd>{preview.transferDestination||'—'}</dd><dt>{t.recordingEnabled}</dt><dd>{preview.recordingPolicy==='local_30d'?(locale==='fr'?'Conservation locale pendant 30 jours':'Local retention for 30 days'):(locale==='fr'?'Désactivé':'Off')}</dd><dt>{t.recordingContactPhone}</dt><dd>{preview.recordingContactPhone||'—'}</dd></dl>
+}
+
 function ActivityRecordingWarnings({locale,localAudioAvailable,legacy,audioBlocked,hydrated,activeSection,onReview}:{locale:Locale;localAudioAvailable:boolean;legacy:boolean;audioBlocked:boolean;hydrated:boolean;activeSection:ActivitySection;onReview():void}){
   if(localAudioAvailable&&!legacy)return null
   const t=activityMessages[locale]
@@ -155,21 +162,26 @@ function ActivityRecordingWarnings({locale,localAudioAvailable,legacy,audioBlock
   </div>
 }
 
-function ActivityEditor({locale,editable,configuration,localAudioAvailable,hydrated,pending,reconcile,onEdit,onSubmit,calendarSlot,children,initialSection,externalNavigationPending,onPreparedAnswersChange}:{externalNavigationPending:boolean;onPreparedAnswersChange:(value:boolean)=>void;initialSection:ActivitySection;calendarSlot?:ReactNode;children:ReactNode;locale:Locale;editable:SaveActivityInput;configuration:ActivityConfigurationDto|null;localAudioAvailable:boolean;hydrated:boolean;pending:boolean;reconcile:boolean;onEdit(next:SaveActivityInput):void;onSubmit():void}){
+function ActivityEditor({knowledgeSlot,reviewToken,locale,editable,configuration,localAudioAvailable,hydrated,pending,reconcile,onEdit,onSubmit,calendarSlot,children,initialSection,externalNavigationPending,onPreparedAnswersChange}:{externalNavigationPending:boolean;onPreparedAnswersChange:(value:boolean)=>void;initialSection:ActivitySection;calendarSlot?:ReactNode;children:ReactNode;locale:Locale;editable:SaveActivityInput;configuration:ActivityConfigurationDto|null;localAudioAvailable:boolean;hydrated:boolean;pending:boolean;reconcile:boolean;onEdit(next:SaveActivityInput):void;onSubmit():void;knowledgeSlot:ReactNode;reviewToken:unknown}){
   const t=activityMessages[locale],disabled=!hydrated||pending||externalNavigationPending
   const [activeSection,setActiveSection]=useState<ActivitySection>(initialSection)
+  const [preview,setPreview]=useState<ConfirmActivityInput['activity']|null>(null),[attested,setAttested]=useState(false)
+  const reviewHeading=useRef<HTMLHeadingElement>(null)
+  useEffect(()=>{setPreview(null);setAttested(false)},[editable,reviewToken])
+  useEffect(()=>{if(preview)reviewHeading.current?.focus()},[preview])
+  function reviewOrSubmit(){if(preview&&attested){onSubmit();return}setPreview(normalizeActivityDraft(editable));setActiveSection('recap')}
   const audioBlocked=recordingSaveBlocked(editable,localAudioAvailable)
   const saveBlocked=activitySaveBlocked(editable,configuration,audioBlocked,reconcile)
-  const {issues,fieldRef,fieldStatus,submit}=useActivityValidation({locale,editable,disabled,saveBlocked,onSubmit,onInvalid:setActiveSection})
+  const {issues,fieldRef,fieldStatus,submit}=useActivityValidation({locale,editable,disabled,saveBlocked,onSubmit:reviewOrSubmit,onInvalid:setActiveSection})
   return <><form className="sparra-business-form" aria-label={t.title} aria-busy={pending} noValidate onSubmit={event=>{event.preventDefault();submit()}}>
     <nav className="sparra-guided-navigation" aria-label={t.guidedNavigation}>{activitySections.map((section,index)=><Button key={section} type="button" label={t.guidedSections[index]} aria-current={activeSection===section?'step':undefined} aria-controls={`activity-${section}`} isDisabled={!hydrated} onClick={()=>setActiveSection(section)}/>)}</nav>
     <div id="activity-establishment" data-activity-section="establishment" hidden={activeSection!=='establishment'}><ActivityEstablishmentFields locale={locale} editable={editable} disabled={disabled} onEdit={onEdit} fieldRef={fieldRef} fieldStatus={fieldStatus}/></div>
-    <div id="activity-knowledge" data-activity-section="knowledge" hidden={activeSection!=='knowledge'}><ActivityKnowledgeFields onPreparedAnswersChange={onPreparedAnswersChange} locale={locale} editable={editable} disabled={disabled} onEdit={onEdit} fieldRef={fieldRef} fieldStatus={fieldStatus}/></div>
+    <div id="activity-knowledge" data-activity-section="knowledge" hidden={activeSection!=='knowledge'}>{knowledgeSlot}<ActivityKnowledgeFields onPreparedAnswersChange={onPreparedAnswersChange} locale={locale} editable={editable} disabled={disabled} onEdit={onEdit} fieldRef={fieldRef} fieldStatus={fieldStatus}/></div>
     <div id="activity-handling" data-activity-section="handling" hidden={activeSection!=='handling'}><ActivityCallHandlingFields locale={locale} editable={editable} configuration={configuration} localAudioAvailable={localAudioAvailable} disabled={disabled} pending={pending} reconcile={reconcile} onEdit={onEdit} fieldRef={fieldRef} fieldStatus={fieldStatus}/></div>
-    <div id="activity-recap" data-activity-section="recap" hidden={activeSection!=='recap'}><ActivityRecap locale={locale} editable={editable} calendarSlot={calendarSlot}/></div>
+    <div id="activity-recap" data-activity-section="recap" hidden={activeSection!=='recap'}><ActivityRecap locale={locale} editable={editable} calendarSlot={calendarSlot}/>{preview&&<section aria-label={knowledgeMessages[locale].review}><h2 ref={reviewHeading} tabIndex={-1}>{knowledgeMessages[locale].review}</h2><p>{knowledgeMessages[locale].reviewHint}</p>{sections.map(([field])=><div key={field}><h3>{t[field]}</h3><p className="sparra-knowledge-preview" data-knowledge-preview={field}>{preview.knowledge[field]||knowledgeMessages[locale].unknown}</p></div>)}<ActivityPreviewSettings locale={locale} preview={preview}/><p>{knowledgeMessages[locale].oldPrice}</p><CheckboxInput htmlName="knowledgeAttestation" label={knowledgeMessages[locale].attestation} value={attested} onChange={setAttested} isDisabled={disabled||reconcile} width="100%"/></section>}</div>
     <ActivityRecordingWarnings locale={locale} localAudioAvailable={localAudioAvailable} legacy={editable.recordingEnabled===true} audioBlocked={audioBlocked} hydrated={hydrated} activeSection={activeSection} onReview={()=>setActiveSection('handling')}/>
     <ActivitySaveSummary locale={locale} issues={issues} pending={pending} reconcile={reconcile} editable={editable} configuration={configuration}/>
-    <Button className="sparra-form-submit" variant="primary" label={t.save} type="submit" isDisabled={disabled||saveBlocked} isLoading={pending}/>
+    <Button className="sparra-form-submit" variant="primary" label={preview?knowledgeMessages[locale].confirmAction:knowledgeMessages[locale].reviewAction} type="submit" isDisabled={disabled||saveBlocked||(preview!==null&&!attested)} isLoading={pending}/>
   </form>
     {children}
     {calendarSlot&&<div className="sparra-guided-calendar" hidden={activeSection!=='handling'&&activeSection!=='recap'}><p className="sparra-form-hint">{t.calendarConnectionHint}</p>{calendarSlot}</div>}
@@ -198,11 +210,11 @@ function ActivityOutcomeFeedback({locale,uncertain,error,saved}:{locale:Locale;u
   return <>{uncertain&&<p role="alert">{t.outcomeUnknown}</p>}{error&&<p role="alert">{error}</p>}{saved&&<p role="status">{t.saved}</p>}</>
 }
 
-function ActivityWorkspaceContent({locale,workspace,configuration,localAudioAvailable,editable,hydrated,pending,reconcile,onEdit,onEnsure,onSave,calendarSlot,children,initialSection,externalNavigationPending,onPreparedAnswersChange}:{externalNavigationPending:boolean;onPreparedAnswersChange:(value:boolean)=>void;initialSection:ActivitySection;calendarSlot?:ReactNode;locale:Locale;workspace:WorkspaceDto|null;configuration:ActivityConfigurationDto|null;localAudioAvailable:boolean;editable:SaveActivityInput;hydrated:boolean;pending:boolean;reconcile:boolean;onEdit(next:SaveActivityInput):void;onEnsure():void;onSave():void;children:ReactNode}){
+function ActivityWorkspaceContent({knowledgeSlot,reviewToken,locale,workspace,configuration,localAudioAvailable,editable,hydrated,pending,reconcile,onEdit,onEnsure,onSave,calendarSlot,children,initialSection,externalNavigationPending,onPreparedAnswersChange}:{externalNavigationPending:boolean;onPreparedAnswersChange:(value:boolean)=>void;initialSection:ActivitySection;calendarSlot?:ReactNode;locale:Locale;workspace:WorkspaceDto|null;configuration:ActivityConfigurationDto|null;localAudioAvailable:boolean;editable:SaveActivityInput;hydrated:boolean;pending:boolean;reconcile:boolean;onEdit(next:SaveActivityInput):void;onEnsure():void;onSave():void;children:ReactNode;knowledgeSlot:ReactNode;reviewToken:unknown}){
   const a=appMessages[locale]
   const feedback=<>{children}{configuration&&<p className="sparra-version-note">{a.version}: {configuration.revision}</p>}</>
   if(!workspace)return <><p>{a.createHint}</p><Button label={a.create} isDisabled={!hydrated||externalNavigationPending} isLoading={pending} onClick={onEnsure}/>{feedback}</>
-  return <ActivityEditor externalNavigationPending={externalNavigationPending} onPreparedAnswersChange={onPreparedAnswersChange} locale={locale} editable={editable} configuration={configuration} localAudioAvailable={localAudioAvailable} hydrated={hydrated} pending={pending} reconcile={reconcile} onEdit={onEdit} onSubmit={onSave} calendarSlot={calendarSlot} initialSection={initialSection}>{feedback}</ActivityEditor>
+  return <ActivityEditor knowledgeSlot={knowledgeSlot} reviewToken={reviewToken} externalNavigationPending={externalNavigationPending} onPreparedAnswersChange={onPreparedAnswersChange} locale={locale} editable={editable} configuration={configuration} localAudioAvailable={localAudioAvailable} hydrated={hydrated} pending={pending} reconcile={reconcile} onEdit={onEdit} onSubmit={onSave} calendarSlot={calendarSlot} initialSection={initialSection}>{feedback}</ActivityEditor>
 }
 
 function useActivitySaveFeedback(locale:Locale,onRecordingUnavailable:()=>void){
@@ -216,36 +228,67 @@ function useActivitySaveFeedback(locale:Locale,onRecordingUnavailable:()=>void){
   return {saved,setSaved,conflict,setConflict,uncertain,setUncertain,latest,setLatest,error,setError,showError}
 }
 
-function useActivityEditorLifecycle({locale,state,onEnsure,onSave,onRead,onRefused,onNavigationStateChange,externalNavigationPending}:Pick<Props,'locale'|'state'|'onEnsure'|'onSave'|'onRead'|'onRefused'|'onNavigationStateChange'>&{externalNavigationPending:boolean}){
+export function normalizeActivityDraft(value:SaveActivityInput):ConfirmActivityInput['activity']{
+  return {...value,businessName:value.businessName.trim(),knowledge:{openingHours:value.knowledge.openingHours.replace(/\r\n/g,'\n'),services:value.knowledge.services.replace(/\r\n/g,'\n'),prices:value.knowledge.prices.replace(/\r\n/g,'\n'),faq:value.knowledge.faq.replace(/\r\n/g,'\n'),instructions:value.knowledge.instructions.replace(/\r\n/g,'\n')},transferDestination:value.transferDestination??null,recordingEnabled:value.recordingEnabled??false,recordingPolicy:value.recordingPolicy??'off',recordingContactPhone:value.recordingContactPhone??null}
+}
+function activityStateInWorkspace(read:ActivityState,expected:string|undefined){return expected!==undefined&&read.workspace?.id===expected&&(read.configuration===null||read.configuration.workspaceId===expected)}
+function useActivityEditorLifecycle({locale,state,onEnsure,onConfirm,onLookup,onRead,onRefused,onNavigationStateChange,externalNavigationPending}:Pick<Props,'locale'|'state'|'onEnsure'|'onConfirm'|'onLookup'|'onRead'|'onRefused'|'onNavigationStateChange'>&{externalNavigationPending:boolean}){
   const hydrated=useHydrated()
   const [current,setCurrent]=useState(state),[editable,setEditable]=useState(()=>draft(state.configuration)),[pendingMode,setPendingMode]=useState<ActivityOperation|null>(null)
   const {saved,setSaved,conflict,setConflict,uncertain,setUncertain,latest,setLatest,error,setError,showError}=useActivitySaveFeedback(locale,()=>setCurrent(previous=>({...previous,localAudioAvailable:false})))
+  const [preparation,setPreparation]=useState<KnowledgePreparation>({capture:null,decisions:[]}),[capturePending,setCapturePending]=useState(false)
+  const [receipt,setReceipt]=useState<ActivityConfirmationLookup|null>(null)
+  const submitted=useRef<ConfirmActivityInput|null>(null),identity=useRef<{draftId:string;draftVersion:number}|null>(null)
   const [hasPreparedAnswers,setHasPreparedAnswers]=useState(false)
   const reconcile=conflict||uncertain
-  const dirty=hasPreparedAnswers||JSON.stringify(editable)!==JSON.stringify(draft(current.configuration))
-  useEffect(()=>{onNavigationStateChange?.({dirty,pending:pendingMode!==null,reconcile})},[dirty,pendingMode,reconcile,onNavigationStateChange])
+  const dirty=hasPreparedAnswers||preparation.capture!==null||JSON.stringify(editable)!==JSON.stringify(draft(current.configuration))
+  useEffect(()=>{onNavigationStateChange?.({dirty,pending:pendingMode!==null||capturePending,reconcile})},[dirty,pendingMode,capturePending,reconcile,onNavigationStateChange])
   const audioBlocked=recordingSaveBlocked(editable,current.localAudioAvailable)
   const attempt=useRef(0),controller=useRef<AbortController|null>(null)
   const [refused,setRefused]=useState(false)
   useEffect(()=>()=>{attempt.current++;controller.current?.abort()},[])
-  function edit(next:SaveActivityInput){if(externalNavigationPending)return;setEditable(next);setSaved(false)}
-  function replaceDraft(read:ActivityState){edit(draft(read.configuration));setCurrent(read);setConflict(false);setUncertain(false);setError('');setLatest(null)}
+  async function refuse(){setRefused(true);await onRefused()}
+  function changed(){if(identity.current)identity.current={...identity.current,draftVersion:identity.current.draftVersion+1};setSaved(false)}
+  function edit(next:SaveActivityInput){if(externalNavigationPending||pendingMode!==null)return;setEditable(next);changed()}
+  function prepare(next:KnowledgePreparation){setPreparation(next);changed()}
+  function replaceDraft(read:ActivityState){if(!activityStateInWorkspace(read,current.workspace?.id)){void refuse();return}setEditable(draft(read.configuration));setCurrent(read);setPreparation({capture:null,decisions:[]});identity.current=null;submitted.current=null;setReceipt(null);setConflict(false);setUncertain(false);setError('');setLatest(null);setSaved(false)}
   async function ensureWorkspace(signal:AbortSignal,live:()=>boolean){
-    await privateResult(onEnsure(signal))
+    const workspace=await privateResult(onEnsure(signal))
     const read=await privateResult(onRead(signal))
-    if(live()){setCurrent(read);setEditable(draft(read.configuration))}
+    if(!live())return
+    if(!activityStateInWorkspace(read,workspace.id)){await refuse();return}
+    setCurrent(read);setEditable(draft(read.configuration))
   }
   async function readLatest(signal:AbortSignal,live:()=>boolean){
+    if(submitted.current){
+      const result=await privateResult(onLookup({draftId:submitted.current.draftId,draftVersion:submitted.current.draftVersion,expectedWorkspaceId:submitted.current.expectedWorkspaceId},signal))
+      if(!live())return
+      setReceipt(result)
+    }
+    // A historical receipt never establishes the current head.
     const read=await privateResult(onRead(signal))
-    if(live())setLatest(read)
+    if(!live())return
+    if(!activityStateInWorkspace(read,submitted.current?.expectedWorkspaceId??current.workspace?.id)){await refuse();return}
+    setLatest(read)
   }
   async function saveDraft(signal:AbortSignal,live:()=>boolean){
-    const configuration=await privateResult(onSave(editable,signal))
-    if(live()){setCurrent({...current,configuration});setEditable(draft(configuration));setSaved(true);setConflict(false);setUncertain(false);setLatest(null)}
+    if(!current.workspace)throw new Error('Activity workspace unavailable')
+    identity.current??={draftId:globalThis.crypto.randomUUID(),draftVersion:1}
+    const submission:ConfirmActivityInput={...identity.current,expectedWorkspaceId:current.workspace.id,activity:normalizeActivityDraft({...editable,expectedWorkspaceId:current.workspace.id}),...(preparation.capture?{captureId:preparation.capture.captureId}:{}),decisions:preparation.decisions.map(decision=>({...decision})),confirmed:true}
+    submitted.current=submission
+    const result=await privateResult(onConfirm(submission,signal))
+    if(!live())return
+    setReceipt(result)
+    const read=await privateResult(onRead(signal))
+    if(!live())return
+    if(!activityStateInWorkspace(read,submission.expectedWorkspaceId)){await refuse();return}
+    if(result.revision!==submission.activity.expectedRevision+1||read.configuration?.revision!==result.revision||read.configuration.savedAt!==result.savedAt||!activityMatchesConfiguration(submission.activity,read.configuration)){setLatest(read);setUncertain(true);return}
+    setCurrent(read);setEditable(draft(read.configuration));setPreparation({capture:null,decisions:[]});setSaved(true);setConflict(false);setUncertain(false);setLatest(null);submitted.current=null;identity.current=null
   }
   async function interpretFailure(mode:ActivityOperation,failure:unknown){
+    if(failure instanceof Response&&failure.headers.get('x-sparra-knowledge-error')==='KnowledgeCaptureUnavailable'){setError(knowledgeMessages[locale].invalidCapture);return}
     const outcome=classifyActivityFailure(mode,failure)
-    if(outcome.kind==='refused'){setRefused(true);await onRefused();return}
+    if(outcome.kind==='refused'){await refuse();return}
     if(outcome.kind==='uncertain'){setUncertain(true);setLatest(null);return}
     showError(outcome.reason)
   }
@@ -255,11 +298,11 @@ function useActivityEditorLifecycle({locale,state,onEnsure,onSave,onRead,onRefus
     return saveDraft(signal,live)
   }
   async function persist(mode:ActivityOperation){
-    if(externalNavigationPending)return
-    if(mode==='save'&&activitySaveBlocked(editable,current.configuration,audioBlocked))return
+    if(externalNavigationPending||pendingMode!==null||capturePending)return
+    if(mode==='save'&&activitySaveBlocked(editable,current.configuration,audioBlocked,reconcile))return
     controller.current?.abort();const owned=new AbortController(),id=++attempt.current;controller.current=owned
     const live=()=>!owned.signal.aborted&&attempt.current===id
-    setPendingMode(mode);setSaved(false);if(mode!=='latest')setError('')
+    setPendingMode(mode);setSaved(false);if(mode!=='latest')setError('');if(mode==='save')setReceipt(null)
     await performOperation(mode,owned.signal,live)
       .catch(async failure=>{if(live())await interpretFailure(mode,failure)})
       .finally(()=>{if(live())setPendingMode(null)})
@@ -269,18 +312,20 @@ function useActivityEditorLifecycle({locale,state,onEnsure,onSave,onRead,onRefus
     if(pendingMode==='save'){setUncertain(true);setLatest(null)}
     setPendingMode(null)
   }
-  return {hydrated,current,editable,pendingMode,saved,uncertain,latest,error,reconcile,refused,setHasPreparedAnswers,edit,replaceDraft,persist,cancel}
+  return {hydrated,current,editable,pendingMode,saved,uncertain,latest,error,reconcile,refused,setHasPreparedAnswers,edit,replaceDraft,persist,cancel,preparation,prepare,capturePending,setCapturePending,receipt,refuse}
 }
 
-export function ActivityPanel({locale,state,onEnsure,onSave,onRead,onRefused,calendarSlot,initialSection='establishment',onNavigationStateChange,externalNavigationPending=false}:Props){
-  const a=appMessages[locale]
-  const {hydrated,current,editable,pendingMode,saved,uncertain,latest,error,reconcile,refused,setHasPreparedAnswers,edit,replaceDraft,persist,cancel}=useActivityEditorLifecycle({locale,state,onEnsure,onSave,onRead,onRefused,onNavigationStateChange,externalNavigationPending})
+export function ActivityPanel({locale,state,onEnsure,onConfirm,onLookup,onImport,onRead,onRefused,calendarSlot,initialSection='establishment',onNavigationStateChange,externalNavigationPending=false}:Props){
+  const a=appMessages[locale],k=knowledgeMessages[locale]
+  const {hydrated,current,editable,pendingMode,saved,uncertain,latest,error,reconcile,refused,setHasPreparedAnswers,edit,replaceDraft,persist,cancel,preparation,prepare,capturePending,setCapturePending,receipt,refuse}=useActivityEditorLifecycle({locale,state,onEnsure,onConfirm,onLookup,onRead,onRefused,onNavigationStateChange,externalNavigationPending})
   if(refused)return <PrivateUnavailable locale={locale} title={a.business}/>
   return <><div className="sparra-page-heading"><Heading level={1}>{a.business}</Heading><p>{activityMessages[locale].description}</p></div>
-    <ActivityWorkspaceContent externalNavigationPending={externalNavigationPending} onPreparedAnswersChange={setHasPreparedAnswers} locale={locale} workspace={current.workspace} configuration={current.configuration} localAudioAvailable={current.localAudioAvailable} editable={editable} hydrated={hydrated} pending={pendingMode!==null} reconcile={reconcile} onEdit={edit} onEnsure={()=>void persist('ensure')} onSave={()=>void persist('save')} calendarSlot={calendarSlot} initialSection={initialSection}>
+    <ActivityWorkspaceContent knowledgeSlot={<KnowledgeImportPanel locale={locale} editable={editable} disabled={!hydrated||pendingMode!==null||externalNavigationPending||reconcile} value={preparation} onChange={prepare} onEdit={edit} onImport={onImport} onPendingChange={setCapturePending} onRefused={refuse}/>} reviewToken={preparation} externalNavigationPending={externalNavigationPending||capturePending} onPreparedAnswersChange={setHasPreparedAnswers} locale={locale} workspace={current.workspace} configuration={current.configuration} localAudioAvailable={current.localAudioAvailable} editable={editable} hydrated={hydrated} pending={pendingMode!==null} reconcile={reconcile} onEdit={edit} onEnsure={()=>void persist('ensure')} onSave={()=>void persist('save')} calendarSlot={calendarSlot} initialSection={initialSection}>
       <ActivityPendingFeedback locale={locale} mode={pendingMode} onCancel={cancel}/>
-      <ActivityOutcomeFeedback locale={locale} uncertain={uncertain} error={error} saved={saved}/>
+      <ActivityOutcomeFeedback locale={locale} uncertain={uncertain&&receipt?.status!=='confirmed'} error={error} saved={saved}/>
+      {reconcile&&receipt&&<p role="status">{receipt.status==='confirmed'?`${k.historical} ${receipt.revision} (${receipt.savedAt}).`:k.unverifiable}</p>}
       <ActivityReconciliation locale={locale} editable={editable} pending={pendingMode!==null||externalNavigationPending} reconcile={reconcile} latest={latest} onCheckLatest={()=>void persist('latest')} onReplaceLatest={replaceDraft}/>
+      <KnowledgeOrigin state={current} locale={locale}/>
     </ActivityWorkspaceContent>
   </>
 }

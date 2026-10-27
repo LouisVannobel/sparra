@@ -1472,6 +1472,9 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
   // Whole-file context re-anchored after the guided-control assertion review on 2026-10-22.
   // A/B/C and whole-file context re-reviewed on 2026-10-26 for publication-bound DTOs,
   // anchored transcript turns and the active declaration fixture; D remains unchanged.
+  // Full file re-reviewed on 2026-10-27: retain the Inbox DTOs and all A-D bodies,
+  // plus the import confirmation/read/import callbacks and four-input/11-control editor.
+  // Only its surrounding file digest changes; every callback anchor stays identical.
   const targets=[
     ['detail and inbox preserve the translated native category and observed number source in both locales',
       '// fallow-ignore-next-line complexity -- reviewed SSR A; TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003',
@@ -1644,7 +1647,7 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
         expect(source.text.slice(marker.end,marker.end+newlineLength),'Reviewed SSR marker line expired').toMatch(/^\r?\n$/)
         reconstructed=reconstructed.slice(0,marker.start)+reconstructed.slice(marker.end+newlineLength)
       }
-      expect(digest(reconstructed),'Reviewed SSR whole file expired').toBe('21453535fedf9a8aa7a04cc850188eab2821b4298856fbc2493ba281896f09b7')
+      expect(digest(reconstructed),'Reviewed SSR whole file expired').toBe('a80f290881d2efaaa01990668d8ec70a46cf6eef6061a2689b55b4cbddfa26c8')
     }
     expect(()=>reviewedCallbacks(sources)).not.toThrow()
     const original=sources.get(ssrFile)!,title=targets[0][0]
@@ -1720,7 +1723,7 @@ test('maintained_doctor_changed_scope_reports_actual_component_rule',()=>{
 
 // Reporter canaries exercise admission only, not Calendar product behavior.
 function passingCalendarReport(){
-  return {success:true,numTotalTests:96,numPassedTests:96,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0,
+  return {success:true,numTotalTests:105,numPassedTests:105,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0,
     testResults:calendarConsumerNames.map(([file,names])=>({name:join(repositoryRoot,'tests/integration',file).replaceAll('\\','/'),status:'passed',message:'',assertionResults:names.map(fullName=>({fullName,status:'passed',failureMessages:[]}))}))}
 }
 function refusedCalendarReport(report:ReturnType<typeof passingCalendarReport>,kind:string,index=0){
@@ -1749,13 +1752,25 @@ test('native_calendar_report_requires_exact_consumers_and_every_passing_leaf',()
     }
   }
 })
+
+test('native_calendar_gate_refuses_previous_runs_without_the_current_browser_cases',()=>{
+  const report=passingCalendarReport(),business=report.testResults.find(file=>file.name.endsWith('/business-navigation-browser.test.ts'))
+  expect(business?.assertionResults).toHaveLength(26)
+  if(!business)throw new Error('Business navigation consumer missing')
+  for(const [businessLeaves,total] of [[17,96],[19,98]] as const){
+    const previous=structuredClone(report),previousBusiness=previous.testResults.find(file=>file.name===business.name)!
+    previousBusiness.assertionResults.splice(businessLeaves)
+    previous.numTotalTests=total;previous.numPassedTests=total
+    expect(()=>assertCalendarReport(previous,repositoryRoot)).toThrow('Native Calendar requires its exact five consumers and 105 passing leaves')
+  }
+})
 test('native_calendar_runner_is_mandatory_and_merges_its_coverage_after_retirement',()=>{
   const root=nativeCoverageFixture(),result=runCoverageConsumer(root)
   expect(result.error,result.stdout+result.stderr).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   expect(result.stdout).toContain('[tests] calendar qualification\n')
   expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
   const coverage=JSON.parse(readFileSync(join(root,'coverage/coverage-final.json'),'utf8'))
-  expect(coverage[join(root,'src/calendar-covered.ts').replaceAll('\\','/')].f).toEqual({'0':96})
+  expect(coverage[join(root,'src/calendar-covered.ts').replaceAll('\\','/')].f).toEqual({'0':105})
 },30000)
 
 

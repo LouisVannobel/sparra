@@ -10,19 +10,19 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import { startDisposableStores } from '../fixtures/db/disposable-stores'
 import { createTransactions } from '../../src/platform/db/transactions.server'
 import { createPersonalWorkspaces } from '../../src/modules/workspaces/personal.server'
-import { createActivityOperations } from '../../src/modules/sparra/activity.server'
+import { createActivityOperations, type SaveActivityInput } from '../../src/modules/sparra/activity.server'
 import { startGoogleProtocolPeer } from '../helpers/google-protocol-peer.mjs'
 import { googleCeremony } from '../helpers/google-ceremony'
 import { createAuthRateLimiter, readRateLimitConfig } from '../../src/modules/auth/rate-limit.server'
 import type { createApplicationAuth } from '../../src/modules/auth/auth.server'
 import { startWeb, awaitWebStartup, unusedLoopbackPort } from '../helpers/web-process'
-import { authRpcPath, rpcBody } from '../helpers/auth-rpc'
+import { authRpcPath, manualActivityConfirmation, rpcBody } from '../helpers/auth-rpc'
 
 let stores: Awaited<ReturnType<typeof startDisposableStores>>, pool: Pool
 let activity: ReturnType<typeof createActivityOperations>, personal: ReturnType<typeof createPersonalWorkspaces>
 let auth: ReturnType<typeof createApplicationAuth>, limiter: ReturnType<typeof createAuthRateLimiter>, peer: Awaited<ReturnType<typeof startGoogleProtocolPeer>>, ceremony: ReturnType<typeof googleCeremony>
 let app: ReturnType<typeof startWeb>, origin: string
-const input = (expectedRevision = 0) => ({ expectedRevision, businessName: ' Garage Dupont ', sector: 'garage', knowledge: { openingHours: 'Lundi\r\nVendredi', services: 'Vidange', prices: '', faq: '', instructions: '' }, transferDestination: null })
+const input = (expectedRevision = 0) => ({ expectedRevision, businessName: ' Garage Dupont ', sector: 'garage' as const, knowledge: { openingHours: 'Lundi\r\nVendredi', services: 'Vidange', prices: '', faq: '', instructions: '' }, transferDestination: null })
 const revisions = async (id: string) => (await stores.administrator.query('SELECT revision,business_name FROM sparra_knowledge_revision WHERE workspace_id=$1 ORDER BY revision', [id])).rows
 beforeAll(async () => {
   stores = await startDisposableStores()
@@ -72,7 +72,7 @@ beforeAll(async () => {
     await stores.administrator.query('DROP EVENT TRIGGER fixture_forward_ddl_seen; DROP FUNCTION app_private.fixture_forward_ddl_seen(); DROP SEQUENCE fixture_forward_ddl_marker; DROP FUNCTION app_private.sparra_revision_immutable()')
     // Qualify the additive sector CHECK against a populated 0025 schema.
     const forwardEntries: {tag:string;when:number}[]=journal.entries.slice(26)
-    expect(forwardEntries.map(entry=>entry.tag)).toEqual(['0026_sparra_diagnostic_sector','0027_sparra_inbox_publication'])
+    expect(forwardEntries.map(entry=>entry.tag)).toEqual(['0026_sparra_diagnostic_sector','0027_sparra_inbox_publication','0028_sparra_knowledge_confirmation'])
     const forwardHashes=await Promise.all(forwardEntries.map(async entry=>createHash('sha256').update(await readFile('drizzle/'+entry.tag+'.sql')).digest('hex')))
     const previousEntries=journal.entries.slice(0,26)
     expect(previousEntries.at(-1)?.tag).toBe('0025_sparra_calendar_booking')
@@ -111,7 +111,7 @@ beforeAll(async () => {
     await stores.migrate()
     const sectorJournalAfter=(await stores.administrator.query('SELECT id,hash,created_at::text FROM drizzle.__drizzle_migrations ORDER BY id')).rows
     expect(sectorJournalAfter.slice(0,sectorJournalBefore.length)).toEqual(sectorJournalBefore)
-    expect(sectorJournalAfter).toHaveLength(sectorJournalBefore.length+2)
+    expect(sectorJournalAfter).toHaveLength(sectorJournalBefore.length+3)
     expect(sectorJournalAfter.slice(sectorJournalBefore.length).map(({hash,created_at})=>({hash,created_at}))).toEqual(forwardEntries.map((entry,index)=>({hash:forwardHashes[index],created_at:String(entry.when)})))
     expect(await security()).toEqual(securityBefore)
     expect((await stores.administrator.query('SELECT to_jsonb(k) AS value FROM sparra_knowledge_revision k ORDER BY revision')).rows).toEqual(oldRows)
@@ -124,6 +124,7 @@ beforeAll(async () => {
     expect((await stores.administrator.query(`SELECT (SELECT to_jsonb(u) FROM "user" u WHERE id='preexisting-user') AS u,(SELECT to_jsonb(s) FROM session s WHERE id='preexisting-session') AS s,(SELECT to_jsonb(w) FROM workspace w WHERE owner_user_id='preexisting-user') AS w,(SELECT to_jsonb(a) FROM workspace_audit a WHERE actor_user_id='preexisting-user') AS a`)).rows).toEqual(before)
     expect(await Promise.all(entries.map(async e => createHash('sha256').update(await readFile('drizzle/'+e.tag+'.sql')).digest('hex')))).toEqual(hashes)
   } finally { await rm(directory,{recursive:true,force:true}) }
+  await verifyMigrationResume()
   await stores.administrator.query('GRANT USAGE ON SCHEMA public TO runtime; GRANT SELECT,INSERT,UPDATE,DELETE ON "user",account,session,verification TO runtime')
   const webPort = await unusedLoopbackPort(); origin = 'http://localhost:'+webPort
   peer = await startGoogleProtocolPeer({ ports: [webPort,...[stores.runtimeUrl,stores.directRuntimeUrl,stores.redisUrl].map(url => Number(new URL(url).port))] })
@@ -144,16 +145,56 @@ afterAll(async () => {
   for (const close of [()=>app?.cleanup(),()=>auth?.close(),()=>limiter?.close(),()=>pool?.end(),()=>peer?.close(),()=>stores?.cleanup()]) { try { await close() } catch (error) { failures.push(error) } }
   if(failures.length) throw new AggregateError(failures,'Activity integration cleanup failed')
 })
+// Fixture qualification preserves the native activity gate's twelve leaves.
+async function verifyMigrationResume(){
+  const resumed=await startDisposableStores(),directory=await mkdtemp(join(tmpdir(),'sparra-migration-resume-'))
+  try{
+    await mkdir(join(directory,'meta'))
+    const journal=JSON.parse(await readFile('drizzle/meta/_journal.json','utf8'))
+    const entries:{tag:string;when:number}[]=journal.entries.slice(0,28),suffix=journal.entries.slice(28)
+    expect(entries.at(-1)?.tag).toBe('0027_sparra_inbox_publication')
+    expect(suffix).toHaveLength(1)
+    expect(suffix[0].tag).toBe('0028_sparra_knowledge_confirmation')
+    expect(suffix[0].when).toBeGreaterThan(entries.at(-1)!.when)
+    for(const entry of entries)await cp('drizzle/'+entry.tag+'.sql',join(directory,entry.tag+'.sql'))
+    await writeFile(join(directory,'meta/_journal.json'),JSON.stringify({...journal,entries}))
+    await migrate(drizzle(resumed.administrator),{migrationsFolder:directory})
+    const journalBefore=(await resumed.administrator.query('SELECT id,hash,created_at::text FROM drizzle.__drizzle_migrations ORDER BY id')).rows
+    expect(journalBefore).toHaveLength(28)
+    expect(journalBefore.at(-1)?.created_at).toBe(String(entries.at(-1)!.when))
+    expect((await resumed.administrator.query("SELECT to_regclass('public.sparra_knowledge_capture') AS capture,to_regclass('public.sparra_knowledge_confirmation') AS confirmation")).rows).toEqual([{capture:null,confirmation:null}])
+    await resumed.administrator.query(`INSERT INTO "user"(id,name,email) VALUES('resume-owner','Before knowledge','resume-owner@example.test');
+      INSERT INTO workspace(id,owner_user_id) VALUES('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','resume-owner');
+      INSERT INTO sparra_knowledge_revision(workspace_id,revision,business_name,sector,opening_hours,services,prices,faq,instructions)
+      VALUES('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',1,'Existing Inbox owner','garage','Preserved hours','Preserved service','','','Preserved instruction')`)
+    const before=(await resumed.administrator.query('SELECT to_jsonb(k) value FROM sparra_knowledge_revision k')).rows
+    await resumed.migrate()
+    const journalAfter=(await resumed.administrator.query('SELECT id,hash,created_at::text FROM drizzle.__drizzle_migrations ORDER BY id')).rows
+    expect(journalAfter.slice(0,journalBefore.length)).toEqual(journalBefore)
+    expect(journalAfter).toHaveLength(journalBefore.length+1)
+    expect(journalAfter.at(-1)).toMatchObject({hash:createHash('sha256').update(await readFile('drizzle/'+suffix[0].tag+'.sql')).digest('hex'),created_at:String(suffix[0].when)})
+    expect((await resumed.administrator.query("SELECT to_regclass('public.sparra_knowledge_capture') IS NOT NULL AS capture,to_regclass('public.sparra_knowledge_confirmation') IS NOT NULL AS confirmation,to_regprocedure('public.sparra_knowledge_cleanup_v1()') IS NOT NULL AS cleanup")).rows).toEqual([{capture:true,confirmation:true,cleanup:true}])
+    expect((await resumed.administrator.query("SELECT count(*)::int n FROM information_schema.columns WHERE table_schema='public' AND table_name='sparra_call' AND column_name IN ('publication_snapshot','publication_version','publication_token','collection_closed','collection_manifest','declared_publication','declaration_active')")).rows).toEqual([{n:7}])
+    expect((await resumed.administrator.query('SELECT to_jsonb(k) value FROM sparra_knowledge_revision k')).rows).toEqual(before)
+    await resumed.migrate()
+    expect((await resumed.administrator.query('SELECT id,hash,created_at::text FROM drizzle.__drizzle_migrations ORDER BY id')).rows).toEqual(journalAfter)
+  }finally{
+    const failures:unknown[]=[]
+    for(const close of [()=>resumed.cleanup(),()=>rm(directory,{recursive:true,force:true})])try{await close()}catch(error){failures.push(error)}
+    if(failures.length)throw new AggregateError(failures,'Migration resume cleanup failed')
+  }
+}
+
 test('absent reads and saves never create a workspace; native ensure enables revision one and persistent reload', async () => {
   const {principal}=await ceremony()
   expect(await activity.read(principal)).toEqual({workspace:null,configuration:null,localAudioAvailable:false})
   expect(await activity.save(principal,input())).toBeNull()
   expect((await stores.administrator.query('SELECT count(*)::int AS n FROM workspace WHERE owner_user_id=$1',[principal.userId])).rows[0].n).toBe(0)
   const workspace=await personal.ensurePersonalWorkspace(principal)
-  expect(await activity.read(principal)).toEqual({workspace,configuration:null,localAudioAvailable:false})
+  expect(await activity.read(principal)).toEqual({workspace,configuration:null,localAudioAvailable:false,confirmation:null})
   const saved=await activity.save(principal,input())
   expect(saved).toEqual({sector:input().sector,transferDestination:null,recordingEnabled:false,recordingPolicy:'off',recordingContactPhone:null,workspaceId:workspace!.id,revision:1,savedAt:expect.any(String),businessName:'Garage Dupont',knowledge:{...input().knowledge,openingHours:'Lundi\nVendredi'}})
-  expect(await activity.read(principal)).toEqual({workspace,configuration:saved,localAudioAvailable:false})
+  expect(await activity.read(principal)).toEqual({workspace,configuration:saved,localAudioAvailable:false,confirmation:null})
 })
 test('native company audio policy saves and reloads immutable ON then OFF revisions with strict validation',async()=>{
   const a=await ceremony(),b=await ceremony(),workspace=await personal.ensurePersonalWorkspace(a.principal)
@@ -301,13 +342,15 @@ test('cancellation after recorded native COMMIT rejects saved completion and fre
 })
 test('built native RPC validates input, authentication, CSRF, conflict and private errors',async()=>{
   const {principal,cookie}=await ceremony()
-  const readPath=await authRpcPath('getActivity'),savePath=await authRpcPath('saveActivity')
-  const post=(data:unknown,sessionCookie=cookie,requestOrigin=origin)=>rpcBody(data).then(body=>loopbackFetch(origin+savePath,{method:'POST',headers:{origin:requestOrigin,cookie:sessionCookie,'content-type':'application/json','x-tsr-serverFn':'true'},body}))
+  const readPath=await authRpcPath('getActivity'),savePath=await authRpcPath('confirmActivity')
+  let expectedWorkspaceId='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  const post=(data:SaveActivityInput,sessionCookie=cookie,requestOrigin=origin)=>rpcBody(manualActivityConfirmation(expectedWorkspaceId,data)).then(body=>loopbackFetch(origin+savePath,{method:'POST',headers:{origin:requestOrigin,cookie:sessionCookie,'content-type':'application/json','x-tsr-serverFn':'true'},body}))
   const read=()=>loopbackFetch(origin+readPath,{headers:{cookie,'sec-fetch-site':'same-origin','x-tsr-serverFn':'true'}})
   expect((await read()).status).toBe(200)
   expect((await post(input())).status).toBe(404)
   expect((await stores.administrator.query('SELECT count(*)::int AS n FROM workspace WHERE owner_user_id=$1',[principal.userId])).rows[0].n).toBe(0)
   const workspace=await personal.ensurePersonalWorkspace(principal)
+  expectedWorkspaceId=workspace!.id
   const extraRead=await loopbackFetch(origin+readPath+'?payload='+encodeURIComponent(await rpcBody({workspaceId:workspace!.id})),{headers:{cookie,'sec-fetch-site':'same-origin','x-tsr-serverFn':'true'}})
   expect(extraRead.status).toBe(400)
   for(const data of [{...input(),workspaceId:workspace!.id},{...input(),businessName:'line\nbreak'}])expect((await post(data)).status).toBe(400)
@@ -316,7 +359,7 @@ test('built native RPC validates input, authentication, CSRF, conflict and priva
   const beforeMissingProvenance=await revisions(workspace!.id)
   for(const request of [
     {method:'GET',url:origin+readPath+'?payload='+encodeURIComponent(await rpcBody({})),body:undefined},
-    {method:'POST',url:origin+savePath,body:await rpcBody(input())},
+    {method:'POST',url:origin+savePath,body:await rpcBody(manualActivityConfirmation(expectedWorkspaceId,input()))},
   ]){
     // The admitted victim cookie is present; all three provenance headers are absent.
     const refused=await loopbackFetch(request.url,{method:request.method,headers:{cookie,'content-type':'application/json','x-tsr-serverFn':'true'},body:request.body})
@@ -329,9 +372,20 @@ test('built native RPC validates input, authentication, CSRF, conflict and priva
   expect(saved.headers.get('content-security-policy')).toContain("connect-src 'self'")
   expect(saved.headers.get('referrer-policy')).toBe('no-referrer')
   expect(saved.headers.get('x-content-type-options')).toBe('nosniff')
-  expect(await saved.text()).toContain('Garage Dupont')
+  const savedBody=await saved.text();expect(savedBody).toContain('confirmed');expect(savedBody).not.toContain('expectedWorkspaceId')
   expect((await post(input())).status).toBe(409)
   const reload=await read();expect(reload.status).toBe(200);const body=await reload.text();expect(body).toContain('Garage Dupont');expect(body).not.toContain(principal.sessionId)
+  expect(await revisions(workspace!.id)).toHaveLength(1)
+  // Both authorized Workspaces are at revision one; the compared id remains
+  // a precondition rather than authority from the submitted activity.
+  const other=await ceremony(),otherWorkspace=await personal.ensurePersonalWorkspace(other.principal)
+  await activity.save(other.principal,{...input(),businessName:'Other business'})
+  const beforeOther=await revisions(otherWorkspace!.id)
+  const changedWorkspace=await post(input(1),other.cookie)
+  expect(changedWorkspace.status).toBe(409)
+  expect(changedWorkspace.headers.get('x-sparra-activity-error')).toBe('workspace-changed')
+  expect(await changedWorkspace.text()).toBe('Activity unavailable')
+  expect(await revisions(otherWorkspace!.id)).toEqual(beforeOther)
   expect(await revisions(workspace!.id)).toHaveLength(1)
   await stores.administrator.query("CREATE FUNCTION fixture_activity_rpc_abort() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'private-activity-rpc-marker'; END $$; CREATE TRIGGER fixture_activity_rpc_abort AFTER INSERT ON sparra_knowledge_revision FOR EACH ROW EXECUTE FUNCTION fixture_activity_rpc_abort()")
   try{

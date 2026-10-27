@@ -58,3 +58,33 @@ export const requestMessages = {
     callbackSource:{caller:'Number stated by the caller',provider:'Number supplied by the phone provider',missing:'No number available'},
   },
 } as const
+export const knowledgeMessages = {
+  fr: {
+    reviewAction: 'Vérifier avant d’enregistrer', confirmAction: 'Confirmer pour les prochains appels', title: 'Préparer depuis une page', url: 'Adresse de la page HTTPS', read: 'Lire cette page', manual: 'Renseigner moi-même', cancel: 'Annuler la lecture',
+    hint: 'Copie ponctuelle d’une seule page publique HTTPS sans paramètres d’URL, limitée à 50 000 caractères HTML. Pas de suivi des liens, de connexion ni de mise à jour automatique. La copie peut être utilisée pendant une heure.',
+    boundaries: 'Un tarif sans montant reste inconnu. Vérifiez les exclusions et complétez les informations absentes. Les consignes et le numéro de transfert restent à renseigner manuellement.',
+    reading: 'Lecture de la page…', failed: 'Page non disponible. Après un échec ou une annulation, la lecture peut rester occupée pendant 30 secondes. Attendez puis réessayez.',
+    source: 'Source', captured: 'Copie du', target: 'Rubrique factuelle', choose: 'Choisir une rubrique', edit: 'Texte à utiliser', use: 'Utiliser', ignore: 'Ignorer', used: 'Ajouté au brouillon', ignored: 'Ignoré',
+    adaptation: 'Les textes modifiés sont votre adaptation ; le passage original reste consultable comme source. Ignorer ensuite un passage ne retire pas le texte déjà ajouté : corrigez le brouillon.',
+    review: 'Aperçu intégral avant enregistrement', reviewHint: 'Relisez les cinq textes ci-dessous. Pour les corriger, revenez aux étapes précédentes puis ouvrez de nouveau cet aperçu.',
+    unknown: 'Non renseigné — information inconnue', oldPrice: 'L’ancien prix reste utilisable avant confirmation et par les appels déjà admis.',
+    attestation: 'Je confirme avoir relu les cinq textes affichés. Les informations décrites sont applicables dès maintenant et restent utilisées jusqu’à ma prochaine modification. J’ai retiré toute prise d’effet future, expiration ou exception datée, y compris dans la FAQ, les consignes et les ajouts manuels. Sparra ne détecte ni n’actualise automatiquement ces informations.',
+    historical: 'Reçu historique : version', unverifiable: 'Résultat historique non vérifiable : reçu absent ou expiré. Cela ne prouve pas que l’enregistrement a échoué. Aucune soumission ne sera rejouée automatiquement.',
+    provenance: 'Origine de la version courante', originUnavailable: 'Origine non disponible. Les justificatifs sont conservés sept jours après confirmation.', manualOrigin: 'Saisie manuelle confirmée', retention: 'Justificatif disponible jusqu’au',
+    invalidCapture: 'La copie a expiré ou a été remplacée. Relisez la page ou choisissez la saisie manuelle, puis vérifiez de nouveau les cinq textes.',
+  },
+  en: {
+    reviewAction: 'Review before saving', confirmAction: 'Confirm for future calls', title: 'Prepare from a page', url: 'HTTPS page address', read: 'Read this page', manual: 'Enter information myself', cancel: 'Cancel page reading',
+    hint: 'One-time copy of one public HTTPS page without URL query parameters, limited to 50,000 HTML characters. No link following, sign-in or automatic updates. The copy can be used for one hour.',
+    boundaries: 'A price without an amount remains unknown. Check exclusions and add missing information. Instructions and the transfer number must be entered manually.',
+    reading: 'Reading the page…', failed: 'Page unavailable. After failure or cancellation, reading may remain busy for 30 seconds. Wait and try again.',
+    source: 'Source', captured: 'Copied on', target: 'Factual section', choose: 'Choose a section', edit: 'Text to use', use: 'Use', ignore: 'Ignore', used: 'Added to draft', ignored: 'Ignored',
+    adaptation: 'Edited text is your adaptation; the original passage remains available as a source. Ignoring a passage later does not remove text already added: edit your draft.',
+    review: 'Full preview before saving', reviewHint: 'Read all five texts below. To correct them, return to the previous steps and then open this preview again.',
+    unknown: 'Not entered — information unknown', oldPrice: 'The previous price can still be used before confirmation and by calls already admitted.',
+    attestation: 'I confirm that I have reviewed all five displayed texts. The information applies now and remains in use until my next edit. I have removed all future effective dates, expiry dates and dated exceptions, including in FAQs, instructions and manual additions. Sparra does not detect or update this information automatically.',
+    historical: 'Historical receipt: version', unverifiable: 'Historical outcome unverifiable: receipt absent or expired. This does not prove the save failed. No submission will be replayed automatically.',
+    provenance: 'Origin of the current version', originUnavailable: 'Origin unavailable. Confirmation evidence is retained for seven days after saving.', manualOrigin: 'Confirmed manual entry', retention: 'Evidence available until',
+    invalidCapture: 'The copy expired or was replaced. Read the page again or choose manual entry, then review all five texts again.',
+  },
+} as const

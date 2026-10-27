@@ -11,9 +11,10 @@ import { requiresReview } from '../../modules/sparra/follow-up'
 import { followUpFailure, followUpMessages, type FollowUpFailure } from './follow-up-feedback'
 import { bookingMessages } from './calendar-messages'
 import type { UpdateRequestFollowUpInput, RequestFollowUpReceipt } from '../../modules/sparra/follow-up'
+import { RequestCorrection, type CorrectionAttempt, type RequestCorrectionOperations } from './request-correction'
 
 export type RequestLoaded={detail:RequestDetailDto|null;receipt:EraseReceipt|null}
-type Props={locale:Locale;loaded:RequestLoaded;view?:'pending'|'all';onRefresh?(signal:AbortSignal):Promise<RequestLoaded|Response>;onTreat(input:UpdateRequestFollowUpInput,signal:AbortSignal):Promise<RequestFollowUpReceipt|Response>;onErase(signal:AbortSignal):Promise<EraseReceipt|Response>;onRefused():Promise<void>}
+type Props=Partial<RequestCorrectionOperations>&{locale:Locale;loaded:RequestLoaded;view?:'pending'|'all';onRefresh?(signal:AbortSignal):Promise<RequestLoaded|Response>;onTreat(input:UpdateRequestFollowUpInput,signal:AbortSignal):Promise<RequestFollowUpReceipt|Response>;onErase(signal:AbortSignal):Promise<EraseReceipt|Response>;onRefused():Promise<void>}
 type RequestActionEffects={setCurrent(loaded:RequestLoaded):void;setPending(value:boolean):void;setFailed(value:boolean):void;setFailure?(value:FollowUpFailure|null):void;setRefused(value:boolean):void;onRefused():Promise<void>}
 
 async function consumeTreatAction(treated:boolean,current:RequestLoaded,signal:AbortSignal,live:()=>boolean,onTreat:Props['onTreat'],setCurrent:RequestActionEffects['setCurrent']){
@@ -185,14 +186,14 @@ function RequestFrame({locale,view,hydrated,locked,pending,canRefresh,onRefresh,
   </>
 }
 
-type RequestContentProps={locale:Locale;current:RequestLoaded;hydrated:boolean;pending:boolean;confirm:boolean;setConfirm(value:boolean):void;onMutate(kind:'treat'|'revoke'|'erase'):Promise<void>;audioReadGeneration:number}
+type RequestContentProps={locale:Locale;current:RequestLoaded;hydrated:boolean;pending:boolean;confirm:boolean;setConfirm(value:boolean):void;onMutate(kind:'treat'|'revoke'|'erase'):Promise<void>;audioReadGeneration:number;audioBlocked:boolean;correction?:ReactNode}
 
 function RequestErasure({locale,hydrated,pending,confirm,setConfirm,onMutate}:Pick<RequestContentProps,'locale'|'hydrated'|'pending'|'confirm'|'setConfirm'|'onMutate'>){
   const t=appMessages[locale]
   return <section className="sparra-request-erasure">{!confirm?<Button variant="secondary" label={t.erase} isDisabled={!hydrated||pending} onClick={()=>setConfirm(true)}/>:<div><p>{t.eraseWarning}</p><Button label={t.confirmErase} isDisabled={pending} onClick={()=>void onMutate('erase')}/><Button variant="secondary" label={t.cancel} isDisabled={pending} onClick={()=>setConfirm(false)}/></div>}</section>
 }
 
-function RequestContent({locale,current,hydrated,pending,confirm,setConfirm,onMutate,audioReadGeneration}:RequestContentProps){
+function RequestContent({locale,current,hydrated,pending,confirm,setConfirm,onMutate,audioReadGeneration,audioBlocked,correction}:RequestContentProps){
   const t=appMessages[locale],detail=current.detail
   if(current.receipt)return <p role="status">{current.receipt.state==='queued'?t.queued:t.completed}</p>
   if(!detail)return null
@@ -204,18 +205,20 @@ function RequestContent({locale,current,hydrated,pending,confirm,setConfirm,onMu
     <RequestSummary locale={locale} detail={detail}/>
     <RequestBookings locale={locale} detail={detail}/>
     <RequestTranscript locale={locale} detail={detail}/>
-    <RequestAudio locale={locale} detail={detail} readGeneration={audioReadGeneration} blocked={pending&&confirm}/>
+    <RequestAudio locale={locale} detail={detail} readGeneration={audioReadGeneration} blocked={audioBlocked}/>
     <RequestConfigurationSnapshot locale={locale} configuration={detail.configuration}/>
+    {correction}
     </div>
     <RequestErasure locale={locale} hydrated={hydrated} pending={pending} confirm={confirm} setConfirm={setConfirm} onMutate={onMutate}/>
   </>
 }
 
-export function RequestPanel({locale,loaded,onTreat,onErase,onRefused,onRefresh,view='pending'}:Props){
+export function RequestPanel({locale,loaded,onTreat,onErase,onRefused,onRefresh,onReadActivity,onConfirmActivity,onLookupActivityConfirmation,view='pending'}:Props){
   const hydrated=useHydrated(),[current,setCurrent]=useState(loaded),[pending,setPending]=useState(false),[failed,setFailed]=useState(false),[confirm,setConfirm]=useState(false)
   const begin=useRequestAttempt(),lock=useRef(false),actionGeneration=useRef(0)
   const [failure,setFailure]=useState<FollowUpFailure|null>(null),[audioReadGeneration,setAudioReadGeneration]=useState(0)
-  useLayoutEffect(()=>{begin();actionGeneration.current++;lock.current=false;setCurrent(loaded);setAudioReadGeneration(value=>value+1);setPending(false);setFailed(false);setFailure(null);setConfirm(false);setRefused(false)},[loaded])
+  const [correctionPending,setCorrectionPending]=useState(false),[correctionGeneration,setCorrectionGeneration]=useState(0)
+  useLayoutEffect(()=>{begin();actionGeneration.current++;lock.current=false;setCurrent(loaded);setAudioReadGeneration(value=>value+1);setCorrectionGeneration(value=>value+1);setCorrectionPending(false);setPending(false);setFailed(false);setFailure(null);setConfirm(false);setRefused(false)},[loaded])
   const [refused,setRefused]=useState(false)
   async function mutate(kind:'treat'|'revoke'|'erase'){
     if(lock.current)return
@@ -225,9 +228,19 @@ export function RequestPanel({locale,loaded,onTreat,onErase,onRefused,onRefresh,
   }
   async function refresh(){
     if(lock.current||!onRefresh)return
-    await refreshRequest(begin,onRefresh,{setCurrent(next){setCurrent(next);setAudioReadGeneration(value=>value+1);setConfirm(false)},setPending,setFailed,setFailure,setRefused,onRefused})
+    lock.current=true
+    const generation=++actionGeneration.current
+    try{await refreshRequest(begin,onRefresh,{setCurrent(next){setCurrent(next);setAudioReadGeneration(value=>value+1);setCorrectionGeneration(value=>value+1);setConfirm(false)},setPending,setFailed,setFailure,setRefused,onRefused})}finally{if(actionGeneration.current===generation)lock.current=false}
   }
+  function beginCorrection():CorrectionAttempt|null{
+    if(lock.current)return null
+    lock.current=true
+    const generation=++actionGeneration.current,attempt=begin()
+    setCorrectionPending(true)
+    return {...attempt,cancel(){if(actionGeneration.current===generation)begin()},release(){if(actionGeneration.current===generation){lock.current=false;setCorrectionPending(false)}}}
+  }
+  const detail=current.detail,correction=detail&&onReadActivity&&onConfirmActivity&&onLookupActivityConfirmation?<RequestCorrection key={correctionGeneration} locale={locale} callConfiguration={detail.configuration} callRevision={detail.configurationRevision} blocked={pending} onBegin={beginCorrection} onRead={onReadActivity} onConfirm={onConfirmActivity} onLookup={onLookupActivityConfirmation} onRefused={async()=>{setRefused(true);await onRefused()}}/>:undefined
   return <RequestFrame locale={locale} view={view} hydrated={hydrated} locked={lock.current} pending={pending} canRefresh={Boolean(onRefresh)} onRefresh={refresh} refused={refused} failed={failed} failure={failure}>
-    <RequestContent locale={locale} current={current} hydrated={hydrated} pending={pending} confirm={confirm} setConfirm={setConfirm} onMutate={mutate} audioReadGeneration={audioReadGeneration}/>
+    <RequestContent locale={locale} current={current} hydrated={hydrated} pending={pending||correctionPending} confirm={confirm} setConfirm={setConfirm} onMutate={mutate} audioReadGeneration={audioReadGeneration} audioBlocked={pending&&confirm} correction={correction}/>
   </RequestFrame>
 }

@@ -1,10 +1,11 @@
+import { reviewActivity } from '../helpers/activity-navigation'
 import { expect, test, vi } from 'vitest'
 import { Effect } from 'effect'
 import { spawn } from 'node:child_process'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { authRpcPath } from '../helpers/auth-rpc'
-import { rpcBody } from '../helpers/auth-rpc'
+import { manualActivityConfirmation, rpcBody } from '../helpers/auth-rpc'
 import { randomBytes } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -43,7 +44,7 @@ type ConfirmedCalendarFixture = {
 async function verifyEnterpriseCalendarIndependence({page,panel,rpc,stores,workspace,existingActivity,firstPolicy}:ConfirmedCalendarFixture):Promise<SaveActivityInput['knowledge']> {
   const originalKnowledge=existingActivity.knowledge
   const editedKnowledge={...originalKnowledge,services:'Owner edited garage service'}
-  const activityPath=await authRpcPath('saveActivity'),calendarPath=await authRpcPath('saveCalendarPolicy')
+  const activityPath=await authRpcPath('confirmActivity'),calendarPath=await authRpcPath('saveCalendarPolicy')
   let activityPosts=0,calendarPosts=0
   page.on('request',request=>{if(request.method()!=='POST')return;const path=new URL(request.url()).pathname;if(path===activityPath)activityPosts++;if(path===calendarPath)calendarPosts++})
   // First edit one field on an existing garage. An unrelated Calendar draft
@@ -53,8 +54,8 @@ async function verifyEnterpriseCalendarIndependence({page,panel,rpc,stores,works
   await page.getByRole('textbox',{name:'Services',exact:true}).fill(editedKnowledge.services)
   await showActivitySection(page,'handling');expect(await panel.getByLabel('Duration (minutes) 1',{exact:true}).inputValue()).toBe('40')
   await showActivitySection(page,'recap')
-  const enterpriseSave=page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true})
-  await enterpriseSave.focus();await page.keyboard.press('Enter');await page.getByText('Configuration saved.',{exact:true}).waitFor()
+  const enterpriseSave=page.locator('.sparra-business-form .sparra-form-submit')
+  await reviewActivity(page);await enterpriseSave.focus();await page.keyboard.press('Enter');await page.getByText('Configuration saved.',{exact:true}).waitFor()
   expect(await panel.getByLabel('Duration (minutes) 1',{exact:true}).inputValue()).toBe('40')
   // A real concurrent native Calendar revision produces a protected 409.
   expect((await rpc('saveCalendarPolicy',{...firstPolicy,expectedRevision:1})).status()).toBe(200)
@@ -75,8 +76,8 @@ async function verifyEnterpriseCalendarIndependence({page,panel,rpc,stores,works
   // Calendar succeeds independently. No combined save or automatic retry.
   await showActivitySection(page,'knowledge')
   await page.getByRole('textbox',{name:'Frequently asked questions',exact:true}).fill('Retained unsaved owner FAQ')
-  expect((await rpc('saveActivity',{...existingActivity,knowledge:editedKnowledge,expectedRevision:2})).status()).toBe(200)
-  await showActivitySection(page,'recap');await enterpriseSave.click()
+  expect((await rpc('confirmActivity',manualActivityConfirmation(workspace,{...existingActivity,knowledge:editedKnowledge,expectedRevision:2}))).status()).toBe(200)
+  await showActivitySection(page,'recap');await reviewActivity(page);await enterpriseSave.click()
   const conflict=page.getByRole('alert').filter({hasText:'The configuration changed.'});await conflict.waitFor()
   await panel.getByLabel('Duration (minutes) 1',{exact:true}).fill('35')
   await panel.getByRole('button',{name:'Save',exact:true}).click();await panel.getByText('Settings saved.',{exact:true}).waitFor()
@@ -203,8 +204,8 @@ test.each(['confirmed', 'lost-response-restart', 'no-ack', 'retry-after-no-ack',
     expect((await rpc('ensurePersonalWorkspace', {})).status()).toBe(200)
     const originalKnowledge=mode==='confirmed'?{openingHours:'Weekdays 09:00–17:00',services:'Garage service',prices:'Quote after inspection',faq:'Bring the vehicle papers',instructions:'Collect the request; the team confirms it'}:{openingHours:'',services:'',prices:'',faq:'',instructions:''}
     const existingActivity:Omit<SaveActivityInput, 'expectedRevision'>={businessName:'Native capture fixture',sector:'garage',knowledge:originalKnowledge,transferDestination:mode==='confirmed'?'+33102030406':null,recordingEnabled:false,recordingPolicy:'off',recordingContactPhone:mode==='confirmed'?'+33102030405':null}
-    expect((await rpc('saveActivity', { ...existingActivity,expectedRevision:0 })).status()).toBe(200)
     const workspace = (await stores.administrator.query('SELECT id FROM workspace')).rows[0].id
+    expect((await rpc('confirmActivity',manualActivityConfirmation(workspace,{...existingActivity,expectedRevision:0}))).status()).toBe(200)
     await app.cleanup(); expect(app.child.exitCode).toBe(0)
     const calendarEnv = { SPARRA_GOOGLE_CALENDAR_CLIENT_ID: 'fixture-calendar-client', SPARRA_GOOGLE_CALENDAR_CLIENT_SECRET: 'fixture-only', SPARRA_CALENDAR_TOKEN_KEY: randomBytes(32).toString('base64url') }
     app = startWeb({ ...env, ...calendarEnv, FIXTURE_CALENDAR_PROTOCOL: 'yes' }); await bounded(app.ready)

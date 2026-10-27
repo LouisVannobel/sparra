@@ -1,4 +1,4 @@
-import { showActivitySection } from '../helpers/activity-navigation'
+import { reviewActivity, showActivitySection } from '../helpers/activity-navigation'
 import { afterAll, beforeAll, expect, test } from 'vitest'
 import { createServer, request as httpRequest } from 'node:http'
 import { randomBytes } from 'node:crypto'
@@ -48,7 +48,7 @@ test('bridge erasure and terminal retention use actual native owners and ACKs',a
     await showActivitySection(page,'establishment');await page.getByRole('textbox',{includeHidden:true,name:/^Business name/}).fill('Garage connecté')
     await showActivitySection(page,'knowledge');await page.getByRole('textbox',{includeHidden:true,name:'Services',exact:true}).fill('Vidange N')
     await showActivitySection(page,'handling');await page.getByRole('textbox',{includeHidden:true,name:'Transfer number (optional)',exact:true}).fill('+33102030406')
-    await page.locator('.sparra-business-form').getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
+    await reviewActivity(page);await page.locator('.sparra-business-form .sparra-form-submit').click();await page.getByText('Configuration saved.',{exact:true}).waitFor()
     const workspace=(await stores.administrator.query('SELECT id FROM workspace WHERE owner_user_id=(SELECT id FROM "user" WHERE email=$1)',['connected-owner@example.test'])).rows[0]
     await stores.administrator.query('GRANT USAGE ON SCHEMA voice TO sparra_voice_a; GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA voice TO sparra_voice_a')
     await stores.administrator.query(`INSERT INTO voice_private.deployment_binding(service_login,service_role_oid,deployment_id,workspace_id,connection_id,to_e164,admission_enabled) SELECT 'sparra_voice_a',oid,'fixture-a',$1,'connection-a','+33123456789',true FROM pg_roles WHERE rolname='sparra_voice_a'`,[workspace.id])
