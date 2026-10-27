@@ -4,6 +4,35 @@ import { workspace } from '../workspaces/schema.server'
 import { sectorIds } from './sectors'
 import type { NativeEncryptedTurn, EncryptedMessageResult } from './message-crypto.server'
 
+export type InboxCollectionManifest = Readonly<{
+  schema_version: 1
+  episode_id: string
+  expected_turn_ids: readonly string[]
+  result_outcome: 'present' | 'absent' | 'failed' | 'fenced'
+  audio: Readonly<{state:'off'|'unavailable'|'declined'}> | Readonly<{
+    state:'terminal'; recording_id:string; last_sequence:number|null; total_samples:number
+    reason:'complete'|'transfer'|'interrupted'|'limit'|'failure'
+  }>
+  gaps: readonly ('transcript_loss'|'result_unavailable'|'audio_partial')[]
+}>
+export type InboxPublicationSnapshot = Readonly<{
+  schema_version:1; collection:InboxCollectionManifest|null; collection_closed:boolean
+  status:'pending'|'active'|'closing'|'closed'|'failed'; configuration_revision:number|null
+  from_e164:string|null; admitted_at:string; ended_at:string|null; end_reason:string|null
+  disclosure_state:'pending'|'completed'|'failed'; transcript_loss_count:number
+  encrypted_turns:Record<string,NativeEncryptedTurn>; encrypted_message_result:EncryptedMessageResult|null
+  bookings:readonly Readonly<{
+    id:string; state:'waiting_evidence'|'pending'|'running'|'offered'|'confirmed'|'refused'|'unknown'
+    service_name:string; window_start:string; window_end:string; current_start:string|null; current_end:string|null
+    timezone:string|null; buffer_minutes:number|null; event_id:string|null; observed_state:string|null
+  }>[]
+  audio:Readonly<{
+    state:'off'|'unavailable'|'pending'|'recording'|'ready'|'partial'|'declined'|'expired'|'deletion_pending'|'deleted'
+    recording_id:string|null; total_samples:number|null; last_sequence:number|null
+    finish_reason:'complete'|'transfer'|'interrupted'|'limit'|'failure'|null; coverage:'unknown'
+  }>
+}>
+
 // PostgreSQL stores Unicode scalars; add supplementary scalars once to match
 // the public input's UTF16 string.length limit.
 const utf16Length = (column: SQLWrapper) => sql`length(${column}) + length(regexp_replace(${column}, U&'[\\0001-\\FFFF]', '', 'g'))`
@@ -64,6 +93,13 @@ export const sparraCall = pgTable('sparra_call', {
   status:text('status',{enum:['pending','active','closing','closed','failed']}).notNull().default('pending'),
   disclosureState:text('disclosure_state',{enum:['pending','completed','failed']}).notNull().default('pending'),disclosureStartedAt:timestamp('disclosure_started_at',{withTimezone:true,precision:3}),disclosureCompletedAt:timestamp('disclosure_completed_at',{withTimezone:true,precision:3}),disclosureFailedAt:timestamp('disclosure_failed_at',{withTimezone:true,precision:3}),inputGateOpenedAt:timestamp('input_gate_opened_at',{withTimezone:true,precision:3}),
   encryptedTurns:jsonb('encrypted_turns').$type<Record<string,NativeEncryptedTurn>>().notNull().default(sql`'{}'::jsonb`),encryptedMessageResult:jsonb('encrypted_message_result').$type<EncryptedMessageResult>(),
+  collectionManifest:jsonb('collection_manifest').$type<InboxCollectionManifest>(),
+  collectionClosed:boolean('collection_closed').notNull().default(false),
+  publicationSnapshot:jsonb('publication_snapshot').$type<InboxPublicationSnapshot>(),
+  publicationVersion:integer('publication_version').notNull().default(0),
+  declaredPublication:integer('declared_publication').notNull().default(0),
+  declarationActive:boolean('declaration_active').notNull().default(false),
+  publicationToken:uuid('publication_token').notNull().defaultRandom(),
   recordingId:uuid('recording_id'),
   audioState:text('audio_state',{enum:['off','unavailable','pending','recording','ready','partial','declined','expired','deletion_pending','deleted']}).notNull().default('off'),
   audioReservedBytes:integer('audio_reserved_bytes').notNull().default(0),audioChargedBytes:integer('audio_charged_bytes').notNull().default(0),
@@ -72,6 +108,10 @@ export const sparraCall = pgTable('sparra_call', {
   audioFinishReason:text('audio_finish_reason',{enum:['complete','transfer','interrupted','limit','failure']}),
   treatedAt:timestamp('treated_at',{withTimezone:true,precision:3}),erasureRequestedAt:timestamp('erasure_requested_at',{withTimezone:true,precision:3}),
 },table=>[
+  check('sparra_call_publication_versions',sql.raw('publication_version>=0 AND declared_publication>=0 AND declared_publication<=publication_version')),
+  check('sparra_call_publication_bound',sql.raw("publication_snapshot IS NULL OR (jsonb_typeof(publication_snapshot)='object' AND octet_length(publication_snapshot::text)<=1048576)")),
+  pgPolicy('sparra_call_publication_owner',{to:'workspace_owner',for:'update',using:scoped(table.workspaceId),withCheck:scoped(table.workspaceId)}),
+  pgPolicy('calendar_call_lock',{to:'calendar_definer',for:'update',using:sql`true`,withCheck:sql`true`}),
   unique('sparra_call_provider_identity').on(table.deploymentId,table.providerCallControlId),
   foreignKey({name:'sparra_call_configuration_pin',columns:[table.workspaceId,table.configurationRevision],foreignColumns:[sparraKnowledgeRevision.workspaceId,sparraKnowledgeRevision.revision]}).onDelete('restrict'),
   index('sparra_call_inbox').on(table.workspaceId,table.admittedAt.desc(),table.id.desc()),
@@ -114,6 +154,7 @@ export const sparraAudioChunk=pgTable('sparra_audio_chunk',{
   check('sparra_audio_chunk_crypto',sql.raw("crypto_version = 1 and key_version between 1 and 9007199254740991 and octet_length(nonce) = 12 and octet_length(ciphertext) = sample_count * 4 + 16")),
   check('sparra_audio_chunk_charge',sql.raw("charged_bytes - octet_length(nonce) - octet_length(ciphertext) between 0 and 2048")),
   check('sparra_audio_chunk_pin',sql.raw("configuration_revision > 0 and isfinite(retention_until) and length(deployment_id) between 1 and 256 and deployment_id !~ '[[:cntrl:]]'")),
+  pgPolicy('audio_publication_owner',{to:'workspace_owner',for:'select',using:scoped(t.workspaceId)}),
   pgPolicy('sparra_audio_chunk_voice',{to:'sparra_voice_definer',for:'all',using:sql.raw("workspace_id = voice_private.bound_workspace() and deployment_id = voice_private.bound_deployment()"),withCheck:sql.raw("workspace_id = voice_private.bound_workspace() and deployment_id = voice_private.bound_deployment()")}),
   pgPolicy('sparra_audio_chunk_erase_read',{to:'workspace_owner',for:'select',using:scoped(t.workspaceId)}),
   pgPolicy('sparra_audio_chunk_erase_delete',{to:'workspace_owner',for:'delete',using:scoped(t.workspaceId)}),

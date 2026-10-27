@@ -6,10 +6,10 @@ import { createHash, randomUUID } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 import { API, type Snapshot } from 'typescript/unstable/sync'
 import type { FileChangeSummary } from 'typescript/unstable/proto'
-import { createScanner, getLeadingCommentRanges, getTokenAtPosition, getTrailingCommentRanges, isArrowFunction, isBlock, isCallExpression, isExpressionStatement, isFunctionDeclaration, isIdentifier, isImportDeclaration, isNamedImports, isStringLiteral, LanguageVariant, SyntaxKind } from 'typescript/unstable/ast'
+import { createScanner, getLeadingCommentRanges, getTokenAtPosition, getTrailingCommentRanges, isArrowFunction, isBlock, isCallExpression, isExpressionStatement, isFunctionDeclaration, isIdentifier, isImportDeclaration, isNamedImports, isStringLiteral, isVariableStatement, LanguageVariant, SyntaxKind } from 'typescript/unstable/ast'
 import type { CallExpression, Node, SourceFile } from 'typescript/unstable/ast'
 import { afterAll, beforeAll, expect, test } from 'vitest'
-import { admitCommonGeometry, assertCalendarReport, assertCalendarQualification, assertBillingQualification, assertBillingReport, assertDirectory, assertRunTree, assertRecordingReceiptQualification, assertRecordingReceiptReport, assertRequestsQualification, assertRequestsReport, readNativeBlob, sourceIdentity } from '../scripts/native-coverage-inputs.mjs'
+import { admitCommonGeometry, assertCalendarReport, assertCalendarQualification, assertBillingQualification, assertBillingReport, assertDirectory, assertRunTree, assertRecordingReceiptQualification, assertRecordingReceiptReport, assertRequestsQualification, assertRequestsReport, assertVoiceBridgeReport, readNativeBlob, sourceIdentity } from '../scripts/native-coverage-inputs.mjs'
 import calendarNames from './fixtures/calendar-consumer-names.json' with { type: 'json' }
 import { createLintFixture } from './helpers/ordinary-fixture-isolation'
 import { createOwnedFixtureDependencies } from './helpers/owned-fixture-dependencies.mjs'
@@ -134,11 +134,17 @@ const voiceBridgeNames=[
   'native sector snapshots V2 garage preserves native snapshots, concurrent revisions and Inbox ownership',
   'native sector snapshots V2 controle-technique preserves native snapshots, concurrent revisions and Inbox ownership',
   'native sector snapshots V2 diagnostic-immobilier preserves native snapshots, concurrent revisions and Inbox ownership',
+  'collection waits for retained pieces, freezes agenda and ignores replay and accounting',
+  'current publication can revoke a declaration after a native extra turn makes collection provisional',
 ]
 
 // These fixed canary titles test report admission, not the named product behavior.
 const requestConsumerNames=[
   ['sparra-requests.test.ts',[
+    'inbox publication DTO never mixes live content with displayed C/T and keeps C0 provisional',
+    'unreadable published pieces refuse declaration without mutating A/T; restoration stays pending and revocation and real gaps remain allowed',
+    'inbox publication CAS handles revoke ABA, later publications, cross tenant and lost commit acknowledgement',
+    'inbox publication pending filter precedes pagination and late content reopens old declarations',
     'native owner reads absent state, actual Voice ciphertext and pinned configuration without inventing pending results',
     'native owner lists only the first authenticated nonblank caller excerpt without inventing result fields',
     'native caller excerpt preserves the exact bound without inventing a summary',
@@ -148,8 +154,8 @@ const requestConsumerNames=[
     'invalid result may expose a valid caller excerpt but missing keys and unauthenticated turns cannot',
     'an assistant turn without a caller never supplies an Inbox excerpt',
     'equal-millisecond pagination returns all 103 calls exactly once in tuple order',
-    'treat active preserves inventory and stamp, erase deletes native content and survives retention',
-    'treat closed preserves inventory and stamp, erase deletes native content and survives retention',
+    'provisional active cannot be declared; erase deletes native content and survives retention',
+    'provisional closed cannot be declared; erase deletes native content and survives retention',
     'expired content stays unreadable including a Workspace lock held across retention; queued receipt outlives fence deadline',
     'native runtime UPDATE RETURNING cooperates with narrow definer, FORCE RLS and column grants',
     'fence insertion failure and cancellation roll back; recorded COMMIT cancellation rejects completion and reload resolves',
@@ -305,25 +311,49 @@ const billingConsumerNames=[
 ] as const
 const billingConsumerPaths=billingConsumerNames.map(([file])=>'tests/integration/'+file)
 
-test('native_requests_requires_all_seven_adopted_excerpt_leaves_in_its_exact_forty_case_report',()=>{
+test('native_requests_requires_inbox_publication_and_all_seven_adopted_excerpt_leaves_in_its_exact_44_case_report',()=>{
   // Synthetic reporter records qualify admission only, not native SQL behavior.
-  const report={success:true,numTotalTests:40,numPassedTests:40,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0,
+  const report={success:true,numTotalTests:44,numPassedTests:44,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0,
     testResults:requestConsumerNames.map(([file,names])=>({name:join(repositoryRoot,'tests/integration',file).replaceAll('\\','/'),status:'passed',message:'',
       assertionResults:names.map((fullName:string)=>({fullName,status:'passed',failureMessages:[]}))}))}
   expect(()=>assertRequestsReport(report,repositoryRoot)).not.toThrow()
   const old=structuredClone(report)
-  old.numTotalTests=33;old.numPassedTests=33;old.testResults[0]!.assertionResults.splice(1,7)
-  const refusal='Native Requests requires its exact five consumers and 40 passing leaves'
+  old.numTotalTests=33;old.numPassedTests=33;old.testResults[0]!.assertionResults.splice(0,4);old.testResults[0]!.assertionResults.splice(1,7)
+  const refusal='Native Requests requires its exact five consumers and 44 passing leaves'
   expect(()=>assertRequestsReport(old,repositoryRoot)).toThrow(refusal)
-  for(const name of requestConsumerNames[0][1].slice(1,8)){
+  const preInbox=structuredClone(report)
+  preInbox.numTotalTests=40;preInbox.numPassedTests=40;preInbox.testResults[0]!.assertionResults.splice(0,4)
+  preInbox.testResults[0]!.assertionResults[9]!.fullName='treat active preserves inventory and stamp, erase deletes native content and survives retention'
+  preInbox.testResults[0]!.assertionResults[10]!.fullName='treat closed preserves inventory and stamp, erase deletes native content and survives retention'
+  expect(()=>assertRequestsReport(preInbox,repositoryRoot)).toThrow(refusal)
+  for(const name of [...requestConsumerNames[0][1].slice(0,4),...requestConsumerNames[0][1].slice(5,12)]){
     for(const kind of ['missing','skipped','failed','renamed'] as const){
       const wrong=structuredClone(report),leaves=wrong.testResults[0]!.assertionResults,index=leaves.findIndex(leaf=>leaf.fullName===name)
-      expect(index).toBeGreaterThan(0)
+      expect(index).toBeGreaterThanOrEqual(0)
       if(kind==='missing')leaves.splice(index,1)
       else if(kind==='renamed')leaves[index]!.fullName='Unreviewed excerpt leaf'
       else leaves[index]!.status=kind
       expect(()=>assertRequestsReport(wrong,repositoryRoot),name+':'+kind).toThrow(refusal)
     }
+  }
+})
+
+test('native_voice_bridge_requires_both_inbox_publication_leaves_in_its_exact_21_case_report',()=>{
+  // Fixed reporter canaries qualify admission only, never native SQL behavior.
+  const startedAt=Date.now(),report={success:true,startTime:startedAt,numTotalTests:21,numPassedTests:21,numPendingTests:0,numTodoTests:0,numFailedTests:0,numFailedTestSuites:0,numPendingTestSuites:0,
+    testResults:[{name:join(repositoryRoot,'tests/integration/sparra-voice-bridge.test.ts').replaceAll('\\','/'),status:'passed',message:'',startTime:startedAt,
+      assertionResults:voiceBridgeNames.map(fullName=>({fullName,status:'passed',failureMessages:[]}))}]}
+  expect(()=>assertVoiceBridgeReport(report,repositoryRoot,startedAt)).not.toThrow()
+  const refusal='Native Voice bridge requires its exact twenty-one passing leaves',preInbox=structuredClone(report)
+  preInbox.numTotalTests=19;preInbox.numPassedTests=19;preInbox.testResults[0]!.assertionResults.splice(19,2)
+  expect(()=>assertVoiceBridgeReport(preInbox,repositoryRoot,startedAt)).toThrow(refusal)
+  for(const index of [19,20])for(const kind of ['missing','skipped','failed','renamed','duplicate'] as const){
+    const wrong=structuredClone(report),leaves=wrong.testResults[0]!.assertionResults
+    if(kind==='missing')leaves.splice(index,1)
+    else if(kind==='renamed')leaves[index]!.fullName='Unreviewed publication leaf'
+    else if(kind==='duplicate')leaves[index]=structuredClone(leaves[0]!)
+    else leaves[index]!.status=kind
+    expect(()=>assertVoiceBridgeReport(wrong,repositoryRoot,startedAt),index+':'+kind).toThrow(refusal)
   }
 })
 
@@ -618,7 +648,7 @@ test('native_billing_gate_refuses_the_previous_eight_consumer_55_leaf_run',()=>{
   expect(()=>readNativeBlob(blob,'billing',root,startedAt,'4.1.12')).toThrow('Native billing blob has an unexpected consumer')
 },25000)
 
-test('native_requests_blob_admits_exact_five_consumers_and_40_leaves_without_losing_original_eight',()=>{
+test('native_requests_blob_admits_exact_five_consumers_and_44_leaves_without_losing_original_eight',()=>{
   const root=nativeCoverageFixture(),blob=join(root,'coverage/requests.json'),startedAt=Date.now()
   const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...requestConsumerPaths,'--maxWorkers=1','--coverage','--reporter=blob','--outputFile.blob='+blob,'--coverage.reportsDirectory='+join(root,'coverage/requests')],requestCanaryEnvironment(root))
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
@@ -664,9 +694,9 @@ test('native_requests_report_preserves_exact_summary_consumer_and_leaf_admission
   const result=runNativeCoverage(root,['run','--config','vitest.integration.config.ts',...requestConsumerPaths,'--maxWorkers=1','--reporter=json','--outputFile.json='+reportPath],requestCanaryEnvironment(root))
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(0)
   const report=JSON.parse(readFileSync(reportPath,'utf8'))
-  expect(report.numTotalTests).toBe(40);expect(report.numPassedTests).toBe(40)
+  expect(report.numTotalTests).toBe(44);expect(report.numPassedTests).toBe(44)
   expect(()=>assertRequestsReport(report,root)).not.toThrow()
-  const refusal='Native Requests requires its exact five consumers and 40 passing leaves'
+  const refusal='Native Requests requires its exact five consumers and 44 passing leaves'
   for(const field of ['success','numTotalTests','numPassedTests','numPendingTests','numTodoTests','numFailedTests','numFailedTestSuites','numPendingTestSuites']){
     const wrong={...report,[field]:field==='success'?false:report[field]+1}
     expect(()=>assertRequestsReport(wrong,root)).toThrow(refusal)
@@ -735,7 +765,7 @@ test('native_requests_file_admission_requires_a_current_bounded_regular_report_w
   writeFileSync(refused,'{')
   expect(()=>assertRequestsQualification(refused,root,startedAt)).toThrow(SyntaxError)
   for(const [kind,mutate] of [
-    ['summary',(value:typeof report)=>{value.numPassedTests=39}],
+    ['summary',(value:typeof report)=>{value.numPassedTests=43}],
     ['consumer',(value:typeof report)=>{value.testResults[0].name=join(root,'tests/foreign.ts')}],
     ['missing-leaf',(value:typeof report)=>{value.testResults[0].assertionResults.pop()}],
     ['extra-leaf',(value:typeof report)=>{value.testResults[0].assertionResults.push({...value.testResults[0].assertionResults[0],fullName:'extra leaf'})}],
@@ -744,7 +774,7 @@ test('native_requests_file_admission_requires_a_current_bounded_regular_report_w
     const wrong=structuredClone(report)
     mutate(wrong)
     writeFileSync(refused,JSON.stringify(wrong))
-    expect(()=>assertRequestsQualification(refused,root,startedAt),kind).toThrow('Native Requests requires its exact five consumers and 40 passing leaves')
+    expect(()=>assertRequestsQualification(refused,root,startedAt),kind).toThrow('Native Requests requires its exact five consumers and 44 passing leaves')
   }
 },25000)
 
@@ -922,8 +952,8 @@ test.each(['missing','skipped','duplicate','afterAll'] as const)('native_voice_b
   const root=nativeCoverageFixture(),path=join(root,'tests/integration/sparra-voice-bridge.test.ts')
   const lines=readFileSync(path,'utf8').trimEnd().split('\n')
   if(kind==='missing')lines.pop()
-  else if(kind==='skipped')lines[19]=lines[19]!.replace('test(','test.skip(')
-  else if(kind==='duplicate')lines[19]=lines[18]!
+  else if(kind==='skipped')lines[21]=lines[21]!.replace('test(','test.skip(')
+  else if(kind==='duplicate')lines[21]=lines[20]!
   else lines.push("import {afterAll} from 'vitest';afterAll(()=>{throw new Error('Owned native bridge afterAll failure')});")
   writeFileSync(path,lines.join('\n')+'\n')
   const result=runCoverageConsumer(root)
@@ -941,7 +971,7 @@ test.each(['missing','skipped','duplicate','afterAll'] as const)('native_voice_b
     expect(existsSync(join(root,'coverage/canary-voice-owner'))).toBe(true)
     expect(existsSync(join(root,'canary-voice-retired.txt'))).toBe(false)
   }else{
-    expect(result.stderr).toContain('Native Voice bridge requires its exact nineteen passing leaves')
+    expect(result.stderr).toContain('Native Voice bridge requires its exact twenty-one passing leaves')
     expect(readdirSync(join(root,'coverage'))).toEqual([])
     expect(readFileSync(join(root,'canary-voice-retired.txt'),'utf8')).toBe('retired')
   }
@@ -1030,11 +1060,11 @@ test('actual_coverage_runner_publishes_only_native_complete_map_after_retirement
   expect(existsSync(audioConsumers[0]!.screenshots)).toBe(false)
   const coverage=JSON.parse(readFileSync(join(root,'coverage/coverage-final.json'),'utf8'))
   expect(coverage.stale).toBeUndefined()
-  // Fifteen Requests and one ordinary case take true; twelve Activity cases take false.
+  // Nineteen Requests and one ordinary case take true; twelve Activity cases take false.
   // These literal totals independently check that all five phases were merged once.
-  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].f).toEqual({'0':28})
-  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].s).toEqual({'0':28,'1':16,'2':12})
-  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].b).toEqual({'0':[16,12]})
+  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].f).toEqual({'0':32})
+  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].s).toEqual({'0':32,'1':20,'2':12})
+  expect(coverage[join(root,'src/covered.ts').replaceAll('\\','/')].b).toEqual({'0':[20,12]})
   expect(coverage[join(root,'src/unexecuted.ts').replaceAll('\\','/')].f).toEqual({'0':0})
   expect(coverage[join(root,'src/audio-covered.ts').replaceAll('\\','/')].f).toEqual({'0':25})
   expect(coverage[join(root,'src/audio-covered.ts').replaceAll('\\','/')].b).toEqual({'0':[25,0]})
@@ -1088,14 +1118,14 @@ test('actual_coverage_runner_retains_producer_on_recording_afterAll_failure',()=
 },25000)
 
 test('actual_coverage_runner_refuses_requests_missing_or_extra_leaves_before_publication',()=>{
-  for(const count of [14,16]){
+  for(const count of [18,20]){
     const root=nativeCoverageFixture(),path=join(root,'tests/integration/sparra-requests.test.ts')
     const lines=readFileSync(path,'utf8').trimEnd().split('\n')
-    if(count===14)lines.pop();else lines.push(lines.at(-1)!.replace('built native RPC','extra native RPC'))
+    if(count===18)lines.pop();else lines.push(lines.at(-1)!.replace('built native RPC','extra native RPC'))
     writeFileSync(path,lines.join('\n')+'\n')
     const result=runCoverageConsumer(root)
     expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
-    expect(result.stderr).toContain('Native Requests requires its exact five consumers and 40 passing leaves')
+    expect(result.stderr).toContain('Native Requests requires its exact five consumers and 44 passing leaves')
     expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
   }
 },25000)
@@ -1108,7 +1138,7 @@ test.each(['missing','extra'] as const)('actual_coverage_runner_refuses_connecte
   writeFileSync(path,lines.join('\n')+'\n')
   const result=runCoverageConsumer(root)
   expect(result.error).toBeUndefined();expect(result.status,result.stdout+result.stderr).toBe(1)
-  expect(result.stderr).toContain('Native Requests requires its exact five consumers and 40 passing leaves')
+  expect(result.stderr).toContain('Native Requests requires its exact five consumers and 44 passing leaves')
   expect(result.stdout).toContain('[tests] requests qualification')
   expect(result.stdout).not.toContain('[tests] merge')
   expect(existsSync(join(root,'coverage/coverage-final.json'))).toBe(false)
@@ -1256,11 +1286,17 @@ test('declared_inbox_browser_entry_is_the_exact_HTML_module_mounting_the_runtime
   expect([...html.matchAll(/<script\b[^>]*>/g)].map(match=>match[0])).toEqual(['<script type="module" src="./inbox-panel-fixture.tsx">'])
   const fixture=readFileSync(join(repositoryRoot,'tests/helpers/inbox-panel-fixture.tsx'),'utf8')
   expect(fixture).toContain("import { InboxPanel } from '../../src/ui/sparra/inbox-panel'")
-  expect(fixture).toContain('root.render(<Theme theme={neutralTheme} mode="light"><InboxPanel')
+  expect(fixture).toContain("import { RequestPanel, type RequestLoaded } from '../../src/ui/sparra/request-panel'")
+  const mount='root.render(<Theme theme={neutralTheme} mode="light"><div className="sparra-app"><div className="sparra-app-content" style={{gridColumn:"1 / -1"}}>'
+  expect(fixture).toContain(mount+'<InboxPanel view={view} locale={locale}')
+  expect(fixture).toContain(mount+'<RequestPanel locale={locale} loaded={loaded} view="all"')
+  expect([...fixture.matchAll(/root\.render\(/g)]).toHaveLength(2)
   const consumer=readFileSync(join(repositoryRoot,'tests/ui/inbox-refresh.test.ts'),'utf8')
   expect(consumer).toContain("await page.goto(origin + '/tests/helpers/inbox-panel-fixture.html')")
-  expect(consumer).toContain("configFile: false, envDir: false, envPrefix: 'INBOX_FIXTURE_PUBLIC_'")
-  expect(consumer).toContain("server: { host: '127.0.0.1', port: 0 }")
+  expect(consumer).toContain("configFile:false as const,envDir:false as const,envPrefix:'INBOX_FIXTURE_PUBLIC_'")
+  expect(consumer).toContain("rollupOptions:{input:'tests/helpers/inbox-panel-fixture.html'}")
+  expect(consumer).toContain('await build(config)')
+  expect(consumer).toContain("await preview({...config,preview:{host:'127.0.0.1',port:0}})")
 })
 
 test('fallow_ignores_only_generated_route_tree_clones_and_keeps_handwritten_clones',()=>{
@@ -1429,27 +1465,29 @@ test('native_complexity_comment_is_function_scoped_and_expires_on_content_or_cou
 
 test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_change',()=>{
   const ssrFile='tests/ui/sparra-panels.test.tsx',path=join(repositoryRoot,ssrFile)
+  const rpcFile='src/modules/sparra/sparra.functions.ts',rpcDirective='// fallow-ignore-next-line unused-export'
   // Fixed candidates from TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003; hashes are literal review anchors.
   // SSR C heading and six new summary cases independently reviewed on 2026-10-11.
   // Excerpt cases and nullable DTO fixtures re-reviewed on 2026-10-17.
   // Whole-file context re-anchored after the guided-control assertion review on 2026-10-22.
-  // Only A changes callback text; B/C/D retain their approved callback hashes.
+  // A/B/C and whole-file context re-reviewed on 2026-10-26 for publication-bound DTOs,
+  // anchored transcript turns and the active declaration fixture; D remains unchanged.
   const targets=[
     ['detail and inbox preserve the translated native category and observed number source in both locales',
       '// fallow-ignore-next-line complexity -- reviewed SSR A; TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003',
-      '702e3c919a1442eca301cbab9d673d5d7a5d105454c44e6cda26ee2e43f3b643',
-      'b0b66374beaef40478dfbc1664a2f31c72e68b76d844dd509fae802560d90d97',
-      '783c50775db400109334313036d0fc33ff85bcb94f0d2591d6dc8638d21f0cab'],
+      'f4d8e198411e1579e7d9e676d7dce5dedf75d44907fed08e4e91c0a35d0dbfe9',
+      '7d22d879df0ce9bef694f3fa8324d9a2c3b62f3d439285d96212daf039887b9b',
+      '70e3c784e6fee2a7b74173fd6d38d4c3844a407a4e250af8f53f3c840ed5052d'],
     ['request detail keeps observed metadata, ordered partial turns, pinned knowledge and disabled SSR actions in both locales',
       '// fallow-ignore-next-line complexity -- reviewed SSR B; TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003',
-      '919208b5274ee478430e14284d8668f7a229c9fae11d4a86c9fb493131b5436c',
-      'c24e1443f6a3035c4699dc0eefa35bdc27a87311afdad51718caa8f96afb10aa',
-      '40a153934e259d52d0ff2b441047452d5acd6b9abe110dfbcba61e77104da1b5'],
+      'd519c67d951064520e85baa1989a8f89051f04fe48b78913aadb300565d7a405',
+      '70a3a8153530faac8f16bee6d058fbd6905cec6b297183bdab25ae4408dda429',
+      'dff91e089ac98b500fec6f4c0cf33f6f206101dcfd3711a3c3d7bde5a8484acf'],
     ['request detail retains empty contact and absent snapshot fallbacks without treating complete quality as partial',
       '// fallow-ignore-next-line complexity -- reviewed SSR C; TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003',
-      '990b276b8dcc2fcf86817b0936fecbe1a9ac31867b223e033c27623cf914aae6',
-      'cdab1a13235c06e229216cb35381e1a6d47383242faad12f6808c92c156bec1d',
-      'e1d1becf0b0995227f08851464a33e75050022160d7ec3a69f5783aa6d192347'],
+      '3ad6385b8d7354998e0cbe81ac2c269139a2d9819c880ad8cb373e1db54bb73c',
+      '16cd9dc1426a9905e19e6c29ea071276c2bfb464a27bac67f9c01cf474e974b3',
+      'ef79ebd36f5c277b211653fdd8d0e2d527013470afa30429cb51ed580c86cde1'],
     ['queued and completed erasure receipts take precedence over loaded private detail in both locales',
       '// fallow-ignore-next-line complexity -- reviewed SSR D; TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003',
       '992924250fb09143e0bfe0988cd328d0ce854971d0099bb5953b9b2bf2c18247',
@@ -1527,6 +1565,20 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
   function actualComments(candidate:Map<string,string>) {
     return parsedCommentSources(candidate).markers
   }
+  function reviewedLegacyRpc(snapshot:Snapshot,candidate:Map<string,string>,marker:ReturnType<typeof collectCommentMarkers>[number]) {
+    expect(marker.file,'Reviewed legacy RPC marker file expired').toBe(rpcFile)
+    const rpcPath=join(repositoryRoot,rpcFile),source=snapshot.getDefaultProjectForFile(rpcPath)?.program?.getSourceFile(rpcPath)
+    if(!source)throw new Error('Reviewed legacy RPC source was not parsed')
+    expect(source.text,'Reviewed legacy RPC source overlay expired').toBe(candidate.get(rpcFile))
+    const statements=source.statements.filter(isVariableStatement).filter(statement=>statement.declarationList.declarations.some(declaration=>isIdentifier(declaration.name)&&declaration.name.text==='markRequestTreated'))
+    expect(statements,'Reviewed legacy RPC declaration count expired').toHaveLength(1)
+    const statement=statements[0]!,start=statement.getStart(source)
+    // The native HTTP compatibility endpoint retains POST, strict C/T parsing and admitted Workspace authority.
+    expect(createHash('sha256').update(statement.getText(source),'utf8').digest('hex'),'Reviewed legacy RPC declaration expired').toBe('048836ebc4931b27266cee3d7553e82335747ebd6aaae70d6cfc8edf8dd08fde')
+    expect(marker.start,'Reviewed legacy RPC marker placement expired').toBeLessThan(start)
+    expect(source.text.slice(marker.end,start),'Reviewed legacy RPC marker placement expired').toMatch(/^\r?\n[ \t]*$/)
+    expect(marker.start===0||source.text[marker.start-1]==='\n','Reviewed legacy RPC marker line expired').toBe(true)
+  }
   try {
     const directive=targets[0][1]
     const textOnly=[
@@ -1544,7 +1596,12 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
       '// fallow-ignore complexity -- unknown EOF',
     ])expect(actualComments(new Map([[ssrFile,source]]))).toHaveLength(1)
     function reviewedCallbacks(candidate:Map<string,string>) {
-      const {snapshot,markers}=parsedCommentSources(candidate)
+      const {snapshot,markers:allMarkers}=parsedCommentSources(candidate)
+      expect(allMarkers,'Reviewed SSR marker count expired').toHaveLength(5)
+      const rpcMarkers=allMarkers.filter(marker=>marker.text===rpcDirective)
+      expect(rpcMarkers,'Reviewed legacy RPC marker count expired').toHaveLength(1)
+      reviewedLegacyRpc(snapshot,candidate,rpcMarkers[0]!)
+      const markers=allMarkers.filter(marker=>marker.text!==rpcDirective)
       expect(markers,'Reviewed SSR marker count expired').toHaveLength(4)
       expect(markers.every(marker=>marker.file===ssrFile),'Reviewed SSR marker file expired').toBe(true)
       expect(markers.map(marker=>marker.text).sort(),'Reviewed SSR canonical markers expired').toEqual(targets.map(target=>target[1]).sort())
@@ -1587,7 +1644,7 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
         expect(source.text.slice(marker.end,marker.end+newlineLength),'Reviewed SSR marker line expired').toMatch(/^\r?\n$/)
         reconstructed=reconstructed.slice(0,marker.start)+reconstructed.slice(marker.end+newlineLength)
       }
-      expect(digest(reconstructed),'Reviewed SSR whole file expired').toBe('2fad03b61d7ed6c4fb2a06e36729acb7cb14a7baa7926620924b790ab971b219')
+      expect(digest(reconstructed),'Reviewed SSR whole file expired').toBe('21453535fedf9a8aa7a04cc850188eab2821b4298856fbc2493ba281896f09b7')
     }
     expect(()=>reviewedCallbacks(sources)).not.toThrow()
     const original=sources.get(ssrFile)!,title=targets[0][0]
@@ -1596,7 +1653,7 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
     expect(blockStart).toBeGreaterThanOrEqual(0);expect(blockEnd).toBeGreaterThan(blockStart)
     const markedBlock=original.slice(blockStart,blockEnd)
     for(const source of [
-      original.replace("configurationRevision:7,treatedAt:null,resultAvailability:'available'","configurationRevision:8,treatedAt:null,resultAvailability:'available'"),
+      original.replace("configurationRevision:7,treatedAt:null,followUp:","configurationRevision:8,treatedAt:null,followUp:"),
       original.replace("from 'react-dom/server'","from 'react-dom/client'"),
       original.replace("const unavailable=async():Promise<never>=>{throw new Error('SSR must not mutate')}","const unavailable=async():Promise<never>=>await new Promise<never>(()=>{})"),
       original.slice(0,blockStart)+original.slice(blockEnd)+'\n'+markedBlock+'\n',
@@ -1635,6 +1692,21 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
     expect(actualComments(virtualCreated).filter(marker=>marker.file===virtualFile).map(marker=>marker.text)).toEqual(['// fallow-ignore complexity -- virtual initial'])
     const virtualChanged=new Map(virtualCreated);virtualChanged.set(virtualFile,'// fallow-ignore complexity -- virtual revised\nvoid 0\n')
     expect(actualComments(virtualChanged).filter(marker=>marker.file===virtualFile).map(marker=>marker.text)).toEqual(['// fallow-ignore complexity -- virtual revised'])
+    expect(()=>reviewedCallbacks(sources)).not.toThrow()
+    const rpcOriginal=sources.get(rpcFile)!
+    for(const [source,message] of [
+      [rpcOriginal.replace("export const markRequestTreated=createServerFn({method:'POST'})","export const markRequestTreated=createServerFn({method:'GET'})"),'Reviewed legacy RPC declaration expired'],
+      [rpcOriginal.replace(rpcDirective+'\n',rpcDirective+'\n\n'),'Reviewed legacy RPC marker placement expired'],
+      [rpcOriginal.replace(rpcDirective,rpcDirective+' complexity'),'Reviewed legacy RPC marker count expired'],
+      [rpcOriginal.replace(rpcDirective,rpcDirective.replace('next-line','file')),'Reviewed legacy RPC marker count expired'],
+      [rpcOriginal+'\n'+rpcDirective+'\nexport const unreviewedRpc=1\n','Reviewed SSR marker count expired'],
+    ]) {
+      expect(source,'Legacy RPC mutation must change the reviewed source').not.toBe(rpcOriginal)
+      const candidate=new Map(sources);candidate.set(rpcFile,source)
+      expect(()=>reviewedCallbacks(candidate)).toThrow(message)
+    }
+    const movedRpc=new Map(sources);movedRpc.set(rpcFile,rpcOriginal.replace(rpcDirective+'\n',''));movedRpc.set('tests/unreviewed-legacy-rpc.ts',rpcDirective+'\nexport const markRequestTreated=1\n')
+    expect(()=>reviewedCallbacks(movedRpc)).toThrow('Reviewed legacy RPC marker file expired')
     expect(()=>reviewedCallbacks(sources)).not.toThrow()
   } finally {try {latestSnapshot?.dispose()} finally {api.close()}}
 },50000)

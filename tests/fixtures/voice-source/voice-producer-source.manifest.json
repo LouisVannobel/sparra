@@ -1,8 +1,8 @@
 {
   "repository": "LouisVannobel/projetV0-voice",
-  "commit": "2c5006a61b629c2ce6def6fa854a7ea9ef7534b7",
-  "tree": "b94d513bc538bfcb152e739ac8343e9ce057ac91",
-  "owned_ref": "refs/heads/main",
+  "commit": "5fd3149314ebecc40af44c59118e8bfd2b1fd674",
+  "tree": "384fe724ca445a2acbf4959c60ca5c3615a7b95d",
+  "owned_ref": "refs/heads/z/voice-inbox-reliable-oct26",
   "input_roots": [
     ".python-version",
     "pyproject.toml",
@@ -14,9 +14,9 @@
     "deployment-profiles",
     "tests/integration/sparra_connected_scenario.py"
   ],
-  "archive_sha256": "e081802f5de46f1b01a979d71d8414aab78c270cc6c080cba220a79ef47c5aeb",
-  "archive_size": 405952,
-  "decoded_source_bytes": 1947107,
+  "archive_sha256": "d5b5f4e7ef68055b92ca1f1358cc8f611fd770ee1277791853b71efd1d766afb",
+  "archive_size": 408149,
+  "decoded_source_bytes": 1958308,
   "members": [
     {
       "path": ".python-version",
@@ -200,9 +200,9 @@
     },
     {
       "path": "src/projetv0_voice/models.py",
-      "size": 25007,
-      "git_blob": "6fe64980e6a425334a1a9eeb1cf33b33b865a6c9",
-      "sha256": "45b51014c1ea59dc56654af292d790e6d02399c6e4a3fd98f237c987cf5f3556"
+      "size": 27718,
+      "git_blob": "010595a625fda7ff5ce59ea5868519114f9e3ad1",
+      "sha256": "c27ff81939cd274a539fb2d872c043bb631a3401390abb9fdb88d01bb9d4f770"
     },
     {
       "path": "src/projetv0_voice/observability_bootstrap.py",
@@ -212,15 +212,15 @@
     },
     {
       "path": "src/projetv0_voice/owned_pilot_budget.py",
-      "size": 10443,
-      "git_blob": "096617bc2c7936d5e51858af829818de83ff3680",
-      "sha256": "e581fc5f213526fdeb2fbb3d3e7566bb0b15394f87be8227c3d9f43256509880"
+      "size": 10881,
+      "git_blob": "74982ddfb882ae9ed32dfa2ee1f6c4bab3ce1b73",
+      "sha256": "b130b0605c0dd967e2fac6529d31380df160265a5ab673dd7bd82d3af50b1837"
     },
     {
       "path": "src/projetv0_voice/owned_pilot_budget_cli.py",
-      "size": 7082,
-      "git_blob": "d4378561a6ff1254b5987827fc8b06aeaa2262ee",
-      "sha256": "54b2f243feb3b19bd25ea0b03addcfe6270dff9178a085eb76817298a991fc68"
+      "size": 7621,
+      "git_blob": "9d166ad4c8f0612a3e6c8c2d33bfb5f89429d645",
+      "sha256": "edc69d0a3d2b4e9a6fa0c1aa8394ce7a75e3e89bfd0231ad793569919cd59175"
     },
     {
       "path": "src/projetv0_voice/persistence/__init__.py",
@@ -260,15 +260,15 @@
     },
     {
       "path": "src/projetv0_voice/persistence/schema.py",
-      "size": 14098,
-      "git_blob": "0288c2c9aa671bcddadaf479ef8565dd0cef41f8",
-      "sha256": "3afd37c1058d83cae5b60cc4b80d518dbe143b653fb09bb8be63a7d38ad074e7"
+      "size": 15613,
+      "git_blob": "b797609e62d081fa90cefb68ab2f0f000a822746",
+      "sha256": "c7ab0937d3352a3b663406b519e2dc1387b3b65408db0c92a77ab5e75e33465b"
     },
     {
       "path": "src/projetv0_voice/persistence/writer.py",
-      "size": 247396,
-      "git_blob": "b07ba402945230cb6a000ec6230e3aa08275e74d",
-      "sha256": "7aeee4d844764a5123ed446038baab9903ec8a230da083f2fc31ed99b1700d4e"
+      "size": 252759,
+      "git_blob": "c04b676aac4e634ce5cc8820ab429464494cc97c",
+      "sha256": "e966a3888a73b88c9d81824b89cf101e2ff0e628589785b034b472a15e36e30e"
     },
     {
       "path": "src/projetv0_voice/pipeline.py",
@@ -308,9 +308,9 @@
     },
     {
       "path": "src/projetv0_voice/session.py",
-      "size": 126783,
-      "git_blob": "595502cfaedbc536fe081741451719934668cf48",
-      "sha256": "074b53d50b6152622d53f9e7304eef3a97da77ff05e6b1f5484b7a2a329b8a23"
+      "size": 127420,
+      "git_blob": "472963b585d4366c46c96432cdcea25a9121e2d6",
+      "sha256": "58cfbb00f23f2472edd24802093a681c7a8a671c711dfed4e4211d27b326014a"
     },
     {
       "path": "src/projetv0_voice/session_factory.py",
@@ -368,9 +368,9 @@
     },
     {
       "path": "uv.lock",
-      "size": 344183,
-      "git_blob": "5c47a75226a28591ff3572ac382832c3f0246ce7",
-      "sha256": "e3d7c476ccd9b66fb36026f5186912e4e6031c159f6e88a04d982d25ba94918c"
+      "size": 344181,
+      "git_blob": "f27881ff86a16d38af37fdf2a15b6b25e8005fc1",
+      "sha256": "c025bb92d40c87ad08e4e6a67f1bbfd009f6281c667a1e59f26b0c78ef8e2e6f"
     }
   ]
 }

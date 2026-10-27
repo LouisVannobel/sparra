@@ -11,7 +11,7 @@ import { startDisposableStores } from '../fixtures/db/disposable-stores'
 import { createTransactions } from '../../src/platform/db/transactions.server'
 import { createPersonalWorkspaces } from '../../src/modules/workspaces/personal.server'
 import { createActivityOperations } from '../../src/modules/sparra/activity.server'
-import { createRequestOperations } from '../../src/modules/sparra/requests.server'
+import { createRequestOperations, type ListRequestsInput, type parseRequestInput, type parseUpdateRequestFollowUpInput } from '../../src/modules/sparra/requests.server'
 import { startGoogleProtocolPeer } from '../helpers/google-protocol-peer.mjs'
 import { googleCeremony } from '../helpers/google-ceremony'
 import { createAuthRateLimiter, readRateLimitConfig } from '../../src/modules/auth/rate-limit.server'
@@ -27,15 +27,120 @@ let auth:ReturnType<typeof createApplicationAuth>,limiter:ReturnType<typeof crea
 let app:ReturnType<typeof startWeb>,origin:string,crypto:Awaited<ReturnType<typeof cryptoFixture>>
 const configuration={expectedRevision:0,businessName:'Garage',sector:'garage',knowledge:{openingHours:'',services:'Vidange',prices:'',faq:'',instructions:''}}
 const inventory=async(id:string)=>(await stores.administrator.query('SELECT (SELECT count(*)::int FROM sparra_call WHERE id=$1) AS calls,(SELECT count(*)::int FROM sparra_erasure WHERE call_id=$1) AS fences',[id])).rows[0]
-async function call(workspaceId:string,options:{id?:string;status?:string;revision?:number;admittedAt?:Date;retentionUntil?:Date;turns?:unknown;result?:unknown;endedAt?:Date}={}){
+async function call(workspaceId:string,options:{id?:string;status?:string;revision?:number;admittedAt?:Date;retentionUntil?:Date;turns?:unknown;result?:unknown;endedAt?:Date;unpublished?:boolean}={}){
   const id=options.id??randomUUID(),admitted=options.admittedAt??new Date()
   await stores.administrator.query(`INSERT INTO sparra_call(id,workspace_id,deployment_id,provider_call_control_id,admitted_at,retention_until,status,configuration_revision,encrypted_turns,encrypted_message_result,ended_at) VALUES($1::uuid,$2,'fixture',$1::text,$3,$4,$5,$6,$7,$8,$9)`,[id,workspaceId,admitted,options.retentionUntil??new Date(admitted.getTime()+2592000000),options.status??'pending',options.revision??null,options.turns??{},options.result??null,options.endedAt??null])
+  if(!options.unpublished)await publish(id,workspaceId)
   return id
 }
 function encryptedTurn(text:string,ordinal:number,role:'user'|'assistant'='user'){
   const id=randomUUID()
   return {...crypto.turn,turn_id:id,turn_no:ordinal,role,source:role==='user'?'stt_final':'pipecat_assistant',...crypto.encrypt(text,'turn:'+id)}
 }
+async function publish(id:string,workspaceId:string,closed=false){
+  if(closed)await stores.administrator.query(`UPDATE sparra_call SET status='closed',collection_manifest=jsonb_build_object('schema_version',1,'episode_id',gen_random_uuid(),'expected_turn_ids',(SELECT coalesce(jsonb_agg(key ORDER BY key),'[]') FROM jsonb_object_keys(encrypted_turns) key),'result_outcome',CASE WHEN encrypted_message_result IS NULL THEN 'absent' ELSE 'present' END,'audio',jsonb_build_object('state','off'),'gaps','[]'::jsonb) WHERE id=$1`,[id])
+  await stores.administrator.query('SELECT app_private.publish_sparra_inbox_v1($1,$2)',[id,workspaceId])
+}
+test('inbox publication DTO never mixes live content with displayed C/T and keeps C0 provisional',async()=>{
+  const {principal}=await ceremony(),workspace=await personal.ensurePersonalWorkspace(principal)
+  const id=randomUUID()
+  await call(workspace!.id,{id,turns:{[crypto.turnId]:crypto.turn},result:{schema_version:1,...crypto.encrypt(JSON.stringify(crypto.inner),'result:'+id)},unpublished:true})
+  const shell=await requests.detail(principal,id)
+  expect(shell).toMatchObject({summary:null,transcript:[],followUp:{publicationRevision:0,collectionClosed:false,declarationActive:false,reviewedRevision:0,firstDeclaredAt:null}})
+  await expect(requests.updateFollowUp(principal,{requestId:id,expectedPublicationRevision:0,expectedDecisionToken:shell.followUp.decisionToken,treated:true})).rejects.toMatchObject({name:'RequestPublicationProvisional'})
+  await publish(id,workspace!.id,true)
+  const command=randomUUID()
+  await stores.administrator.query(`INSERT INTO sparra_calendar_command(id,workspace_id,call_id,deployment_id,kind,digest,connection_id,generation,policy_revision,google_subject,calendar_id,policy,service_id,service_name,window_start,window_end,state,first_send_deadline,event_id) VALUES($1,$2,$3,'fixture','book_appointment','fixture',$4,1,1,'fixture','fixture','{"timeZone":"Europe/Paris","bufferMinutes":0}','vidange','Vidange',now()+interval '1 day',now()+interval '1 day 30 minutes','confirmed',now()+interval '1 minute','fixture-event')`,[command,workspace!.id,id,randomUUID()])
+  const first=await requests.detail(principal,id)
+  expect(first).toMatchObject({summary:'Demande de rappel',followUp:{publicationRevision:2,collectionClosed:true},bookingOutcome:'confirmed',bookings:[{serviceName:'Vidange',state:'confirmed',providerReference:'fixture-event',timezone:'Europe/Paris'}],evidence:[{turnId:crypto.turnId,role:'user'}]})
+  await stores.administrator.query("UPDATE sparra_call SET encrypted_message_result=NULL,encrypted_turns='{}',status='failed' WHERE id=$1",[id])
+  // Metadata outside the publisher's immutable real command path must not leak into old C/T.
+  await stores.administrator.query("UPDATE sparra_calendar_command SET service_name='Live changed label' WHERE id=$1",[command])
+  expect(await requests.detail(principal,id)).toEqual(first)
+  expect((await requests.list(principal,{view:'all'})).requests[0]).toMatchObject({bookingOutcome:'confirmed',followUp:first.followUp})
+})
+
+test('unreadable published pieces refuse declaration without mutating A/T; restoration stays pending and revocation and real gaps remain allowed',async()=>{
+  const {principal}=await ceremony(),workspace=await personal.ensurePersonalWorkspace(principal),id=randomUUID()
+  const turns=[crypto.turn,encryptedTurn('Une deuxième demande',2),encryptedTurn('Une troisième demande',3)]
+  await call(workspace!.id,{id,turns:Object.fromEntries(turns.map(turn=>[turn.turn_id,turn])),result:{schema_version:1,...crypto.encrypt(JSON.stringify(crypto.inner),'result:'+id)}})
+  await publish(id,workspace!.id,true)
+  const shown=await requests.detail(principal,id)
+  const input=(treated:boolean,detail=shown)=>({requestId:id,expectedPublicationRevision:detail.followUp.publicationRevision,expectedDecisionToken:detail.followUp.decisionToken,treated})
+  const state=async()=>(await stores.administrator.query('SELECT publication_version,publication_token,declared_publication,declaration_active,treated_at FROM sparra_call WHERE id=$1',[id])).rows[0]
+  const before=await state()
+  vi.stubEnv('SPARRA_AEAD_KEYRING_PATH','')
+  try{
+    // Use the previously readable C/T: the server must protect even a stale open UI.
+    await expect(requests.updateFollowUp(principal,input(true))).rejects.toMatchObject({name:'RequestPublicationUnreadable'})
+    expect(await state()).toEqual(before)
+    expect(await requests.detail(principal,id)).toMatchObject({summary:null,transcript:[],followUp:{collectionClosed:true,contentReadable:false}})
+    expect((await requests.list(principal,{})).requests).toEqual([expect.objectContaining({id,followUp:expect.objectContaining({contentReadable:false})})])
+  }finally{vi.stubEnv('SPARRA_AEAD_KEYRING_PATH',crypto.path)}
+  const restored=await requests.detail(principal,id)
+  expect(restored).toMatchObject({summary:'Demande de rappel',transcript:turns.map(turn=>({id:turn.turn_id})),followUp:{...shown.followUp,contentReadable:true}})
+  expect(await state()).toEqual(before)
+  expect((await requests.list(principal,{})).requests.map(row=>row.id)).toEqual([id])
+  const applied=await requests.updateFollowUp(principal,input(true,restored))
+  expect(applied.followUp).toMatchObject({declarationActive:true,contentReadable:true,firstDeclaredAt:expect.any(String)})
+  vi.stubEnv('SPARRA_AEAD_KEYRING_PATH','')
+  try{
+    const degraded=await requests.detail(principal,id),revoked=await requests.updateFollowUp(principal,input(false,degraded))
+    expect(revoked.followUp).toMatchObject({declarationActive:false,contentReadable:false,firstDeclaredAt:applied.followUp.firstDeclaredAt})
+    expect(revoked.followUp.decisionToken).not.toBe(degraded.followUp.decisionToken)
+    await expect(requests.updateFollowUp(principal,input(true))).rejects.toMatchObject({name:'RequestPublicationConflict'})
+    // A genuine terminal without a result and with a producer loss is classable.
+    const partial=await call(workspace!.id)
+    await publish(partial,workspace!.id,true)
+    await stores.administrator.query("UPDATE sparra_call SET transcript_loss_count=1,collection_manifest=jsonb_set(collection_manifest,'{gaps}','[\"transcript_loss\",\"result_unavailable\"]') WHERE id=$1",[partial]);await publish(partial,workspace!.id)
+    const absent=await requests.detail(principal,partial)
+    expect(absent.followUp).toMatchObject({collectionClosed:true,contentReadable:true})
+    expect((await requests.updateFollowUp(principal,{requestId:partial,expectedPublicationRevision:absent.followUp.publicationRevision,expectedDecisionToken:absent.followUp.decisionToken,treated:true})).followUp.declarationActive).toBe(true)
+  }finally{vi.stubEnv('SPARRA_AEAD_KEYRING_PATH',crypto.path)}
+})
+test('inbox publication CAS handles revoke ABA, later publications, cross tenant and lost commit acknowledgement',async()=>{
+  const {principal}=await ceremony(),workspace=await personal.ensurePersonalWorkspace(principal),foreign=(await ceremony()).principal
+  const id=await call(workspace!.id)
+  await publish(id,workspace!.id)
+  let shown=await requests.detail(principal,id)
+  const input=(treated:boolean)=>({requestId:id,expectedPublicationRevision:shown.followUp.publicationRevision,expectedDecisionToken:shown.followUp.decisionToken,treated})
+  await expect(requests.updateFollowUp(principal,input(true))).rejects.toMatchObject({name:'RequestPublicationProvisional'})
+  await publish(id,workspace!.id,true);shown=await requests.detail(principal,id)
+  const old=input(true)
+  await expect(requests.updateFollowUp(foreign,old)).rejects.toMatchObject({name:'RequestNotFound'})
+  const first=await requests.updateFollowUp(principal,old)
+  expect(first.followUp).toMatchObject({declarationActive:true,reviewedRevision:2,firstDeclaredAt:expect.any(String)})
+  await expect(requests.updateFollowUp(principal,old)).rejects.toMatchObject({name:'RequestPublicationConflict'})
+  shown=await requests.detail(principal,id)
+  const revoked=await requests.updateFollowUp(principal,input(false))
+  expect(revoked.followUp).toMatchObject({declarationActive:false,firstDeclaredAt:first.followUp.firstDeclaredAt})
+  await expect(requests.updateFollowUp(principal,old)).rejects.toMatchObject({name:'RequestPublicationConflict'})
+  shown=await requests.detail(principal,id)
+  await stores.administrator.query('UPDATE sparra_call SET end_reason=$2 WHERE id=$1',[id,'late']);await publish(id,workspace!.id)
+  await expect(requests.updateFollowUp(principal,input(true))).rejects.toMatchObject({name:'RequestPublicationConflict'})
+  shown=await requests.detail(principal,id)
+  const controller=new AbortController(),observedPool=new Pool({connectionString:stores.directRuntimeUrl,max:1})
+  observedPool.on('connect',client=>client.connection.on('commandComplete',(message:unknown)=>{if(typeof message==='object'&&message!==null&&'text'in message&&message.text==='COMMIT')controller.abort()}))
+  try{
+    const operations=createRequestOperations(createTransactions(observedPool,{maxStatementTimeoutMs:1000,maxCleanupTimeoutMs:1000})),lost=input(true)
+    await expect(operations.updateFollowUp(principal,lost,controller.signal)).rejects.toMatchObject({name:'PgTransactionError',phase:'finalize',outcome:'committed'})
+    await expect(requests.updateFollowUp(principal,lost)).rejects.toMatchObject({name:'RequestPublicationConflict'})
+    expect((await requests.detail(principal,id)).followUp).toMatchObject({declarationActive:true,firstDeclaredAt:first.followUp.firstDeclaredAt,reviewedRevision:3})
+  }finally{await observedPool.end()}
+})
+test('inbox publication pending filter precedes pagination and late content reopens old declarations',async()=>{
+  const {principal}=await ceremony(),workspace=await personal.ensurePersonalWorkspace(principal),ids:string[]=[]
+  for(let i=0;i<53;i++){
+    const id=await call(workspace!.id,{admittedAt:new Date(Date.now()-i*1000)});ids.push(id);await publish(id,workspace!.id,true)
+    const shown=await requests.detail(principal,id)
+    await requests.updateFollowUp(principal,{requestId:id,expectedPublicationRevision:shown.followUp.publicationRevision,expectedDecisionToken:shown.followUp.decisionToken,treated:true})
+  }
+  await stores.administrator.query("UPDATE sparra_call SET end_reason='late' WHERE id=$1",[ids[52]]);await publish(ids[52],workspace!.id)
+  const page=await requests.list(principal,{})
+  expect(page.requests.map(row=>row.id)).toEqual([ids[52]]);expect(page.nextCursor).toBeNull()
+  const all=await requests.list(principal,{view:'all'}),rest=await requests.list(principal,{view:'all',cursor:all.nextCursor})
+  expect([all.requests.length,rest.requests.length]).toEqual([50,3])
+})
 beforeAll(async()=>{
   stores=await startDisposableStores()
   const dir=await mkdtemp(join(tmpdir(),'sparra-inbox-prefix-'))
@@ -115,7 +220,7 @@ afterAll(async()=>{
 test('native owner reads absent state, actual Voice ciphertext and pinned configuration without inventing pending results',async()=>{
   const a=await ceremony(),b=await ceremony()
   expect(await requests.list(a.principal,{})).toEqual({requests:[],nextCursor:null})
-  for(const op of [requests.detail,requests.treat,requests.erase,requests.erasure])await expect(op(a.principal,randomUUID())).rejects.toMatchObject({name:'RequestNotFound'})
+  for(const op of [requests.detail,requests.erase,requests.erasure])await expect(op(a.principal,randomUUID())).rejects.toMatchObject({name:'RequestNotFound'})
   expect((await stores.administrator.query('SELECT count(*)::int AS n FROM workspace WHERE owner_user_id=$1',[a.principal.userId])).rows[0].n).toBe(0)
   const wa=await personal.ensurePersonalWorkspace(a.principal),wb=await personal.ensurePersonalWorkspace(b.principal)
   const config=await activity.save(a.principal,configuration)
@@ -126,14 +231,14 @@ test('native owner reads absent state, actual Voice ciphertext and pinned config
   const shell=await call(wa!.id),detail=await requests.detail(a.principal,shell)
   expect(detail).toMatchObject({configuration:null,configurationRevision:null,endedAt:null,resultAvailability:'unavailable',resultQuality:null,summary:null,transcriptAvailability:'unavailable'})
   expect((await requests.list(b.principal,{})).requests).toEqual([])
-  for(const op of [requests.detail,requests.treat,requests.erase,requests.erasure])await expect(op(b.principal,id)).rejects.toMatchObject({name:'RequestNotFound'})
+  for(const op of [requests.detail,requests.erase,requests.erasure])await expect(op(b.principal,id)).rejects.toMatchObject({name:'RequestNotFound'})
   expect(JSON.stringify(await requests.detail(a.principal,id))).not.toMatch(/ciphertext|key_version|provider_call|nonce_b64/)
   vi.stubEnv('SPARRA_AEAD_KEYRING_PATH','')
   try{
     expect(await requests.detail(a.principal,id)).toMatchObject({resultAvailability:'unavailable',transcriptAvailability:'unavailable',summary:null,configuration:config})
     expect(await requests.detail(a.principal,shell)).toMatchObject({resultAvailability:'unavailable',configuration:null})
   }finally{vi.stubEnv('SPARRA_AEAD_KEYRING_PATH',crypto.path)}
-  await stores.administrator.query('UPDATE sparra_call SET encrypted_turns=$2 WHERE id=$1',[id,{[crypto.turnId]:crypto.turn,[randomUUID()]:{}}])
+  await stores.administrator.query('UPDATE sparra_call SET encrypted_turns=$2 WHERE id=$1',[id,{[crypto.turnId]:crypto.turn,[randomUUID()]:{}}]);await publish(id,wa!.id)
   expect(await requests.detail(a.principal,id)).toMatchObject({resultAvailability:'available',summary:'Demande de rappel',transcriptAvailability:'partial',unavailableTurnCount:1})
 })
 test('native owner lists only the first authenticated nonblank caller excerpt without inventing result fields',async()=>{
@@ -166,9 +271,9 @@ test('invalid result may expose a valid caller excerpt but missing keys and unau
     expect((await requests.list(principal,{})).requests).toEqual([expect.objectContaining({id,conversationExcerpt:null})])
     expect(await requests.detail(principal,id)).toMatchObject({conversationExcerpt:null,transcriptAvailability:'unavailable'})
   }finally{vi.stubEnv('SPARRA_AEAD_KEYRING_PATH',crypto.path)}
-  await stores.administrator.query('UPDATE sparra_call SET encrypted_message_result=$2 WHERE id=$1',[id,{schema_version:1,...crypto.encrypt(JSON.stringify(crypto.inner),'result:'+id)}])
+  await stores.administrator.query('UPDATE sparra_call SET encrypted_message_result=$2 WHERE id=$1',[id,{schema_version:1,...crypto.encrypt(JSON.stringify(crypto.inner),'result:'+id)}]);await publish(id,workspace!.id)
   expect((await requests.list(principal,{})).requests).toEqual([expect.objectContaining({id,summary:'Demande de rappel',conversationExcerpt:null,resultAvailability:'available'})])
-  await stores.administrator.query('UPDATE sparra_call SET encrypted_turns=$2 WHERE id=$1',[id,{[crypto.turnId]:{...crypto.turn,ciphertext_b64:Buffer.alloc(20).toString('base64')}}])
+  await stores.administrator.query('UPDATE sparra_call SET encrypted_turns=$2 WHERE id=$1',[id,{[crypto.turnId]:{...crypto.turn,ciphertext_b64:Buffer.alloc(20).toString('base64')}}]);await publish(id,workspace!.id)
   expect((await requests.list(principal,{})).requests).toEqual([expect.objectContaining({id,conversationExcerpt:null})])
 })
 test('an assistant turn without a caller never supplies an Inbox excerpt',async()=>{
@@ -183,10 +288,11 @@ test('equal-millisecond pagination returns all 103 calls exactly once in tuple o
   expect([first.requests.length,second.requests.length,third.requests.length]).toEqual([50,50,3]);expect(third.nextCursor).toBeNull()
   expect([...first.requests,...second.requests,...third.requests].map(r=>r.id)).toEqual(ids.sort().reverse())
 })
-test.each(['active','closed'])('treat %s preserves inventory and stamp, erase deletes native content and survives retention',async status=>{
+test.each(['active','closed'])('provisional %s cannot be declared; erase deletes native content and survives retention',async status=>{
   const {principal}=await ceremony(),workspace=await personal.ensurePersonalWorkspace(principal)
   const id=await call(workspace!.id,{status,endedAt:status==='closed'?new Date():undefined,turns:{[crypto.turnId]:crypto.turn}})
-  const treated=await requests.treat(principal,id);expect(await requests.treat(principal,id)).toEqual(treated)
+  const shown=await requests.detail(principal,id)
+  await expect(requests.updateFollowUp(principal,{requestId:id,expectedPublicationRevision:shown.followUp.publicationRevision,expectedDecisionToken:shown.followUp.decisionToken,treated:true})).rejects.toMatchObject({name:'RequestPublicationProvisional'})
   expect(await inventory(id)).toEqual({calls:1,fences:0})
   expect(await requests.detail(principal,id)).toMatchObject({status,conversationExcerpt:'Rappelez-moi'})
   expect(await requests.erase(principal,id)).toEqual({requestId:id,state:'queued'})
@@ -214,7 +320,7 @@ test('expired content stays unreadable including a Workspace lock held across re
     await expect(detail).rejects.toMatchObject({name:'RequestNotFound'})
   }finally{await blocker.query('ROLLBACK');await blocker.end()}
   expect((await requests.list(principal,{})).requests).toEqual([])
-  await expect(requests.treat(principal,id)).rejects.toMatchObject({name:'RequestNotFound'})
+  await expect(requests.updateFollowUp(principal,{requestId:id,expectedPublicationRevision:1,expectedDecisionToken:randomUUID(),treated:true})).rejects.toMatchObject({name:'RequestNotFound'})
   // Erasure is permitted after expiry: it returns only the scoped durable obligation.
   const oldEnd=new Date(Date.now()-1800000),old=await call(workspace!.id,{admittedAt:new Date(oldEnd.getTime()-2592000000),retentionUntil:oldEnd})
   expect(await requests.erase(principal,old)).toEqual({requestId:old,state:'queued'})
@@ -235,16 +341,16 @@ test('native runtime UPDATE RETURNING cooperates with narrow definer, FORCE RLS 
     for(const tenant of ['', 'invalid','00000000-0000-0000-0000-000000000000',randomUUID(),foreign!.id]){
       await client.query('BEGIN');await client.query("SELECT set_config('app.tenant_id',$1,true)",[tenant]);expect((await client.query('SELECT call_id FROM sparra_erasure WHERE call_id=$1',[id])).rows).toEqual([])
       expect((await client.query('SELECT id FROM sparra_call WHERE id=$1',[other])).rows).toEqual([])
-      expect((await client.query('UPDATE sparra_call SET treated_at=clock_timestamp(),erasure_requested_at=clock_timestamp() WHERE id=$1 RETURNING id',[other])).rows).toEqual([])
+      expect((await client.query('UPDATE sparra_call SET erasure_requested_at=clock_timestamp() WHERE id=$1 RETURNING id',[other])).rows).toEqual([])
       await client.query('ROLLBACK')
     }
     expect(await inventory(other)).toEqual({calls:1,fences:0})
-    const forbidden=['DELETE FROM sparra_call','INSERT INTO sparra_call(id) VALUES (gen_random_uuid())',"UPDATE sparra_call SET status='closed'",'UPDATE sparra_call SET encrypted_message_result=NULL','DELETE FROM sparra_erasure',"UPDATE sparra_erasure SET state='completed'"]
+    const forbidden=['DELETE FROM sparra_call','INSERT INTO sparra_call(id) VALUES (gen_random_uuid())',"UPDATE sparra_call SET status='closed'",'UPDATE sparra_call SET encrypted_message_result=NULL','UPDATE sparra_call SET treated_at=clock_timestamp()','UPDATE sparra_call SET publication_token=gen_random_uuid()','UPDATE sparra_call SET declaration_active=true','DELETE FROM sparra_erasure',"UPDATE sparra_erasure SET state='completed'"]
     for(const query of forbidden)await expect(client.query(query)).rejects.toMatchObject({code:'42501'})
   }finally{await client.end()}
   expect((await stores.administrator.query("SELECT c.relname,r.rolname AS owner,c.relrowsecurity,c.relforcerowsecurity FROM pg_class c JOIN pg_roles r ON r.oid=c.relowner WHERE c.relname IN ('sparra_call','sparra_erasure') ORDER BY c.relname")).rows).toEqual(['sparra_call','sparra_erasure'].map(relname=>({relname,owner:'workspace_owner',relrowsecurity:true,relforcerowsecurity:true})))
   expect((await stores.administrator.query("SELECT r.rolname,r.rolcanlogin,r.rolbypassrls,p.prosecdef,p.proconfig,has_function_privilege('runtime',p.oid,'EXECUTE') AS execute FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner WHERE p.oid='app_private.sparra_erase_call()'::regprocedure")).rows).toEqual([{rolname:'workspace_owner',rolcanlogin:false,rolbypassrls:false,prosecdef:true,proconfig:['search_path=pg_catalog, pg_temp'],execute:false}])
-  expect((await stores.administrator.query("SELECT column_name FROM information_schema.column_privileges WHERE grantee='runtime' AND table_name='sparra_call' AND privilege_type='UPDATE' ORDER BY column_name")).rows).toEqual([{column_name:'erasure_requested_at'},{column_name:'treated_at'}])
+  expect((await stores.administrator.query("SELECT column_name FROM information_schema.column_privileges WHERE grantee='runtime' AND table_name='sparra_call' AND privilege_type='UPDATE' ORDER BY column_name")).rows).toEqual([{column_name:'erasure_requested_at'}])
   expect((await stores.administrator.query("SELECT count(*)::int AS n FROM pg_class c,LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a WHERE c.relname IN ('sparra_call','sparra_erasure') AND a.grantee=0")).rows[0].n).toBe(0)
   expect((await stores.administrator.query("SELECT has_table_privilege('workspace_bootstrap','sparra_call','SELECT,INSERT,UPDATE,DELETE') AS calls,has_table_privilege('workspace_bootstrap','sparra_erasure','SELECT,INSERT,UPDATE,DELETE') AS fences")).rows).toEqual([{calls:false,fences:false}])
   await stores.administrator.query("UPDATE workspace SET lifecycle='deleting' WHERE id=$1",[workspace!.id])
@@ -268,21 +374,34 @@ test('fence insertion failure and cancellation roll back; recorded COMMIT cancel
   observedPool.on('connect',client=>client.connection.on('commandComplete',(message:unknown)=>{if(typeof message==='object'&&message!==null&&'text'in message&&message.text==='COMMIT'){observed.push('COMMIT');controller.abort()}}))
   try{const owner=createTransactions(observedPool,{maxStatementTimeoutMs:1000,maxCleanupTimeoutMs:1000});await expect(createRequestOperations(owner).erase(principal,id,controller.signal)).rejects.toMatchObject({name:'PgTransactionError',phase:'finalize',outcome:'committed'});expect(observed).toEqual(['COMMIT']);expect(await requests.erasure(principal,id)).toEqual({requestId:id,state:'queued'});expect(await inventory(id)).toEqual({calls:0,fences:1})}finally{await observedPool.end()}
 })
+type RequestRpcInput=ListRequestsInput|ReturnType<typeof parseRequestInput>|ReturnType<typeof parseUpdateRequestFollowUpInput>
+async function assertRequestRpcAccessBoundary(invoke:(data:unknown,headers:Record<string,string>)=>ReturnType<typeof loopbackFetch>,data:RequestRpcInput,cookie:string,workspaceId:string){
+  // SAFETY: Both literal header sets contain only string-valued cookie/origin fields.
+  for(const headers of [{cookie},{cookie,origin:'https://foreign.example'}] as Record<string,string>[]){const denied=await invoke(data,headers);expect(denied.status).toBe(403);expect(denied.headers.get('cache-control')).toBe('no-store')}
+  expect((await invoke(data,{origin})).status).toBe(401)
+  expect((await invoke({...data,workspaceId},{cookie,origin})).status).toBe(400)
+}
 test('built native RPC enforces strict input, auth, missing and foreign Origin, bounded failures and no-store',async()=>{
   const {principal,cookie}=await ceremony(),workspace=await personal.ensurePersonalWorkspace(principal),id=randomUUID()
   await call(workspace!.id,{id,turns:{[crypto.turnId]:crypto.turn},result:{schema_version:1,...crypto.encrypt(JSON.stringify(crypto.inner),'result:'+id)}})
+  const displayed=await requests.detail(principal,id)
   const names=['listRequests','getRequestDetail','markRequestTreated','eraseRequest','getRequestErasure'] as const
   for(const name of names){
-    const path=await authRpcPath(name),method=name==='markRequestTreated'||name==='eraseRequest'?'POST':'GET',data=name==='listRequests'?{}:{requestId:id}
+    const path=await authRpcPath(name),method=name==='markRequestTreated'||name==='eraseRequest'?'POST':'GET'
+    const data:RequestRpcInput=name==='listRequests'?{}:name==='markRequestTreated'?{requestId:id,expectedPublicationRevision:displayed.followUp.publicationRevision,expectedDecisionToken:displayed.followUp.decisionToken,treated:true}:{requestId:id}
     const invoke=async(value:unknown,headers:Record<string,string>)=>{const body=await rpcBody(value);return loopbackFetch(origin+path+(method==='GET'?'?payload='+encodeURIComponent(body):''),{method,headers:{'content-type':'application/json','x-tsr-serverFn':'true',...headers},body:method==='POST'?body:undefined})}
-    // SAFETY: Both literal header sets contain only string-valued cookie/origin fields.
-    for(const headers of [{cookie},{cookie,origin:'https://foreign.example'}] as Record<string,string>[]){const denied=await invoke(data,headers);expect(denied.status).toBe(403);expect(denied.headers.get('cache-control')).toBe('no-store')}
-    expect((await invoke(data,{origin})).status).toBe(401)
-    expect((await invoke({...data,workspaceId:workspace!.id},{cookie,origin})).status).toBe(400)
+    await assertRequestRpcAccessBoundary(invoke,data,cookie,workspace!.id)
     if(name==='getRequestErasure')continue
+    if(name==='markRequestTreated'){expect((await invoke({requestId:id},{cookie,origin})).status).toBe(400);const provisional=await invoke(data,{cookie,origin});expect(provisional.status).toBe(409);expect(provisional.headers.get('x-sparra-request-error')).toBe('publication-provisional');continue}
     const response=await invoke(data,{cookie,origin});expect(response.status).toBe(200);expect(response.headers.get('cache-control')).toBe('no-store');expect(response.headers.get('x-robots-tag')).toBe('noindex');expect(response.headers.get('content-security-policy')).toContain("default-src 'none'")
     if(name==='getRequestDetail'){const body=await response.text();expect(body).toContain('Rappelez-moi');expect(body).toContain('Demande de rappel');expect(body).not.toMatch(/ciphertext|key_version|nonce_b64/)}
   }
+  const closedId=await call(workspace!.id);await publish(closedId,workspace!.id,true)
+  const shown=await requests.detail(principal,closedId),data={requestId:closedId,expectedPublicationRevision:shown.followUp.publicationRevision,expectedDecisionToken:shown.followUp.decisionToken,treated:true}
+  const followUpRpc=async(value:unknown)=>loopbackFetch(origin+await authRpcPath('updateRequestFollowUp'),{method:'POST',headers:{cookie,origin,'content-type':'application/json','x-tsr-serverFn':'true'},body:await rpcBody(value)})
+  expect((await followUpRpc({requestId:closedId})).status).toBe(400)
+  const applied=await followUpRpc(data);expect(applied.status).toBe(200);expect(await applied.text()).toContain('firstDeclaredAt')
+  const conflict=await followUpRpc(data);expect(conflict.status).toBe(409);expect(conflict.headers.get('x-sparra-request-error')).toBe('publication-conflict');expect(conflict.headers.get('cache-control')).toBe('no-store');expect(await conflict.text()).toContain('Actualisez')
   const failureId=await call(workspace!.id)
   await stores.administrator.query("CREATE FUNCTION fixture_inbox_rpc_abort() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'private-inbox-rpc-marker'; END $$; CREATE TRIGGER fixture_inbox_rpc_abort BEFORE INSERT ON sparra_erasure FOR EACH ROW EXECUTE FUNCTION fixture_inbox_rpc_abort()")
   try{const response=await loopbackFetch(origin+await authRpcPath('eraseRequest'),{method:'POST',headers:{cookie,origin,'content-type':'application/json','x-tsr-serverFn':'true'},body:await rpcBody({requestId:failureId})});expect(response.status).toBe(500);expect(await response.text()).toBe('Request unavailable');expect(app.output()).not.toContain('private-inbox-rpc-marker');expect(await inventory(failureId)).toEqual({calls:1,fences:0})}

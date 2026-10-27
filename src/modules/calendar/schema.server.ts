@@ -132,6 +132,7 @@ export const calendarCommand = pgTable(
       sql`isfinite(${table.windowStart}) and isfinite(${table.windowEnd}) and ${table.windowStart}<${table.windowEnd} and ${table.fence}>=0`,
     ),
     index('calendar_command_ready').on(table.retryAt),
+    pgPolicy('calendar_publication_owner', {to:'workspace_owner',for:'select',using:sql`${table.workspaceId}::text=current_setting('app.tenant_id',true)`}),
     pgPolicy('calendar_command_owner', {
       to: 'runtime',
       for: 'select',

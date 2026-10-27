@@ -1,29 +1,32 @@
 import { randomUUID } from 'node:crypto'
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import { Schema, SchemaGetter } from 'effect'
 import type { AuthTransactions } from '../../platform/db/transactions.server'
-import type { PersonalWorkspaceLease } from '../../platform/db/auth-pg-lease.server'
 import type { AdmittedPrincipal } from '../auth/session.server'
 import { configuration, type ActivityConfigurationDto } from './activity.server'
 import { decodeMessageContent, readKeyring, type MessageContent, type MessageResultV1 } from './message-crypto.server'
-import { sparraCall, sparraErasure, sparraKnowledgeRevision } from './schema.server'
-import { audioDto, type AudioDto } from './audio.server'
-import { calendarCommand } from '../calendar/schema.server'
+import { sparraCall, sparraErasure, sparraKnowledgeRevision, type InboxPublicationSnapshot } from './schema.server'
+import type { AudioDto } from './audio.server'
 import { calendarBookingOutcome, type CalendarBookingDto, type CalendarBookingOutcome } from '../calendar/booking'
-import { calendarPolicySchema } from '../calendar/policy'
+import type { RequestFollowUp, RequestFollowUpReceipt } from './follow-up'
 
 const idSchema=Schema.String.check(Schema.isUUID()).pipe(Schema.decode({decode:SchemaGetter.transform(value=>value.toLowerCase()),encode:SchemaGetter.transform(value=>value)}))
 const canonicalInstant=Schema.String.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),Schema.makeFilter(value=>Number.isFinite(Date.parse(value)) && new Date(value).toISOString()===value))
-const listInput=Schema.Struct({cursor:Schema.optional(Schema.Struct({admittedAt:canonicalInstant,id:idSchema}))})
+const listInput=Schema.Struct({view:Schema.optional(Schema.Literals(['pending','all'])),cursor:Schema.optional(Schema.Struct({admittedAt:canonicalInstant,id:idSchema}))})
 const requestInput=Schema.Struct({requestId:idSchema})
+const followUpInput=Schema.Struct({requestId:idSchema,expectedPublicationRevision:Schema.Int.check(Schema.isGreaterThanOrEqualTo(0),Schema.isLessThanOrEqualTo(2147483647)),expectedDecisionToken:idSchema,treated:Schema.Boolean})
 class InvalidRequestInput extends Error {constructor(){super('Invalid request input');this.name='InvalidRequestInput'}}
 class RequestNotFound extends Error {constructor(){super('Request unavailable');this.name='RequestNotFound'}}
+class RequestPublicationConflict extends Error {constructor(){super('La fiche a changé. Actualisez avant de déclarer son traitement.');this.name='RequestPublicationConflict'}}
+class RequestPublicationProvisional extends Error {constructor(){super('La collecte est provisoire. Le classement sera disponible après sa clôture.');this.name='RequestPublicationProvisional'}}
+class RequestPublicationUnreadable extends Error {constructor(){super('Des pièces de la fiche sont illisibles. Actualisez après leur rétablissement pour pouvoir classer.');this.name='RequestPublicationUnreadable'}}
 export function parseListRequestsInput(input:unknown){try{return Schema.decodeUnknownSync(listInput,{onExcessProperty:'error'})(input===undefined?{}:input)}catch{throw new InvalidRequestInput()}}
 export function parseRequestInput(input:unknown){try{return Schema.decodeUnknownSync(requestInput,{onExcessProperty:'error'})(input)}catch{throw new InvalidRequestInput()}}
+export function parseUpdateRequestFollowUpInput(input:unknown){try{return Schema.decodeUnknownSync(followUpInput,{onExcessProperty:'error'})(input)}catch{throw new InvalidRequestInput()}}
 export type ListRequestsInput=typeof listInput.Type
 export type EraseReceipt=Readonly<{requestId:string;state:'queued'|'completed'}>
-export type RequestSummaryDto=Readonly<{id:string;admittedAt:string;endedAt:string|null;status:typeof sparraCall.$inferSelect.status;configurationRevision:number|null;treatedAt:string|null;resultAvailability:'available'|'unavailable';resultQuality:'partial'|'complete'|null;category:MessageResultV1['category']|null;summary:string|null;conversationExcerpt:string|null;contact:MessageResultV1['contact']|null;nextAction:string|null;bookingOutcome?:CalendarBookingOutcome}>
-export type RequestDetailDto=RequestSummaryDto & Readonly<{configuration:ActivityConfigurationDto|null;transcript:MessageContent['transcript'];transcriptAvailability:MessageContent['transcriptAvailability'];unavailableTurnCount:number;moreTurns:boolean;transcriptLossCount:number;erasureState:'queued'|'completed'|null;audio?:AudioDto;bookings?:readonly CalendarBookingDto[]}>
+export type RequestSummaryDto=Readonly<{id:string;admittedAt:string;endedAt:string|null;status:typeof sparraCall.$inferSelect.status;configurationRevision:number|null;treatedAt:string|null;followUp:RequestFollowUp;resultAvailability:'available'|'unavailable';resultQuality:'partial'|'complete'|null;category:MessageResultV1['category']|null;summary:string|null;conversationExcerpt:string|null;contact:MessageResultV1['contact']|null;nextAction:string|null;bookingOutcome?:CalendarBookingOutcome}>
+export type RequestDetailDto=RequestSummaryDto & Readonly<{configuration:ActivityConfigurationDto|null;transcript:MessageContent['transcript'];transcriptAvailability:MessageContent['transcriptAvailability'];unavailableTurnCount:number;moreTurns:boolean;transcriptLossCount:number;erasureState:'queued'|'completed'|null;audio?:AudioDto;bookings?:readonly CalendarBookingDto[];evidence:readonly Readonly<{turnId:string;role:'user'|'assistant'}>[];callerPhone:string|null;collectionGaps:NonNullable<InboxPublicationSnapshot['collection']>['gaps'];audioCoverage:'unknown'}>
 export type ListRequestsPage=Readonly<{requests:RequestSummaryDto[];nextCursor:{admittedAt:string;id:string}|null}>
 function conversationExcerpt(content:MessageContent):string|null {
   const text=content.transcript.find(turn=>turn.role==='user'&&turn.text.trim())?.text.replace(/\s+/gu,' ').trim()
@@ -31,33 +34,39 @@ function conversationExcerpt(content:MessageContent):string|null {
   const characters=[...text]
   return characters.length<=240?text:characters.slice(0,239).join('')+'…'
 }
+function followUp(row:typeof sparraCall.$inferSelect,content:MessageContent):RequestFollowUp {
+  // Producer omissions/losses are published limits; an unreadable present piece
+  // may reappear at the same C after key recovery and cannot be declared reviewed.
+  const contentReadable=content.unavailableTurnCount===0&&!content.moreTurns&&(row.publicationSnapshot?.encrypted_message_result==null||content.result!==null)
+  return {publicationRevision:row.publicationVersion,decisionToken:row.publicationToken,reviewedRevision:row.declaredPublication,declarationActive:row.declarationActive,collectionClosed:row.publicationSnapshot?.collection_closed===true&&row.collectionClosed,contentReadable,firstDeclaredAt:row.treatedAt?.toISOString()??null}
+}
+const instant=(value:string)=>new Date(value).toISOString()
+function outcome(snapshot:InboxPublicationSnapshot|null):CalendarBookingOutcome|null {
+  const bookings=snapshot?.bookings??[]
+  return calendarBookingOutcome({total:bookings.length,confirmed:bookings.filter(b=>b.state==='confirmed'&&b.event_id&&(b.observed_state===null||b.observed_state==='confirmed')).length,cancelled:bookings.filter(b=>b.state==='confirmed'&&b.event_id&&b.observed_state==='cancelled').length})
+}
 function summary(row:typeof sparraCall.$inferSelect,content:MessageContent):RequestSummaryDto {
-  const result=content.result
-  return {id:row.id,admittedAt:row.admittedAt.toISOString(),endedAt:row.endedAt?.toISOString()??null,status:row.status,configurationRevision:row.configurationRevision,treatedAt:row.treatedAt?.toISOString()??null,resultAvailability:result?'available':'unavailable',resultQuality:result?.quality??null,category:result?.category??null,summary:result?.summary??null,conversationExcerpt:result?null:conversationExcerpt(content),contact:result?.contact??null,nextAction:result?.next_action??null}
+  const result=content.result??{quality:null,category:null,summary:null,contact:null,next_action:null}
+  const snapshot=row.publicationSnapshot,bookingOutcome=outcome(snapshot)
+  return {id:row.id,admittedAt:snapshot?instant(snapshot.admitted_at):row.admittedAt.toISOString(),endedAt:snapshot?.ended_at?instant(snapshot.ended_at):null,status:snapshot?.status??'pending',configurationRevision:snapshot?.configuration_revision??null,treatedAt:row.treatedAt?.toISOString()??null,followUp:followUp(row,content),resultAvailability:content.result?'available':'unavailable',resultQuality:result.quality,category:result.category,summary:result.summary,conversationExcerpt:content.result?null:conversationExcerpt(content),contact:result.contact,nextAction:result.next_action,...(bookingOutcome?{bookingOutcome}:{})}
 }
-const hasContent=(row:typeof sparraCall.$inferSelect)=>row.encryptedMessageResult!==null || Object.keys(row.encryptedTurns).length>0
-async function bookingOutcomes(lease:PersonalWorkspaceLease,callIds:readonly string[]):Promise<Map<string,CalendarBookingOutcome>> {
-  if(callIds.length===0)return new Map()
-  const rows=await lease.db.select({callId:calendarCommand.callId,total:sql<number>`count(*)::int`,confirmed:sql<number>`count(*) filter (where ${calendarCommand.state} = 'confirmed' and ${calendarCommand.eventId} is not null and ${calendarCommand.eventId} <> '' and (${calendarCommand.observedState} is null or ${calendarCommand.observedState} = 'confirmed'))::int`,cancelled:sql<number>`count(*) filter (where ${calendarCommand.state} = 'confirmed' and ${calendarCommand.eventId} is not null and ${calendarCommand.eventId} <> '' and ${calendarCommand.observedState} = 'cancelled')::int`}).from(calendarCommand).where(and(eq(calendarCommand.workspaceId,lease.workspaceId),eq(calendarCommand.kind,'book_appointment'),inArray(calendarCommand.callId,callIds))).groupBy(calendarCommand.callId)
-  const outcomes=new Map<string,CalendarBookingOutcome>()
-  for(const row of rows){
-    const outcome=calendarBookingOutcome(row)
-    if(row.callId&&outcome)outcomes.set(row.callId,outcome)
-  }
-  return outcomes
+function assertDisplayedPublication(row:typeof sparraCall.$inferSelect|undefined,data:typeof followUpInput.Type):asserts row is typeof sparraCall.$inferSelect {
+  if(!row||row.erasureRequestedAt!==null||row.retentionUntil.getTime()<=Date.now())throw new RequestNotFound()
+  if(row.publicationVersion!==data.expectedPublicationRevision||row.publicationToken!==data.expectedDecisionToken)throw new RequestPublicationConflict()
 }
+const hasContent=(row:typeof sparraCall.$inferSelect)=>row.publicationSnapshot!==null&&(row.publicationSnapshot.encrypted_message_result!==null || Object.keys(row.publicationSnapshot.encrypted_turns).length>0)
+const decode=(row:typeof sparraCall.$inferSelect,keys:Awaited<ReturnType<typeof readKeyring>>)=>decodeMessageContent(row.id,row.publicationSnapshot?.encrypted_turns??{},row.publicationSnapshot?.encrypted_message_result??null,keys,row.publicationSnapshot?.transcript_loss_count??0)
 export function createRequestOperations(owner:AuthTransactions){
   const options=(signal?:AbortSignal)=>({deadlineAtMs:Date.now()+10000,statementTimeoutMs:1000,cleanupTimeoutMs:1000,correlationId:randomUUID(),signal})
   const owned=(workspaceId:string,id:string)=>and(eq(sparraCall.workspaceId,workspaceId),eq(sparraCall.id,id))
   const eligible=()=>and(sql`${sparraCall.retentionUntil} > clock_timestamp()`,isNull(sparraCall.erasureRequestedAt))
   async function list(principal:AdmittedPrincipal,input:unknown,signal?:AbortSignal):Promise<ListRequestsPage>{
-    const {cursor}=parseListRequestsInput(input)
+    const {cursor,view='pending'}=parseListRequestsInput(input)
     return owner.withPersonalWorkspacePromise(options(signal),principal,false,async lease=>{
       if(!lease)return {requests:[],nextCursor:null}
-      const rows=await lease.db.select().from(sparraCall).where(and(eq(sparraCall.workspaceId,lease.workspaceId),eligible(),cursor?sql`(${sparraCall.admittedAt},${sparraCall.id}) < (${cursor.admittedAt}::timestamptz,${cursor.id}::uuid)`:undefined)).orderBy(desc(sparraCall.admittedAt),desc(sparraCall.id)).limit(51)
+      const rows=await lease.db.select().from(sparraCall).where(and(eq(sparraCall.workspaceId,lease.workspaceId),eligible(),view==='pending'?sql`(not ${sparraCall.declarationActive} or ${sparraCall.declaredPublication} < ${sparraCall.publicationVersion})`:undefined,cursor?sql`(${sparraCall.admittedAt},${sparraCall.id}) < (${cursor.admittedAt}::timestamptz,${cursor.id}::uuid)`:undefined)).orderBy(desc(sparraCall.admittedAt),desc(sparraCall.id)).limit(51)
       const page=rows.slice(0,50),keys=page.some(hasContent)?await readKeyring():null,last=page.at(-1)
-      const outcomes=await bookingOutcomes(lease,page.map(row=>row.id))
-      return {requests:page.map(row=>({ ...summary(row,decodeMessageContent(row.id,row.encryptedTurns,row.encryptedMessageResult,keys,row.transcriptLossCount)),...(outcomes.has(row.id)?{bookingOutcome:outcomes.get(row.id)}:{}) })),nextCursor:rows.length>50&&last?{admittedAt:last.admittedAt.toISOString(),id:last.id}:null}
+      return {requests:page.map(row=>summary(row,decode(row,keys))),nextCursor:rows.length>50&&last?{admittedAt:last.admittedAt.toISOString(),id:last.id}:null}
     })
   }
   async function detail(principal:AdmittedPrincipal,requestId:string,signal?:AbortSignal):Promise<RequestDetailDto>{
@@ -66,25 +75,39 @@ export function createRequestOperations(owner:AuthTransactions){
       if(!lease)throw new RequestNotFound()
       const [row]=await lease.db.select().from(sparraCall).where(and(owned(lease.workspaceId,id),eligible()))
       if(!row)throw new RequestNotFound()
-      const content=decodeMessageContent(row.id,row.encryptedTurns,row.encryptedMessageResult,hasContent(row)?await readKeyring():null,row.transcriptLossCount)
-      const [pin]=row.configurationRevision===null?[]:await lease.db.select().from(sparraKnowledgeRevision).where(and(eq(sparraKnowledgeRevision.workspaceId,lease.workspaceId),eq(sparraKnowledgeRevision.revision,row.configurationRevision)))
-      const bookingRows=await lease.db.select({state:calendarCommand.state,serviceName:calendarCommand.serviceName,start:calendarCommand.windowStart,end:calendarCommand.windowEnd,currentStart:calendarCommand.currentStart,currentEnd:calendarCommand.currentEnd,policy:calendarCommand.policy,eventId:calendarCommand.eventId,observedState:calendarCommand.observedState}).from(calendarCommand).where(and(eq(calendarCommand.workspaceId,lease.workspaceId),eq(calendarCommand.callId,id),eq(calendarCommand.kind,'book_appointment'))).orderBy(desc(calendarCommand.createdAt)).limit(20)
-      const bookings:CalendarBookingDto[]=bookingRows.map(booking=>{
-        const policy=Schema.decodeUnknownSync(calendarPolicySchema)(booking.policy)
-        return {state:Schema.decodeUnknownSync(Schema.Literals(['waiting_evidence','pending','running','confirmed','refused','unknown']))(booking.state),serviceName:booking.serviceName,start:(booking.currentStart??booking.start).toISOString(),end:booking.currentEnd?new Date(booking.currentEnd.getTime()-policy.bufferMinutes*60000).toISOString():booking.end.toISOString(),originalStart:booking.start.toISOString(),timezone:policy.timeZone,providerReference:booking.state==='confirmed'?booking.eventId:null,observedState:booking.observedState}
-      })
-      const outcome=(await bookingOutcomes(lease,[id])).get(id)
-      return {...summary(row,content),...(outcome?{bookingOutcome:outcome}:{}),bookings,configuration:pin?configuration(pin):null,transcript:content.transcript,transcriptAvailability:content.transcriptAvailability,unavailableTurnCount:content.unavailableTurnCount,moreTurns:content.moreTurns,transcriptLossCount:content.transcriptLossCount,erasureState:null,audio:audioDto(row)}
+      const snapshot=row.publicationSnapshot
+      const content=decode(row,hasContent(row)?await readKeyring():null)
+      // Configuration revisions are immutable. Select only the pin contained in this publication.
+      const [pin]=snapshot?.configuration_revision==null?[]:await lease.db.select().from(sparraKnowledgeRevision).where(and(eq(sparraKnowledgeRevision.workspaceId,lease.workspaceId),eq(sparraKnowledgeRevision.revision,snapshot.configuration_revision)))
+      const bookings:CalendarBookingDto[]=(snapshot?.bookings??[]).slice(0,20).map(booking=>({
+        state:booking.state==='offered'?'unknown':booking.state,serviceName:booking.service_name,start:instant(booking.current_start??booking.window_start),end:booking.current_end?new Date(Date.parse(booking.current_end)-Schema.decodeUnknownSync(Schema.Int)(booking.buffer_minutes)*60000).toISOString():instant(booking.window_end),originalStart:instant(booking.window_start),timezone:Schema.decodeUnknownSync(Schema.String)(booking.timezone),providerReference:booking.state==='confirmed'?booking.event_id:null,observedState:booking.observed_state,
+      }))
+      const audio:AudioDto|undefined=snapshot?{state:snapshot.audio.state,durationSeconds:snapshot.audio.total_samples===null?null:snapshot.audio.total_samples/8000,expiresAt:row.retentionUntil.toISOString(),partialReason:snapshot.audio.finish_reason,available:['ready','partial'].includes(snapshot.audio.state)&&(snapshot.audio.total_samples??0)>0}:undefined
+      return {...summary(row,content),bookings,configuration:pin?configuration(pin):null,transcript:content.transcript,transcriptAvailability:content.transcriptAvailability,unavailableTurnCount:content.unavailableTurnCount,moreTurns:content.moreTurns,transcriptLossCount:content.transcriptLossCount,erasureState:null,audio,evidence:content.result?.evidence.map(item=>({turnId:item.turn_id,role:item.role}))??[],callerPhone:snapshot?.from_e164??null,collectionGaps:snapshot?.collection?.gaps??[],audioCoverage:'unknown'}
     })
   }
-  async function treat(principal:AdmittedPrincipal,requestId:string,signal?:AbortSignal){
-    const {requestId:id}=parseRequestInput({requestId})
+  async function updateFollowUp(principal:AdmittedPrincipal,input:unknown,signal?:AbortSignal):Promise<RequestFollowUpReceipt>{
+    const data=parseUpdateRequestFollowUpInput(input)
     return owner.withPersonalWorkspacePromise(options(signal),principal,false,async lease=>{
       if(!lease)throw new RequestNotFound()
-      await lease.db.update(sparraCall).set({treatedAt:sql`clock_timestamp()`}).where(and(owned(lease.workspaceId,id),eligible(),isNull(sparraCall.treatedAt)))
-      const [row]=await lease.db.select({treatedAt:sparraCall.treatedAt}).from(sparraCall).where(and(owned(lease.workspaceId,id),eligible()))
-      if(!row?.treatedAt)throw new RequestNotFound()
-      return {requestId:id,treatedAt:row.treatedAt.toISOString()}
+      // Same native transaction and call lock as publication and the SQL CAS:
+      // the readable snapshot cannot be replaced between validation and decision.
+      if(data.treated){
+        const [shown]=await lease.db.select().from(sparraCall).where(owned(lease.workspaceId,data.requestId)).for('update')
+        assertDisplayedPublication(shown,data)
+        const content=decode(shown,hasContent(shown)?await readKeyring():null),follow=followUp(shown,content)
+        if(!follow.collectionClosed||shown.publicationSnapshot?.collection==null)throw new RequestPublicationProvisional()
+        if(!follow.contentReadable)throw new RequestPublicationUnreadable()
+      }
+      const [response]=await lease.db.select({outcome:sql<string>`app_private.update_sparra_follow_up_v1(${lease.workspaceId}::uuid,${data.requestId}::uuid,${data.expectedPublicationRevision}::integer,${data.expectedDecisionToken}::uuid,${data.treated}::boolean)`}).from(sparraCall).where(owned(lease.workspaceId,data.requestId)).limit(1)
+      const state=response?.outcome
+      if(state==='conflict')throw new RequestPublicationConflict()
+      if(state==='provisional')throw new RequestPublicationProvisional()
+      if(state!=='applied')throw new RequestNotFound()
+      // The SQL command retains the call lock until the native transaction commits.
+      const [row]=await lease.db.select().from(sparraCall).where(and(owned(lease.workspaceId,data.requestId),eligible()))
+      if(!row)throw new RequestNotFound()
+      return {requestId:row.id,followUp:followUp(row,decode(row,hasContent(row)?await readKeyring():null))}
     })
   }
   async function erase(principal:AdmittedPrincipal,requestId:string,signal?:AbortSignal):Promise<EraseReceipt>{
@@ -106,5 +129,5 @@ export function createRequestOperations(owner:AuthTransactions){
       return {requestId:id,state:receipt.state}
     })
   }
-  return {list,detail,treat,erase,erasure}
+  return {list,detail,updateFollowUp,erase,erasure}
 }

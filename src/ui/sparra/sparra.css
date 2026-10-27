@@ -122,3 +122,14 @@
 .sparra-calendar-row label,.sparra-calendar-number{display:flex;flex-direction:column;gap:.4rem}
 .sparra-calendar-row input{font:inherit;color:inherit;background:transparent;border:1px solid currentColor;border-radius:.5rem;padding:.65rem;max-width:100%;box-sizing:border-box}
 .sparra-calendar-row input:focus-visible{outline:2px solid currentColor;outline-offset:3px}
+
+.sparra-inbox-views { display:flex; flex-wrap:wrap; gap:12px; margin-block:20px; }
+.sparra-inbox-views a { display:inline-flex; align-items:center; min-height:44px; padding:8px 14px; border:1px solid #d8d7d3; border-radius:8px; }
+.sparra-inbox-views a[aria-current=page] { background:var(--sp-ink); color:var(--sp-paper); }
+.sparra-request-provenance { margin-block:16px 24px; font-size:13px; color:var(--sp-muted); overflow-wrap:anywhere; }
+.sparra-call-workspace { display:block; }
+.sparra-call-workspace > section { margin-bottom:28px; }
+.sparra-request-erasure { margin-top:40px; padding-top:24px; border-top:1px solid #e5e4e2; }
+.sparra-request-erasure > div { display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+.sparra-call-transcript li:target { outline:3px solid var(--sp-ink); outline-offset:3px; scroll-margin-top:24px; }
+.sparra-call-workspace,.sparra-inbox { overflow-wrap:anywhere; }

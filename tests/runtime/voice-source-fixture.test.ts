@@ -72,8 +72,8 @@ test('reviewed native Voice source fixture exposes exact authenticated members w
   const archive=readFileSync(join(fixture,'voice-producer-source.tar.gz'))
   const manifest=JSON.parse(readFileSync(join(fixture,'voice-producer-source.manifest.json'),'utf8'))
   const result=await source.readVoiceSourceFixture(archive,manifest,pythonExecutable)
-  expect(result.commit).toBe('2c5006a61b629c2ce6def6fa854a7ea9ef7534b7')
-  expect(result.tree).toBe('b94d513bc538bfcb152e739ac8343e9ce057ac91')
+  expect(result.commit).toBe('5fd3149314ebecc40af44c59118e8bfd2b1fd674')
+  expect(result.tree).toBe('384fe724ca445a2acbf4959c60ca5c3615a7b95d')
   expect(result.members).toBeInstanceOf(Map)
   expect(result.members.size).toBe(59)
   expect(result.members.has('src/projetv0_voice/recording_archive.py')).toBe(true)
@@ -82,7 +82,7 @@ test('reviewed native Voice source fixture exposes exact authenticated members w
   expect(result.members.has('scripts/prepare_tokenizers.py')).toBe(false)
   expect([...result.members.keys()].filter(path=>path.startsWith('tests/'))).toEqual(['tests/integration/sparra_connected_scenario.py'])
   expect(createHash('sha256').update(result.members.get('tests/integration/sparra_connected_scenario.py')).digest('hex')).toBe('f6e597966eacfaa07e8e4b43d67a93a7de1cbc8ede3608df62db477f07350593')
-  expect(createHash('sha256').update(result.members.get('src/projetv0_voice/models.py')).digest('hex')).toBe('45b51014c1ea59dc56654af292d790e6d02399c6e4a3fd98f237c987cf5f3556')
+  expect(createHash('sha256').update(result.members.get('src/projetv0_voice/models.py')).digest('hex')).toBe('c27ff81939cd274a539fb2d872c043bb631a3401390abb9fdb88d01bb9d4f770')
   expect([...result.members.keys()].sort()).toEqual(manifest.members.map((row:{path:string})=>row.path).sort())
   for(const row of manifest.members){
     const bytes=result.members.get(row.path)
@@ -130,7 +130,7 @@ test.each(['repository','owned-ref','archive-hash','archive-size','decoded-size'
   const manifest=JSON.parse(readFileSync(join(fixture,'voice-producer-source.manifest.json'),'utf8'))
   if(typeof pythonExecutable!=='string')throw new Error('Missing qualified Voice fixture interpreter')
   if(kind==='repository')manifest.repository='foreign/voice'
-  else if(kind==='owned-ref')manifest.owned_ref='refs/heads/z/sparra-v2-fixture-pacing'
+  else if(kind==='owned-ref')manifest.owned_ref='refs/heads/main'
   else if(kind==='archive-hash')manifest.archive_sha256='0'.repeat(64)
   else if(kind==='archive-size')manifest.archive_size-=1
   else if(kind==='decoded-size')manifest.decoded_source_bytes-=1
