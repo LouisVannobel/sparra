@@ -30,13 +30,20 @@ class WebsiteCaptureError extends Error {
 
 function fail(code: string): never { throw new WebsiteCaptureError(code) }
 
+function normalizeHost(value: string): string {
+  const host = value.toLowerCase()
+  let end = host.length
+  while (end > 0 && host[end - 1] === '.') end--
+  return host.slice(0, end)
+}
+
 function parseUrl(input: string, blockedHosts: readonly string[]): URL {
   let url: URL
   try { url = new URL(input) } catch { return fail('INVALID_URL') }
-  const host = url.hostname.toLowerCase().replace(/\.+$/, '')
+  const host = normalizeHost(url.hostname)
   if (url.username || url.password || url.search) return fail('UNSUPPORTED_URL')
   if (url.protocol !== 'https:' || url.port || !host || ipaddr.isValid(host.replace(/^\[|\]$/g, ''))) return fail('INVALID_URL')
-  if (blockedHosts.some(blocked => blocked.toLowerCase().replace(/\.+$/, '') === host)) return fail('BLOCKED_HOST')
+  if (blockedHosts.some(blocked => normalizeHost(blocked) === host)) return fail('BLOCKED_HOST')
   url.hash = ''
   return url
 }
