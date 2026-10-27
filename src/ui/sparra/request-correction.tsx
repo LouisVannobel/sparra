@@ -17,7 +17,7 @@ export type RequestCorrectionOperations={
   onLookupActivityConfirmation(key:ActivityConfirmationKey,signal:AbortSignal):Promise<ActivityConfirmationLookup|Response>
 }
 export type CorrectionAttempt={signal:AbortSignal;live():boolean;cancel():void;release():void}
-type Props={locale:Locale;callConfiguration:ActivityConfigurationDto|null;callRevision:number|null;blocked:boolean;onBegin():CorrectionAttempt|null;onRefused():Promise<void>;onRead:RequestCorrectionOperations['onReadActivity'];onConfirm:RequestCorrectionOperations['onConfirmActivity'];onLookup:RequestCorrectionOperations['onLookupActivityConfirmation']}
+type Props={locale:Locale;workspaceId:string;callConfiguration:ActivityConfigurationDto|null;callRevision:number|null;blocked:boolean;onBegin():CorrectionAttempt|null;onRefused():Promise<void>;onRead:RequestCorrectionOperations['onReadActivity'];onConfirm:RequestCorrectionOperations['onConfirmActivity'];onLookup:RequestCorrectionOperations['onLookupActivityConfirmation']}
 const fieldNames=['openingHours','services','prices','faq','instructions'] as const
 type Field=typeof fieldNames[number]
 const fields={openingHours:1000,services:2000,prices:1500,faq:3000,instructions:2000} satisfies Record<Field,number>
@@ -26,8 +26,8 @@ type Symptom=typeof symptoms[number]
 type Feedback='saved'|'observed'|'different'|'reread'|'unavailable'|'invalid'|'recording'|null
 type AttemptedSave={workspaceId:string;input:ConfirmActivityInput}
 
-function correctionInput(base:ActivityConfigurationDto,field:Field,text:string):ConfirmActivityInput['activity']{
-  return {expectedWorkspaceId:base.workspaceId,expectedRevision:base.revision,businessName:base.businessName,sector:base.sector,knowledge:{...base.knowledge,[field]:text.replace(/\r\n/g,'\n')},transferDestination:base.transferDestination,recordingEnabled:base.recordingEnabled??false,recordingPolicy:base.recordingPolicy,recordingContactPhone:base.recordingContactPhone}
+function correctionInput(workspaceId:string,base:ActivityConfigurationDto,field:Field,text:string):ConfirmActivityInput['activity']{
+  return {expectedWorkspaceId:workspaceId,expectedRevision:base.revision,businessName:base.businessName,sector:base.sector,knowledge:{...base.knowledge,[field]:text.replace(/\r\n/g,'\n')},transferDestination:base.transferDestination,recordingEnabled:base.recordingEnabled??false,recordingPolicy:base.recordingPolicy,recordingContactPhone:base.recordingContactPhone}
 }
 function containsAttempt(configuration:ActivityConfigurationDto|null,attempt:AttemptedSave):boolean{
   const input=attempt.input.activity
@@ -57,7 +57,7 @@ function CorrectionComparison({locale,base,field,text,callConfiguration}:{locale
   </>
 }
 
-export function RequestCorrection({locale,callConfiguration,callRevision,blocked,onBegin,onRead,onConfirm,onLookup,onRefused}:Props){
+export function RequestCorrection({locale,workspaceId,callConfiguration,callRevision,blocked,onBegin,onRead,onConfirm,onLookup,onRefused}:Props){
   const t=correctionMessages[locale],hydrated=useHydrated()
   const [open,setOpen]=useState(false),[symptom,setSymptom]=useState<Symptom|null>(null)
   const [base,setBase]=useState<ActivityConfigurationDto|null>(null),[hasRead,setHasRead]=useState(false),[audioAvailable,setAudioAvailable]=useState(false)
@@ -76,8 +76,8 @@ export function RequestCorrection({locale,callConfiguration,callRevision,blocked
   function selectField(next:Field){if(editDisabled||!base)return;setField(next);setText(base.knowledge[next]);setReviewed(false);setAttested(false);setFeedback(null);setReceipt(null)}
   function release(owned:CorrectionAttempt){if(operation.current!==owned)return;operation.current=null;owned.release();setPending(null)}
   function isRefused(error:unknown){return error instanceof Response&&(error.status===401||(error.status===409&&error.headers.get('x-sparra-activity-error')==='workspace-changed'))}
-  function changedWorkspace(state:ActivityState){const expected=callConfiguration?.workspaceId??base?.workspaceId;return Boolean(expected&&state.workspace&&state.workspace.id!==expected)}
-  function ownedConfiguration(state:ActivityState){return state.configuration&&state.workspace?.id===state.configuration.workspaceId&&(!callConfiguration||callConfiguration.workspaceId===state.configuration.workspaceId)&&(!base||base.workspaceId===state.configuration.workspaceId)?state.configuration:null}
+  function changedWorkspace(state:ActivityState){return state.workspace?.id!==workspaceId||(state.configuration!==null&&state.configuration.workspaceId!==workspaceId)}
+  function ownedConfiguration(state:ActivityState){return state.configuration&&state.workspace?.id===workspaceId&&state.configuration.workspaceId===workspaceId?state.configuration:null}
   async function readCurrent(){
     if(!hydrated||disabled)return
     const owned=onBegin();if(!owned)return
@@ -100,7 +100,7 @@ export function RequestCorrection({locale,callConfiguration,callRevision,blocked
   async function save(){
     if(!reviewed||!attested||!canReview||!base||!field)return
     const owned=onBegin();if(!owned)return
-    const attempt:AttemptedSave={workspaceId:base.workspaceId,input:{draftId:globalThis.crypto.randomUUID(),draftVersion:1,expectedWorkspaceId:base.workspaceId,activity:correctionInput(base,field,text),decisions:[],confirmed:true}}
+    const attempt:AttemptedSave={workspaceId,input:{draftId:globalThis.crypto.randomUUID(),draftVersion:1,expectedWorkspaceId:workspaceId,activity:correctionInput(workspaceId,base,field,text),decisions:[],confirmed:true}}
     attempted.current=attempt;operation.current=owned;setPending('save');setFeedback(null);setReviewed(false);setAttested(false);setReceipt(null)
     const {signal,live}=owned
     let confirmed=false
@@ -143,7 +143,7 @@ export function RequestCorrection({locale,callConfiguration,callRevision,blocked
             {callConfiguration&&<Button label={t.useCall} isDisabled={editDisabled} onClick={()=>edit(callConfiguration.knowledge[field])}/>}
             <CorrectionComparison locale={locale} base={base} field={field} text={normalized} callConfiguration={callConfiguration}/>
             {!changed&&<p>{t.unchanged}</p>}
-            {!reviewed?<Button label={t.review} isDisabled={!canReview} onClick={()=>{if(canReview){setReviewed(true);setAttested(false)}}}/>:<><CorrectionFinalReview locale={locale} input={correctionInput(base,field,text)} attested={attested} disabled={editDisabled} onAttest={setAttested}/><p>{t.confirmHint}</p><Button label={t.confirm} variant="primary" isDisabled={!canReview||!attested} onClick={()=>void save()}/></>}
+            {!reviewed?<Button label={t.review} isDisabled={!canReview} onClick={()=>{if(canReview){setReviewed(true);setAttested(false)}}}/>:<><CorrectionFinalReview locale={locale} input={correctionInput(workspaceId,base,field,text)} attested={attested} disabled={editDisabled} onAttest={setAttested}/><p>{t.confirmHint}</p><Button label={t.confirm} variant="primary" isDisabled={!canReview||!attested} onClick={()=>void save()}/></>}
           </>}
           {audioBlocked&&<p role="alert">{t.recording} <a href={`/app/entreprise?lang=${locale}`}>{t.business}</a></p>}
         </>}

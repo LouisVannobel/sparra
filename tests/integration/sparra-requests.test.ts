@@ -7,6 +7,7 @@ import { Client, Pool } from 'pg'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import { fetch as loopbackFetch } from 'undici'
+import { fromCrossJSON } from 'seroval'
 import { startDisposableStores } from '../fixtures/db/disposable-stores'
 import { createTransactions } from '../../src/platform/db/transactions.server'
 import { createPersonalWorkspaces } from '../../src/modules/workspaces/personal.server'
@@ -225,11 +226,11 @@ test('native owner reads absent state, actual Voice ciphertext and pinned config
   const wa=await personal.ensurePersonalWorkspace(a.principal),wb=await personal.ensurePersonalWorkspace(b.principal)
   const config=await activity.save(a.principal,configuration)
   const id=await call(wa!.id,{id:crypto.callId,revision:1,turns:{[crypto.turnId]:crypto.turn},result:crypto.result()})
-  expect(await requests.detail(a.principal,id)).toMatchObject({configuration:config,summary:'Demande de rappel',conversationExcerpt:null,resultAvailability:'available',resultQuality:'partial',transcriptAvailability:'available',transcript:[{text:'Rappelez-moi'}],endedAt:null})
+  expect(await requests.detail(a.principal,id)).toMatchObject({workspaceId:wa!.id,configuration:config,summary:'Demande de rappel',conversationExcerpt:null,resultAvailability:'available',resultQuality:'partial',transcriptAvailability:'available',transcript:[{text:'Rappelez-moi'}],endedAt:null})
   expect(await requests.detail(a.principal,id.toUpperCase())).toMatchObject({id,resultAvailability:'available'})
   await expect(call(wb!.id,{revision:1})).rejects.toMatchObject({code:'23503'})
   const shell=await call(wa!.id),detail=await requests.detail(a.principal,shell)
-  expect(detail).toMatchObject({configuration:null,configurationRevision:null,endedAt:null,resultAvailability:'unavailable',resultQuality:null,summary:null,transcriptAvailability:'unavailable'})
+  expect(detail).toMatchObject({workspaceId:wa!.id,configuration:null,configurationRevision:null,endedAt:null,resultAvailability:'unavailable',resultQuality:null,summary:null,transcriptAvailability:'unavailable'})
   expect((await requests.list(b.principal,{})).requests).toEqual([])
   for(const op of [requests.detail,requests.erase,requests.erasure])await expect(op(b.principal,id)).rejects.toMatchObject({name:'RequestNotFound'})
   expect(JSON.stringify(await requests.detail(a.principal,id))).not.toMatch(/ciphertext|key_version|provider_call|nonce_b64/)
@@ -394,7 +395,7 @@ test('built native RPC enforces strict input, auth, missing and foreign Origin, 
     if(name==='getRequestErasure')continue
     if(name==='markRequestTreated'){expect((await invoke({requestId:id},{cookie,origin})).status).toBe(400);const provisional=await invoke(data,{cookie,origin});expect(provisional.status).toBe(409);expect(provisional.headers.get('x-sparra-request-error')).toBe('publication-provisional');continue}
     const response=await invoke(data,{cookie,origin});expect(response.status).toBe(200);expect(response.headers.get('cache-control')).toBe('no-store');expect(response.headers.get('x-robots-tag')).toBe('noindex');expect(response.headers.get('content-security-policy')).toContain("default-src 'none'")
-    if(name==='getRequestDetail'){const body=await response.text();expect(body).toContain('Rappelez-moi');expect(body).toContain('Demande de rappel');expect(body).not.toMatch(/ciphertext|key_version|nonce_b64/)}
+    if(name==='getRequestDetail'){const body=await response.text();expect(body).toContain('Rappelez-moi');expect(body).toContain('Demande de rappel');expect(body).not.toMatch(/ciphertext|key_version|nonce_b64/);expect(fromCrossJSON(JSON.parse(body),{refs:new Map()})).toMatchObject({result:{id,workspaceId:workspace!.id,configuration:null}})}
   }
   const closedId=await call(workspace!.id);await publish(closedId,workspace!.id,true)
   const shown=await requests.detail(principal,closedId),data={requestId:closedId,expectedPublicationRevision:shown.followUp.publicationRevision,expectedDecisionToken:shown.followUp.decisionToken,treated:true}

@@ -1474,13 +1474,14 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
   // anchored transcript turns and the active declaration fixture; D remains unchanged.
   // Full file re-reviewed on 2026-10-27: retain the Inbox DTOs and all A-D bodies,
   // plus the import confirmation/read/import callbacks and four-input/11-control editor.
-  // Only its surrounding file digest changes; every callback anchor stays identical.
+  // Subsequent Oracle Workspace-pin amendment re-reviewed on 2026-10-27: four DTO pins;
+  // A and surrounding-file digests change, while B-D and all comments stay identical.
   const targets=[
     ['detail and inbox preserve the translated native category and observed number source in both locales',
       '// fallow-ignore-next-line complexity -- reviewed SSR A; TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003',
-      'f4d8e198411e1579e7d9e676d7dce5dedf75d44907fed08e4e91c0a35d0dbfe9',
-      '7d22d879df0ce9bef694f3fa8324d9a2c3b62f3d439285d96212daf039887b9b',
-      '70e3c784e6fee2a7b74173fd6d38d4c3844a407a4e250af8f53f3c840ed5052d'],
+      '7b3c0f027a0a70defb4ae4ad499d3d1d591737da0818a2225d08283bdf0f4bd0',
+      '0a5f0c2a1e000ec0ebbdc7f95601217739da7fec0420e1dca9d5efb5d14b96fa',
+      'f5e72814afc5616fbf1f0198565e0c7a389702a9b4ea4038457f651a14d798ee'],
     ['request detail keeps observed metadata, ordered partial turns, pinned knowledge and disabled SSR actions in both locales',
       '// fallow-ignore-next-line complexity -- reviewed SSR B; TASK5_REAL_RESIDUAL_TEST_TARGET_SCOPE_20261003',
       'd519c67d951064520e85baa1989a8f89051f04fe48b78913aadb300565d7a405',
@@ -1647,7 +1648,7 @@ test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_ch
         expect(source.text.slice(marker.end,marker.end+newlineLength),'Reviewed SSR marker line expired').toMatch(/^\r?\n$/)
         reconstructed=reconstructed.slice(0,marker.start)+reconstructed.slice(marker.end+newlineLength)
       }
-      expect(digest(reconstructed),'Reviewed SSR whole file expired').toBe('a80f290881d2efaaa01990668d8ec70a46cf6eef6061a2689b55b4cbddfa26c8')
+      expect(digest(reconstructed),'Reviewed SSR whole file expired').toBe('96ee3ca4517fea4b3e907e15a722b0e9ebe24ab1a0878ad69344718aee64066d')
     }
     expect(()=>reviewedCallbacks(sources)).not.toThrow()
     const original=sources.get(ssrFile)!,title=targets[0][0]

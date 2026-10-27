@@ -8,7 +8,7 @@ const unavailable = async (): Promise<never> => {
   throw new Error('No mutation')
 }
 test('verified appointment remains visible independently from absent or partial model summary', () => {
-  const detail = {
+  const detail = {workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
     id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     admittedAt: '2026-10-01T10:00:00.000Z',
     endedAt: null,
@@ -70,7 +70,7 @@ test('verified appointment remains visible independently from absent or partial 
   expect(changed).not.toContain('Rendez-vous confirmé')
 })
 
-const appointment: RequestDetailDto = {
+const appointment: RequestDetailDto = {workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
   id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', admittedAt: '2026-10-01T10:00:00.000Z', endedAt: '2026-10-01T10:03:00.000Z',
   status: 'closed', configurationRevision: null, treatedAt:null,followUp:{publicationRevision:1,decisionToken:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',reviewedRevision:0,declarationActive:false,collectionClosed:true,contentReadable:true,firstDeclaredAt:null}, resultAvailability: 'available', resultQuality: 'partial',
   category: 'appointment_to_confirm', summary: 'Vidange demandée', conversationExcerpt: null,

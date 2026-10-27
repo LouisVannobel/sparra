@@ -2,7 +2,7 @@ import { expect, test } from 'vitest'
 import type { EraseReceipt, RequestDetailDto } from '../../src/modules/sparra/sparra.functions'
 import { performRequestAction, type RequestLoaded } from '../../src/ui/sparra/request-panel'
 
-const detail: RequestDetailDto = {
+const detail: RequestDetailDto = {workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
   id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', admittedAt: '2026-10-01T10:00:00.000Z',
   endedAt: '2026-10-01T10:03:00.000Z', status: 'closed', configurationRevision: 7,
   treatedAt:null,followUp:{publicationRevision:1,decisionToken:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',reviewedRevision:0,declarationActive:false,collectionClosed:true,contentReadable:true,firstDeclaredAt:null}, resultAvailability: 'available', resultQuality: 'partial', category: 'information',
