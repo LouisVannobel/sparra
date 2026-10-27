@@ -480,12 +480,12 @@ test('swapped native state purposes and mismatched codes do not grant linking or
   const fresh = await authorize(f, 3), freshState = new URL(fresh.url).searchParams.get('state'), subject = randomUUID()
   const freshCode = peer.register(fresh.url, subject)
   const originalCookies = f.cookie + '; ' + cookies(fresh.headers)
-  const verificationBefore = (await stores.administrator.query('SELECT id,value FROM verification WHERE identifier=$1', [freshState])).rows
+  const verificationBefore = (await stores.administrator.query('SELECT id,value FROM verification WHERE identifier=$1', ['auth-state:' + freshState])).rows
   expect(verificationBefore.length).toBe(1)
   const fingerprint = (rows: unknown) => createHash('sha256').update(JSON.stringify(rows)).digest('hex')
   const verificationHash = fingerprint(verificationBefore), originalSnapshot = await snapshot(f.principal.userId), exchangesBefore = peer.evidence().posts
   const refused = await app.callback(request(originalCookies, '/api/auth/callback/google?state=' + freshState + '&code=' + freshCode, 'GET'))
-  const verificationAfter = (await stores.administrator.query('SELECT id,value FROM verification WHERE identifier=$1', [freshState])).rows
+  const verificationAfter = (await stores.administrator.query('SELECT id,value FROM verification WHERE identifier=$1', ['auth-state:' + freshState])).rows
   const observation = {
     verificationUnchanged: verificationAfter.length === 1 && fingerprint(verificationAfter) === verificationHash,
     stateCookiePublished: refused.headers.getSetCookie().some(cookie => /^(?:__Secure-)?better-auth\.(?:state|oauth_state)=/.test(cookie)),
@@ -502,7 +502,7 @@ test('swapped native state purposes and mismatched codes do not grant linking or
   expect(peer.evidence().posts - exchangesBefore).toBe(1)
   expect((await app.readGoogleAccountIntent(request(f.cookie), { intentId: fresh.intentId })).state).toBe('linked')
   expect((await stores.administrator.query("SELECT count(*)::int n FROM account WHERE user_id=$1 AND provider_id='google' AND account_id=$2", [f.principal.userId, subject])).rows[0].n).toBe(1)
-  expect((await stores.administrator.query('SELECT count(*)::int n FROM verification WHERE identifier=$1', [freshState])).rows[0].n).toBe(0)
+  expect((await stores.administrator.query('SELECT count(*)::int n FROM verification WHERE identifier=$1', ['auth-state:' + freshState])).rows[0].n).toBe(0)
   expect(await snapshot(f.principal.userId)).toBe(originalSnapshot)
   purposePreservationObservations.push({ correctCallbackSameStateAndCode: true, linkedReceipt: true, exactBindingCount: 1, providerExchangeDelta: 1, verificationConsumedByIntendedCallback: true })
 })
@@ -653,7 +653,7 @@ test('first-key OAuth purpose cannot enter Google linking and leaves its origina
   const response = await googleAccountCallbackResponse(request(cookie + '; ' + cookies(first.headers), '/api/auth/account/google/callback?state=' + url.searchParams.get('state') + '&code=' + firstCode, 'GET'), app, limiter)
   expect(response.status).toBe(400); expect(peer.evidence().posts).toBe(posts)
   expect((await stores.administrator.query('SELECT phase FROM first_google_passkey_intent WHERE id=$1', [first.intentId])).rows[0].phase).toBe('PENDING_GOOGLE')
-  expect((await stores.administrator.query('SELECT count(*)::int n FROM verification WHERE identifier=$1', [url.searchParams.get('state')])).rows[0].n).toBe(1)
+  expect((await stores.administrator.query('SELECT count(*)::int n FROM verification WHERE identifier=$1', ['auth-state:' + url.searchParams.get('state')])).rows[0].n).toBe(1)
 })
 
 test('stale native ambient context cannot replace the current request-bound session', async () => {

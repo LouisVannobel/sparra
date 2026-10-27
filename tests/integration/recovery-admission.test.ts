@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { inspect } from 'node:util'
 import { eq } from 'drizzle-orm'
+import { readMigrationFiles } from 'drizzle-orm/migrator'
 import { Client, Pool } from 'pg'
 import { expect, test, vi } from 'vitest'
 import { startDisposableStores } from '../fixtures/db/disposable-stores'
@@ -284,7 +285,7 @@ async function assertUnchangedRecoveryBeginAfterRefusal(fixture: SeededRecoveryG
   expect(Boolean(state) && positive.headers.getSetCookie().length === 1).toBe(true)
   expect((await stores.administrator.query('SELECT count(*)::int n FROM recovery_attempt WHERE user_id=$1 AND phase=$2 AND oauth_state=$3',
     [userId, 'PENDING_GOOGLE', state])).rows[0].n).toBe(1)
-  expect((await stores.administrator.query('SELECT count(*)::int n FROM verification WHERE identifier=$1', [state])).rows[0].n).toBe(1)
+  expect((await stores.administrator.query('SELECT count(*)::int n FROM verification WHERE identifier=$1', ['auth-state:' + state])).rows[0].n).toBe(1)
   expect(peer.evidence().posts).toBe(0)
 }
 
@@ -378,7 +379,7 @@ async function assertExactGoogleProof(fixture: SeededRecoveryGoogle, originalAtt
     expiresAt: new Date(originalAttempt.expires_at as string).toISOString() }
   expect(hash(storedValue)).toBe(hash(expectedValue))
   expect((await administrator.query('SELECT count(*)::int n FROM verification WHERE identifier=$1',
-    [originalAttempt.oauth_state])).rows[0].n).toBe(0)
+    ['auth-state:' + originalAttempt.oauth_state])).rows[0].n).toBe(0)
 }
 
 test('R1 malformed callbacks leave an otherwise valid signed recovery tuple usable', async () => {
@@ -465,7 +466,7 @@ for (const kind of ['missing nonce', 'wrong nonce', 'raw subject mismatch'] as c
         expect(attempted.length).toBe(1)
         expect(attempted[0].phase).toBe('EXCHANGING')
         expect(hash([{ ...attempted[0], phase: 'PENDING_GOOGLE' }])).toBe(hash(original))
-        expect((await stores.administrator.query('SELECT count(*)::int n FROM verification WHERE identifier=$1', [state])).rows[0].n).toBe(0)
+        expect((await stores.administrator.query('SELECT count(*)::int n FROM verification WHERE identifier=$1', ['auth-state:' + state])).rows[0].n).toBe(0)
         expect((await stores.administrator.query('SELECT count(*)::int n FROM verification WHERE identifier=$1',
           ['application-recovery-google-v1:' + original[0].id])).rows[0].n).toBe(0)
       } finally {
@@ -498,7 +499,7 @@ for (const kind of ['batch rotation', 'account unlink', 'attempt removal'] as co
       await bounded(stores.administrator.query(`INSERT INTO verification(id,identifier,value,expires_at)
         VALUES($1,'r1-fence-expired-canary','canary',clock_timestamp()-interval '1 minute')`, [randomUUID()]), 16000)
       const before = await googleInventory(fixture)
-      expect((await stores.administrator.query('SELECT count(*)::int n FROM verification WHERE identifier=$1', [state])).rows[0].n).toBe(1)
+      expect((await stores.administrator.query('SELECT count(*)::int n FROM verification WHERE identifier=$1', ['auth-state:' + state])).rows[0].n).toBe(1)
       observed.nativeVerificationLookups = 0; observed.nativeVerificationSweeps = 0; observed.observeOrdinary = true
       try {
         const response = await bounded(app.callback(request(cookies(begun.headers),
@@ -904,7 +905,7 @@ test('R1 Google Begin cleanup keeps its 25-attempt boundary and unsafe native bi
     const firstState = new URL(first.url).searchParams.get('state')
     if (!firstState) throw new Error('Missing native state')
     const firstAttempt = (await stores.administrator.query('SELECT * FROM recovery_attempt WHERE oauth_state=$1', [firstState])).rows
-    const firstNative = (await stores.administrator.query('SELECT value FROM verification WHERE identifier=$1', [firstState])).rows
+    const firstNative = (await stores.administrator.query('SELECT value FROM verification WHERE identifier=$1', ['auth-state:' + firstState])).rows
     expect(firstAttempt.length).toBe(1); expect(firstNative.length).toBe(1)
     const anchor = Date.now() - 600000
     await bounded(stores.administrator.query('UPDATE recovery_attempt SET created_at=$2,expires_at=$3 WHERE id=$1',
@@ -925,10 +926,10 @@ test('R1 Google Begin cleanup keeps its 25-attempt boundary and unsafe native bi
         const value = mode === 'malformed' ? '{malformed' : JSON.stringify({ ...valid, oauthState: state,
           serverContext: { ...valid.serverContext, attemptId: mode === 'foreign' ? randomUUID() : id } })
         await bounded(stores.administrator.query('INSERT INTO verification(id,identifier,value,expires_at) VALUES($1,$2,$3,$4)',
-          [randomUUID(), state, value, new Date(Date.now() + 300000)]), 16000)
+          [randomUUID(), 'auth-state:' + state, value, new Date(Date.now() + 300000)]), 16000)
         if (mode === 'duplicate') await bounded(stores.administrator.query(
           'INSERT INTO verification(id,identifier,value,expires_at) VALUES($1,$2,$3,$4)',
-          [randomUUID(), state, value, new Date(anchor)]), 16000)
+          [randomUUID(), 'auth-state:' + state, value, new Date(anchor)]), 16000)
       }
       if (index === 1) {
         proofId = 'application-recovery-google-v1:' + id
@@ -962,7 +963,7 @@ test('R1 Google Begin cleanup keeps its 25-attempt boundary and unsafe native bi
     const unsafeStates = (await stores.administrator.query('SELECT oauth_state FROM recovery_attempt WHERE id=ANY($1::uuid[]) ORDER BY id',
       [unsafe])).rows.map(row => row.oauth_state as string)
     const unsafeNativeBefore = hash((await stores.administrator.query(
-      'SELECT * FROM verification WHERE identifier=ANY($1::text[]) ORDER BY identifier,id', [unsafeStates])).rows)
+      'SELECT * FROM verification WHERE identifier=ANY($1::text[]) ORDER BY identifier,id', [unsafeStates.map(state => 'auth-state:' + state)])).rows)
     const before = await googleInventory(fixture)
     const pending = app.beginRecoveryGoogleProof(request(), { email, code })
     const cleanupFailures: string[] = []
@@ -973,14 +974,14 @@ test('R1 Google Begin cleanup keeps its 25-attempt boundary and unsafe native bi
     for (const field of ['user', 'account', 'session', 'batch', 'code', 'fact'] as const) expect(after[field]).toBe(before[field])
     expect(peer.evidence().posts).toBe(0)
     expect((await stores.administrator.query('SELECT count(*)::int n FROM recovery_attempt WHERE id=$1', [firstAttempt[0].id])).rows[0].n).toBe(0)
-    expect((await stores.administrator.query('SELECT count(*)::int n FROM verification WHERE identifier=$1', [firstState])).rows[0].n).toBe(0)
+    expect((await stores.administrator.query('SELECT count(*)::int n FROM verification WHERE identifier=$1', ['auth-state:' + firstState])).rows[0].n).toBe(0)
     expect((await stores.administrator.query('SELECT count(*)::int n FROM verification WHERE identifier=$1', [proofId])).rows[0].n).toBe(0)
     const left = (await stores.administrator.query('SELECT id FROM recovery_attempt WHERE id=ANY($1::uuid[])', [ids])).rows.map(row => row.id)
     expect(hash(left.slice().sort())).toBe(hash([...unsafe, ...boundary].sort()))
     expect(hash((await stores.administrator.query('SELECT * FROM recovery_attempt WHERE id=ANY($1::uuid[]) ORDER BY id',
       [survivorAttempts])).rows)).toBe(survivorAttemptsBefore)
     expect(hash((await stores.administrator.query('SELECT * FROM verification WHERE identifier=ANY($1::text[]) ORDER BY identifier,id',
-      [unsafeStates])).rows)).toBe(unsafeNativeBefore)
+      [unsafeStates.map(state => 'auth-state:' + state)])).rows)).toBe(unsafeNativeBefore)
     expect((await stores.administrator.query('SELECT count(*)::int n FROM recovery_attempt WHERE id=$1', [activeAttempt])).rows[0].n).toBe(1)
     expect((await stores.administrator.query('SELECT count(*)::int n FROM recovery_attempt WHERE id=$1', [otherAttempt])).rows[0].n).toBe(1)
     } finally {
@@ -996,7 +997,7 @@ test('R1 Google Begin cleanup removes at most 75 rows from 25 safe attempt proof
     const first = await bounded(app.beginRecoveryGoogleProof(request(), { email, code }), 16000)
     const firstState = new URL(first.url).searchParams.get('state')
     if (!firstState) throw new Error('Missing native state')
-    const native = (await stores.administrator.query('SELECT value FROM verification WHERE identifier=$1', [firstState])).rows
+    const native = (await stores.administrator.query('SELECT value FROM verification WHERE identifier=$1', ['auth-state:' + firstState])).rows
     const firstAttempt = (await stores.administrator.query('SELECT id FROM recovery_attempt WHERE oauth_state=$1', [firstState])).rows
     expect(native.length).toBe(1); expect(firstAttempt.length).toBe(1)
     const anchor = Date.now() - 600000
@@ -1013,7 +1014,7 @@ test('R1 Google Begin cleanup removes at most 75 rows from 25 safe attempt proof
       [id, userId, batchId, codeId, accountId, 'https://accounts.google.com', subject, state,
         new Date(expiry.getTime() - 60000), expiry]), 16000)
       if (index > 0) await bounded(stores.administrator.query('INSERT INTO verification(id,identifier,value,expires_at) VALUES($1,$2,$3,$4)',
-        [randomUUID(), state, JSON.stringify({ ...JSON.parse(native[0].value), oauthState: state,
+        [randomUUID(), 'auth-state:' + state, JSON.stringify({ ...JSON.parse(native[0].value), oauthState: state,
           serverContext: { ...JSON.parse(native[0].value).serverContext, attemptId: id } }), new Date(Date.now() + 300000)]), 16000)
       const proofId = 'application-recovery-google-v1:' + id
       const value = { version: 1, purpose: 'recovery-google-proof', userId, attemptId: id, recoveryGeneration: 0,
@@ -1028,7 +1029,7 @@ test('R1 Google Begin cleanup removes at most 75 rows from 25 safe attempt proof
     expect(boundary.length).toBe(1)
     const boundaryAttemptBefore = hash((await stores.administrator.query('SELECT * FROM recovery_attempt WHERE id=$1', [boundary[0].id])).rows)
     const boundaryNativeBefore = hash((await stores.administrator.query('SELECT * FROM verification WHERE identifier=$1 OR identifier=$2 ORDER BY identifier,id',
-      [boundary[0].oauth_state, 'application-recovery-google-v1:' + boundary[0].id])).rows)
+      ['auth-state:' + boundary[0].oauth_state, 'application-recovery-google-v1:' + boundary[0].id])).rows)
     const before = await googleInventory(fixture)
     const pending = app.beginRecoveryGoogleProof(request(), { email, code })
     const cleanupFailures: string[] = []
@@ -1038,17 +1039,17 @@ test('R1 Google Begin cleanup removes at most 75 rows from 25 safe attempt proof
     const after = await googleInventory(fixture)
     for (const field of ['user', 'account', 'session', 'batch', 'code', 'fact'] as const) expect(after[field]).toBe(before[field])
     const removedAttempts = (await stores.administrator.query('SELECT id FROM recovery_attempt WHERE id=ANY($1::uuid[])', [attempts])).rows
-    const removedStates = (await stores.administrator.query('SELECT identifier FROM verification WHERE identifier=ANY($1::text[])', [states])).rows
+    const removedStates = (await stores.administrator.query('SELECT identifier FROM verification WHERE identifier=ANY($1::text[])', [states.map(state => 'auth-state:' + state)])).rows
     const removedProofs = (await stores.administrator.query('SELECT identifier FROM verification WHERE identifier=ANY($1::text[])', [proofs])).rows
     expect(attempts.length).toBe(25); expect(states.length).toBe(25); expect(proofs.length).toBe(25)
     expect(removedAttempts.length + removedStates.length + removedProofs.length).toBe(0)
     expect((await stores.administrator.query('SELECT count(*)::int n FROM recovery_attempt WHERE id=$1', [boundary[0].id])).rows[0].n).toBe(1)
-    expect((await stores.administrator.query('SELECT count(*)::int n FROM verification WHERE identifier=$1', [boundary[0].oauth_state])).rows[0].n).toBe(1)
+    expect((await stores.administrator.query('SELECT count(*)::int n FROM verification WHERE identifier=$1', ['auth-state:' + boundary[0].oauth_state])).rows[0].n).toBe(1)
     expect((await stores.administrator.query('SELECT count(*)::int n FROM verification WHERE identifier=$1',
       ['application-recovery-google-v1:' + boundary[0].id])).rows[0].n).toBe(1)
     expect(hash((await stores.administrator.query('SELECT * FROM recovery_attempt WHERE id=$1', [boundary[0].id])).rows)).toBe(boundaryAttemptBefore)
     expect(hash((await stores.administrator.query('SELECT * FROM verification WHERE identifier=$1 OR identifier=$2 ORDER BY identifier,id',
-      [boundary[0].oauth_state, 'application-recovery-google-v1:' + boundary[0].id])).rows)).toBe(boundaryNativeBefore)
+      ['auth-state:' + boundary[0].oauth_state, 'application-recovery-google-v1:' + boundary[0].id])).rows)).toBe(boundaryNativeBefore)
     expect(peer.evidence().posts).toBe(0)
     } finally {
       await settleOwnedClose('google-75row-original-begin', () => pending, cleanupFailures)
@@ -1244,7 +1245,7 @@ for (const mode of ['claim unknown acknowledgement', 'proof unknown acknowledgem
         const attempt = (await stores.administrator.query('SELECT * FROM recovery_attempt WHERE oauth_state=$1', [state])).rows
         expect(attempt.length).toBe(1)
         expect(hash([{ ...attempt[0], phase: 'PENDING_GOOGLE' }])).toBe(hash(original))
-        expect((await stores.administrator.query('SELECT count(*)::int n FROM verification WHERE identifier=$1', [state])).rows[0].n).toBe(0)
+        expect((await stores.administrator.query('SELECT count(*)::int n FROM verification WHERE identifier=$1', ['auth-state:' + state])).rows[0].n).toBe(0)
         if (mode === 'claim unknown acknowledgement') {
           expect(attempt[0].phase).toBe('EXCHANGING')
           expect(peer.evidence().posts).toBe(0)
@@ -1301,7 +1302,7 @@ for (const kind of googleInvalidations) for (const phase of ['before claim', 'pa
           expect(claimed.length).toBe(1)
           expect(claimed[0].phase).toBe('EXCHANGING')
           expect(hash([{ ...claimed[0], phase: 'PENDING_GOOGLE' }])).toBe(hash(beforeAttempt))
-          expect((await stores.administrator.query('SELECT * FROM verification WHERE identifier=$1', [state])).rows.length).toBe(0)
+          expect((await stores.administrator.query('SELECT * FROM verification WHERE identifier=$1', ['auth-state:' + state])).rows.length).toBe(0)
           expect((await stores.administrator.query('SELECT * FROM verification WHERE identifier=$1',
             ['application-recovery-google-v1:' + beforeAttempt[0].id])).rows.length).toBe(0)
           expect(peer.evidence().posts).toBe(0)
@@ -1644,7 +1645,7 @@ test('R1 F1 expiry after native state row lock wait refuses before native lookup
       const deadline = new Date(expiryRows[0].expires_at)
       await stores.administrator.query('BEGIN')
       stateLocked = true
-      const locked = (await stores.administrator.query('SELECT id FROM verification WHERE identifier=$1 FOR UPDATE', [state])).rows
+      const locked = (await stores.administrator.query('SELECT id FROM verification WHERE identifier=$1 FOR UPDATE', ['auth-state:' + state])).rows
       expect(locked.length).toBe(1)
       const inventory = async () => hash({
         users: (await stores.administrator.query('SELECT * FROM "user" WHERE id=$1', [userId])).rows,
@@ -1888,7 +1889,7 @@ test('R1 real recovery code issuer to linked Google proof', async () => {
     expect([beforeRows, beforeAccount, beforeSession, beforeKey, beforeVerification, beforeAudit].every(rows => rows.length === 1)).toBe(true)
     await stores.migrate(); await stores.migrate()
     const finalJournal = (await stores.administrator.query('SELECT hash,created_at FROM drizzle.__drizzle_migrations ORDER BY id')).rows
-    expect(finalJournal.length).toBe(13)
+    expect(finalJournal).toEqual(readMigrationFiles({ migrationsFolder: 'drizzle' }).map(migration => ({ hash: migration.hash, created_at: String(migration.folderMillis) })))
     expect(hash(finalJournal.slice(0, 12)) === hash(beforeJournal)).toBe(true)
     expect(hash((await stores.administrator.query('SELECT * FROM "user" WHERE id=$1', [priorId])).rows) === hash(beforeRows)).toBe(true)
     expect(hash((await stores.administrator.query('SELECT * FROM account WHERE user_id=$1', [priorId])).rows) === hash(beforeAccount)).toBe(true)
@@ -1978,7 +1979,7 @@ test('R1 real recovery code issuer to linked Google proof', async () => {
     const proof = (await stores.administrator.query('SELECT * FROM verification WHERE identifier=$1', [`application-recovery-google-v1:${attempt[0].id}`])).rows
     expect(proof.length).toBe(1)
     expect(new Date(proof[0].expires_at).getTime()).toBe(new Date(attempt[0].expires_at).getTime())
-    expect((await stores.administrator.query('SELECT count(*)::int n FROM verification WHERE identifier=$1', [state])).rows[0].n).toBe(0)
+    expect((await stores.administrator.query('SELECT count(*)::int n FROM verification WHERE identifier=$1', ['auth-state:' + state])).rows[0].n).toBe(0)
     expect((await stores.administrator.query('SELECT count(*)::int n FROM recovery_code WHERE user_id=$1 AND spent_at IS NOT NULL', [principal.userId])).rows[0].n).toBe(0)
     expect(hash((await stores.administrator.query('SELECT * FROM "user" WHERE id=$1', [principal.userId])).rows)).toBe(userBefore)
     expect(hash((await stores.administrator.query('SELECT * FROM session WHERE user_id=$1 ORDER BY id', [principal.userId])).rows)).toBe(sessionBefore)
@@ -2050,7 +2051,7 @@ test('R1 Google claim proof publication and native/provider failures keep phase 
     }
     const proofCount = async (attemptId: string) => (await stores.administrator.query('SELECT count(*)::int n FROM verification WHERE identifier=$1',
       ['application-recovery-google-v1:' + attemptId])).rows[0].n
-    const stateCount = async (state: string) => (await stores.administrator.query('SELECT count(*)::int n FROM verification WHERE identifier=$1', [state])).rows[0].n
+    const stateCount = async (state: string) => (await stores.administrator.query('SELECT count(*)::int n FROM verification WHERE identifier=$1', ['auth-state:' + state])).rows[0].n
 
     observed.lateBegin = true; observed.lateBeginReached = 0
     await fixedFailure(begin(), 'Authentication outcome unconfirmed')
@@ -2161,7 +2162,7 @@ test('R1 ordinary callback refuses an expired recovery attempt before native sta
     const expired = (await stores.administrator.query('SELECT phase,expires_at FROM recovery_attempt WHERE oauth_state=$1', [state])).rows
     expect(expired.length).toBe(1)
     expect(new Date(expired[0].expires_at).getTime() < Date.now()).toBe(true)
-    const nativeState = (await stores.administrator.query('SELECT expires_at FROM verification WHERE identifier=$1', [state])).rows
+    const nativeState = (await stores.administrator.query('SELECT expires_at FROM verification WHERE identifier=$1', ['auth-state:' + state])).rows
     expect(nativeState.length).toBe(1)
     expect(new Date(nativeState[0].expires_at).getTime() > Date.now()).toBe(true)
     await stores.administrator.query(`INSERT INTO verification(id,identifier,value,expires_at)

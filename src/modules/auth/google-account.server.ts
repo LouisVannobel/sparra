@@ -7,6 +7,7 @@ import type { AuthTransactions } from '../../platform/db/transactions.server'
 import type { AdmittedPrincipal } from './session.server'
 import { validateAdditionalPasskeyAuthorizeInput } from './additional-passkey.server'
 import { account, googleAccountIntent, passkey, session, user, verification } from './schema.server'
+import { storedOAuthStateIdentifier } from './oauth-state-identifier.server'
 
 export class GoogleAccountRejected extends Error {
   constructor(readonly reason: 'unavailable' | 'expired' | 'cancelled' = 'unavailable', readonly principalRefused = false) { super('Authentication rejected') }
@@ -129,7 +130,7 @@ export async function advanceGoogleAccountKey(lease: GoogleAccountLease, state: 
 }
 export async function invalidateGoogleAccountIntent(lease: GoogleAccountLease, state: GoogleAccountState, reason: GoogleAccountRejected['reason']) {
   if (!state.intent || state.intent.phase === 'CONSUMED' || state.intent.phase === 'INVALIDATED') return
-  if (state.intent.oauthState) await lease.db.delete(verification).where(eq(verification.identifier, state.intent.oauthState))
+  if (state.intent.oauthState) await lease.db.delete(verification).where(eq(verification.identifier, storedOAuthStateIdentifier(state.intent.oauthState)))
   const [changed] = await lease.db.update(googleAccountIntent).set({ phase: 'INVALIDATED', reason, ...googleAccountTerminalMaterial })
     .where(and(eq(googleAccountIntent.id, state.intent.id), eq(googleAccountIntent.phase, state.intent.phase))).returning()
   if (!changed) throw new GoogleAccountRejected()

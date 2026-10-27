@@ -9,6 +9,7 @@ import type { AuthTransactions } from '../../platform/db/transactions.server'
 import { requestAuthDeadlineAtMs } from '../../platform/resources.server'
 import type { createAuthRateLimiter } from './rate-limit.server'
 import { recoveryAttempt, verification } from './schema.server'
+import { storedOAuthStateIdentifier } from './oauth-state-identifier.server'
 import { RecoveryRejected, advanceRecoveryRotationKey, cleanupRecoveryRotationChallenges, finishRecoveryRotation,
   lockRotationState, prepareRecoveryRotation, recheckRotationState, validateRecoveryRotationFinish, type RotationState } from './recovery.server'
 import { cleanupRecoveryGoogleAttempts, lockRecoveryGoogleByCode, lockRecoveryGoogleAttempt, recheckRecoveryGoogle, recoveryDatabaseTime, recoveryGoogleCallbackPath,
@@ -343,7 +344,7 @@ export function createRecoveryGoogleCommands(owner: AuthTransactions, origin: st
                 let payload: typeof googleState.Type
                 try { payload = Schema.decodeUnknownSync(googleState)(JSON.parse(data.value), { onExcessProperty: 'error' }) }
                 catch { throw new RecoveryRejected() }
-                if (payload.oauthState !== data.identifier || payload.callbackURL !== origin + '/login' || payload.errorURL !== origin + '/login'
+                if (storedOAuthStateIdentifier(payload.oauthState) !== data.identifier || payload.callbackURL !== origin + '/login' || payload.errorURL !== origin + '/login'
                   || !payload.codeVerifier || !payload.idTokenNonce || payload.serverContext.attemptId !== state.attempt?.id
                   || data.expiresAt.getTime() <= state.attempt.expiresAt.getTime())
                   throw new RecoveryRejected()
@@ -419,10 +420,10 @@ export function createRecoveryGoogleCommands(owner: AuthTransactions, origin: st
                 // confined to this owner; the generated spelling is captured
                 // by the adapter only after native validation has created it.
                 const minted = await generateState(ctx, { idTokenNonce: nonce })
-                if (!stateCreated || !minted.state || expectedState !== minted.state) throw new RecoveryRejected()
+                if (!stateCreated || !minted.state || expectedState !== storedOAuthStateIdentifier(minted.state)) throw new RecoveryRejected()
                 validateRecoveryStateHeaders(ctx.responseHeaders, cookieName!, 'begin'); assert('state')
-                const rows = await current.db.select().from(verification).where(eq(verification.identifier, minted.state)).limit(2)
-                if (!createdStateRow || rows.length !== 1 || rows[0].id !== createdStateRow.id || rows[0].identifier !== minted.state
+                const rows = await current.db.select().from(verification).where(eq(verification.identifier, storedOAuthStateIdentifier(minted.state))).limit(2)
+                if (!createdStateRow || rows.length !== 1 || rows[0].id !== createdStateRow.id || rows[0].identifier !== expectedState
                   || rows[0].value !== expectedStateValue || rows[0].expiresAt.getTime() !== expectedStateExpiresAtMs
                   || rows[0].expiresAt.getTime() !== createdStateRow.expiresAt.getTime()
                   || rows[0].createdAt.getTime() !== createdStateRow.createdAt.getTime()
@@ -451,8 +452,8 @@ export function createRecoveryGoogleCommands(owner: AuthTransactions, origin: st
               state = await lockRecoveryGoogleAttempt(current, oauthState)
               if (!state.attempt || state.attempt.phase !== 'PENDING_GOOGLE') throw new RecoveryRejected()
               originalAttempt = { ...state.attempt, createdAt: new Date(state.attempt.createdAt), expiresAt: new Date(state.attempt.expiresAt) }
-              expectedState = oauthState
-              const rows = await current.db.select().from(verification).where(eq(verification.identifier, oauthState)).limit(2).for('update')
+              expectedState = storedOAuthStateIdentifier(oauthState)
+              const rows = await current.db.select().from(verification).where(eq(verification.identifier, expectedState)).limit(2).for('update')
               if (rows.length !== 1) throw new RecoveryRejected()
               lockedStateRow = rows[0]
               let stored: typeof googleState.Type
@@ -469,7 +470,7 @@ export function createRecoveryGoogleCommands(owner: AuthTransactions, origin: st
               if (!stateRead || !stateDeleted || !parsed || parsed.oauthState !== oauthState
                 || parsed.callbackURL !== origin + '/login' || parsed.link || !parsed.idTokenNonce || !parsed.codeVerifier
                 || JSON.stringify(parsed.serverContext) !== JSON.stringify(stored.serverContext)) throw new RecoveryRejected()
-              const remaining = await current.db.select({ id: verification.id }).from(verification).where(eq(verification.identifier, oauthState)).limit(1)
+              const remaining = await current.db.select({ id: verification.id }).from(verification).where(eq(verification.identifier, storedOAuthStateIdentifier(oauthState))).limit(1)
               if (remaining.length) throw new RecoveryRejected()
               const [claimed] = await current.db.update(recoveryAttempt).set({ phase: 'EXCHANGING' })
                 .where(and(eq(recoveryAttempt.id, state.attempt.id), eq(recoveryAttempt.phase, 'PENDING_GOOGLE'))).returning()
@@ -546,7 +547,7 @@ export function createRecoveryGoogleCommands(owner: AuthTransactions, origin: st
               || rows[0].expiresAt.getTime() !== expectedStateExpiresAtMs
               || rows[0].expiresAt.getTime() !== createdStateRow.expiresAt.getTime())) throw new RecoveryRejected()
           if (callback) {
-            const used = await lease.db.select({ id: verification.id }).from(verification).where(eq(verification.identifier, oauthState!)).limit(1)
+            const used = await lease.db.select({ id: verification.id }).from(verification).where(eq(verification.identifier, storedOAuthStateIdentifier(oauthState!))).limit(1)
             if (used.length) throw new RecoveryRejected()
           }
         })

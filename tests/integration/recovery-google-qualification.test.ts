@@ -139,14 +139,14 @@ test('G3 linked Google proof only without auth side effects', async () => {
     const attempt = async (id: string) => (await stores.administrator.query('SELECT * FROM qualification_recovery_google_attempt WHERE id=$1', [id])).rows[0]
     const declaredExpiredIds = new Set((await verificationRows()).filter(row => row.identifier === 'g3-expired-canary').map(row => String(row.id)))
     const expectedSurvivors = (s: { state: string }, before: Awaited<ReturnType<typeof verificationRows>>) =>
-      before.filter(row => row.identifier !== s.state && !declaredExpiredIds.has(String(row.id)))
+      before.filter(row => row.identifier !== 'auth-state:' + s.state && !declaredExpiredIds.has(String(row.id)))
     const sorted = (rows: Awaited<ReturnType<typeof verificationRows>>) => [...rows].sort((a, b) =>
       String(a.identifier).localeCompare(String(b.identifier)) || String(a.id).localeCompare(String(b.id)))
     const callbackRows = async (s: { attemptId: string; state: string }, before: Awaited<ReturnType<typeof verificationRows>>,
       disposition: 'rollback' | 'claimed') => {
       const after = await verificationRows()
-      const stateBefore = before.filter(row => row.identifier === s.state)
-      const stateAfter = after.filter(row => row.identifier === s.state)
+      const stateBefore = before.filter(row => row.identifier === 'auth-state:' + s.state)
+      const stateAfter = after.filter(row => row.identifier === 'auth-state:' + s.state)
       const proofAfter = after.filter(row => row.identifier === qualifier.proofIdentifier(s.attemptId))
       expect(proofAfter.length).toBe(0)
       if (disposition === 'rollback') {
@@ -213,7 +213,7 @@ test('G3 linked Google proof only without auth side effects', async () => {
       const url = new URL(issued.response.url)
       const state = url.searchParams.get('state')
       const afterRows = await verificationRows(), added = afterRows.filter(row => !beforeRows.some(old => old.id === row.id))
-      expect(state !== null && added.length === 1 && added[0].identifier === state
+      expect(state !== null && added.length === 1 && added[0].identifier === 'auth-state:' + state
         && digest(sorted(afterRows)) === digest(sorted([...beforeRows, added[0]]))).toBe(true)
       let nativeState: Record<string, unknown>
       try { nativeState = JSON.parse(added[0].value) }
@@ -248,14 +248,14 @@ test('G3 linked Google proof only without auth side effects', async () => {
     const baseline = await immutable(), beforeNative = await verificationRows(), controlStart = await start()
     const afterBegin = await verificationRows()
     expect(afterBegin.filter(row => !beforeNative.some(old => old.id === row.id)).length === 1
-      && afterBegin.some(row => row.identifier === controlStart.state)).toBe(true)
+      && afterBegin.some(row => row.identifier === 'auth-state:' + controlStart.state)).toBe(true)
     expect(digest(afterBegin.filter(row => row.identifier === 'g3-unrelated-live'))
       === digest(beforeNative.filter(row => row.identifier === 'g3-unrelated-live'))).toBe(true)
     const first = await prove(controlStart)
     const afterProof = await verificationRows()
     expect(afterProof.filter(row => !afterBegin.some(old => old.id === row.id)).length === 1
       && afterProof.some(row => row.identifier === qualifier.proofIdentifier(first.s.attemptId))).toBe(true)
-    expect(afterProof.filter(row => row.identifier === controlStart.state).length).toBe(0)
+    expect(afterProof.filter(row => row.identifier === 'auth-state:' + controlStart.state).length).toBe(0)
     expect(first.result.response).toEqual({ proved: true })
     expect(qualifier.evidence()).toMatchObject({ parseEntries: 1, profileMappings: 1, subjects: 1,
       proofCreates: 1, nativeStateDeletes: 1, nativeMutationAttempts: 0 })
@@ -328,7 +328,7 @@ test('G3 linked Google proof only without auth side effects', async () => {
     expect(mismatchAfterRows === digest(mismatchRows) && mismatchAfterA === mismatchAttemptA
       && mismatchAfterB === mismatchAttemptB && mismatchAfterImmutable === mismatchImmutable).toBe(true)
     const noStateNonce = await start()
-    await stores.administrator.query('UPDATE verification SET value=(value::jsonb - \'idTokenNonce\')::text WHERE identifier=$1', [noStateNonce.state])
+    await stores.administrator.query('UPDATE verification SET value=(value::jsonb - \'idTokenNonce\')::text WHERE identifier=$1', ['auth-state:' + noStateNonce.state])
     const beforeNonce = nativeCounts(), noStateNonceRows = await verificationRows()
     await refused(callback(noStateNonce.state, peer.register(noStateNonce.url, subject), noStateNonce.stateCookie))
     expect(nativeCounts().posts).toBe(beforeNonce.posts)
@@ -341,12 +341,12 @@ test('G3 linked Google proof only without auth side effects', async () => {
       await callbackRows(s, beforeRows, 'claimed')
     }
     const badPurpose = await start()
-    await stores.administrator.query(`UPDATE verification SET value=jsonb_set(value::jsonb,'{serverContext,purpose}', '"other"')::text WHERE identifier=$1`, [badPurpose.state])
+    await stores.administrator.query(`UPDATE verification SET value=jsonb_set(value::jsonb,'{serverContext,purpose}', '"other"')::text WHERE identifier=$1`, ['auth-state:' + badPurpose.state])
     const badPurposeRows = await verificationRows()
     await refused(callback(badPurpose.state, peer.register(badPurpose.url, subject), badPurpose.stateCookie))
     await callbackRows(badPurpose, badPurposeRows, 'rollback')
     const badPkce = await start(), beforePkce = nativeCounts()
-    await stores.administrator.query(`UPDATE verification SET value=jsonb_set(value::jsonb,'{codeVerifier}', '"incorrect-verifier"')::text WHERE identifier=$1`, [badPkce.state])
+    await stores.administrator.query(`UPDATE verification SET value=jsonb_set(value::jsonb,'{codeVerifier}', '"incorrect-verifier"')::text WHERE identifier=$1`, ['auth-state:' + badPkce.state])
     const badPkceRows = await verificationRows()
     await refused(callback(badPkce.state, peer.register(badPkce.url, subject), badPkce.stateCookie))
     expect(nativeCounts().posts).toBe(beforePkce.posts + 1)
@@ -386,7 +386,7 @@ test('G3 linked Google proof only without auth side effects', async () => {
     expect((await winner).response).toEqual({ proved: true })
     await successRows(concurrent, concurrentRows)
     const wonRows = await verificationRows()
-    expect(wonRows.filter(row => row.identifier === concurrent.state).length === 0
+    expect(wonRows.filter(row => row.identifier === 'auth-state:' + concurrent.state).length === 0
       && wonRows.filter(row => row.identifier === qualifier.proofIdentifier(concurrent.attemptId)).length === 1
       && digest(wonRows.filter(row => row.identifier === 'g3-unrelated-live'))
         === digest(concurrentRows.filter(row => row.identifier === 'g3-unrelated-live'))).toBe(true)
