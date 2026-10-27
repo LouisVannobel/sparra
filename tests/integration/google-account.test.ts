@@ -3,6 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { Pool } from 'pg'
 import { sql } from 'drizzle-orm'
+import { readMigrationFiles } from 'drizzle-orm/migrator'
 import { Schema } from 'effect'
 import { afterAll, beforeAll, expect, test, vi } from 'vitest'
 import { startDisposableStores } from '../fixtures/db/disposable-stores'
@@ -149,12 +150,15 @@ beforeAll(async () => {
   const accountBefore = createHash('sha256').update(JSON.stringify((await stores.administrator.query('SELECT * FROM account WHERE user_id=$1', [preservedId])).rows)).digest('hex')
   await stores.migrate(); await stores.migrate()
   const final = (await stores.administrator.query('SELECT count(*)::int n FROM drizzle.__drizzle_migrations')).rows[0].n
+  const expectedJournal = readMigrationFiles({ migrationsFolder: 'drizzle' }).map(migration => ({ hash: migration.hash, created_at: String(migration.folderMillis) }))
+  const finalJournal = (await stores.administrator.query('SELECT hash,created_at FROM drizzle.__drizzle_migrations ORDER BY id')).rows
+  expect(finalJournal).toEqual(expectedJournal)
   const preserved = (await snapshot(preservedId)) === before
   const bound = (await stores.administrator.query('SELECT account_id FROM account WHERE user_id=$1', [preservedId])).rows[0].account_id === preservedSubject
   const accountPreserved = createHash('sha256').update(JSON.stringify((await stores.administrator.query('SELECT * FROM account WHERE user_id=$1', [preservedId])).rows)).digest('hex') === accountBefore
   const journalPreserved = JSON.stringify((await stores.administrator.query('SELECT * FROM drizzle.__drizzle_migrations ORDER BY id LIMIT 10')).rows) === JSON.stringify(prefixRows)
   Object.assign(migrationObservations, { prefix, final, preserved, bound, accountPreserved, journalPreserved, rerun: true })
-  expect({ prefix, final, preserved, bound, accountPreserved, journalPreserved }).toEqual({ prefix: 10, final: 11, preserved: true, bound: true, accountPreserved: true, journalPreserved: true })
+  expect({ prefix, final, preserved, bound, accountPreserved, journalPreserved }).toEqual({ prefix: 10, final: expectedJournal.length, preserved: true, bound: true, accountPreserved: true, journalPreserved: true })
   const privilegeProbe = new Pool({ connectionString: stores.directRuntimeUrl, max: 1 })
   try {
     const code = await privilegeProbe.query('SELECT id FROM google_account_intent LIMIT 1').then(() => 'accepted', (error: { code?: string }) => error.code)
