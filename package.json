@@ -57,7 +57,7 @@
     "@vitejs/plugin-react": "6.1.0",
     "@vitest/coverage-istanbul": "4.1.12",
     "drizzle-kit": "0.31.10",
-    "fallow": "3.18.0",
+    "fallow": "3.37.0",
     "nice-grpc": "2.1.17",
     "nitro": "3.0.260903-beta",
     "oxlint": "1.78.0",
