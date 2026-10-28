@@ -90,11 +90,13 @@ test('cleanup leaves a malformed native state singleton untouched', () => {
     batchId: 'a1307f5a-34b8-48e4-a62e-9b86d38746e0', codeId: 'b1307f5a-34b8-48e4-a62e-9b86d38746e0',
     googleAccountId: 'account1', issuer: 'https://accounts.google.com', subject: 'subject1', oauthState: 'state1',
     createdAt: new Date('2030-01-01T00:00:00Z'), expiresAt: new Date('2030-01-01T00:05:00Z'), phase: 'PENDING_GOOGLE' }
-  const state = { identifier: 'state1', expiresAt: new Date('2030-01-01T00:10:00Z'),
+  const state = { identifier: 'auth-state:state1', expiresAt: new Date('2030-01-01T00:10:00Z'),
     value: JSON.stringify({ oauthState: 'state1', callbackURL: origin + '/login', errorURL: origin + '/login',
       codeVerifier: 'verifier', idTokenNonce: 'nonce', expiresAt: Date.parse('2030-01-01T00:10:00Z'),
       serverContext: { purpose: 'recovery-google-proof', attemptId: attempt.id } }) }
   expect(recoveryGoogleCleanupCandidate(attempt, [], [state], origin)).toBe(true)
+  expect(recoveryGoogleCleanupCandidate(attempt, [], [{ ...state, identifier: 'state1' }], origin)).toBe(false)
+  expect(recoveryGoogleCleanupCandidate(attempt, [], [{ ...state, identifier: 'auth-state:auth-state:state1' }], origin)).toBe(false)
   expect(recoveryGoogleCleanupCandidate(attempt, [], [{ ...state, value: state.value.replace('"nonce"', 'true') }], origin)).toBe(false)
   expect(recoveryGoogleCleanupCandidate(attempt, [], [state, state], origin)).toBe(false)
 })

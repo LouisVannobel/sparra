@@ -42,7 +42,7 @@ const cases: { name: string; call: (adapter: DBTransactionAdapter) => Promise<un
   { name: 'consumeOne', call: adapter => adapter.consumeOne<typeof fullUser>({ model: 'user', where }),
     step: { text: `delete from "user" where "user"."id" in (select "id" from "user" where "user"."id" = $1 limit $2) returning ${columns}`, values: ['u1', 1], rows: [row], command: 'DELETE' }, expected: fullUser },
   { name: 'incrementOne', call: adapter => adapter.incrementOne<typeof fullUser>({ model: 'user', where, increment: { recoveryGeneration: 1 }, set: { updatedAt: date } }),
-    step: { text: `update "user" set "updated_at" = $1, "recovery_generation" = "user"."recovery_generation" + $2 where "user"."id" in (select "id" from "user" where "user"."id" = $3 limit $4) returning ${columns}`, values: [date.toISOString(), 1, 'u1', 1], rows: [row], command: 'UPDATE' }, expected: fullUser },
+    step: { text: `update "user" set "updated_at" = $1, "recovery_generation" = "user"."recovery_generation" + $2 where ("user"."id" = $3 and "user"."id" in (select "id" from "user" where "user"."id" = $4 limit $5)) returning ${columns}`, values: [date.toISOString(), 1, 'u1', 'u1', 1], rows: [row], command: 'UPDATE' }, expected: fullUser },
 ]
 
 describe.each(['invocation', 'promise-owner', 'effect-owner', 'fresh-child'] as const)('real adapter under %s', mode => {

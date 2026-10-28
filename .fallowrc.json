@@ -31,6 +31,9 @@
   "health": {
     "coverage": "coverage/coverage-final.json"
   },
+  "audit": {
+    "worsened": "error"
+  },
   "ignoreDependencies": [
     "@oxlint/plugins"
   ]

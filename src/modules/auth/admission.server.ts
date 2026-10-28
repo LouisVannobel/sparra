@@ -17,6 +17,7 @@ import { googleAccountPurpose } from './google-account.server'
 import { sessionManagementEndpoints, type SessionManagementInvocation } from './session-management-native.server'
 import { recoveryGoogleEndpoints, recoveryRotationEndpoints, type RecoveryGoogleInvocation, type RecoveryRotationInvocation } from './recovery-native.server'
 import { recoveryGooglePurpose } from './recovery.server'
+import { storedOAuthStateIdentifier } from './oauth-state-identifier.server'
 
 const issuer = 'https://accounts.google.com'
 const subjectSchema = Schema.Union([Schema.String, Schema.Number.check(Schema.isFinite())])
@@ -66,7 +67,7 @@ export function googleAdmission(owner: AuthTransactions, decorateGoogle: (provid
         const states = new URL(ctx.request.url).searchParams.getAll('state')
         if (states.length === 1 && states[0] && states[0].length <= 1024) {
           const recoveryState = await owner.withAuthPromise(owner.invocationOptions(), async ({ db }) => {
-            const rows = await db.select({ value: verification.value }).from(verification).where(eq(verification.identifier, states[0])).limit(2)
+            const rows = await db.select({ value: verification.value }).from(verification).where(eq(verification.identifier, storedOAuthStateIdentifier(states[0]))).limit(2)
             const attempts = await db.select({ id: recoveryAttempt.id }).from(recoveryAttempt).where(eq(recoveryAttempt.oauthState, states[0])).limit(2)
             if (rows.length > 1 || attempts.length > 1) return true
             if (attempts.length === 1) return true

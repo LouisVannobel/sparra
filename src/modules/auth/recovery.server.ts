@@ -7,6 +7,7 @@ import { normalizeAuthEmail } from './auth-email-normalization.server'
 import { validatePasskeyFinishInput } from './passkey-login.server'
 import { verifyPasskeyAssertion } from './passkey-assertion.server'
 import { account, passkey, recoveryAttempt, recoveryCode, recoveryCodeBatch, recoveryCodeRotationFact, session, user, verification } from './schema.server'
+import { storedOAuthStateIdentifier } from './oauth-state-identifier.server'
 
 export class RecoveryRejected extends Error { constructor() { super('Authentication rejected') } }
 export type RecoveryLease = Parameters<Parameters<AuthTransactions['withAuthPromise']>[1]>[0]
@@ -275,7 +276,7 @@ export function recoveryGoogleCleanupCandidate(attempt: AttemptBinding, proofs: 
     }
     if (states.length) {
       const row = states[0]
-      if (row.identifier !== attempt.oauthState) return false
+      if (row.identifier !== storedOAuthStateIdentifier(attempt.oauthState)) return false
       const value = Schema.decodeUnknownSync(cleanupState)(JSON.parse(row.value), { onExcessProperty: 'error' })
       if (value.oauthState !== attempt.oauthState || value.serverContext.attemptId !== attempt.id
         || value.callbackURL !== origin + '/login' || value.errorURL !== origin + '/login') return false
@@ -290,12 +291,13 @@ export async function cleanupRecoveryGoogleAttempts(lease: RecoveryLease, userId
     .orderBy(asc(recoveryAttempt.expiresAt), asc(recoveryAttempt.id)).limit(25).for('update')
   for (const attempt of candidates) {
     const proofId = recoveryProofIdentifier(attempt.id)
+    const stateId = storedOAuthStateIdentifier(attempt.oauthState)
     const proofs = await lease.db.select().from(verification).where(eq(verification.identifier, proofId)).limit(2).for('update')
-    const states = await lease.db.select().from(verification).where(eq(verification.identifier, attempt.oauthState)).limit(2).for('update')
+    const states = await lease.db.select().from(verification).where(eq(verification.identifier, stateId)).limit(2).for('update')
     if (!recoveryGoogleCleanupCandidate(attempt, proofs, states, origin)) continue
     if (proofs.length) await remove(proofId)
-    if (states.length) await remove(attempt.oauthState)
-    for (const identifier of [proofId, attempt.oauthState]) {
+    if (states.length) await remove(stateId)
+    for (const identifier of [proofId, stateId]) {
       const remaining = await lease.db.select({ id: verification.id }).from(verification).where(eq(verification.identifier, identifier)).limit(1)
       if (remaining.length) throw new RecoveryRejected()
     }
