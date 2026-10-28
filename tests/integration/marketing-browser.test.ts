@@ -707,3 +707,35 @@ test('changing source during real playback pauses the old media and resets the s
     await previous?.dispose()
   } finally { await page.context().close() }
 })
+
+test.each([1280, 390, 320])('diagnostic page keeps French copy, absolute private links, keyboard access and reflow at %ipx', async width => {
+  const page = await openPage()
+  try {
+    await page.setViewportSize({ width, height: 900 })
+    const external: string[] = [], errors: string[] = []
+    page.on('request', request => { if (new URL(request.url()).origin !== origin) external.push(request.url()) })
+    page.on('pageerror', error => errors.push(error.message))
+    const response = await page.goto(origin + '/metiers/diagnostic-immobilier?lang=en')
+    expect(response!.status()).toBe(200)
+    expect(response!.headers()['x-robots-tag']).toBeUndefined()
+    await page.getByRole('heading', { name: 'Vos appels accueillis pendant vos diagnostics.', exact: true }).waitFor()
+    expect(await page.locator('html').getAttribute('lang')).toBe('fr')
+    expect(await page.locator('.auth-language').count()).toBe(0)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    expect(await page.locator('.sparra').evaluate(element => getComputedStyle(element).fontFamily)).toContain('Sparra UI')
+    expect(await page.locator('a[href*="/app"]').evaluateAll(links => links.map(link => link.getAttribute('href')))).toEqual(['https://sparra.fr/app?lang=fr', 'https://sparra.fr/app?lang=fr'])
+    const cta = page.locator('.sparra-hero').getByRole('link', { name: 'Préparer un pilote accompagné', exact: true })
+    expect(await cta.isVisible()).toBe(true)
+    expect(await cta.getAttribute('href')).toBe('mailto:contact@sparra.fr')
+    for (let step = 0; step < 16 && !await cta.evaluate(element => element === document.activeElement); step++) await page.keyboard.press('Tab')
+    expect(await cta.evaluate(element => element === document.activeElement)).toBe(true)
+    expect(await cta.evaluate(element => element.matches(':focus-visible'))).toBe(true)
+    expect(await cta.evaluate(element => getComputedStyle(element).outlineStyle)).toBe('solid')
+    expect(await cta.evaluate(element => parseFloat(getComputedStyle(element).outlineWidth))).toBeGreaterThanOrEqual(3)
+    expect(await page.locator('audio, form, input').count()).toBe(0)
+    expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()).violations).toEqual([])
+    await mkdir('.output/test-evidence/marketing', { recursive: true })
+    await page.screenshot({ path: `.output/test-evidence/marketing/diagnostic-${width}.png`, fullPage: true })
+    expect(errors).toEqual([]); expect(external).toEqual([])
+  } finally { await page.context().close() }
+}, 30000)

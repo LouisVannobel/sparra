@@ -202,3 +202,35 @@ test.each([
     security(response, false)
   }
 })
+
+test('diagnostic public documents have canonical French SSR and bounded read-only links', async () => {
+  const base = await launch()
+  for (const path of ['/metiers/diagnostic-immobilier', '/metiers/diagnostic-immobilier?lang=en']) {
+    for (const method of ['GET', 'HEAD']) {
+      const response = await fetch(base + path, { method, redirect: 'manual', signal: AbortSignal.timeout(3000) })
+      expect(response.status).toBe(200)
+      security(response, true)
+      const html = await response.text()
+      if (method === 'HEAD') { expect(html).toBe(''); continue }
+      expect(html).toContain('<html lang="fr"')
+      expect(html).not.toContain('auth-language')
+      expect(html).toContain('Vos appels accueillis pendant vos diagnostics.')
+      expect(html).toContain('<link rel="canonical" href="https://sparra.fr/metiers/diagnostic-immobilier"')
+      expect(html).toContain('<meta property="og:url" content="https://sparra.fr/metiers/diagnostic-immobilier"')
+      expect(html).toContain('<meta name="twitter:card" content="summary"')
+      expect(html).toMatch(/<meta name="description" content="[^\"]*diagnostiqueurs[^\"]*"/)
+      expect(html).toContain('mailto:contact@sparra.fr')
+      expect([...html.matchAll(/<a\b[^>]*href="([^\"]*\/app[^\"]*)"/g)].map(match => match[1])).toEqual(['https://sparra.fr/app?lang=fr', 'https://sparra.fr/app?lang=fr'])
+      expect(html).toContain('Exemple illustratif')
+      expect(html).toContain('capacité et un budget explicites')
+      expect(html).not.toMatch(/<audio|<form|recoveryGeneration|session_token|DATABASE_URL|public-http-fixture-only/)
+    }
+  }
+  for (const path of ['/metiers/inconnu', '/metiers/diagnostic-immobilier/inconnu']) {
+    const response = await fetch(base + path, { signal: AbortSignal.timeout(3000) })
+    expect(response.status).toBe(404)
+    security(response, false)
+  }
+  const post = await fetch(base + '/metiers/diagnostic-immobilier', { method: 'POST', signal: AbortSignal.timeout(3000) })
+  security(post, false)
+})

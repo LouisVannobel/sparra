@@ -18,9 +18,10 @@ export const Route = createRootRoute({
 function Shell({ children }: { children: React.ReactNode }) {
   const { lang } = Route.useSearch()
   const pathname = useRouterState({ select: state => state.location.pathname })
-  const documentLang = pathname === '/' ? 'fr' : lang
+  const publicMarketing = ['/', '/metiers/diagnostic-immobilier'].includes(pathname)
+  const documentLang = publicMarketing ? 'fr' : lang
   return <html lang={documentLang} data-theme="light" data-astryx-theme="neutral"><head><HeadContent /></head><body>
     <Theme theme={neutralTheme} mode="light"><InternationalizationProvider locale={documentLang} messages={{ fr }}>
-      {pathname !== '/' && <nav className="auth-language" aria-label={messages[lang].language}><Link to="." search={previous => ({ ...previous, lang: 'fr' })} lang="fr" aria-current={lang === 'fr' ? 'true' : undefined}>Français</Link><Link to="." search={previous => ({ ...previous, lang: 'en' })} lang="en" aria-current={lang === 'en' ? 'true' : undefined}>English</Link></nav>}
+      {!publicMarketing && <nav className="auth-language" aria-label={messages[lang].language}><Link to="." search={previous => ({ ...previous, lang: 'fr' })} lang="fr" aria-current={lang === 'fr' ? 'true' : undefined}>Français</Link><Link to="." search={previous => ({ ...previous, lang: 'en' })} lang="en" aria-current={lang === 'en' ? 'true' : undefined}>English</Link></nav>}
       {children}</InternationalizationProvider></Theme><Scripts /></body></html>
 }

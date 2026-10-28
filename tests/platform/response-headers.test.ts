@@ -155,3 +155,17 @@ test('the returned stream leaves cancellation to its reader and passes the reaso
   expect(cancelled).toBe(true)
   expect(receivedReason).toBe('fixture-reader-cancel')
 })
+
+test.each([
+  ['GET', 200, 'text/html', true], ['HEAD', 200, 'text/html', true],
+  ['POST', 200, 'text/html', false], ['GET', 404, 'text/html', false],
+  ['GET', 500, 'text/html', false], ['GET', 200, 'application/json', false],
+] as const)('diagnostic %s/status%s/type%s has exact public document policy', (method, status, type, indexable) => {
+  const response = responseWithSecurityHeaders(new Request('https://fixture.example/metiers/diagnostic-immobilier?lang=en', { method }), new Response(null, { status, headers: { 'content-type': type } }), nonce)
+  expect(response.headers.get('x-robots-tag')).toBe(indexable ? null : 'noindex')
+  expect(response.headers.get('content-security-policy')).toBe(privateCsp + (indexable ? "; media-src 'self'" : ''))
+})
+test.each(['/metiers/inconnu', '/metiers/diagnostic-immobilier/inconnu', '/metiers/diagnostic-immobilier/'])('sibling %s is never made public by a prefix', path => {
+  const response = responseWithSecurityHeaders(new Request('https://fixture.example' + path), new Response(null, { headers: { 'content-type': 'text/html' } }), nonce)
+  expect(response.headers.get('x-robots-tag')).toBe('noindex')
+})

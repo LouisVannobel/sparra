@@ -1,20 +1,16 @@
 import { Button } from '@astryxdesign/core/Button'
 import { SparraDemo } from './sparra-demo'
+import { MarketingHeader, MarketingSteps } from './marketing-sections'
 
 export function SparraLanding(): React.JSX.Element {
   return <div className="sparra">
-    <a className="sparra-skip" href="#contenu">Aller au contenu</a>
-    <header className="sparra-header sparra-width">
-      <a className="sparra-wordmark" href="/" aria-label="Sparra, accueil">sparra<span aria-hidden="true">.</span></a>
-      <nav aria-label="Navigation principale">
+    <MarketingHeader action={<Button className="sparra-contact" href="/app/entreprise?lang=fr" label="Configurer mon entreprise" variant="primary" size="lg" />}>
         <a href="#demo">Écouter un exemple</a>
         <a href="#fonctionnement">Comment ça fonctionne</a>
         <a href="#controle">Vous gardez la main</a>
         <a href="#offre">L’offre</a>
         <a href="/app?lang=fr">Mon espace</a>
-      </nav>
-      <Button className="sparra-contact" href="/app/entreprise?lang=fr" label="Configurer mon entreprise" variant="primary" size="lg" />
-    </header>
+    </MarketingHeader>
     <main id="contenu">
       <section className="sparra-hero sparra-width" aria-labelledby="sparra-title">
         <div>
@@ -33,12 +29,12 @@ export function SparraLanding(): React.JSX.Element {
       </div>
       <section id="fonctionnement" className="sparra-section sparra-width" aria-labelledby="sparra-how">
         <div className="sparra-section-heading"><h2 id="sparra-how">Un appel reçu.<br />Une demande claire.</h2><p>Le parcours du pilote, de votre configuration aux appels reçus.</p></div>
-        <ol className="sparra-steps">
-          <li><h3>Vous nous expliquez votre activité</h3><p>Horaires, prestations, tarifs, questions fréquentes, consignes.</p></li>
-          <li><h3>Vous connectez votre ligne</h3><p>Vous gardez votre numéro existant lorsque le renvoi de votre ligne le permet. Avec un renvoi sur non-réponse configuré, vous répondez d’abord : si vous décrochez, l’IA n’intervient pas. Sparra reçoit seulement les appels renvoyés. Ce réglage est à vérifier avec votre opérateur pendant le pilote.</p></li>
-          <li><h3>Sparra répond</h3><p>Il comprend la demande, renseigne le client, qualifie une demande de rendez-vous ou recueille un message pour l’équipe. Le relais humain est prévu selon vos consignes ; il sera qualifié dans le pilote. Aucun rendez-vous confirmé sans agenda relié.</p></li>
-          <li><h3>Vous récupérez l'essentiel</h3><p>Résumé, coordonnées, transcription et action à effectuer.</p></li>
-        </ol>
+        <MarketingSteps steps={[
+          { title: 'Vous nous expliquez votre activité', description: 'Horaires, prestations, tarifs, questions fréquentes, consignes.' },
+          { title: 'Vous connectez votre ligne', description: 'Vous gardez votre numéro existant lorsque le renvoi de votre ligne le permet. Avec un renvoi sur non-réponse configuré, vous répondez d’abord : si vous décrochez, l’IA n’intervient pas. Sparra reçoit seulement les appels renvoyés. Ce réglage est à vérifier avec votre opérateur pendant le pilote.' },
+          { title: 'Sparra répond', description: 'Il comprend la demande, renseigne le client, qualifie une demande de rendez-vous ou recueille un message pour l’équipe. Le relais humain est prévu selon vos consignes ; il sera qualifié dans le pilote. Aucun rendez-vous confirmé sans agenda relié.' },
+          { title: "Vous récupérez l'essentiel", description: 'Résumé, coordonnées, transcription et action à effectuer.' },
+        ]} />
       </section>
       <section id="controle" className="sparra-section sparra-width sparra-knowledge" aria-labelledby="sparra-control">
         <div><h2 id="sparra-control">Il connaît votre activité. Vous fixez les limites.</h2><p>Les réponses prévues s’appuient sur les informations que vous confiez à Sparra. Vous définissez ce qu’il peut expliquer et quand votre équipe doit reprendre la conversation.</p><p>Sans transfert qualifié vers votre équipe, Sparra recueille un message à vous transmettre. Ce suivi permet de traiter une question sans réponse, une demande particulière ou un appelant qui veut parler à une personne. Le transfert selon vos consignes, sa disponibilité et le repli si personne ne répond restent à vérifier dans le pilote.</p></div>
