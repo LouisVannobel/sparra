@@ -1405,6 +1405,11 @@ test('reviewed_fixed_authority_clone_exemption_expires_on_predicate_or_occurrenc
   writeFileSync(join(root,'scripts/third-credential-consumer.mjs'),web)
   expect(groups().some(group=>group.fingerprint==='dup:2cc8a7df'&&group.instances.length===3)).toBe(true)
 },40000)
+function expectRuntimeSuppressionWarning(report:{verdict:string;summary:unknown;diff_risk:{findings:unknown[]}},lines:number[]) {
+  expect(report.verdict).toBe('warn')
+  expect(report.summary).toEqual({dead_code_issues:0,dead_code_has_errors:false,complexity_findings:0,max_cyclomatic:null,duplication_clone_groups:0})
+  expect(report.diff_risk.findings).toEqual(lines.map(line=>expect.objectContaining({rule:'added-suppression',path:'src/scenario.ts',line,severity:'warn',introduced:true})))
+}
 test('native_complexity_comment_is_function_scoped_and_expires_on_content_or_count_change',()=>{
   const {root,base}=qualityFixture(),path=join(root,'src/scenario.ts')
   rmSync(join(root,'src/unused.ts'))
@@ -1432,8 +1437,8 @@ test('native_complexity_comment_is_function_scoped_and_expires_on_content_or_cou
     writeFileSync(path,source)
     const result=runQuality('fallow',['audit','--no-css','--base',base,'--format','json','--quiet'],root)
     expect(result.error).toBeUndefined()
-    const report:{version:string;verdict:string;complexity:{findings:{name:string;cyclomatic:number;cognitive:number;introduced:boolean}[]}}=JSON.parse(result.stdout)
-    expect(report.version).toBe('3.18.0')
+    const report:{version:string;verdict:string;summary:unknown;complexity:{findings:{name:string;cyclomatic:number;cognitive:number;introduced:boolean}[]};diff_risk:{findings:unknown[]}}=JSON.parse(result.stdout)
+    expect(report.version).toBe('3.37.0')
     return {result,report}
   }
   const unsuppressed=audit(scenario)
@@ -1446,7 +1451,7 @@ test('native_complexity_comment_is_function_scoped_and_expires_on_content_or_cou
   const suppressedSource=directive+'\n'+scenario
   const suppressed=audit(suppressedSource)
   expect(suppressed.result.status,suppressed.result.stderr||suppressed.result.stdout).toBe(0)
-  expect(suppressed.report.verdict).toBe('pass')
+  expectRuntimeSuppressionWarning(suppressed.report,[1])
   expect(suppressed.report.complexity.findings).toEqual([])
   // This expiry consumer is deliberately limited to the owned synthetic fixture.
   function reviewedSyntheticScenario() {
@@ -1481,7 +1486,7 @@ test('native_complexity_comment_is_function_scoped_and_expires_on_content_or_cou
   expect(()=>reviewedSyntheticScenario()).not.toThrow()
   const changed=audit(suppressedSource.replace('total *= 2','total *= 3'))
   expect(changed.result.status,changed.result.stderr||changed.result.stdout).toBe(0)
-  expect(changed.report.verdict).toBe('pass')
+  expectRuntimeSuppressionWarning(changed.report,[1])
   expect(()=>reviewedSyntheticScenario()).toThrow('Synthetic exception content expired')
   for(const source of [scenario,suppressedSource.replace('reviewed canary only','unreviewed'),directive+'\n\n'+scenario]) {
     writeFileSync(path,source)
@@ -1501,7 +1506,7 @@ test('native_complexity_comment_is_function_scoped_and_expires_on_content_or_cou
   expect(additional.report.complexity.findings.map(item=>item.name)).toEqual(['otherScenario'])
   const broadened=audit(suppressedSource+directive+'\n'+other)
   expect(broadened.result.status,broadened.result.stderr||broadened.result.stdout).toBe(0)
-  expect(broadened.report.verdict).toBe('pass')
+  expectRuntimeSuppressionWarning(broadened.report,[1,16])
   expect(()=>reviewedSyntheticScenario()).toThrow('Synthetic exception target or marker count expired')
   const fixturePackage=join(root,'package.json')
   writeFileSync(fixturePackage,readFileSync(fixturePackage,'utf8').replace('"vite":"8.2.2"','"vite":"8.2.2","vitest":"4.1.12"'))
@@ -1510,27 +1515,28 @@ test('native_complexity_comment_is_function_scoped_and_expires_on_content_or_cou
   const callback=`async()=>{\n  const values = [1, 2, 3];${scenario.slice(scenario.indexOf('{')+1).trimEnd()}`
   const reviewedCall=`test('synthetic reviewed SSR callback',${callback})\n`
   const adjacentCall=`test('synthetic adjacent unmarked callback',${callback})\n`
-  function callbackAudit(source:string) {
+  function callbackHealth(source:string) {
     writeFileSync(testPath,"import {test} from 'vitest';\n"+source)
-    const result=runQuality('fallow',['audit','--no-css','--base',base,'--format','json','--quiet'],root)
+    const result=runQuality('fallow',['health','--complexity','tests/scenario.test.ts','--format','json','--quiet'],root)
     expect(result.error).toBeUndefined()
-    const report:{version:string;verdict:string;complexity:{findings:{path:string;line:number;name:string;cyclomatic:number;cognitive:number}[]}}=JSON.parse(result.stdout)
-    expect(report.version).toBe('3.18.0')
+    const report:{version:string;findings:{path:string;line:number;name:string;cyclomatic:number;cognitive:number}[];gate_outcomes:{'health-findings':{status:string;enforced:boolean}}}=JSON.parse(result.stdout)
+    expect(report.version).toBe('3.37.0')
+    expect(report.gate_outcomes['health-findings'].enforced).toBe(true)
     return {result,report}
   }
-  const unmarkedCallbacks=callbackAudit(reviewedCall+adjacentCall)
+  const unmarkedCallbacks=callbackHealth(reviewedCall+adjacentCall)
   expect(unmarkedCallbacks.result.status,unmarkedCallbacks.result.stderr||unmarkedCallbacks.result.stdout).toBe(1)
-  expect(unmarkedCallbacks.report.complexity.findings).toHaveLength(2)
-  const markedCallback=callbackAudit(directive+'\n'+reviewedCall)
+  expect(unmarkedCallbacks.report.findings).toHaveLength(2)
+  const markedCallback=callbackHealth(directive+'\n'+reviewedCall)
   expect(markedCallback.result.status,markedCallback.result.stderr||markedCallback.result.stdout).toBe(0)
-  expect(markedCallback.report.verdict).toBe('pass')
-  expect(markedCallback.report.complexity.findings).toEqual([])
-  const adjacent=callbackAudit(directive+'\n'+reviewedCall+adjacentCall)
+  expect(markedCallback.report.gate_outcomes['health-findings'].status).toBe('pass')
+  expect(markedCallback.report.findings).toEqual([])
+  const adjacent=callbackHealth(directive+'\n'+reviewedCall+adjacentCall)
   expect(adjacent.result.status,adjacent.result.stderr||adjacent.result.stdout).toBe(1)
-  expect(adjacent.report.verdict).toBe('fail')
-  expect(adjacent.report.complexity.findings).toHaveLength(1)
-  expect(adjacent.report.complexity.findings[0]?.path.replaceAll('\\','/')).toBe('tests/scenario.test.ts')
-  expect(adjacent.report.complexity.findings[0]?.line).toBe(unmarkedCallbacks.report.complexity.findings[1]!.line+1)
+  expect(adjacent.report.gate_outcomes['health-findings'].status).toBe('fail')
+  expect(adjacent.report.findings).toHaveLength(1)
+  expect(adjacent.report.findings[0]?.path.replaceAll('\\','/')).toBe('tests/scenario.test.ts')
+  expect(adjacent.report.findings[0]?.line).toBe(unmarkedCallbacks.report.findings[1]!.line+1)
 },40000)
 
 test('reviewed_static_ssr_comments_expire_on_source_placement_or_global_count_change',()=>{
