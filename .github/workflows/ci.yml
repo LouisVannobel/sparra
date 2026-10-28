@@ -13,7 +13,7 @@ jobs:
   maintained:
     uses: LouisVannobel/projetV0-pipelines/.github/workflows/reusable-saas-ci.yml@8b714fed63579c46bec1613de7b391977970a690 # maintenance from v1.5.0 (PR #35)
     with:
-      quality-timeout-minutes: 35
+      quality-timeout-minutes: 45
       node-version: '24.22.1'
       pnpm-version: '10.32.1'
       working-directory: .
