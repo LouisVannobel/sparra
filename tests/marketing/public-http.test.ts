@@ -86,14 +86,26 @@ test('private and missing routes keep their protected headers', async () => {
 
 test('public privacy page explains Calendar use and independent event retention without sign-in', async () => {
   const base = await launch()
-  const response = await fetch(base + '/confidentialite', { redirect: 'manual', signal: AbortSignal.timeout(3000) })
-  expect(response.status).toBe(200)
-  const html = await response.text()
-  expect(html).toContain('mailto:contact@sparra.fr')
-  expect(html).toContain('Limited Use')
-  expect(html).toContain('30 jours')
-  expect(html).toContain('ne supprime pas les événements')
-  expect(html).toContain('traitements IA externes')
+  for (const locale of [
+    { path: '/confidentialite', lang: 'fr', title: 'Confidentialité', headings: ['Données Google consultées et conservées', 'Utilisation des données Google', 'Destinataires et traitements externes', 'Protection des données', 'Conservation et suppression'], callRetention: '30 jours', eventRetention: 'ne supprime pas les événements', externalProcessing: 'traitements IA externes', uncertain: 'opérations incertaines' },
+    { path: '/confidentialite?lang=en', lang: 'en', title: 'Privacy', headings: ['Google data accessed and stored', 'How Google data is used', 'Recipients and external processing', 'Data protection', 'Retention and deletion'], callRetention: '30 days', eventRetention: 'does not delete events', externalProcessing: 'external AI processing', uncertain: 'uncertain operations' },
+  ]) {
+    const response = await fetch(base + locale.path, { redirect: 'manual', signal: AbortSignal.timeout(3000) })
+    expect(response.status).toBe(200)
+    security(response, false)
+    const html = await response.text()
+    const main = /<main\b[^>]*>([\s\S]*?)<\/main>/.exec(html)?.[1]
+    expect(main).toBeDefined()
+    expect.soft(html).toContain(`<html lang="${locale.lang}"`)
+    expect.soft(html).toContain(`<title>${locale.title} — Sparra</title>`)
+    expect.soft(main).toContain(`<h1>${locale.title}</h1>`)
+    for (const heading of locale.headings) expect.soft(main).toContain(`<h2>${heading}</h2>`)
+    for (const disclosure of [locale.callRetention, locale.eventRetention, locale.externalProcessing, locale.uncertain, 'Telnyx', 'OpenRouter', 'AES-256-GCM', 'Limited Use']) expect.soft(main).toContain(disclosure)
+    expect(main).toContain('href="/"')
+    expect(main).toContain('mailto:contact@sparra.fr')
+    expect(main).toContain('href="https://developers.google.com/terms/api-services-user-data-policy"')
+    expect(html).not.toMatch(/session_token|AUTH_SECRET|DATABASE_URL|REDIS_URL|public-http-fixture-only/)
+  }
   const landing = await fetch(base + '/', { signal: AbortSignal.timeout(3000) })
   expect(await landing.text()).toContain('href="/confidentialite"')
 })
