@@ -18,7 +18,7 @@ export const Route = createRootRoute({
 function Shell({ children }: { children: React.ReactNode }) {
   const { lang } = Route.useSearch()
   const pathname = useRouterState({ select: state => state.location.pathname })
-  const publicMarketing = pathname === '/' || pathname === '/metiers/diagnostic-immobilier'
+  const publicMarketing = ['/', '/metiers/diagnostic-immobilier'].includes(pathname)
   const documentLang = publicMarketing ? 'fr' : lang
   return <html lang={documentLang} data-theme="light" data-astryx-theme="neutral"><head><HeadContent /></head><body>
     <Theme theme={neutralTheme} mode="light"><InternationalizationProvider locale={documentLang} messages={{ fr }}>

@@ -1,12 +1,9 @@
 import { Button } from '@astryxdesign/core/Button'
+import { MarketingHeader, MarketingSteps } from './marketing-sections'
 
 export function DiagnosticLanding(): React.JSX.Element {
   return <div className="sparra">
-    <a className="sparra-skip" href="#contenu">Aller au contenu</a>
-    <header className="sparra-header sparra-width">
-      <a className="sparra-wordmark" href="/" aria-label="Sparra, accueil">sparra<span aria-hidden="true">.</span></a>
-      <nav aria-label="Navigation principale"><a href="#fonctionnement">Comment ça fonctionne</a><a href="#exemple">Voir un exemple</a><a href="https://sparra.fr/app?lang=fr">Mon espace</a></nav>
-    </header>
+    <MarketingHeader><a href="#fonctionnement">Comment ça fonctionne</a><a href="#exemple">Voir un exemple</a><a href="https://sparra.fr/app?lang=fr">Mon espace</a></MarketingHeader>
     <main id="contenu">
       <section className="sparra-hero sparra-width" aria-labelledby="diagnostic-title">
         <div>
@@ -18,12 +15,12 @@ export function DiagnosticLanding(): React.JSX.Element {
       </section>
       <section id="fonctionnement" className="sparra-section sparra-width" aria-labelledby="diagnostic-how">
         <div className="sparra-section-heading"><h2 id="diagnostic-how">Une demande recueillie. Vous gardez la décision.</h2></div>
-        <ol className="sparra-steps">
-          <li><h3>Vos informations validées</h3><p>Vous validez les informations de votre cabinet.</p></li>
-          <li><h3>Un pilote vérifié ensemble</h3><p>Nous vérifions avec vous le renvoi et les conditions du pilote.</p></li>
-          <li><h3>La demande accueillie</h3><p>L’assistant accueille la demande dans ce périmètre.</p></li>
-          <li><h3>Votre rappel ou votre devis</h3><p>Vous retrouvez son résumé et les coordonnées confirmées dans votre espace client commun.</p></li>
-        </ol>
+        <MarketingSteps steps={[
+          { title: 'Vos informations validées', description: 'Vous validez les informations de votre cabinet.' },
+          { title: 'Un pilote vérifié ensemble', description: 'Nous vérifions avec vous le renvoi et les conditions du pilote.' },
+          { title: 'La demande accueillie', description: 'L’assistant accueille la demande dans ce périmètre.' },
+          { title: 'Votre rappel ou votre devis', description: 'Vous retrouvez son résumé et les coordonnées confirmées dans votre espace client commun.' },
+        ]} />
       </section>
       <section id="exemple" className="sparra-section sparra-width sparra-knowledge" aria-labelledby="diagnostic-example">
         <div><h2 id="diagnostic-example">Avant le devis, les informations utiles.</h2><p>Une demande pour la vente d’un appartement, sa commune, sa surface approximative et l’échéance souhaitée, avec une prochaine action de rappel. Exemple illustratif ; la prestation, son prix et sa date restent confirmés par le professionnel.</p><p>Il s’agit d’un scénario textuel fictif, pas d’un appel exécuté ni d’un enregistrement audio.</p></div>
