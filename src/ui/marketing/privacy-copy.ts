@@ -1,6 +1,6 @@
 export const privacyCopy = {
   fr: {
-    title: 'Confidentialité', home: 'Sparra — accueil', app: 'Mon espace', updated: 'Dernière mise à jour : 29 octobre 2026.',
+    title: 'Confidentialité', home: 'Sparra — accueil', app: 'Mon espace', updated: 'Dernière mise à jour : 30 octobre 2026.',
     intro: 'Sparra répond aux appels et transmet les demandes au professionnel. Sparra Agenda est une intégration facultative : le propriétaire peut relier un compte Google pour proposer et réserver des rendez-vous. Cette connexion est distincte de la connexion à Sparra.',
     sections: [
       { title: 'Données Google consultées et conservées', paragraphs: [
@@ -12,7 +12,9 @@ export const privacyCopy = {
         'Les permissions Google sur les événements (calendar.events) sont plus larges que le seul agenda sélectionné ; Sparra utilise l’agenda choisi pour ses rendez-vous. Un événement créé contient la prestation, les dates et heures, et une référence privée Sparra avec un lien vers la demande. Il ne contient ni coordonnées de l’appelant, ni transcription complète, ni invité ajouté artificiellement.',
       ] },
       { title: 'Destinataires et traitements externes', paragraphs: [
-        'Les échanges d’agenda et d’autorisation font intervenir Google. La téléphonie et l’audio font intervenir Telnyx ; les traitements IA externes nécessaires à la transcription, au dialogue et à la synthèse vocale font intervenir OpenRouter et les fournisseurs des modèles sélectionnés pour ces traitements. Les informations de prestation et de créneau nécessaires, y compris celles dérivées des disponibilités Google, peuvent entrer dans le dialogue et l’audio prononcé et être transmises à ces prestataires. Les jetons OAuth et les identifiants de compte ou d’agenda Google ne sont pas automatiquement transmis aux modèles vocaux.',
+        'Google reçoit les échanges d’autorisation du compte et les requêtes et données d’agenda nécessaires à l’intégration. Telnyx reçoit les données de téléphonie et l’audio des appels. Les traitements IA externes de transcription, de dialogue et de synthèse vocale passent tous par OpenRouter, qui reçoit et route les données nécessaires à ces traitements.',
+        'Par l’intermédiaire d’OpenRouter, Microsoft Azure reçoit l’audio pour la transcription et le texte à lire pour la synthèse vocale ; Baseten ou Together reçoit le texte du dialogue. Les informations de prestation et de créneau nécessaires, y compris celles dérivées des disponibilités Google, peuvent entrer dans le texte du dialogue et l’audio prononcé et être transmises à ces prestataires selon leur rôle. Les jetons OAuth et les identifiants de compte ou d’agenda Google ne sont pas automatiquement transmis aux modèles vocaux.',
+        'Cloudflare assure l’entrée HTTPS du site Sparra et traite les requêtes, réponses et métadonnées techniques qui y transitent, notamment les informations d’agenda affichées dans l’espace privé.',
         'Sparra n’utilise pas les données reçues des API Google pour la publicité ni pour entraîner ou améliorer des modèles d’IA généraux. Les transmissions aux prestataires servent aux traitements nécessaires au service ; elles ne constituent pas une garantie générale sur leurs propres politiques d’entraînement, de journalisation ou de conservation.',
         'L’application et sa base principale sont hébergées en France. Les traitements des prestataires externes ne sont pas annoncés comme exclusivement réalisés en France.',
       ] },
@@ -32,7 +34,7 @@ export const privacyCopy = {
     contactEnd: 'Si votre appel concerne un professionnel utilisant Sparra, indiquez le professionnel concerné afin que votre demande puisse être orientée.',
   },
   en: {
-    title: 'Privacy', home: 'Sparra — home', app: 'My workspace', updated: 'Last updated: 29 October 2026.',
+    title: 'Privacy', home: 'Sparra — home', app: 'My workspace', updated: 'Last updated: 30 October 2026.',
     intro: 'Sparra answers calls and forwards requests to the business. Sparra Agenda is an optional integration: the owner can connect a Google account to offer and book appointments. This connection is separate from signing in to Sparra.',
     sections: [
       { title: 'Google data accessed and stored', paragraphs: [
@@ -44,7 +46,9 @@ export const privacyCopy = {
         'Google event permissions (calendar.events) are broader than the selected calendar; Sparra uses the chosen calendar for its appointments. A created event contains the service, dates and times, and a private Sparra reference with a link to the request. It contains no caller contact details, full transcript or artificially added guest.',
       ] },
       { title: 'Recipients and external processing', paragraphs: [
-        'Calendar and authorization exchanges involve Google. Telephony and audio involve Telnyx; external AI processing needed for transcription, dialogue and speech synthesis involves OpenRouter and the providers of the models selected for those tasks. Necessary service and slot information, including information derived from Google availability, may enter the dialogue and spoken audio and be sent to these providers. OAuth tokens and Google account or calendar identifiers are not automatically sent to voice models.',
+        'Google receives account authorization exchanges and the calendar requests and data needed for the integration. Telnyx receives telephony data and call audio. The external AI processing for transcription, dialogue and speech synthesis all passes through OpenRouter, which receives and routes the data needed for those tasks.',
+        'Through OpenRouter, Microsoft Azure receives audio for transcription and text to be read for speech synthesis; Baseten or Together receives dialogue text. Necessary service and slot information, including information derived from Google availability, may enter dialogue text and spoken audio and be sent to these providers according to their role. OAuth tokens and Google account or calendar identifiers are not automatically sent to voice models.',
+        'Cloudflare provides the HTTPS entry to the Sparra site and processes the requests, responses and technical metadata that pass through it, including calendar information displayed in the private workspace.',
         'Sparra does not use data received from Google APIs for advertising or to train or improve general AI models. Transfers to providers serve the processing necessary for the service; they are not a general guarantee about those providers’ own training, logging or retention policies.',
         'The application and its main database are hosted in France. External providers’ processing is not represented as taking place exclusively in France.',
       ] },
