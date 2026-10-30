@@ -87,8 +87,20 @@ test('private and missing routes keep their protected headers', async () => {
 test('public privacy page explains Calendar use and independent event retention without sign-in', async () => {
   const base = await launch()
   for (const locale of [
-    { path: '/confidentialite', lang: 'fr', title: 'Confidentialité', headings: ['Données Google consultées et conservées', 'Utilisation des données Google', 'Destinataires et traitements externes', 'Protection des données', 'Conservation et suppression'], callRetention: '30 jours', eventRetention: 'ne supprime pas les événements', externalProcessing: 'traitements IA externes', uncertain: 'opérations incertaines' },
-    { path: '/confidentialite?lang=en', lang: 'en', title: 'Privacy', headings: ['Google data accessed and stored', 'How Google data is used', 'Recipients and external processing', 'Data protection', 'Retention and deletion'], callRetention: '30 days', eventRetention: 'does not delete events', externalProcessing: 'external AI processing', uncertain: 'uncertain operations' },
+    {
+      path: '/confidentialite', lang: 'fr', title: 'Confidentialité', updated: '30 octobre 2026',
+      headings: ['Données Google consultées et conservées', 'Utilisation des données Google', 'Destinataires et traitements externes', 'Protection des données', 'Conservation et suppression'],
+      callRetention: '30 jours', eventRetention: 'ne supprime pas les événements', externalProcessing: 'traitements IA externes', uncertain: 'opérations incertaines',
+      recipients: [/Google reçoit[^.]*autorisation[^.]*agenda/, /Telnyx reçoit[^.]*téléphonie[^.]*audio/, /traitements IA externes[^.]*OpenRouter[^.]*reçoit et route/, /Microsoft Azure[^.]*audio[^.]*transcription[^.]*texte[^.]*synthèse vocale/, /Baseten ou Together reçoit le texte du dialogue/, /Cloudflare[^.]*entrée HTTPS[^.]*requêtes, réponses et métadonnées techniques[^.]*informations d’agenda affichées dans l’espace privé/],
+      derivedData: /informations de prestation et de créneau[^.]*dérivées des disponibilités Google[^.]*texte du dialogue et l’audio prononcé[^.]*prestataires selon leur rôle/,
+    },
+    {
+      path: '/confidentialite?lang=en', lang: 'en', title: 'Privacy', updated: '30 October 2026',
+      headings: ['Google data accessed and stored', 'How Google data is used', 'Recipients and external processing', 'Data protection', 'Retention and deletion'],
+      callRetention: '30 days', eventRetention: 'does not delete events', externalProcessing: 'external AI processing', uncertain: 'uncertain operations',
+      recipients: [/Google receives[^.]*authorization[^.]*calendar/, /Telnyx receives[^.]*telephony[^.]*audio/, /external AI processing[^.]*OpenRouter[^.]*receives and routes/, /Microsoft Azure[^.]*audio[^.]*transcription[^.]*text[^.]*speech synthesis/, /Baseten or Together receives dialogue text/, /Cloudflare[^.]*HTTPS entry[^.]*requests, responses and technical metadata[^.]*calendar information displayed in the private workspace/],
+      derivedData: /service and slot information[^.]*derived from Google availability[^.]*dialogue text and spoken audio[^.]*providers according to their role/,
+    },
   ]) {
     const response = await fetch(base + locale.path, { redirect: 'manual', signal: AbortSignal.timeout(3000) })
     expect(response.status).toBe(200)
@@ -101,6 +113,9 @@ test('public privacy page explains Calendar use and independent event retention 
     expect.soft(main).toContain(`<h1>${locale.title}</h1>`)
     for (const heading of locale.headings) expect.soft(main).toContain(`<h2>${heading}</h2>`)
     for (const disclosure of [locale.callRetention, locale.eventRetention, locale.externalProcessing, locale.uncertain, 'Telnyx', 'OpenRouter', 'AES-256-GCM', 'Limited Use']) expect.soft(main).toContain(disclosure)
+    expect.soft(main).toContain(locale.updated)
+    for (const recipient of locale.recipients) expect.soft(main).toMatch(recipient)
+    expect.soft(main).toMatch(locale.derivedData)
     expect(main).toContain('href="/"')
     expect(main).toContain('mailto:contact@sparra.fr')
     expect(main).toContain('href="https://developers.google.com/terms/api-services-user-data-policy"')
