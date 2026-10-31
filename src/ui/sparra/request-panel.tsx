@@ -58,9 +58,10 @@ async function refreshRequest(begin:ReturnType<typeof useRequestAttempt>,onRefre
 
 function RequestSummaryExtraction({locale,detail,bookingLabel}:{locale:Locale;detail:RequestDetailDto;bookingLabel:string|null}){
   const t=appMessages[locale],labels=requestMessages[locale]
+  if(bookingLabel)return detail.summary||detail.nextAction?<details><summary>{labels.initialExtraction}</summary>{detail.summary&&<p>{detail.summary}</p>}{detail.nextAction&&<><h3>{labels.extractedAction}</h3><p>{detail.nextAction}</p></>}</details>:null
   return <>
-    {bookingLabel&&detail.summary?<details><summary>{labels.initialExtraction}</summary><p>{detail.summary}</p></details>:detail.summary&&<p>{detail.summary}</p>}
-    {detail.nextAction&&<><h3>{bookingLabel?labels.extractedAction:t.nextAction}</h3><p>{detail.nextAction}</p></>}
+    {detail.summary&&<p>{detail.summary}</p>}
+    {detail.nextAction&&<><h3>{t.nextAction}</h3><p>{detail.nextAction}</p></>}
   </>
 }
 

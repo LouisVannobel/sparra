@@ -1,11 +1,26 @@
 import { expect, test } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { parseFragment, type DefaultTreeAdapterTypes } from 'parse5'
 import { RequestPanel } from '../../src/ui/sparra/request-panel'
 import { InboxPanel } from '../../src/ui/sparra/inbox-panel'
 import type { RequestDetailDto } from '../../src/modules/sparra/sparra.functions'
 import { calendarBookingOutcome } from '../../src/modules/calendar/booking'
 const unavailable = async (): Promise<never> => {
   throw new Error('No mutation')
+}
+
+function extractionText(html: string) {
+  const history: string[] = []
+  function read(node: DefaultTreeAdapterTypes.Node, collapsed = true): string {
+    if ('value' in node) return node.value
+    if (!('childNodes' in node)) return ''
+    if (collapsed && 'tagName' in node && node.tagName === 'details' && !node.attrs.some(attribute => attribute.name === 'open')) {
+      history.push(read(node, false))
+      return node.childNodes.filter(child => 'tagName' in child && child.tagName === 'summary').map(child => read(child)).join(' ')
+    }
+    return node.childNodes.map(child => read(child, collapsed)).join(' ')
+  }
+  return { visible: read(parseFragment(html)), history }
 }
 test('verified appointment remains visible independently from absent or partial model summary', () => {
   const detail = {workspaceId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
@@ -92,10 +107,42 @@ test.each(['fr', 'en'] as const)('confirmed appointment in %s reconciles Inbox a
     expect(html).toContain('+33123456789')
     expect(html).not.toContain(locale === 'fr' ? 'Demande et numéro non confirmés.' : 'Request and number are unconfirmed.')
     expect(html).toContain(locale === 'fr' ? 'Suivi extrait de l’appel (à vérifier avec l’agenda)' : 'Follow-up extracted from the call (check against the calendar)')
+    const extraction = extractionText(html)
+    expect(extraction.visible).not.toContain('Appeler Camille pour le devis')
+    expect(extraction.visible).toContain(locale === 'fr' ? 'Demande extraite lors de l’appel' : 'Request extracted during the call')
+    expect(extraction.history).toHaveLength(1)
+    expect(extraction.history[0]).toContain('Appeler Camille pour le devis')
   }
-  expect(request).toMatch(new RegExp('</details><h3>' + (locale === 'fr' ? 'Suivi extrait de l’appel \\(à vérifier avec l’agenda\\)' : 'Follow-up extracted from the call \\(check against the calendar\\)') + '</h3><p>Appeler Camille pour le devis</p>'))
+  expect(extractionText(request).history[0]).toContain('Vidange demandée')
   expect(inbox).toContain(locale === 'fr' ? 'À traiter' : 'To treat')
   expect(request).toContain('sparra123')
+})
+
+test.each(['fr', 'en'] as const)('a contradictory extracted action in %s is preserved as history after canonical confirmation', locale => {
+  const nextAction = locale === 'fr' ? 'Ne pas considérer le rendez-vous comme confirmé tant que le créneau n’a pas été vérifié.' : 'Do not consider the appointment confirmed until the slot has been checked.'
+  const detail = { ...appointment, bookingOutcome: 'confirmed' as const, nextAction }
+  const request = renderToStaticMarkup(<RequestPanel locale={locale} loaded={{ detail, receipt: null }} onTreat={unavailable} onErase={unavailable} onRefused={unavailable} />)
+  const inbox = renderToStaticMarkup(<InboxPanel locale={locale} state={{ workspace: null, configuration: null, localAudioAvailable: false }} page={{ requests: [detail], nextCursor: null }} onMore={unavailable} onTreat={unavailable} onRefused={unavailable} />)
+  for (const html of [request, inbox]) {
+    const extraction = extractionText(html)
+    expect(extraction.visible).toContain(locale === 'fr' ? 'Rendez-vous confirmé' : 'Confirmed appointment')
+    expect.soft(extraction.visible).not.toContain(nextAction)
+    expect.soft(extraction.history).toHaveLength(1)
+    expect.soft(extraction.history[0] ?? '').toContain(nextAction)
+  }
+})
+
+test('a terminal appointment keeps its extracted action in history even without a summary', () => {
+  const detail = { ...appointment, bookingOutcome: 'confirmed' as const, summary: null }
+  const request = renderToStaticMarkup(<RequestPanel locale="en" loaded={{ detail, receipt: null }} onTreat={unavailable} onErase={unavailable} onRefused={unavailable} />)
+  const inbox = renderToStaticMarkup(<InboxPanel locale="en" state={{ workspace: null, configuration: null, localAudioAvailable: false }} page={{ requests: [detail], nextCursor: null }} onMore={unavailable} onTreat={unavailable} onRefused={unavailable} />)
+  for (const html of [request, inbox]) {
+    const extraction = extractionText(html)
+    expect(extraction.visible).toContain('Request extracted during the call')
+    expect(extraction.visible).not.toContain('Appeler Camille pour le devis')
+    expect(extraction.history).toHaveLength(1)
+    expect(extraction.history[0]).toContain('Appeler Camille pour le devis')
+  }
 })
 
 test.each(['fr', 'en'] as const)('old extracted confirmation wording in %s remains available as history, not the Inbox headline', locale => {
@@ -103,7 +150,8 @@ test.each(['fr', 'en'] as const)('old extracted confirmation wording in %s remai
   const request = renderToStaticMarkup(<RequestPanel locale={locale} loaded={{ detail, receipt: null }} onTreat={unavailable} onErase={unavailable} onRefused={unavailable} />)
   const inbox = renderToStaticMarkup(<InboxPanel locale={locale} state={{ workspace: null, configuration: null, localAudioAvailable: false }} page={{ requests: [detail], nextCursor: null }} onMore={unavailable} onTreat={unavailable} onRefused={unavailable} />)
   expect(request).toContain('<details><summary>')
-  expect(request).toContain('Rendez-vous à confirmer pour la vidange</p></details>')
+  expect(extractionText(request).history[0]).toContain('Rendez-vous à confirmer pour la vidange')
+  expect(extractionText(request).visible).not.toContain('Rendez-vous à confirmer pour la vidange')
   expect(inbox).not.toContain('Rendez-vous à confirmer pour la vidange')
   expect(inbox).toContain(locale === 'fr' ? 'Rendez-vous confirmé' : 'Confirmed appointment')
 })
@@ -115,6 +163,10 @@ test.each(['fr', 'en'] as const)('observed cancellation in %s never presents a l
   for (const html of [request, inbox]) {
     expect(html).toContain(locale === 'fr' ? 'Rendez-vous annulé' : 'Cancelled appointment')
     expect(html).not.toContain(locale === 'fr' ? 'Rendez-vous confirmé' : 'Confirmed appointment')
+    const extraction = extractionText(html)
+    expect(extraction.visible).not.toContain('Appeler Camille pour le devis')
+    expect(extraction.history).toHaveLength(1)
+    expect(extraction.history[0]).toContain('Appeler Camille pour le devis')
   }
 })
 
@@ -148,7 +200,21 @@ test.each(['fr', 'en'] as const)('model-only confirmation and mixed booking evid
     for (const html of [request, inbox]) {
       expect(html).toContain(locale === 'fr' ? 'Rendez-vous à confirmer' : 'Appointment to confirm')
       expect(html).toContain(locale === 'fr' ? 'Demande et numéro non confirmés.' : 'Request and number are unconfirmed.')
+      expect(extractionText(html).visible).toContain('Appeler Camille pour le devis')
+      expect(extractionText(html).visible).toContain(locale === 'fr' ? 'À faire' : 'Next action')
     }
+  }
+})
+
+test.each(['callback', 'information', 'declared_urgent', null] as const)('a %s request keeps its ordinary extracted action visible despite a booking outcome', category => {
+  const detail = { ...appointment, category, bookingOutcome: 'confirmed' as const }
+  const request = renderToStaticMarkup(<RequestPanel locale="en" loaded={{ detail, receipt: null }} onTreat={unavailable} onErase={unavailable} onRefused={unavailable} />)
+  const inbox = renderToStaticMarkup(<InboxPanel locale="en" state={{ workspace: null, configuration: null, localAudioAvailable: false }} page={{ requests: [detail], nextCursor: null }} onMore={unavailable} onTreat={unavailable} onRefused={unavailable} />)
+  for (const html of [request, inbox]) {
+    const extraction = extractionText(html)
+    expect(extraction.visible).toContain('Appeler Camille pour le devis')
+    expect(extraction.visible).toContain('Next action')
+    expect(extraction.history).toHaveLength(0)
   }
 })
 

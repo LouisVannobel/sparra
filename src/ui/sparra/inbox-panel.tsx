@@ -74,7 +74,7 @@ function InboxContact({contact,locale,bookingOutcome}:{contact:InboxRequest['con
 function InboxResult({request,locale}:{request:InboxRequest;locale:Locale}){
   const t=appMessages[locale],labels=requestMessages[locale]
   const bookingLabel=inboxBookingLabel(request,locale)
-  return <>{request.category&&<><strong>{labels.reason}</strong><p>{bookingLabel??labels.category[request.category]}</p></>}{request.nextAction&&<><strong>{bookingLabel?labels.extractedAction:t.nextAction}</strong><p>{request.nextAction}</p></>}
+  return <>{request.category&&<><strong>{labels.reason}</strong><p>{bookingLabel??labels.category[request.category]}</p></>}{request.nextAction&&(bookingLabel?<details><summary>{labels.initialExtraction}</summary><strong>{labels.extractedAction}</strong><p>{request.nextAction}</p></details>:<><strong>{t.nextAction}</strong><p>{request.nextAction}</p></>)}
     <InboxContact contact={request.contact} locale={locale} bookingOutcome={bookingLabel!==null}/>{request.resultAvailability==='available'&&request.resultQuality==='partial'&&<span className="sparra-app-label">{t.partial}</span>}</>
 }
 function InboxTreatment({request,locale,disabled,treating,onTreat}:{request:InboxRequest;locale:Locale;disabled:boolean;treating:string|null;onTreat(requestId:string):void}){
