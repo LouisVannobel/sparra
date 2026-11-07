@@ -17,8 +17,6 @@ FROM builder AS migration-dependencies
 # The native Node migrator never invokes Drizzle Kit's retained esbuild compilers.
 RUN --network=none sha256sum pnpm-lock.yaml > /tmp/lock.sha256 && pnpm prune --prod \
     && rm -f \
-      /app/node_modules/.pnpm/@esbuild+linux-x64@0.18.20/node_modules/@esbuild/linux-x64/bin/esbuild \
-      /app/node_modules/.pnpm/esbuild@0.18.20/node_modules/esbuild/bin/esbuild \
       /app/node_modules/.pnpm/@esbuild+linux-x64@0.25.12/node_modules/@esbuild/linux-x64/bin/esbuild \
       /app/node_modules/.pnpm/esbuild@0.25.12/node_modules/esbuild/bin/esbuild \
     && sha256sum -c /tmp/lock.sha256

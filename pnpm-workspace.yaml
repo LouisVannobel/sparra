@@ -1,6 +1,9 @@
 packages: []
 overrides:
   zod@4.6.1: 4.6.6
+  '@esbuild-kit/core-utils@3.3.2>esbuild': 0.25.12
+  'eslint@10.11.0>minimatch': 11.0.5
+  '@eslint/config-array@0.23.5>minimatch': 11.0.5
 patchedDependencies:
   '@hatchet-dev/typescript-sdk@1.28.2': patches/@hatchet-dev__typescript-sdk@1.28.2.patch
   nice-grpc@2.1.17: patches/nice-grpc@2.1.17.patch
